@@ -10,6 +10,6 @@ RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cp AMBXEnums.h /fuzz/install/include/ && \
     # Build a tiny dummy static library to satisfy linker
     echo "void __uhs20_dummy(){}" > /tmp/dummy.c && \
-    gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
+    stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
     ar rcs /fuzz/install/lib/libuhs20.a /tmp/dummy.o && \
     ranlib /fuzz/install/lib/libuhs20.a

@@ -8,7 +8,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Build cmus with fuzzing compilers; disable optional plugins to avoid deps
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Configure with minimal features
 RUN ./configure \

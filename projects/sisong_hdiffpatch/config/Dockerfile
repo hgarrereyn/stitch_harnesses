@@ -11,7 +11,7 @@ WORKDIR /fuzz/src
 # Build static library with minimal dependencies
 # Disable external compressors and extras to avoid third-party libs
 RUN make -j \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     LDEF=0 LZMA=0 ZSTD=0 MD5=0 XXH=0 BSD=0 VCD=0 BZIP2=0 DIR_DIFF=1 \
  && mkdir -p /fuzz/install/lib /fuzz/install/include \
  && cp libhdiffpatch.a /fuzz/install/lib/ \

@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends binutils ca-cer
 # Build and install static library
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib \
     && cd /fuzz/src/src \
-    && gf_libafl_cxx -O2 -fPIC -c tiv_lib.cpp -o tiv_lib.o \
+    && stitch_libafl_cxx -O2 -fPIC -c tiv_lib.cpp -o tiv_lib.o \
     && ar rcs libtiv.a tiv_lib.o \
     && cp libtiv.a /fuzz/install/lib/ \
     && cp tiv_lib.h /fuzz/install/include/

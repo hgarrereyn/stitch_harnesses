@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 WORKDIR /fuzz/src/src
 
 # Use the fuzzing compilers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Configure the project to generate autoconfig headers; no need to build
 RUN ./configure --prefix=/fuzz/install --disable-openmp --without-opencl || true

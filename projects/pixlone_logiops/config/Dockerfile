@@ -11,7 +11,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     binutils \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Manually install headers as the upstream build requires a missing submodule
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib \

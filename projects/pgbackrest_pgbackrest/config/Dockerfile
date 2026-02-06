@@ -18,8 +18,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
  && rm -rf /var/lib/apt/lists/*
 
 # Build project with meson to generate configuration header and install binaries
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 RUN meson setup build \
@@ -78,6 +78,6 @@ RUN mkdir -p /fuzz/install/lib /fuzz/install/include/common obj && \
       storage/read.c \
       storage/storage.c \
       storage/write.c; do \
-        gf_libafl_cc -D_POSIX_C_SOURCE=200809L -I. -O2 -c $f -o obj/$(basename $f .c).o; \
+        stitch_libafl_cc -D_POSIX_C_SOURCE=200809L -I. -O2 -c $f -o obj/$(basename $f .c).o; \
       done && \
     ar rcs /fuzz/install/lib/libpgbackrestcore.a obj/*.o

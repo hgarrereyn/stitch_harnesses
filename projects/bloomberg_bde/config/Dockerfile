@@ -10,4 +10,4 @@ WORKDIR /fuzz/src
 RUN find groups -type f -name '*.h' -exec install -D "{}" "/fuzz/install/include/{}" \; && \
     find thirdparty -type f -name '*.h' -exec install -D "{}" "/fuzz/install/include/{}" \; || true
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

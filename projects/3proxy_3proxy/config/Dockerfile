@@ -16,6 +16,6 @@ RUN mkdir -p ${DESTDIR}/include ${DESTDIR}/lib && \
     cp src/structures.h ${DESTDIR}/include/ && \
     cp src/proxy.h ${DESTDIR}/include/ && \
     # Build a minimal static library exposing some utility APIs (base64)
-    gf_libafl_cc -DNOODBC -fPIC -O2 -c src/base64.c -o /tmp/base64.o && \
+    stitch_libafl_cc -DNOODBC -fPIC -O2 -c src/base64.c -o /tmp/base64.o && \
     ar rcs ${DESTDIR}/lib/lib3proxy.a /tmp/base64.o && \
     ranlib ${DESTDIR}/lib/lib3proxy.a

@@ -33,7 +33,7 @@ int rogue_shim_add(int a, int b) {
 EOF
 
 RUN set -eux; \
-    gf_libafl_cxx -fPIC -O2 -c /tmp/rogue_shim/rogue_shim.cpp -o /tmp/rogue_shim/rogue_shim.o; \
+    stitch_libafl_cxx -fPIC -O2 -c /tmp/rogue_shim/rogue_shim.cpp -o /tmp/rogue_shim/rogue_shim.o; \
     ar rcs /fuzz/install/lib/librogue_shim.a /tmp/rogue_shim/rogue_shim.o; \
     cp /tmp/rogue_shim/rogue_shim.h /fuzz/install/include/
 

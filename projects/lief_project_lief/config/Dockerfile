@@ -21,7 +21,7 @@ RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc | \
     rm -rf /var/lib/apt/lists/*
 
 # Build and install LIEF
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/build
 RUN cmake -G Ninja /fuzz/src \
   -DCMAKE_INSTALL_PREFIX=/fuzz/install \

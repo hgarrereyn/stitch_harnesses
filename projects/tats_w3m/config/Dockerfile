@@ -12,7 +12,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 
 # Configure to generate Makefiles (keeps defaults but we won't build the app)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure --disable-image || true
 
 # Build libwc static library
@@ -21,7 +21,7 @@ RUN make -j$(nproc)
 
 # Build supporting objects needed by libwc users (Str and myctype)
 WORKDIR /fuzz/src
-RUN gf_libafl_cc -I. -Ilibwc -c Str.c myctype.c
+RUN stitch_libafl_cc -I. -Ilibwc -c Str.c myctype.c
 
 # Create combined static library that includes libwc plus Str/myctype
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include /tmp/wcbuild \

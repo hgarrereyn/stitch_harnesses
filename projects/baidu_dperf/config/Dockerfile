@@ -21,7 +21,7 @@ RUN set -eux; \
           src/rss.c src/ip_list.c src/http_parse.c src/trace.c src/virtio-user.c"; \
     DPDK_CFLAGS=$(pkg-config --cflags libdpdk); \
     for f in $SRCS; do \
-        gf_libafl_cc -c $f -o $(basename $f .c).o -I./src -DHTTP_PARSE -DALLOW_EXPERIMENTAL_API $DPDK_CFLAGS; \
+        stitch_libafl_cc -c $f -o $(basename $f .c).o -I./src -DHTTP_PARSE -DALLOW_EXPERIMENTAL_API $DPDK_CFLAGS; \
     done; \
     ar rcs libdperf.a *.o; \
     cp libdperf.a /fuzz/install/lib/
@@ -29,4 +29,4 @@ RUN set -eux; \
 # Install headers
 RUN cp -a src/*.h /fuzz/install/include/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

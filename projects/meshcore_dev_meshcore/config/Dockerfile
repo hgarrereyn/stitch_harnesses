@@ -12,7 +12,7 @@ RUN mkdir -p /fuzz/shim && \
     printf "#pragma once\n#include <stddef.h>\nclass Ed25519 {\npublic:\n  static bool verify(const unsigned char*, const unsigned char*, const unsigned char*, int){ return false; }\n};\n" > /fuzz/shim/Ed25519.h
 
 # Build static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx AR=ar
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx AR=ar
 
 RUN mkdir -p /fuzz/build && cd /fuzz/build && \
     INCS="-I/fuzz/src/src -I/fuzz/src/lib/ed25519 -I/fuzz/shim" && \

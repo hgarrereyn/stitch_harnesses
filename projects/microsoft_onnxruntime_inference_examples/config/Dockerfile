@@ -6,8 +6,8 @@ FROM ${BASE_IMAGE}
 # we install the available public headers so they can be included by fuzz targets.
 
 # Ensure fuzzing wrappers are the default compilers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Create install prefix and copy headers
 RUN mkdir -p /fuzz/install/include && \

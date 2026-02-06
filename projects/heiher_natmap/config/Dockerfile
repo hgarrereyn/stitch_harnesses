@@ -9,8 +9,8 @@ WORKDIR /fuzz/src
 RUN git submodule update --init --recursive || true
 
 # Build the project with fuzzing compilers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Use the C compiler for preprocessing dependency generation as well
 RUN make -j"$(nproc)" CC=${CC} PP=${CC} STRIP=true

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /fuzz/src
 
 # Configure with fuzzing compilers and install prefix; prefer static libs and disable optional integrations
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure \
     --prefix=/fuzz/install \
     --disable-shared \

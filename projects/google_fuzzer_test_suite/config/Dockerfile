@@ -14,4 +14,4 @@ RUN mkdir -p ${PREFIX}/include ${PREFIX}/lib && \
     true
 
 # Set compilers as requested for any subsequent compilation steps (none needed here)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

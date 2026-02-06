@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build a minimal static library from the host-buildable component (RLE decoder)
 # Use the provided fuzzing compiler wrappers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 

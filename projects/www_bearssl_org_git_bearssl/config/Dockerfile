@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends binutils ca-cer
 
 # Build BearSSL static library
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc
+ENV CC=stitch_libafl_cc
 # Build with default Unix configuration, using our compiler wrapper
 RUN make -j"$(nproc)" CONF=Unix
 

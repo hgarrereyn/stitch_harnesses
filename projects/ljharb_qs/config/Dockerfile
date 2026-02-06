@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Build and install a minimal C shim library that mimics a tiny portion of qs API
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx INSTALL_PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx INSTALL_PREFIX=/fuzz/install
 RUN set -eux; \
     mkdir -p /tmp/qs_shim /fuzz/install/include /fuzz/install/lib; \
     printf '%s\n' \

@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Set compilers to LibAFL wrappers
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src/OpenXLSX
 

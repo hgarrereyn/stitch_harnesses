@@ -10,12 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /fuzz/src
 
 # Build only what we need for the public API and create a static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Build required objects into /fuzz/build using the project's Makefile rules
 RUN make -j"$(nproc)" \
       BUILDDIR=/fuzz/build \
-      CXX=gf_libafl_cxx CC=gf_libafl_cc \
+      CXX=stitch_libafl_cxx CC=stitch_libafl_cc \
       /fuzz/build/.objs/mergerfs_api.cpp.o \
       /fuzz/build/.objs/fs_xattr.cpp.o \
       /fuzz/build/.objs/str.cpp.o

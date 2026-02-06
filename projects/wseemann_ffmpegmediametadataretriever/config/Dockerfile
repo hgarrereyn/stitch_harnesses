@@ -34,8 +34,8 @@ static inline int __android_log_print(int /*prio*/, const char* /*tag*/, const c
 WORKDIR /fuzz/src/native/src/main/jni/metadata
 
 # Compile objects (force-include some missing standard headers)
-RUN gf_libafl_cc -D WINDOW_FORMAT_RGBA_8888=1 -fPIC -I${PREFIX}/include -include string.h -include inttypes.h -c ffmpeg_utils.c -o /tmp/ffmpeg_utils.o && \
-    gf_libafl_cc -D WINDOW_FORMAT_RGBA_8888=1 -fPIC -I${PREFIX}/include -include string.h -include inttypes.h -c ffmpeg_mediametadataretriever.c -o /tmp/ffmpeg_mediametadataretriever.o
+RUN stitch_libafl_cc -D WINDOW_FORMAT_RGBA_8888=1 -fPIC -I${PREFIX}/include -include string.h -include inttypes.h -c ffmpeg_utils.c -o /tmp/ffmpeg_utils.o && \
+    stitch_libafl_cc -D WINDOW_FORMAT_RGBA_8888=1 -fPIC -I${PREFIX}/include -include string.h -include inttypes.h -c ffmpeg_mediametadataretriever.c -o /tmp/ffmpeg_mediametadataretriever.o
 
 # Create static archive
 RUN ar rcs ${PREFIX}/lib/libfmmr.a /tmp/ffmpeg_utils.o /tmp/ffmpeg_mediametadataretriever.o

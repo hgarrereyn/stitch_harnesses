@@ -59,7 +59,7 @@ const char *program_banner = "";
 EOF
 
 # Build the static library
-RUN gf_libafl_cc -c shim.c -o shim.o \
+RUN stitch_libafl_cc -c shim.c -o shim.o \
  && ar rcs /fuzz/install/lib/libsslscan.a shim.o
 
 # Make sslscan.h self-contained and avoid duplicate symbol definitions

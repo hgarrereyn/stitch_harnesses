@@ -8,4 +8,4 @@ RUN mkdir -p /fuzz/install/include && \
     cp -vr /fuzz/src/plugins/* /fuzz/install/include/plugins/
 
 # Environment for compilers (used by later build steps outside this Dockerfile)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

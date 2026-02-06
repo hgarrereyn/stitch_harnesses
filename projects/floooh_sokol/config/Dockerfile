@@ -10,7 +10,7 @@ RUN mkdir -p /fuzz/install/include && \
     mkdir -p /fuzz/install/include/util && \
     cp -v /fuzz/src/util/*.h /fuzz/install/include/util/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 ENV CFLAGS="" CXXFLAGS="" LDFLAGS=""
 
 # Nothing to build; headers are installed above

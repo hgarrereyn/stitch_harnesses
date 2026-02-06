@@ -8,8 +8,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Configure and build static library only (no CLI, no shared libs), scalar ISA for portability
 RUN cmake -S /fuzz/src -B /work/build -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DASTCENC_CLI=OFF \
     -DASTCENC_SHAREDLIB=OFF \

@@ -10,8 +10,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Environment for compilers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Build static library manually (avoid data embedding requirements)
 WORKDIR /fuzz

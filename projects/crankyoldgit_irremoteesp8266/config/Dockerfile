@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends binutils ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Set compilers to the fuzzing wrappers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Build a static library from the Arduino-style sources in /fuzz/src/src
 RUN mkdir -p /build /fuzz/install/include/locale /fuzz/install/lib && \

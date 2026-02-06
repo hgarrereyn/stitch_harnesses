@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends make binutils &
 WORKDIR /fuzz/src
 
 # Build only the static library and install headers/libs to /fuzz/install
-RUN make CC=gf_libafl_cc CFLAGS="-O2 -g -fPIC" libs \
+RUN make CC=stitch_libafl_cc CFLAGS="-O2 -g -fPIC" libs \
  && mkdir -p /fuzz/install/lib /fuzz/install/include \
  && cp build/libmpc.a /fuzz/install/lib/ \
  && cp mpc.h /fuzz/install/include/

@@ -8,8 +8,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure and build sherpa-onnx as a static library, install to /fuzz/install
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz
 RUN cmake -S /fuzz/src -B /fuzz/build -G Ninja \

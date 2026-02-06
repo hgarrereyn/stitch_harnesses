@@ -8,6 +8,6 @@ RUN set -eux; \
     mkdir -p /fuzz/install/include/baremetal /fuzz/install/lib; \
     cp /fuzz/src/steps/step-4-printf/hal.h /fuzz/install/include/baremetal/hal.h; \
     echo 'void bm_dummy(void){}' > /tmp/dummy.c; \
-    gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o; \
+    stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o; \
     ar rcs /fuzz/install/lib/libbaremetal.a /tmp/dummy.o; \
     rm -f /tmp/dummy.c /tmp/dummy.o

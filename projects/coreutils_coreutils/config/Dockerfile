@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 # since building full coreutils from a fresh git checkout requires
 # bootstrapping with gnulib (network access) which is unavailable here.
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN set -eux; \
     mkdir -p /fuzz/install/include /fuzz/install/lib; \

@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 # Build a minimal static library from a small, self-contained part of the project (Utf8)
 # and install public headers into /fuzz/install. This avoids pulling the full Qt stack.
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN set -eux; \
     mkdir -p /fuzz/install/include /fuzz/install/lib; \

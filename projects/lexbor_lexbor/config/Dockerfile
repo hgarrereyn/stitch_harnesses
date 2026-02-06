@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build pkg-config build-essential && rm -rf /var/lib/apt/lists/*
 
 # Configure, build, and install lexbor as a static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 
 # Configure build: static only, no tests/examples/utils, install to /fuzz/install

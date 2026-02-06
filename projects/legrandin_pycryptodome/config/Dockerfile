@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Build a minimal static library exposing MD5 functions
-ENV CC=gf_libafl_cc
+ENV CC=stitch_libafl_cc
 
 # Create install dirs
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib /fuzz/build

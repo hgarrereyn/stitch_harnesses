@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /fuzz/build/WTSUtils
 RUN cmake -S /fuzz/src/src/WTSUtils -B . \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx
 RUN cmake --build . -j
 
 # Install artifacts to /fuzz/install

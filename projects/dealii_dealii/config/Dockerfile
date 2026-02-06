@@ -8,8 +8,8 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure and build deal.II with static library, minimal components, and bundled deps
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz
 RUN cmake -S /fuzz/src -B /fuzz/build -G Ninja \

@@ -11,10 +11,10 @@ WORKDIR /fuzz/src
 
 # Create build directory
 RUN mkdir -p build && cd build && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     cmake -G Ninja \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
       -DBUILD_SHARED_LIBS=OFF \
       -DFAAD_BUILD_CLI=OFF \

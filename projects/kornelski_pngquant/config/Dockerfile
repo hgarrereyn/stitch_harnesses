@@ -8,7 +8,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Build a minimal static library from rwpng.c and install headers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 WORKDIR /fuzz/src
 
 RUN mkdir -p ${PREFIX}/lib ${PREFIX}/include && \

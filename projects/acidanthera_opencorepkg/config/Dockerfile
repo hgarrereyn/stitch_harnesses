@@ -86,6 +86,6 @@ const CHAR8 * XmlNodeName(const XML_NODE *Node){ (void)Node; return (const CHAR8
 const CHAR8 * XmlNodeContent(const XML_NODE *Node){ (void)Node; return (const CHAR8*)0; }
 EOF
 
-RUN gf_libafl_cxx -fPIC -I/fuzz/install/include -c /tmp/build/ocxml_stub.cpp -o /tmp/build/ocxml_stub.o && ar rcs /fuzz/install/lib/libocxmlstub.a /tmp/build/ocxml_stub.o && rm -rf /tmp/build
+RUN stitch_libafl_cxx -fPIC -I/fuzz/install/include -c /tmp/build/ocxml_stub.cpp -o /tmp/build/ocxml_stub.o && ar rcs /fuzz/install/lib/libocxmlstub.a /tmp/build/ocxml_stub.o && rm -rf /tmp/build
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

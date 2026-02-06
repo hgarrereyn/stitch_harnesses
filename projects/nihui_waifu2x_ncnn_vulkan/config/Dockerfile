@@ -7,6 +7,6 @@ FROM ${BASE_IMAGE}
 RUN mkdir -p /fuzz/install/include && \
     cp /fuzz/src/src/filesystem_utils.h /fuzz/install/include/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 ENV CFLAGS="" CXXFLAGS="" LDFLAGS=""
 ENV PREFIX=/fuzz/install

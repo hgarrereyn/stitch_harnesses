@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /fuzz/src
 
 # Use clang wrappers provided by the fuzzing runtime
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 RUN cmake -S . -B build \
     -DCMAKE_BUILD_TYPE=Release \

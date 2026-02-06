@@ -15,7 +15,7 @@ WORKDIR /tmp
 RUN wget -q https://github.com/samtools/htslib/releases/download/1.18/htslib-1.18.tar.bz2 \
  && tar -xjf htslib-1.18.tar.bz2 \
  && cd htslib-1.18 \
- && CC=gf_libafl_cc ./configure --enable-libcurl --prefix=/fuzz/install \
+ && CC=stitch_libafl_cc ./configure --enable-libcurl --prefix=/fuzz/install \
  && make -j"$(nproc)" \
  && make install
 
@@ -26,7 +26,7 @@ WORKDIR /fuzz/src
 ENV PKG_CONFIG_PATH=/fuzz/install/lib/pkgconfig
 RUN autoheader || true && autoconf -Wno-syntax \
  && CPPFLAGS="-I/fuzz/install/include" LDFLAGS="-L/fuzz/install/lib" \
-    ./configure CC=gf_libafl_cc CFLAGS="-O2" \
+    ./configure CC=stitch_libafl_cc CFLAGS="-O2" \
       --prefix=/fuzz/install \
       --with-htslib=system
 

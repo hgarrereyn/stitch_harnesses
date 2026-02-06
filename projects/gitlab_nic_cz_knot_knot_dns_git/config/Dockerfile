@@ -10,7 +10,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Configure, build, and install only the libraries (static) into /fuzz/install
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN autoreconf -if
 RUN ./configure \
     --prefix=/fuzz/install \

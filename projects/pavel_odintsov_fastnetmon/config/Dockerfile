@@ -10,7 +10,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 WORKDIR /fuzz
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Build a small self-contained static library from the project's IANA protocol API
 RUN mkdir -p /fuzz/build /fuzz/install/lib /fuzz/install/include \

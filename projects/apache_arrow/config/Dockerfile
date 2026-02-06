@@ -24,7 +24,7 @@ RUN pip3 install --no-cache-dir cmake==3.28.4
 # Build Arrow C++ with minimal features and bundled third-party deps
 WORKDIR /fuzz/src/cpp
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN cmake -S . -B build \
     -GNinja \

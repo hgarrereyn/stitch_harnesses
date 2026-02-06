@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # Build and install the tiny-regex-c component from the repository as a static library
 # using the provided fuzzing compiler wrappers.
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 RUN set -eux; \

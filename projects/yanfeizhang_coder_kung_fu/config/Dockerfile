@@ -18,7 +18,7 @@ RUN printf "#ifndef CKF_H\n#define CKF_H\n#ifdef __cplusplus\nextern \"C\" {\n#e
 RUN printf "#include <netinet/in.h>\n#include <stdio.h>\n#include <string.h>\n#include <stdlib.h>\n#include <unistd.h>\n#include <arpa/inet.h>\n\nint buildConnect(const char *sIp, int sPort) {\n    int skFd;\n    if ((skFd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {\n        return 0;\n    }\n    struct sockaddr_in srvAddr;\n    srvAddr.sin_family = AF_INET;\n    srvAddr.sin_addr.s_addr = inet_addr(sIp);\n    srvAddr.sin_port = htons(sPort);\n    if (connect(skFd, (struct sockaddr *)&srvAddr, sizeof(srvAddr)) < 0) {\n        close(skFd);\n        return 0;\n    }\n    return skFd;\n}\n" > /tmp/build/ckf.c
 
 # Compile with specified compilers and create static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN $CC -fPIC -O2 -c /tmp/build/ckf.c -o /tmp/build/ckf.o && \
     ar rcs /tmp/build/libckf.a /tmp/build/ckf.o && \
     install -m 0644 /tmp/build/ckf.h ${PREFIX}/include/ckf.h && \

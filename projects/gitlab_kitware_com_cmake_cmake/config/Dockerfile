@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Configure and build using the fuzzing compiler wrappers
 WORKDIR /fuzz/src
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./bootstrap --prefix=/fuzz/install
 
 RUN make -j"$(nproc)"

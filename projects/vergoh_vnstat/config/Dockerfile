@@ -11,7 +11,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 
 # Configure with required compilers and install prefix. Disable optional image output to avoid extra deps.
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure --prefix=/fuzz/install --disable-image-output
 
 # Build installed binaries (not used for linking but ensures project builds correctly)

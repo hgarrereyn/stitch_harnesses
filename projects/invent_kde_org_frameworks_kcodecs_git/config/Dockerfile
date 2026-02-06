@@ -2,7 +2,7 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # Build and install a minimal static KCodecs library (stub) to enable fuzzing/linking
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx INSTALL_PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx INSTALL_PREFIX=/fuzz/install
 RUN mkdir -p /fuzz/build /fuzz/install/lib /fuzz/install/include/KF6/KCodecs
 
 # Create a minimal public API header compatible enough for testing

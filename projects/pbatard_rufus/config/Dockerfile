@@ -6,11 +6,11 @@ FROM ${BASE_IMAGE}
 RUN set -eux; \
     mkdir -p /fuzz/build /fuzz/install/lib /fuzz/install/include; \
     cd /fuzz/src/src; \
-    CC=gf_libafl_cc CFLAGS="-O2 -fPIC" \
-      gf_libafl_cc -O2 -fPIC -c cregex_compile.c -o /fuzz/build/cregex_compile.o; \
-    CC=gf_libafl_cc CFLAGS="-O2 -fPIC" \
-      gf_libafl_cc -O2 -fPIC -c cregex_parse.c -o /fuzz/build/cregex_parse.o; \
-    CC=gf_libafl_cc CFLAGS="-O2 -fPIC" \
-      gf_libafl_cc -O2 -fPIC -c cregex_vm.c -o /fuzz/build/cregex_vm.o; \
+    CC=stitch_libafl_cc CFLAGS="-O2 -fPIC" \
+      stitch_libafl_cc -O2 -fPIC -c cregex_compile.c -o /fuzz/build/cregex_compile.o; \
+    CC=stitch_libafl_cc CFLAGS="-O2 -fPIC" \
+      stitch_libafl_cc -O2 -fPIC -c cregex_parse.c -o /fuzz/build/cregex_parse.o; \
+    CC=stitch_libafl_cc CFLAGS="-O2 -fPIC" \
+      stitch_libafl_cc -O2 -fPIC -c cregex_vm.c -o /fuzz/build/cregex_vm.o; \
     ar rcs /fuzz/install/lib/libcregex.a /fuzz/build/cregex_compile.o /fuzz/build/cregex_parse.o /fuzz/build/cregex_vm.o; \
     cp -v cregex.h /fuzz/install/include/

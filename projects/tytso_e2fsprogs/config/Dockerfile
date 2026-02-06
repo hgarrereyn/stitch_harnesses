@@ -9,6 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Configure, build, and install only static libraries
 WORKDIR /fuzz/src
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --disable-shared --enable-static --disable-nls --prefix=/fuzz/install
 RUN make -j"$(nproc)" && make install

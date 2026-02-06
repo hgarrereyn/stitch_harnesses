@@ -2,8 +2,8 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # No external dependencies required. Build a minimal static library and install header.
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     INSTALL_PREFIX=/fuzz/install
 
 RUN set -eux; \

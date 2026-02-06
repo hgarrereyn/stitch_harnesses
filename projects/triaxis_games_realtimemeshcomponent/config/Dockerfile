@@ -6,8 +6,8 @@ FROM ${BASE_IMAGE}
 # that satisfies the linker and provides a trivial symbol.
 
 # Environment
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 RUN set -eux; \

@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Set compilers to fuzzing wrappers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Configure and install: disable optional extras so no third-party headers are needed
 RUN cmake -S /fuzz/src -B /tmp/build \
@@ -23,7 +23,7 @@ RUN cmake -S /fuzz/src -B /tmp/build \
     -DUSEARCH_BUILD_BENCH_CPP=OFF \
     -DUSEARCH_BUILD_JNI=OFF \
     -DUSEARCH_BUILD_SQLITE=OFF \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx && \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx && \
     cmake --build /tmp/build --target install --config Release && \
     rm -rf /tmp/build

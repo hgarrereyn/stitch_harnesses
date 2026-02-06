@@ -14,8 +14,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Configure, build, and install brpc (static lib preferred)
 RUN cmake -S /fuzz/src -B /fuzz/build \

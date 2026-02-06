@@ -6,8 +6,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     libyajl-dev libpcre2-dev libxml2-dev liblmdb-dev libcurl4-openssl-dev libmaxminddb-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 

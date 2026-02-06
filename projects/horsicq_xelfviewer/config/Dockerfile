@@ -22,5 +22,5 @@ RUN mkdir -p /fuzz/minlib && \
         > CMakeLists.txt && \
     printf "%s\n" "#include <stddef.h>" "extern \"C\" int xelfviewer_dummy_anchor;" "int xelfviewer_dummy_anchor = 0;" > dummy.cpp && \
     cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/fuzz/install \
-          -DCMAKE_C_COMPILER=gf_libafl_cc -DCMAKE_CXX_COMPILER=gf_libafl_cxx . && \
+          -DCMAKE_C_COMPILER=stitch_libafl_cc -DCMAKE_CXX_COMPILER=stitch_libafl_cxx . && \
     ninja -j$(nproc) && ninja install

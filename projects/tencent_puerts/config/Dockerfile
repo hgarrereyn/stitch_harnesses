@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx AR=ar RANLIB=ranlib
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx AR=ar RANLIB=ranlib
 
 WORKDIR /fuzz/src
 

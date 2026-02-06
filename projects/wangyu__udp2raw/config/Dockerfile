@@ -6,7 +6,7 @@ FROM ${BASE_IMAGE}
 # Build and install
 RUN mkdir -p /fuzz/install/include /fuzz/install/include/lib /fuzz/install/include/libev /fuzz/install/bin && \
     cd /fuzz/src && \
-    make dynamic cc_local=gf_libafl_cxx && \
+    make dynamic cc_local=stitch_libafl_cxx && \
     cp -v udp2raw_dynamic /fuzz/install/bin/ || cp -v udp2raw /fuzz/install/bin/ && \
     # Install public headers
     cp -v common.h connection.h encrypt.h fd_manager.h log.h misc.h my_ev.h my_ev_common.h network.h pcap_wrapper.h /fuzz/install/include/ && \

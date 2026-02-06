@@ -9,8 +9,8 @@ RUN apt-get update && \
 
 # Build a minimal static library for the guarded allocator component.
 # This avoids configuring the entire Blender build while still exposing a stable public API.
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     INSTALL_PREFIX=/fuzz/install \
     SRC=/fuzz/src
 

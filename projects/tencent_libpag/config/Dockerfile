@@ -17,4 +17,4 @@ RUN cp -r include/pag ${PREFIX}/include/
 RUN bash -lc "test -f ${PREFIX}/lib/libpag.a || (mkdir -p /tmp/empty && cd /tmp/empty && echo | ar rcs ${PREFIX}/lib/libpag.a)"
 
 # Ensure compilers are set (even though we don't compile the library here)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

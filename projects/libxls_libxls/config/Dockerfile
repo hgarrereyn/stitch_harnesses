@@ -13,7 +13,7 @@ WORKDIR /fuzz/src
 RUN autoreconf -i -f
 
 # Configure with fuzzing compilers and install prefix
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure --prefix=/fuzz/install
 
 # Build and install

@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # Build and install libfdt (from scripts/dtc/libfdt) as a static library
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     AR=ar
 
 WORKDIR /fuzz/src

@@ -14,8 +14,8 @@ WORKDIR /fuzz/src
 # Configure with CMake, install prefix and static lib, disable extras and Wayland
 RUN cmake -S . -B build \
     -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DBUILD_SHARED_LIBS=OFF \
     -DGLFW_BUILD_DOCS=OFF \

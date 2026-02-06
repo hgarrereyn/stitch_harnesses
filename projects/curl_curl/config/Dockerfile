@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Configure and build static libcurl only
 WORKDIR /fuzz/src
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 RUN cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \

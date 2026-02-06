@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends binutils ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Build minimal static library and a C shim that wraps a few functions and provides missing globals
 RUN set -eux; \

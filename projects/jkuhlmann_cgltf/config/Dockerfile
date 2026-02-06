@@ -6,7 +6,7 @@ RUN set -eux; \
     echo '#define CGLTF_IMPLEMENTATION' > cgltf_all.c; \
     echo '#define CGLTF_WRITE_IMPLEMENTATION' >> cgltf_all.c; \
     echo '#include "/fuzz/src/cgltf_write.h"' >> cgltf_all.c; \
-    gf_libafl_cc -O2 -fPIC -c cgltf_all.c -o cgltf.o; \
+    stitch_libafl_cc -O2 -fPIC -c cgltf_all.c -o cgltf.o; \
     ar rcs libcgltf.a cgltf.o; \
     mkdir -p /fuzz/install/include /fuzz/install/lib; \
     cp /fuzz/src/cgltf.h /fuzz/install/include/; \

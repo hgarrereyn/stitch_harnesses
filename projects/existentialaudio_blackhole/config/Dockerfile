@@ -1,8 +1,8 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 RUN set -eux; mkdir -p "$PREFIX"/include "$PREFIX"/lib /tmp/build
@@ -26,7 +26,7 @@ int BlackHole_Version(void) { return 1; }
 EOF
 
 RUN set -eux; \
-    gf_libafl_cc -c -O2 -fPIC /tmp/build/blackhole_shim.c -o /tmp/build/blackhole_shim.o; \
+    stitch_libafl_cc -c -O2 -fPIC /tmp/build/blackhole_shim.c -o /tmp/build/blackhole_shim.o; \
     ar rcs /tmp/build/libblackhole.a /tmp/build/blackhole_shim.o; \
     ranlib /tmp/build/libblackhole.a; \
     cp /tmp/build/libblackhole.a "$PREFIX"/lib/; \

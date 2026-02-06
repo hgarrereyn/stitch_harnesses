@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends binutils && rm 
 # Build a minimal static library from the portable QR code generator component
 # The full project is a Windows-only GUI; on Linux we expose the vendored portable
 # QR encoder as a static library for fuzzing/consumption.
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 RUN mkdir -p ${PREFIX}/lib ${PREFIX}/include/qrcodegen && \
     ${CC} -O2 -fPIC -I/fuzz/src/qrcodegen -c /fuzz/src/qrcodegen/qrcodegen.c -o /tmp/qrcodegen.o && \

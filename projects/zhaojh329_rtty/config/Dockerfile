@@ -9,7 +9,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Build a minimal static library from available sources (utils.c) and install headers
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include && \
     cd /fuzz/src/src && \
-    gf_libafl_cc -O2 -fPIC -c utils.c -o /tmp/utils.o && \
+    stitch_libafl_cc -O2 -fPIC -c utils.c -o /tmp/utils.o && \
     ar rcs /fuzz/install/lib/librtty.a /tmp/utils.o && \
     cp utils.h /fuzz/install/include/
 

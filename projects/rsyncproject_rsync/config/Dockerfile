@@ -10,7 +10,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 
 # Configure with fuzzing compilers and install prefix. Disable optional features to simplify build.
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure --prefix=/fuzz/install \
     --disable-md2man --disable-roll-simd \
     --disable-xxhash --disable-zstd --disable-lz4 \

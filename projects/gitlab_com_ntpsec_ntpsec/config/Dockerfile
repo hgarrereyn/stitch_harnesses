@@ -16,8 +16,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 
 # Use required compilers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Configure and build with waf (minimal features)
 RUN ./waf configure --prefix=/fuzz/install --disable-nts --enable-pylib=none \

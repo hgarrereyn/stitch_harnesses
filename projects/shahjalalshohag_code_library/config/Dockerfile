@@ -16,5 +16,5 @@ RUN bash -lc 'printf "%s\n" "#pragma once" > /fuzz/install/include/code_library.
 
 # Build a tiny static library for linking
 RUN bash -lc 'printf "%s\n" "void __code_library_dummy(){}" > /build/dummy.c && \
-  gf_libafl_cc -c /build/dummy.c -o /build/dummy.o && \
+  stitch_libafl_cc -c /build/dummy.c -o /build/dummy.o && \
   ar rcs /fuzz/install/lib/libcode_library.a /build/dummy.o'

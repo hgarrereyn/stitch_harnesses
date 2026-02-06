@@ -9,7 +9,7 @@ RUN set -eux; \
     mkdir -p /fuzz/install/include /fuzz/install/lib; \
     cp /fuzz/src/AppleALC/UserKernelShared.h /fuzz/install/include/; \
     echo 'void applealc_dummy(void){}' > /tmp/dummy.c; \
-    gf_libafl_cc -fPIC -c /tmp/dummy.c -o /tmp/dummy.o; \
+    stitch_libafl_cc -fPIC -c /tmp/dummy.c -o /tmp/dummy.o; \
     ar rcs /fuzz/install/lib/libapplealc.a /tmp/dummy.o; \
     ranlib /fuzz/install/lib/libapplealc.a; \
     rm -f /tmp/dummy.c /tmp/dummy.o

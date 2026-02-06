@@ -12,7 +12,7 @@ int jess_self_check() { return 42; }
 }
 EOF
 
-RUN gf_libafl_cxx -O2 -fPIC -c /fuzz/build/jessibuca_wrapper.cpp -o /fuzz/build/jessibuca_wrapper.o \
+RUN stitch_libafl_cxx -O2 -fPIC -c /fuzz/build/jessibuca_wrapper.cpp -o /fuzz/build/jessibuca_wrapper.o \
  && ar rcs /fuzz/install/lib/libjessibuca.a /fuzz/build/jessibuca_wrapper.o \
  && cat > /fuzz/install/include/jessibuca.h <<'EOF'
 #ifndef JESSIBUCA_H
@@ -28,4 +28,4 @@ int jess_self_check(void);
 #endif
 EOF
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

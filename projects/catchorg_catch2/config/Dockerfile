@@ -2,8 +2,8 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # Build and install Catch2 v3 from the provided source in /fuzz/src
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Install minimal build tools (cmake, make)
 RUN apt-get update && \

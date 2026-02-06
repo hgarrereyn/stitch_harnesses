@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Configure and build only the needed parts (headers + libs)
 WORKDIR /fuzz/src/tools
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure --prefix=/fuzz/install
 # Install Xen public headers used by libraries (belt and braces: also copy directly)
 RUN make -C include install prefix=/fuzz/install && \

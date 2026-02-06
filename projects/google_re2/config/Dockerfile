@@ -11,8 +11,8 @@ RUN apt-get update && \
 WORKDIR /tmp
 RUN git clone --depth 1 https://github.com/abseil/abseil-cpp.git abseil && \
     cmake -S abseil -B abseil/build \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
       -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON -DABSL_PROPAGATE_CXX_STD=ON && \
     cmake --build abseil/build -j && \
@@ -22,8 +22,8 @@ RUN git clone --depth 1 https://github.com/abseil/abseil-cpp.git abseil && \
 # Configure, build, and install RE2
 WORKDIR /fuzz/src
 RUN cmake -S . -B build \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
       -DBUILD_SHARED_LIBS=ON \
       -DRE2_TEST=OFF -DRE2_BENCHMARK=OFF \

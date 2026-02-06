@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Environment for compilers
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 # "Build and install": for header-only subset we install headers into /fuzz/install/include

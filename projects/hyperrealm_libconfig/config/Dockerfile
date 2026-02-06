@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config cmake ninja-build make \
   && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/build
 RUN cmake -S /fuzz/src -B . -G Ninja \
@@ -15,6 +15,6 @@ RUN cmake -S /fuzz/src -B . -G Ninja \
     -DBUILD_TESTS=OFF \
     -DBUILD_FUZZERS=OFF \
     -DBUILD_CXX=ON \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
   && cmake --build . --target install

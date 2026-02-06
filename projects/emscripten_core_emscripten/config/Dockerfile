@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake ninja-build make pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN mkdir -p /tmp/build && cd /tmp/build && \
     cat > CMakeLists.txt <<'EOF'
@@ -33,8 +33,8 @@ install(DIRECTORY /fuzz/src/system/include/ DESTINATION ${CMAKE_INSTALL_INCLUDED
 EOF
 
 RUN cd /tmp/build && cmake -G Ninja \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
       -DBUILD_SHARED_LIBS=OFF \

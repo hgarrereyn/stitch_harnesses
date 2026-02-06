@@ -6,8 +6,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     cmake pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 RUN cmake -S . -B build -G Ninja \

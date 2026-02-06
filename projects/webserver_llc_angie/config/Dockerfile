@@ -10,10 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /fuzz/src
 
 # Configure Angie with minimal features and our compilers
-ENV CC=gf_libafl_cc
+ENV CC=stitch_libafl_cc
 RUN ./configure \
     --prefix=/fuzz/install \
-    --with-cc=gf_libafl_cc \
+    --with-cc=stitch_libafl_cc \
     --with-cc-opt="$CFLAGS" \
     --with-ld-opt="$LDFLAGS" \
     --without-pcre \

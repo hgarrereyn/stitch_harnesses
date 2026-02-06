@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build and install libsodium statically
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./autogen.sh -s && \
     ./configure --disable-shared --enable-static --prefix=/fuzz/install && \
     make -j"$(nproc)" && \

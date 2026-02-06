@@ -10,14 +10,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Provide expected compiler wrapper names as symlinks to clang-17
-RUN ln -sf /usr/bin/clang-17 /usr/local/bin/gf_libafl_cc && \
-    ln -sf /usr/bin/clang++-17 /usr/local/bin/gf_libafl_cxx
+RUN ln -sf /usr/bin/clang-17 /usr/local/bin/stitch_libafl_cc && \
+    ln -sf /usr/bin/clang++-17 /usr/local/bin/stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 
 # Build and install using scons
 RUN scons \
-    CXX=gf_libafl_cxx \
+    CXX=stitch_libafl_cxx \
     optimize=1 \
     DESTDIR=/fuzz/install \
     prefix=/ \

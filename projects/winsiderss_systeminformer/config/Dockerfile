@@ -6,9 +6,9 @@ FROM ${BASE_IMAGE}
 RUN set -eux; \
     mkdir -p /fuzz/build/xxhash /fuzz/install/include /fuzz/install/lib; \
     cd /fuzz/src/tools/thirdparty/xxhash; \
-    gf_libafl_cc -O2 -I. -c xxhash.c -o /fuzz/build/xxhash/xxhash.o; \
+    stitch_libafl_cc -O2 -I. -c xxhash.c -o /fuzz/build/xxhash/xxhash.o; \
     ar rcs /fuzz/install/lib/libsi_xxhash.a /fuzz/build/xxhash/xxhash.o; \
     cp /fuzz/src/tools/thirdparty/xxhash/xxhash.h /fuzz/install/include/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 ENV CFLAGS="-O2" CXXFLAGS="-O2"

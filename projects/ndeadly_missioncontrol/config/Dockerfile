@@ -27,7 +27,7 @@ int mc_sum_bytes(const unsigned char* data, int len);
 EOF
 
 RUN set -eux; \
-    gf_libafl_cxx -O2 -fPIC -c /tmp/build/missioncontrol_shim.cpp -o /tmp/build/missioncontrol_shim.o; \
+    stitch_libafl_cxx -O2 -fPIC -c /tmp/build/missioncontrol_shim.cpp -o /tmp/build/missioncontrol_shim.o; \
     ar rcs ${PREFIX}/lib/libmissioncontrol_shim.a /tmp/build/missioncontrol_shim.o; \
     ranlib ${PREFIX}/lib/libmissioncontrol_shim.a; \
     rm -rf /tmp/build

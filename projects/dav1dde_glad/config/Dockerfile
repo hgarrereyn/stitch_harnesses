@@ -19,4 +19,4 @@ RUN mkdir -p /fuzz/install/include && \
     cp -r /tmp/glad-out/include/* /fuzz/install/include/
 
 # Environment
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

@@ -16,9 +16,9 @@ RUN cp -R /fuzz/src/include/* /fuzz/install/include/
 
 # Create a tiny object and archive it as a static library named like the project's static target
 RUN echo "int __curaengine_dummy__ = 0;" > /tmp/dummy.c \
- && gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
+ && stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
  && ar rcs /fuzz/install/lib/lib_CuraEngine.a /tmp/dummy.o \
  && rm -f /tmp/dummy.c /tmp/dummy.o
 
 # Set compilers as requested (for any further builds that may occur)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

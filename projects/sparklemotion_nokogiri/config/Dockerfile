@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 # Build and install the bundled gumbo-parser (C library) as a static library
 # using the fuzzer compiler wrappers.
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 RUN set -eux; \
     mkdir -p /fuzz/install/include /fuzz/install/lib; \

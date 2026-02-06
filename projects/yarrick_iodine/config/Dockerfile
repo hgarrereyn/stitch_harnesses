@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Build binaries and objects
 RUN make -C /fuzz/src -j"$(nproc)" CC=${CC}

@@ -13,8 +13,8 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # 2) Configure compilers and install prefix
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 # 3) "Build and install" a tiny static library that exposes a trivial C API

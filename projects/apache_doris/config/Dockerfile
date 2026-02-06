@@ -9,7 +9,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Build a minimal static library from Apache Doris util/md5.cpp
 # Source is already in /fuzz/src
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Create install prefix
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include/doris/util

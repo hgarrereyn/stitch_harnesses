@@ -23,7 +23,7 @@ WORKDIR /fuzz/src
 # Build with the fuzzing compilers, disable optional components we don't need
 # (wayland, dunstify, systemd units, completions) to keep deps minimal
 RUN make -j"$(nproc)" \
-    CC=gf_libafl_cc \
+    CC=stitch_libafl_cc \
     WAYLAND=0 \
     DUNSTIFY=0 \
     SYSTEMD=0 \
@@ -32,7 +32,7 @@ RUN make -j"$(nproc)" \
 
 # Install binaries and manpages (not used by fuzzing but harmless)
 RUN make install \
-    CC=gf_libafl_cc \
+    CC=stitch_libafl_cc \
     WAYLAND=0 \
     DUNSTIFY=0 \
     SYSTEMD=0 \

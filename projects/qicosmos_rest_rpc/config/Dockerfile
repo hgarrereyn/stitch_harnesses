@@ -11,6 +11,6 @@ RUN set -eux; \
     cp -r thirdparty/asio/asio /fuzz/install/include/ || true; \
     cp -r thirdparty/ylt /fuzz/install/include/ || true
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Nothing to build (header-only).

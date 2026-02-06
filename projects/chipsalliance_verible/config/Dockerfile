@@ -11,4 +11,4 @@ RUN set -eux; \
     mkdir -p /fuzz/install/include/verible/common/strings; \
     cp -a verible/common/strings/compare.h /fuzz/install/include/verible/common/strings/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

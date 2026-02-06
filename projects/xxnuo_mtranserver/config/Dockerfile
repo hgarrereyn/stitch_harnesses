@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 # Build CLD2 static library from the project's bundled sources
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 # Compile CLD2 and install headers and static lib
 RUN set -eux; \

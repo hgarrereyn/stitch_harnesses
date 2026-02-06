@@ -18,8 +18,8 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal && \
 # Configure and build static framework only
 WORKDIR /fuzz/build
 RUN cmake -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DBUILD_SHARED_LIBS=OFF \

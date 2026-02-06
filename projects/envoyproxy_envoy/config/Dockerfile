@@ -18,4 +18,4 @@ RUN set -eux; \
     cp -r /fuzz/src/source/common/common ${PREFIX}/include/source/common/;
 
 # Environment for compilers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

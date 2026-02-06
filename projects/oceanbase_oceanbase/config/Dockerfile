@@ -9,9 +9,9 @@ RUN mkdir -p /fuzz/install/include/lib/hash_func /fuzz/install/lib \
 
 # Build a tiny static library to link against (no external deps)
 RUN echo 'void ob_dummy(){}' > /tmp/ob_dummy.c \
- && gf_libafl_cc -c /tmp/ob_dummy.c -o /tmp/ob_dummy.o \
+ && stitch_libafl_cc -c /tmp/ob_dummy.c -o /tmp/ob_dummy.o \
  && ar rcs /fuzz/install/lib/liboceanbase.a /tmp/ob_dummy.o \
  && rm -f /tmp/ob_dummy.c /tmp/ob_dummy.o
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 ENV INSTALL_PREFIX=/fuzz/install

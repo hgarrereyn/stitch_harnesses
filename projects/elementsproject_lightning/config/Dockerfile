@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # No extra packages required; build tools and clang wrappers are preinstalled.
 
 # Setup compilers and install prefix
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 RUN mkdir -p /build/include && \
     echo "/* Minimal config for building standalone common components */\n#ifndef LIGHTNING_CONFIG_H\n#define LIGHTNING_CONFIG_H\n#endif" > /build/include/config.h && \

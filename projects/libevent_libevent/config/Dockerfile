@@ -12,7 +12,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Configure and build libevent (static, no tests/samples, no SSL/mbedtls)
 WORKDIR /fuzz/src
 RUN mkdir -p build && cd build && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     cmake -G Ninja .. \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \

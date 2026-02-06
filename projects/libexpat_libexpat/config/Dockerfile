@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Configure, build, install static libexpat into /fuzz/install
 RUN mkdir -p /fuzz/build && \
     cd /fuzz/build && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx cmake -G Ninja \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx cmake -G Ninja \
       -S /fuzz/src/expat \
       -B . \
       -DCMAKE_BUILD_TYPE=Release \

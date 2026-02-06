@@ -16,22 +16,22 @@ ENV SRC_DIR=/fuzz/src \
 
 RUN mkdir -p ${INSTALL_PREFIX}/lib ${INSTALL_PREFIX}/include/graphicsfuzz-vkworker /tmp/build && \
     cd /tmp/build && \
-    gf_libafl_cxx -O2 -fPIC \
+    stitch_libafl_cxx -O2 -fPIC \
       -I"${SRC_DIR}/vulkan-worker/src/common" \
       -I"${SRC_DIR}/vulkan-worker/src/linux" \
       -I"${SRC_DIR}/third_party/cJSON" \
       -I"${SRC_DIR}/third_party/lodepng" \
       -c "${SRC_DIR}/vulkan-worker/src/common/vulkan_worker.cc" -o vulkan_worker.o && \
-    gf_libafl_cxx -O2 -fPIC -DVK_RESULT_RANGE_SIZE=100000 \
+    stitch_libafl_cxx -O2 -fPIC -DVK_RESULT_RANGE_SIZE=100000 \
       -I"${SRC_DIR}/vulkan-worker/src/common" \
       -I"${SRC_DIR}/vulkan-worker/src/linux" \
       -c "${SRC_DIR}/vulkan-worker/src/common/vkcheck.cc" -o vkcheck.o && \
-    gf_libafl_cxx -O2 -fPIC \
+    stitch_libafl_cxx -O2 -fPIC \
       -I"${SRC_DIR}/vulkan-worker/src/linux" \
       -I"${SRC_DIR}/vulkan-worker/src/common" \
       -c "${SRC_DIR}/vulkan-worker/src/linux/platform.cc" -o platform_linux.o && \
-    gf_libafl_cc -O2 -fPIC -I"${SRC_DIR}/third_party/cJSON" -c "${SRC_DIR}/third_party/cJSON/cJSON.c" -o cJSON.o && \
-    gf_libafl_cxx -O2 -fPIC -I"${SRC_DIR}/third_party/lodepng" -c "${SRC_DIR}/third_party/lodepng/lodepng.cpp" -o lodepng.o && \
+    stitch_libafl_cc -O2 -fPIC -I"${SRC_DIR}/third_party/cJSON" -c "${SRC_DIR}/third_party/cJSON/cJSON.c" -o cJSON.o && \
+    stitch_libafl_cxx -O2 -fPIC -I"${SRC_DIR}/third_party/lodepng" -c "${SRC_DIR}/third_party/lodepng/lodepng.cpp" -o lodepng.o && \
     ar rcs ${INSTALL_PREFIX}/lib/libvkworker.a vulkan_worker.o vkcheck.o platform_linux.o cJSON.o lodepng.o && \
     cp "${SRC_DIR}/vulkan-worker/src/common/vulkan_worker.h" ${INSTALL_PREFIX}/include/graphicsfuzz-vkworker/ && \
     cp "${SRC_DIR}/vulkan-worker/src/common/vkcheck.h" ${INSTALL_PREFIX}/include/graphicsfuzz-vkworker/ && \

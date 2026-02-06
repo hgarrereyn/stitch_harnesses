@@ -12,9 +12,9 @@ ENV INSTALL_PREFIX=/fuzz/install
 RUN set -eux; \
     mkdir -p ${INSTALL_PREFIX}/include/i2cdevlib ${INSTALL_PREFIX}/lib /tmp/build; \
     cd /fuzz/src/LinuxI2CDev; \
-    gf_libafl_cxx -fPIC -I/fuzz/src/LinuxI2CDev/I2Cdev -I/fuzz/src/LinuxI2CDev/MPU6050 -c I2Cdev/I2Cdev.cpp -o /tmp/build/I2Cdev.o; \
-    gf_libafl_cxx -fPIC -I/fuzz/src/LinuxI2CDev/I2Cdev -I/fuzz/src/LinuxI2CDev/MPU6050 -c MPU6050/MPU6050.cpp -o /tmp/build/MPU6050.o; \
-    gf_libafl_cxx -fPIC -I/fuzz/src/LinuxI2CDev/I2Cdev -I/fuzz/src/LinuxI2CDev/MPU6050 -c MPU6050/MPU6050_6Axis_MotionApps20.cpp -o /tmp/build/MPU6050_6Axis_MotionApps20.o; \
+    stitch_libafl_cxx -fPIC -I/fuzz/src/LinuxI2CDev/I2Cdev -I/fuzz/src/LinuxI2CDev/MPU6050 -c I2Cdev/I2Cdev.cpp -o /tmp/build/I2Cdev.o; \
+    stitch_libafl_cxx -fPIC -I/fuzz/src/LinuxI2CDev/I2Cdev -I/fuzz/src/LinuxI2CDev/MPU6050 -c MPU6050/MPU6050.cpp -o /tmp/build/MPU6050.o; \
+    stitch_libafl_cxx -fPIC -I/fuzz/src/LinuxI2CDev/I2Cdev -I/fuzz/src/LinuxI2CDev/MPU6050 -c MPU6050/MPU6050_6Axis_MotionApps20.cpp -o /tmp/build/MPU6050_6Axis_MotionApps20.o; \
     ar rcs ${INSTALL_PREFIX}/lib/libi2cdevlib.a /tmp/build/*.o; \
     cp /fuzz/src/LinuxI2CDev/I2Cdev/I2Cdev.h ${INSTALL_PREFIX}/include/i2cdevlib/; \
     cp /fuzz/src/LinuxI2CDev/MPU6050/MPU6050.h ${INSTALL_PREFIX}/include/i2cdevlib/; \

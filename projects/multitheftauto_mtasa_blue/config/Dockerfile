@@ -16,7 +16,7 @@ RUN set -eux; \
         base=$(basename "$f"); \
         # Exclude the standalone interpreter sources from the library
         if [ "$base" = "lua.c" ] || [ "$base" = "luac.c" ]; then continue; fi; \
-        gf_libafl_cc -O2 -fPIC -I/fuzz/src/vendor/lua/src -c "$f" -o "${base%.c}.o"; \
+        stitch_libafl_cc -O2 -fPIC -I/fuzz/src/vendor/lua/src -c "$f" -o "${base%.c}.o"; \
     done; \
     ar rcs /fuzz/install/lib/liblua5.1.a ./*.o; \
     # Install headers required by public SDK

@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /fuzz/src
 
 # Build with fuzzing compiler and install to /fuzz/install
-RUN make -j"$(nproc)" CC=gf_libafl_cc && \
-    make install PREFIX=/fuzz/install CC=gf_libafl_cc
+RUN make -j"$(nproc)" CC=stitch_libafl_cc && \
+    make install PREFIX=/fuzz/install CC=stitch_libafl_cc
 
 # Sanity check
 RUN test -f /fuzz/install/lib/quickjs/libquickjs.a && \

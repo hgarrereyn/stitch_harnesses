@@ -12,9 +12,9 @@ RUN set -eux; \
     : "Create empty config.h to satisfy includes"; \
     echo "/* generated empty config for fuzzing build */" > /fuzz/src/config.h; \
     cd /fuzz/src/src/utils; \
-    gf_libafl_cxx -I/fuzz/src -I/fuzz/src/src -c lockfile.cc -o /tmp/lockfile.o; \
+    stitch_libafl_cxx -I/fuzz/src -I/fuzz/src/src -c lockfile.cc -o /tmp/lockfile.o; \
     ar rcs /fuzz/install/lib/librtorrent_utils.a /tmp/lockfile.o; \
     cp /fuzz/src/src/utils/lockfile.h /fuzz/install/include/utils/lockfile.h
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 ENV PREFIX=/fuzz/install

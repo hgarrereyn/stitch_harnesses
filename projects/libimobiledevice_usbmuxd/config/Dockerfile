@@ -26,7 +26,7 @@ RUN git clone --depth 1 https://github.com/libimobiledevice/libimobiledevice-glu
     rm -rf /tmp/glue
 
 # Build and install usbmuxd
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 RUN ./autogen.sh --prefix=/fuzz/install --without-preflight --without-systemd && \
     make -j"$(nproc)" && \

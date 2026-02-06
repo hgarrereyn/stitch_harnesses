@@ -14,7 +14,7 @@ WORKDIR /fuzz/src
 
 # Prepare, configure and build only the static libraries; then install headers/libs manually
 RUN autoreconf -f -i && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=${PREFIX} && \
     make -j"$(nproc)" libssh.a && \
     make -j"$(nproc)" -C openbsd-compat libopenbsd-compat.a && \
@@ -22,8 +22,8 @@ RUN autoreconf -f -i && \
     cp -a libssh.a ${PREFIX}/lib/ && \
     cp -a openbsd-compat/libopenbsd-compat.a ${PREFIX}/lib/ && \
     # Build a small extra archive for pkcs11 and security key stubs used by libssh
-    gf_libafl_cc -I. -Iopenbsd-compat -c ssh-pkcs11.c -o ssh-pkcs11.o && \
-    gf_libafl_cc -I. -Iopenbsd-compat -c ssh-sk.c -o ssh-sk.o && \
+    stitch_libafl_cc -I. -Iopenbsd-compat -c ssh-pkcs11.c -o ssh-pkcs11.o && \
+    stitch_libafl_cc -I. -Iopenbsd-compat -c ssh-sk.c -o ssh-sk.o && \
     ar rcs ${PREFIX}/lib/libssh_extra.a ssh-pkcs11.o ssh-sk.o && \
     # Install headers (API + dependencies)
     cp -a ./*.h ${PREFIX}/include/ && \

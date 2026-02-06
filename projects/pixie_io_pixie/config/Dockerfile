@@ -8,8 +8,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
  && rm -rf /var/lib/apt/lists/*
 
 # Set compilers and install prefix
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     INSTALL_PREFIX=/fuzz/install
 
 # "Build and install": copy the needed headers into the install prefix from /fuzz/src.

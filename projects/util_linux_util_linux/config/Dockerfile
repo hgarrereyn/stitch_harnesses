@@ -10,8 +10,8 @@ RUN apt-get update && \
 WORKDIR /fuzz/src
 
 # Configure with fuzzing compilers and static libs, enable only libuuid
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 RUN meson setup build \
       --prefix=/fuzz/install \

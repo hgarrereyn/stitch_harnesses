@@ -15,6 +15,6 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
 # Configure, build, and install STC using meson
 WORKDIR /fuzz/src
 ENV DESTDIR=
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx meson setup build --buildtype=release --prefix /fuzz/install -Ddefault_library=static
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx meson setup build --buildtype=release --prefix /fuzz/install -Ddefault_library=static
 RUN meson compile -C build
 RUN meson install -C build

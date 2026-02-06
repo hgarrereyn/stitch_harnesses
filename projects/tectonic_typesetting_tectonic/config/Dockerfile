@@ -5,8 +5,8 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends binutils ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Build and install the C bridge core static library and headers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Compile the support C into a static library and install headers
 RUN mkdir -p /tmp/build && \

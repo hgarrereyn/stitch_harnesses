@@ -22,7 +22,7 @@ RUN cp /fuzz/src/src/utility.h ${PREFIX}/include/sunshine/utility.h && \
 # Build a tiny dummy static library with the required compilers
 RUN set -eux; \
     echo "int sunshine_dummy_symbol() { return 0; }" > /tmp/sunshine_dummy.c; \
-    gf_libafl_cc -c /tmp/sunshine_dummy.c -o /tmp/sunshine_dummy.o; \
+    stitch_libafl_cc -c /tmp/sunshine_dummy.c -o /tmp/sunshine_dummy.o; \
     ar rcs ${PREFIX}/lib/libsunshine.a /tmp/sunshine_dummy.o; \
     ranlib ${PREFIX}/lib/libsunshine.a; \
     rm -f /tmp/sunshine_dummy.c /tmp/sunshine_dummy.o

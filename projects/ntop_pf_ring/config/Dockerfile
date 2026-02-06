@@ -12,7 +12,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Build and install PF_RING userland library
 WORKDIR /fuzz/src/userland
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure --prefix=/fuzz/install && \
     make -C lib -j$(nproc) && \
     make -C lib install

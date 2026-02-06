@@ -10,8 +10,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Disable CUDA in CMakeLists to avoid requiring a CUDA toolkit
 RUN sed -i 's/^set(\s*CMAKE_CUDA_COMPILER.*$/# &/g' /fuzz/src/CMakeLists.txt \

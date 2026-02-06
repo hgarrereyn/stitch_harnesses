@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 # Build and install proxychains-ng
 RUN set -eux; \
     cd /fuzz/src; \
-    ./configure --prefix=/fuzz/install --sysconfdir=/fuzz/install/etc CC=gf_libafl_cc; \
+    ./configure --prefix=/fuzz/install --sysconfdir=/fuzz/install/etc CC=stitch_libafl_cc; \
     make -j"$(nproc)"; \
     make install; \
     make install-config; \

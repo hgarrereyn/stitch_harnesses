@@ -26,7 +26,7 @@ WORKDIR /fuzz/src
 # Force static lib build for client and use fuzzing compilers
 RUN sed -i 's/^ENABLE_STATIC_LIB=.*/ENABLE_STATIC_LIB=1/' make.sh \
  && sed -i 's/^ENABLE_SHARED_LIB=.*/ENABLE_SHARED_LIB=0/' make.sh \
- && sed -i 's/^export CC=.*/export CC=gf_libafl_cc/' make.sh \
+ && sed -i 's/^export CC=.*/export CC=stitch_libafl_cc/' make.sh \
  && DESTDIR=/fuzz/install ./make.sh clean \
  && DESTDIR=/fuzz/install ./make.sh \
  && DESTDIR=/fuzz/install ./make.sh install

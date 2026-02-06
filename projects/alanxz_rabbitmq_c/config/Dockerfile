@@ -16,8 +16,8 @@ RUN set -eux; \
     cmake -G "Unix Makefiles" \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DBUILD_SHARED_LIBS=OFF \
       -DBUILD_STATIC_LIBS=ON \
       -DINSTALL_STATIC_LIBS=ON \

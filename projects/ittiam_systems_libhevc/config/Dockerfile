@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Build only the decoder library statically and install headers/libs
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/build
 RUN cmake -G Ninja /fuzz/src \

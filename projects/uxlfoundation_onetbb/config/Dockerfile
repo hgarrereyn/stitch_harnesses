@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # Configure and build oneTBB statically
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 RUN cmake -S /fuzz/src -B /fuzz/build -G Ninja \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \

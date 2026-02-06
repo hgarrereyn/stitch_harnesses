@@ -11,8 +11,8 @@ WORKDIR /fuzz/src
 # Configure with CMake to build libraries only
 RUN cmake -S . -B build \
     -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DWITH_CLIENTS=OFF \

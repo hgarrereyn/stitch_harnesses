@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Prepare install prefix
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install SRC=/fuzz/src
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install SRC=/fuzz/src
 RUN mkdir -p ${PREFIX}/include ${PREFIX}/lib
 
 # Install public headers (only portable, header-only parts)

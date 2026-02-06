@@ -6,7 +6,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     libeigen3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Install headers
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include/lidar_camera_calibration /fuzz/install/include/ros \

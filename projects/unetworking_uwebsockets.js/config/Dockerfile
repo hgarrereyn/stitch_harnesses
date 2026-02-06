@@ -7,6 +7,6 @@ FROM ${BASE_IMAGE}
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cp /fuzz/src/src/FastTimers.h /fuzz/install/include/FastTimers.h && \
     echo 'extern "C" void uwsjs_dummy(){}' > /tmp/dummy.cpp && \
-    gf_libafl_cxx -c -O2 -fPIC /tmp/dummy.cpp -o /tmp/dummy.o && \
+    stitch_libafl_cxx -c -O2 -fPIC /tmp/dummy.cpp -o /tmp/dummy.o && \
     ar rcs /fuzz/install/lib/libuwebsocketsjs.a /tmp/dummy.o && \
     rm -f /tmp/dummy.cpp /tmp/dummy.o

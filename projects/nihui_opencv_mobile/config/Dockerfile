@@ -12,6 +12,6 @@ RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cp -a /usr/lib/*/libopencv*.so* /fuzz/install/lib/ || true && \
     cp -a /usr/lib/*/libopencv*.a /fuzz/install/lib/ || true
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src

@@ -16,10 +16,10 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 
 # Generate configure scripts using system APR via apr-1-config
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx ./buildconf --with-apr=apr-1-config
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx ./buildconf --with-apr=apr-1-config
 
 # Configure for a static build with minimal optional deps and install prefix
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure \
       --prefix=/fuzz/install \
       --enable-static --disable-shared \

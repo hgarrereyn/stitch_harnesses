@@ -10,7 +10,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Configure, build and install elfutils
 WORKDIR /fuzz/src
 RUN autoreconf -i -f
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --enable-maintainer-mode --disable-debuginfod --disable-libdebuginfod \
     --prefix=/fuzz/install
 RUN make -j"$(nproc)"

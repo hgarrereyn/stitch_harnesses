@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Build a minimal static library exposing the RPC API (does not require CUDA)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 RUN mkdir -p ${PREFIX}/include ${PREFIX}/lib /tmp/build
 
 # Compile rpc.cpp into a static archive

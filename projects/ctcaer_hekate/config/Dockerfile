@@ -14,7 +14,7 @@ RUN set -eux; \
     mkdir -p /fuzz/build "$INSTALL_PREFIX/lib" "$INSTALL_PREFIX/include" "$INSTALL_PREFIX/include/utils"; \
     cd bdk/libs/compr; \
     for f in lz4.c lz.c blz.c; do \
-      gf_libafl_cc -O2 -fPIC -c "$f" -I/fuzz/build/shim/include -I. -I/fuzz/src/bdk -o "/fuzz/build/$(basename "$f" .c).o"; \
+      stitch_libafl_cc -O2 -fPIC -c "$f" -I/fuzz/build/shim/include -I. -I/fuzz/src/bdk -o "/fuzz/build/$(basename "$f" .c).o"; \
     done; \
     ar rcs "$INSTALL_PREFIX/lib/libhekatecompr.a" /fuzz/build/*.o; \
     cp lz4.h lz.h blz.h "$INSTALL_PREFIX/include/"; \

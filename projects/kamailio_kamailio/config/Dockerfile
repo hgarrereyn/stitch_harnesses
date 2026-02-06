@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 # Build and install a tiny static library from Kamailio core (bit operations)
 # Compilers are provided by the base image as wrappers around clang-17
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 RUN set -eux; \
     mkdir -p /fuzz/install/lib /fuzz/install/include; \

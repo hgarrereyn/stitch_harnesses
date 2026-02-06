@@ -49,5 +49,5 @@ RUN bash -lc 'echo "#pragma pack(push, 1)" > /fuzz/install/include/pshpack1.h &&
 
 # Create a tiny static library to satisfy linker (-ldshidmini)
 RUN bash -lc 'printf "int dshidmini_placeholder(void){return 0;}\n" > /tmp/placeholder.c && \
-    gf_libafl_cc -c /tmp/placeholder.c -o /tmp/placeholder.o && \
+    stitch_libafl_cc -c /tmp/placeholder.c -o /tmp/placeholder.o && \
     ar rcs /fuzz/install/lib/libdshidmini.a /tmp/placeholder.o'

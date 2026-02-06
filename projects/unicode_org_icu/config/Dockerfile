@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Build and install ICU4C (static libs only)
 WORKDIR /fuzz/src/icu4c/source

@@ -10,7 +10,7 @@ WORKDIR /fuzz/src
 # Generate autotools, configure with fuzzing compilers, build static if possible, install
 RUN chmod +x autogen.sh && \
     ./autogen.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --enable-static --disable-shared && \
     make -j"$(nproc)" && \
     make install

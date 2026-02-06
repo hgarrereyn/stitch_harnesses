@@ -13,9 +13,9 @@ RUN mkdir -p /fuzz/install/include && \
 
 # Build a tiny static library named liblgraph.a that implements minimal exception symbols
 RUN cat > /tmp/min.cpp <<'EOF' && \
-    gf_libafl_cxx -c /tmp/min.cpp -I/fuzz/install/include -o /tmp/min.o && \
+    stitch_libafl_cxx -c /tmp/min.cpp -I/fuzz/install/include -o /tmp/min.o && \
     echo "int tugraph_dummy(void){return 0;}" > /tmp/dummy.c && \
-    gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
+    stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
     ar rcs /fuzz/install/lib/liblgraph.a /tmp/min.o /tmp/dummy.o && \
     rm -f /tmp/min.cpp /tmp/min.o /tmp/dummy.c /tmp/dummy.o
 #include "lgraph/lgraph_exceptions.h"

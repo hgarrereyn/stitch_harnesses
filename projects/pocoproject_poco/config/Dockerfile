@@ -26,8 +26,8 @@ RUN set -eux; \
     cd /fuzz/build && \
     cmake /fuzz/src \
       -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
       -DBUILD_SHARED_LIBS=OFF \
       -DPOCO_MINIMAL_BUILD=ON \

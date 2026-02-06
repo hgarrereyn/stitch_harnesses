@@ -20,8 +20,8 @@ RUN mkdir -p /tmp/rbxutil && \
     printf "install(FILES\n  /fuzz/src/machine/defines.hpp\n  /fuzz/src/machine/spinlock.hpp\n  /fuzz/src/machine/logger.hpp\n  DESTINATION include/rubinius)\n" >> /tmp/rbxutil/CMakeLists.txt && \
     printf "install(FILES\n  /fuzz/src/machine/util/optimize.hpp\n  /fuzz/src/machine/util/file.hpp\n  /fuzz/src/machine/util/timer.hpp\n  DESTINATION include/rubinius/util)\n" >> /tmp/rbxutil/CMakeLists.txt && \
     cmake -S /tmp/rbxutil -B /tmp/rbxutil/build -G Ninja \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install && \
     cmake --build /tmp/rbxutil/build --config Release && \

@@ -14,7 +14,7 @@ WORKDIR /fuzz/src
 RUN ./autogen || ./autogen.sh
 
 # Configure with fuzzing compilers and static libs only
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure \
     --prefix=/fuzz/install \
     --disable-shared \

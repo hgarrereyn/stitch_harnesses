@@ -30,7 +30,7 @@ RUN set -eux; \
     cd /fuzz/src/src; \
     INCS="-I/fuzz/install/nginx/src/core -I/fuzz/install/nginx/src/event -I/fuzz/install/nginx/src/http -I/fuzz/install/nginx/src/http/modules -I/fuzz/install/nginx/src/os/unix -I/fuzz/install/nginx/objs"; \
     for c in *.c; do \
-      gf_libafl_cc -O2 -fPIC $INCS -c "$c" -o "/fuzz/build/${c%.c}.o"; \
+      stitch_libafl_cc -O2 -fPIC $INCS -c "$c" -o "/fuzz/build/${c%.c}.o"; \
     done; \
     ar rcs /fuzz/install/lib/libheaders_more.a /fuzz/build/*.o; \
     cp -a *.h /fuzz/install/include/

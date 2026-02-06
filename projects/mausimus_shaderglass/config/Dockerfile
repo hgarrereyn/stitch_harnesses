@@ -11,6 +11,6 @@ RUN set -eux; \
     cp -v /fuzz/src/ShaderGC/ShaderCache.h /fuzz/install/include/; \
     cp -v /fuzz/src/ShaderGC/ShaderGC.h /fuzz/install/include/; \
     printf "void __shadergc_dummy(void){}\n" > /tmp/dummy.c; \
-    gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o; \
+    stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o; \
     ar rcs /fuzz/install/lib/libshadergc.a /tmp/dummy.o; \
     rm -f /tmp/dummy.c /tmp/dummy.o

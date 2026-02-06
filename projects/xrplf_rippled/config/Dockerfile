@@ -9,6 +9,6 @@ RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cp -r include/xrpl /fuzz/install/include/
 
 # Create an empty static library archive to satisfy linker (-lxrpl)
-RUN ${CC:-gf_libafl_cc} -xc -c -o /tmp/empty.o /dev/null && \
+RUN ${CC:-stitch_libafl_cc} -xc -c -o /tmp/empty.o /dev/null && \
     ar rcs /fuzz/install/lib/libxrpl.a /tmp/empty.o && \
     rm -f /tmp/empty.o

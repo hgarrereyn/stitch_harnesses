@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends cmake make pkg-
 # Configure, build, and install zlib-ng as a static library
 WORKDIR /fuzz/src
 RUN cmake -S . -B build -G "Unix Makefiles" \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTING=OFF \

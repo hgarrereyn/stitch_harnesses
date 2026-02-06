@@ -2,8 +2,8 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # No extra dependencies needed for building the version library
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Build a tiny static library exposing Sorbet's version API and install headers
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include && \

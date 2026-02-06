@@ -37,8 +37,8 @@ RUN bash -lc 'if [ ! -f /usr/local/include/sal.h ]; then \
   "#endif" \
   > /usr/local/include/sal.h; fi'
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Install headers and create a dummy static library for linking
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \

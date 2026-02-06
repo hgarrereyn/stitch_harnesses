@@ -13,13 +13,13 @@ ENV INSTALL_PREFIX=/fuzz/install
 RUN mkdir -p ${INSTALL_PREFIX}/lib ${INSTALL_PREFIX}/include && \
     mkdir -p /tmp/build && cd /tmp/build && \
     cp -r /fuzz/src/aios/autil/autil ${INSTALL_PREFIX}/include/autil && \
-    gf_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
+    stitch_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
       -c /fuzz/src/aios/autil/autil/StringUtil.cpp -o StringUtil.o && \
-    gf_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
+    stitch_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
       -c /fuzz/src/aios/autil/autil/Lock.cpp -o Lock.o && \
-    gf_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
+    stitch_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
       -c /fuzz/src/aios/autil/autil/TimeUtility.cpp -o TimeUtility.o && \
-    gf_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
+    stitch_libafl_cxx -O2 -fPIC -I/fuzz/src/aios/autil \
       -c /fuzz/src/aios/autil/autil/ShortString.cpp -o ShortString.o && \
     ar rcs ${INSTALL_PREFIX}/lib/libautil.a StringUtil.o Lock.o TimeUtility.o ShortString.o && \
     rm -rf /tmp/build

@@ -6,7 +6,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ca-certificates pkg-config file && \
     rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install SRCDIR=/fuzz/src
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install SRCDIR=/fuzz/src
 RUN mkdir -p ${PREFIX}/include ${PREFIX}/lib /tmp/rgfw-build && \
     printf "#define RGFW_IMPLEMENTATION\n#define RGFW_EXPORT\n#include \"RGFW.h\"\n" > /tmp/rgfw-build/rgfw.c && \
     ${CC} -O2 -fPIC -I${SRCDIR} -c /tmp/rgfw-build/rgfw.c -o /tmp/rgfw-build/rgfw.o && \

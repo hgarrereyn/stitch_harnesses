@@ -10,8 +10,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 RUN pip3 install --no-cache-dir meson
 
 # Build and install dav1d statically with meson/ninja
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PKG_CONFIG_PATH=/fuzz/install/lib/pkgconfig
 
 WORKDIR /fuzz/src

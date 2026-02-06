@@ -14,8 +14,8 @@ WORKDIR /fuzz/src
 # Configure with fuzzing compilers and disable heavy optional components
 RUN cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DBUILD_VIEWER=OFF \
     -DENABLE_WAYLAND=OFF \

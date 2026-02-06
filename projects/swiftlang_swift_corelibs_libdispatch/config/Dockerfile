@@ -18,8 +18,8 @@ WORKDIR /fuzz/src
 
 # Use Ninja and install to /fuzz/install, build static libs only
 RUN cmake -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DCMAKE_INSTALL_LIBDIR=lib \
     -DBUILD_SHARED_LIBS=OFF \

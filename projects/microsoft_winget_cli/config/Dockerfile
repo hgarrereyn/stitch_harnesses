@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends zlib1g-dev ca-certificates make binutils && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Install headers and create a small static library from non-zlib-dependent routines
 RUN set -eux; \

@@ -36,6 +36,6 @@ bool CalcModelPredictionFlat(ModelCalcerHandle*, size_t, const float**, size_t, 
 bool CalcModelPredictionFlatStaged(ModelCalcerHandle*, size_t, size_t, size_t, const float**, size_t, double*, size_t) { return false; }
 EOF
 
-RUN gf_libafl_cc -c -O2 -fPIC -I/fuzz/install/include -o /tmp/catboost_stub.o /tmp/catboost_stub.c && \
+RUN stitch_libafl_cc -c -O2 -fPIC -I/fuzz/install/include -o /tmp/catboost_stub.o /tmp/catboost_stub.c && \
     ar rcs /fuzz/install/lib/libcatboostmodel_static.a /tmp/catboost_stub.o && \
     rm -f /tmp/catboost_stub.c /tmp/catboost_stub.o

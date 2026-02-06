@@ -12,7 +12,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Build and install libtpms
 WORKDIR /fuzz/src
 RUN ./autogen.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --libdir=/fuzz/install/lib \
                 --disable-shared --enable-static \
                 --with-openssl --with-tpm2 \

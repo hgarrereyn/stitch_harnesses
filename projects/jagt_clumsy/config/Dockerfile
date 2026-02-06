@@ -1,7 +1,7 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install SRC=/fuzz/src
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install SRC=/fuzz/src
 
 RUN mkdir -p /fuzz/stubs/include /fuzz/build ${PREFIX}/include ${PREFIX}/lib && \
     printf "#ifndef WINDOWS_H_STUB\n#define WINDOWS_H_STUB\n#include <stdint.h>\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n static inline void OutputDebugString(const char*){}\n static inline void DebugBreak(void){}\n static inline unsigned int timeBeginPeriod(unsigned int u){return 0;}\n static inline unsigned int timeEndPeriod(unsigned int u){return 0;}\n#ifdef __cplusplus\n}\n#endif\n#endif\n" > /fuzz/stubs/include/Windows.h && \

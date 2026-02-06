@@ -20,10 +20,10 @@ project(graphscope_utils LANGUAGES CXX)
 
 # Enforce compilers and install prefix
 if(NOT CMAKE_C_COMPILER)
-  set(CMAKE_C_COMPILER gf_libafl_cc)
+  set(CMAKE_C_COMPILER stitch_libafl_cc)
 endif()
 if(NOT CMAKE_CXX_COMPILER)
-  set(CMAKE_CXX_COMPILER gf_libafl_cxx)
+  set(CMAKE_CXX_COMPILER stitch_libafl_cxx)
 endif()
 set(CMAKE_INSTALL_PREFIX /fuzz/install CACHE PATH "" FORCE)
 set(CMAKE_CXX_STANDARD 17)
@@ -67,8 +67,8 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/flex/utils/error_pb/interactive.pb.h D
 EOF
 
 RUN cmake -S /work -B /work/build -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install && \
     cmake --build /work/build --target install -j$(nproc)

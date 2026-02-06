@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build and install Dropbear
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Configure: disable PAM and zlib to keep dependencies minimal, install to /fuzz/install
 RUN ./configure --prefix=/fuzz/install --disable-pam --disable-zlib

@@ -7,8 +7,8 @@ FROM ${BASE_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 
 # No extra system deps are needed; use the provided compilers.
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     INSTALL_PREFIX=/fuzz/install
 
 RUN set -eux; \

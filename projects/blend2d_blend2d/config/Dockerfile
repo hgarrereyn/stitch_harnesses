@@ -23,8 +23,8 @@ RUN cmake -S /fuzz/src -B /fuzz/build \
     -DBLEND2D_TEST=OFF \
     -DBLEND2D_DEMOS=OFF \
     -DBLEND2D_NO_INSTALL=OFF \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx
 
 RUN cmake --build /fuzz/build --config Release && \
     cmake --install /fuzz/build

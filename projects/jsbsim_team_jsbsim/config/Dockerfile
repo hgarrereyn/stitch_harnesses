@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # Configure, build, and install JSBSim as a static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/build
 RUN cmake -G Ninja \
@@ -15,8 +15,8 @@ RUN cmake -G Ninja \
     -B /fuzz/build \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_DOCS=OFF \
     -DBUILD_PYTHON_MODULE=OFF \

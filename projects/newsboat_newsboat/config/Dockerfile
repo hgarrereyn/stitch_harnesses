@@ -23,7 +23,7 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-too
     rustc --version && cargo --version
 
 # Build static libraries and prepare install
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx CXX_FOR_BUILD=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx CXX_FOR_BUILD=stitch_libafl_cxx
 WORKDIR /fuzz/src
 
 # Configure and build

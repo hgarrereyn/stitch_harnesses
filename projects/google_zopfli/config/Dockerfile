@@ -6,7 +6,7 @@ WORKDIR /fuzz/src
 
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include /tmp/build \
  && cd /tmp/build \
- && gf_libafl_cc -O2 -W -Wall -Wextra -Wno-unused-function -DNDEBUG -c \
+ && stitch_libafl_cc -O2 -W -Wall -Wextra -Wno-unused-function -DNDEBUG -c \
     /fuzz/src/src/zopfli/blocksplitter.c \
     /fuzz/src/src/zopfli/cache.c \
     /fuzz/src/src/zopfli/deflate.c \

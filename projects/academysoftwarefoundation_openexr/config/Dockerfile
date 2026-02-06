@@ -22,7 +22,7 @@ RUN mkdir -p /fuzz/shim/imath_compat && \
     printf "#pragma once\n#include <Imath/ImathConfig.h>\n" > /fuzz/shim/imath_compat/ImathConfig.h
 
 # Configure and build OpenEXR statically
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN cmake -S /fuzz/src -B /fuzz/build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \

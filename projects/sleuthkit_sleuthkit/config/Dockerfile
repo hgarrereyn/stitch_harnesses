@@ -15,7 +15,7 @@ WORKDIR /fuzz/src
 RUN ./bootstrap
 
 # Configure with fuzzing compilers and install prefix; prefer static libs
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure \
     --prefix=/fuzz/install \
     --disable-shared --enable-static \

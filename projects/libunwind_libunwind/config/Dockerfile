@@ -13,7 +13,7 @@ WORKDIR /fuzz/src
 RUN autoreconf -i
 
 # Configure: static only; disable optional libs to keep dependencies minimal
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure \
     --prefix=/fuzz/install \
     --disable-shared --enable-static \

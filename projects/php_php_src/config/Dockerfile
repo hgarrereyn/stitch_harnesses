@@ -21,7 +21,7 @@ WORKDIR /fuzz/src
 RUN ./buildconf -f
 
 # Configure minimal static embed library build
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure \
     --prefix=/fuzz/install \
     --enable-embed=static \

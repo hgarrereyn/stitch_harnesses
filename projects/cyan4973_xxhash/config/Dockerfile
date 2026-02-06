@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends sed gawk && rm 
 WORKDIR /fuzz/src
 
 # Use fuzzer compilers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Build only the static library
 RUN make -j"$(nproc)" libxxhash.a CC=${CC}

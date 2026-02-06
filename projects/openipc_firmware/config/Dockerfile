@@ -13,7 +13,7 @@ RUN cp -r /fuzz/src/general/package/legacy/rcjoystick/src/*.h /fuzz/install/incl
     cp -r /fuzz/src/general/package/legacy/rcjoystick/src/minimal /fuzz/install/include/mavlink/ && \
     cp -r /fuzz/src/general/package/legacy/rcjoystick/src/standard /fuzz/install/include/mavlink/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Nothing to build; headers only. Ensure directory exists for libs in case linker searches it.
 RUN mkdir -p /fuzz/install/lib

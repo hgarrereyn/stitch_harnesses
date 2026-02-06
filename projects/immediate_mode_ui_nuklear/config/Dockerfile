@@ -24,6 +24,6 @@ RUN set -eux; \
       '#define NK_INCLUDE_STANDARD_BOOL' \
       '#include "nuklear.h"' \
       > /fuzz/build/nuklear_impl.c \
- && gf_libafl_cc -O2 -fPIC -I/fuzz/src -c /fuzz/build/nuklear_impl.c -o /fuzz/build/nuklear_impl.o \
+ && stitch_libafl_cc -O2 -fPIC -I/fuzz/src -c /fuzz/build/nuklear_impl.c -o /fuzz/build/nuklear_impl.o \
  && ar rcs /fuzz/install/lib/libnuklear.a /fuzz/build/nuklear_impl.o \
  && ranlib /fuzz/install/lib/libnuklear.a

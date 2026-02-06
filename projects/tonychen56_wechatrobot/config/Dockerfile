@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends binutils && rm 
 # We provide a stub static library that matches the signatures in WeChatHelper/Function.h so that
 # fuzzers can link against the API surface.
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 RUN mkdir -p ${PREFIX}/include/WeChatHelper ${PREFIX}/lib && \
     cp -v /fuzz/src/WeChatHelper/Function.h ${PREFIX}/include/WeChatHelper/Function.h && \

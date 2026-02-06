@@ -9,7 +9,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 
 # Use fuzzing compilers
-ENV CC=gf_libafl_cc
+ENV CC=stitch_libafl_cc
 
 # Configure, build, and install nginx to /fuzz/install
 RUN ./auto/configure --prefix=/fuzz/install \

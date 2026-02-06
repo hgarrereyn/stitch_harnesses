@@ -18,4 +18,4 @@ RUN bash -lc 'printf "#ifndef LUA_H\n#define LUA_H\n#ifdef __cplusplus\nextern \
 # Create a tiny dummy static library
 RUN bash -lc "printf '' | ar rcs ${PREFIX}/lib/libngx_http_lua_stub.a"
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

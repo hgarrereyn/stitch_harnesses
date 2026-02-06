@@ -13,7 +13,7 @@ ENV PREFIX=/fuzz/install
 WORKDIR /fuzz/src
 
 # Build and install a static library from all compiled objects, excluding the program entry point
-RUN make linux RELEASE=1 CC=gf_libafl_cc EXTRA_CFLAGS="-fPIC -ffunction-sections -fdata-sections" && \
+RUN make linux RELEASE=1 CC=stitch_libafl_cc EXTRA_CFLAGS="-fPIC -ffunction-sections -fdata-sections" && \
     mkdir -p ${PREFIX}/lib ${PREFIX}/include/classicube && \
     OBJ_FILES=$(find build/linux -type f -name '*.o' ! -name 'Platform_Posix.o') && \
     ar rcs ${PREFIX}/lib/libclassiscube.a ${OBJ_FILES} && \

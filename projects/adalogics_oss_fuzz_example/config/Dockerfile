@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 # Install any extra dependencies (none needed for this minimal C library)
 # Build and install a static library to /fuzz/install using required compilers
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 RUN mkdir -p ${PREFIX}/lib ${PREFIX}/include

@@ -10,5 +10,5 @@ RUN mkdir -p ${PREFIX}/include \
     && cp /fuzz/src/olcPixelGameEngine.h ${PREFIX}/include/
 
 # No build step required (header-only). Ensure compilers are set for downstream builds
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx

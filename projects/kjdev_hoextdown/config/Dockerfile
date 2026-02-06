@@ -8,6 +8,6 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Build and install
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 RUN make -j"$(nproc)" && make PREFIX=/fuzz/install install

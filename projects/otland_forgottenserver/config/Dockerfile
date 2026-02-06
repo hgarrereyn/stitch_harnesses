@@ -19,7 +19,7 @@ RUN find /fuzz/src/src -name "*.cpp" -type f -print0 | xargs -0 sed -i 's/\bstd:
 
 # Configure and build the project (disable HTTP to avoid Boost::json requirement)
 WORKDIR /fuzz/build
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN cmake -G Ninja \
     -S /fuzz/src \
     -B /fuzz/build \

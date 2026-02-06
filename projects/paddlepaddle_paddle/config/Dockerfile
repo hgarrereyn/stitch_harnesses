@@ -6,7 +6,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ca-certificates git build-essential \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Prepare install prefix
 RUN mkdir -p /fuzz/install/include/paddle/fluid/inference/api \
@@ -25,5 +25,5 @@ RUN mkdir -p /fuzz/install/include/paddle/fluid/inference/api/crypto \
 
 # Create a tiny dummy static library to satisfy linker flags quickly
 RUN echo 'void __paddle_infer_dummy(){}' > /tmp/d.c \
- && gf_libafl_cc -c /tmp/d.c -o /tmp/d.o \
+ && stitch_libafl_cc -c /tmp/d.c -o /tmp/d.o \
  && ar rcs /fuzz/install/lib/libpaddle_inference.a /tmp/d.o

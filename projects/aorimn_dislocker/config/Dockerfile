@@ -25,7 +25,7 @@ RUN git clone --depth 1 --branch v3.6.0 --recursive https://github.com/Mbed-TLS/
  && rm -rf mbedtls
 
 # Configure, build, and install Dislocker (work around upstream CMake check on 'src' suffix)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN mkdir -p /tmp/proj \
  && cp -a /fuzz/src/. /tmp/proj/ \
  && cmake -G Ninja -DCMAKE_INSTALL_PREFIX=/fuzz/install -DWITH_RUBY=OFF -DCMAKE_BUILD_TYPE=Release -S /tmp/proj -B /tmp/build \

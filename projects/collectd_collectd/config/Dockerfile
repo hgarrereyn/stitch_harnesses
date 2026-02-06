@@ -14,7 +14,7 @@ WORKDIR /fuzz/src
 RUN ./build.sh
 
 # Configure with fuzzing compilers and minimal plugins; install to /fuzz/install
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --disable-all-plugins
 
 # Build and install

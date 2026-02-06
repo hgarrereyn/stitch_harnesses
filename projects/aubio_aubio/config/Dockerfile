@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build and install aubio (static library preferred)
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Fetch waf, configure without external deps, build static only, install to /fuzz/install
 RUN ./scripts/get_waf.sh \

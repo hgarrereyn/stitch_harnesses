@@ -11,11 +11,11 @@ RUN set -eux; \
     # Install public header
     cp "$SRC/gif_lib.h" /fuzz/install/include/; \
     # Compile sources into a static library
-    gf_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/dgif_lib.c" -o obj/dgif_lib.o; \
-    gf_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/egif_lib.c" -o obj/egif_lib.o; \
-    gf_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/gif_err.c" -o obj/gif_err.o; \
-    gf_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/gif_hash.c" -o obj/gif_hash.o; \
-    gf_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/gifalloc.c" -o obj/gifalloc.o; \
-    gf_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/quantize.c" -o obj/quantize.o; \
+    stitch_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/dgif_lib.c" -o obj/dgif_lib.o; \
+    stitch_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/egif_lib.c" -o obj/egif_lib.o; \
+    stitch_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/gif_err.c" -o obj/gif_err.o; \
+    stitch_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/gif_hash.c" -o obj/gif_hash.o; \
+    stitch_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/gifalloc.c" -o obj/gifalloc.o; \
+    stitch_libafl_cc -fPIC -O2 -I"$SRC" -c "$SRC/quantize.c" -o obj/quantize.o; \
     ar rcs /fuzz/install/lib/libgif.a obj/*.o; \
     ranlib /fuzz/install/lib/libgif.a

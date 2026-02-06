@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 # Build and install a minimal static C++ library from AMP's htmlparser (no external deps)
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 

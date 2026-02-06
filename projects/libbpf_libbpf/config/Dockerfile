@@ -11,7 +11,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 
 # Build and install static libbpf
 WORKDIR /fuzz/src/src
-ENV CC=gf_libafl_cc
+ENV CC=stitch_libafl_cc
 ENV PKG_CONFIG=pkg-config
 # Install to /fuzz/install; build only static lib into OBJDIR=build
 RUN make -j"$(nproc)" BUILD_STATIC_ONLY=y OBJDIR=build PREFIX=/fuzz/install && \

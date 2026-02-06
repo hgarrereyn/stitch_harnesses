@@ -8,7 +8,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Set compilers to fuzzing wrappers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Prepare directories
 RUN mkdir -p /fuzz/build /fuzz/install/lib /fuzz/install/include/riskfolio

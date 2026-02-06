@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates build-essential && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 WORKDIR /fuzz/src/deps/hiredis
 RUN make -j"$(nproc)" static && \

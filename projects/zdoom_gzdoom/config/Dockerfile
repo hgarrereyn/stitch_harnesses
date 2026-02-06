@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Configure and build ZMusic as a static library
 WORKDIR /fuzz/build/zmusic
 RUN cmake -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DBUILD_SHARED_LIBS=OFF \
     /fuzz/src/libraries/ZMusic && \

@@ -79,8 +79,8 @@ EOF
 RUN set -eux; \
     cmake -S /tmp/winscp-utils-build -B /tmp/winscp-utils-build/out \
       -G Ninja \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install; \
     cmake --build /tmp/winscp-utils-build/out --target install -j$(nproc); \

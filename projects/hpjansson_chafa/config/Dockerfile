@@ -13,7 +13,7 @@ WORKDIR /fuzz/src
 
 # Generate build system and configure
 RUN NOCONFIGURE=1 ./autogen.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure \
       --prefix=/fuzz/install \
       --disable-shared --enable-static \

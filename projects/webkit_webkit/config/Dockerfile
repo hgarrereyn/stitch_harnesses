@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 
 # Build a minimal static xdgmime library from WebKit ThirdParty sources
 RUN set -eux; \
-    export CC=gf_libafl_cc AR=ar; \
+    export CC=stitch_libafl_cc AR=ar; \
     mkdir -p /fuzz/build /fuzz/install/include/xdgmime /fuzz/install/lib; \
     cd /fuzz/build; \
     INCLUDES="-I/fuzz/src/Source/ThirdParty/xdgmime/src"; \

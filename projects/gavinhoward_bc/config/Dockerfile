@@ -5,8 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-cert
 
 WORKDIR /fuzz/src
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 ENV PREFIX=/fuzz/install
 
 RUN ./configure.sh --library --prefix=${PREFIX} && \

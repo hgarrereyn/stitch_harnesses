@@ -12,10 +12,10 @@ RUN python3 -m pip install --no-cache-dir -r /fuzz/src/scripts/basic.requirement
 
 # Configure, build, install static libraries only
 WORKDIR /fuzz/build
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN cmake -G Ninja \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DCMAKE_BUILD_TYPE=Release \
     -DENABLE_TESTING=Off \

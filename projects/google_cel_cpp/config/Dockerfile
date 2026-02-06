@@ -17,7 +17,7 @@ RUN cp -r /fuzz/src/base ${PREFIX}/include/base
 # Build a minimal static library to link against (dummy, for linking stage)
 # Use the required compilers (clang-17 wrappers)
 RUN echo "void cel_dummy_library_symbol(){}" > /tmp/dummy.c && \
-    gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
+    stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
     ar rcs ${PREFIX}/lib/libcel.a /tmp/dummy.o && \
     rm -f /tmp/dummy.c /tmp/dummy.o
 

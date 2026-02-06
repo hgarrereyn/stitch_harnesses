@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Build and install a minimal static Skia library and headers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib
 
 # Copy public headers
@@ -74,6 +74,6 @@ SkPMColor SkPreMultiplyColor(SkColor c) {
 EOF
 
 RUN cd /fuzz/src \
- && gf_libafl_cxx -DNDEBUG -O2 -fPIC -I. -c /tmp/miniskia.cpp -o /tmp/miniskia.o \
+ && stitch_libafl_cxx -DNDEBUG -O2 -fPIC -I. -c /tmp/miniskia.cpp -o /tmp/miniskia.o \
  && ar rcs /fuzz/install/lib/libskia.a /tmp/miniskia.o \
  && rm -f /tmp/miniskia.o /tmp/miniskia.cpp

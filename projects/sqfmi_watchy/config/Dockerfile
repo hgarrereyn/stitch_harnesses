@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Build a minimal static library from the Bosch BMA drivers, compiled as C++
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cd /fuzz/src/src && \

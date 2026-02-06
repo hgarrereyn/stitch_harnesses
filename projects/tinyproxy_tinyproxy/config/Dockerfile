@@ -9,7 +9,7 @@ WORKDIR /fuzz/src
 
 # Generate configure script and configure the project
 RUN ./autogen.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --disable-manpage-support
 
 # Build and install

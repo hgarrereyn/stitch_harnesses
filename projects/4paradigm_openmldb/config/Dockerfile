@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Install public headers only (header-only UDF API)
 RUN mkdir -p /fuzz/install/include/base /fuzz/install/include/udf \

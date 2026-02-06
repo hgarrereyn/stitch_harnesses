@@ -10,7 +10,7 @@ WORKDIR /fuzz/src
 
 # Generate configure script and build static library only
 RUN ./autogen.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --disable-shared --enable-static --without-yaml --prefix=/fuzz/install && \
     make -j"$(nproc)" && \
     make install

@@ -11,5 +11,5 @@ RUN apt-get update && \
 # Create install prefix (no project build required; using system libgit2)
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx

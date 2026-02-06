@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 
 # No extra deps needed for header-only test (using a simple enum header)
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN mkdir -p /fuzz/build && cd /fuzz/build && \
     printf "%s\n" "// minimal stub to produce a static library" "extern \"C\" void amnezia_placeholder(){}" > stub.cpp && \

@@ -33,7 +33,7 @@ RUN mkdir -p /tmp/shim && \
 'int simple_checksum(const unsigned char* data, int len);' \
 '} // namespace djitools' \
 > /tmp/shim/djitools.h && \
-    gf_libafl_cxx -O2 -fPIC -c /tmp/shim/djitools.cpp -o /tmp/shim/djitools.o && \
+    stitch_libafl_cxx -O2 -fPIC -c /tmp/shim/djitools.cpp -o /tmp/shim/djitools.o && \
     ar rcs /tmp/shim/libdjifwtools.a /tmp/shim/djitools.o && \
     mkdir -p ${INSTALL_PREFIX}/lib ${INSTALL_PREFIX}/include && \
     cp /tmp/shim/libdjifwtools.a ${INSTALL_PREFIX}/lib/ && \

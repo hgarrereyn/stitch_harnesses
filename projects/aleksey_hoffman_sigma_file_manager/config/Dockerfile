@@ -5,8 +5,8 @@ FROM ${BASE_IMAGE}
 # to satisfy the build/link steps and provide a stable API surface for fuzzing harnesses.
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Install prefix
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib

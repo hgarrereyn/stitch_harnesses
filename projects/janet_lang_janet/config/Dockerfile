@@ -13,7 +13,7 @@ WORKDIR /fuzz/src
 # Build and install Janet
 ENV PREFIX=/fuzz/install
 RUN make -j"$(nproc)" \
-      CC=gf_libafl_cc HOSTCC=gf_libafl_cc \
+      CC=stitch_libafl_cc HOSTCC=stitch_libafl_cc \
       AR=llvm-ar-17 HOSTAR=llvm-ar-17 \
       PREFIX=${PREFIX} \
   && make install PREFIX=${PREFIX}

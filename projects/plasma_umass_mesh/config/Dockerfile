@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates cmake ninja-build make \
   && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/build
 
 RUN cmake -GNinja -S /fuzz/src -B /fuzz/build -DCMAKE_INSTALL_PREFIX=/fuzz/install

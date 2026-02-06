@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 
 # No extra system dependencies needed; build and install a tiny static lib from the single-header qoi.h
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 WORKDIR /fuzz/src
 

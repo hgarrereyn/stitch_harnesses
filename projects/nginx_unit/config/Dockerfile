@@ -10,8 +10,8 @@ RUN apt-get update && \
 WORKDIR /fuzz/src
 
 # Use the fuzzer compiler wrappers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Configure with a fixed prefix and disable optional deps to keep build small
 RUN ./configure --prefix=/fuzz/install --no-regex && \

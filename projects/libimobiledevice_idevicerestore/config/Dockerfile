@@ -50,7 +50,7 @@ const char* get_component_name(const char* filename){
 EOF
 
 # Build the static library
-RUN gf_libafl_cc -I${PREFIX}/include -c /tmp/idr_stub.c -o /tmp/idr_stub.o \
+RUN stitch_libafl_cc -I${PREFIX}/include -c /tmp/idr_stub.c -o /tmp/idr_stub.o \
  && ar rcs ${PREFIX}/lib/libidevicerestore.a /tmp/idr_stub.o \
  && ranlib ${PREFIX}/lib/libidevicerestore.a
 

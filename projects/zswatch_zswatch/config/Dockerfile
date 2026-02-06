@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 # Install minimal tools to build a tiny static library
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Build and install a minimal static library and public headers subset that are toolchain-only
 # Note: The full firmware project requires Zephyr; for fuzzing we expose portable headers.

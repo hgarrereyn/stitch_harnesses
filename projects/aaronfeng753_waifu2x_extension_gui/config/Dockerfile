@@ -12,6 +12,6 @@ RUN printf '%s\n' '#include <string>' 'extern "C" const char* waifu2x_ex_gui_ver
 RUN printf '%s\n' '#pragma once' '#ifdef __cplusplus' 'extern "C" {' '#endif' 'const char* waifu2x_ex_gui_version();' 'int waifu2x_ex_gui_upscale_preview(const char* path);' '#ifdef __cplusplus' '}' '#endif' > /fuzz/install/include/stubwaifu.h
 
 # Build static library with required compiler wrappers
-RUN gf_libafl_cxx -c /tmp/stubwaifu.cpp -O2 -fPIC -o /tmp/stubwaifu.o && \
+RUN stitch_libafl_cxx -c /tmp/stubwaifu.cpp -O2 -fPIC -o /tmp/stubwaifu.o && \
     ar rcs /fuzz/install/lib/libstubwaifu.a /tmp/stubwaifu.o && \
     ranlib /fuzz/install/lib/libstubwaifu.a

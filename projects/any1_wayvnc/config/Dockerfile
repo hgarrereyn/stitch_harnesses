@@ -19,7 +19,7 @@ RUN mkdir -p subprojects && \
     ln -s /tmp/aml /tmp/neatvnc/subprojects/aml
 
 # Configure, build, and install
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN meson setup build \
     --prefix=/fuzz/install \
     -Dman-pages=disabled \

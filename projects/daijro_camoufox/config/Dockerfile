@@ -25,7 +25,7 @@ inline void printf_stderr(const char* fmt, ...) {
 #endif
 EOF
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Nothing to build; headers are header-only. Ensure presence
 RUN test -f /fuzz/install/include/MouseTrajectories.hpp && test -f /fuzz/install/include/MaskConfig.hpp && test -f /fuzz/install/include/json.hpp

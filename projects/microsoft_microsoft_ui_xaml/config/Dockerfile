@@ -12,6 +12,6 @@ RUN cp -r /fuzz/src/src/external/inc/SafeInt/*.hpp /fuzz/install/include/SafeInt
 
 # Build a tiny static library using the required compilers to satisfy linker
 RUN bash -lc 'printf "int winui_stub_symbol = 0;\n" > /tmp/stub.c && \
-    gf_libafl_cc -c /tmp/stub.c -o /tmp/stub.o && \
+    stitch_libafl_cc -c /tmp/stub.c -o /tmp/stub.o && \
     ar rcs /fuzz/install/lib/libwinui_stub.a /tmp/stub.o && \
     rm -f /tmp/stub.*'

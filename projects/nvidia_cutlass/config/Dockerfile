@@ -9,6 +9,6 @@ RUN set -eux; \
     cp -r /fuzz/src/include/* /fuzz/install/include/
 
 # Environment hints for any subsequent builds (not strictly required here)
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install

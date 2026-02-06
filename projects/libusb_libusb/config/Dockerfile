@@ -13,7 +13,7 @@ WORKDIR /fuzz/src
 RUN ./autogen.sh
 
 # Configure for static library build and install prefix
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --disable-shared --enable-static --prefix=/fuzz/install
 
 # Build and install

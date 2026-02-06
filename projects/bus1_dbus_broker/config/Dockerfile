@@ -16,8 +16,8 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
     && cargo install bindgen-cli --locked --version ">=0.60"
 
 # Build dbus-broker with meson using LibAFL compiler wrappers and disable optional deps
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 RUN meson setup build \

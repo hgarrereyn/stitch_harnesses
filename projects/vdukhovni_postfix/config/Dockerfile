@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /fuzz/src/postfix
 
 # Generate makefiles with our compiler wrappers and disable optional deps
-RUN env -u LD_LIBRARY_PATH make makefiles CC=gf_libafl_cc shared=no dynamicmaps=no \
+RUN env -u LD_LIBRARY_PATH make makefiles CC=stitch_libafl_cc shared=no dynamicmaps=no \
     CCARGS="-DNO_DB -DNO_NIS -DNO_NISPLUS -DNO_PCRE" DEBUG= OPT=
 
 # Build and stage util library and headers

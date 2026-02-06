@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 # Build and install a tiny static library from Asterisk sources (MD5)
 # using the required compilers and install prefix.
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install SRC=/fuzz/src
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install SRC=/fuzz/src
 
 RUN set -eux; \
     mkdir -p /fuzz/build/stub/include/asterisk "$PREFIX"/lib "$PREFIX"/include/asterisk; \

@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 RUN set -eux; \
     mkdir -p /fuzz/install/lib /fuzz/install/include; \
     cd /fuzz/src/ext/yajl; \
-    export CC=gf_libafl_cc; \
+    export CC=stitch_libafl_cc; \
     CFLAGS="-O2 -fPIC -I."; \
     $CC $CFLAGS -c yajl_alloc.c -o yajl_alloc.o; \
     $CC $CFLAGS -c yajl_buf.c -o yajl_buf.o; \

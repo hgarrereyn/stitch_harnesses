@@ -18,7 +18,7 @@ RUN printf "#include <stdint.h>\n#include \"tps61194.h\"\nvoid VSYNC_IRQ(void) {
 
 # Build the static library from the stub implementation
 WORKDIR /fuzz/build
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ${CXX} -std=c++17 -I/fuzz/build -I/fuzz/src/Electronics/Firmware/src/Program/Lib_TPS61194 -c tps61194_stub.cpp -o tps61194_stub.o && \
     ar rcs libnorthstar.a tps61194_stub.o && \
     cp libnorthstar.a /fuzz/install/lib/

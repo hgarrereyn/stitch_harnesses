@@ -15,8 +15,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 RUN cmake -S . -B build \
     -G Ninja \
-    -D CMAKE_C_COMPILER=gf_libafl_cc \
-    -D CMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -D CMAKE_C_COMPILER=stitch_libafl_cc \
+    -D CMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -D CMAKE_INSTALL_PREFIX=/fuzz/install \
     -D BUILD_SHARED_LIBS=OFF \
     -D USE_EXTERNAL_GLFW=IF_POSSIBLE \

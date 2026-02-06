@@ -10,7 +10,7 @@ RUN set -eux; \
     cd /fuzz/src; \
     \
     # Compile lodepng.cpp into an object file using the required compilers
-    gf_libafl_cxx -c lodepng.cpp -O2 -fno-exceptions -fno-rtti -Wall -Wextra -o /fuzz/build/lodepng.o; \
+    stitch_libafl_cxx -c lodepng.cpp -O2 -fno-exceptions -fno-rtti -Wall -Wextra -o /fuzz/build/lodepng.o; \
     \
     # Create a static library
     ar rcs /fuzz/build/liblodepng.a /fuzz/build/lodepng.o; \

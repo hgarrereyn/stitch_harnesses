@@ -6,7 +6,7 @@ FROM ${BASE_IMAGE}
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib /fuzz/build \
  && printf '#ifndef RULES_FUZZING_H\n#define RULES_FUZZING_H\nextern "C" void rules_fuzzing_dummy();\n#endif\n' > /fuzz/install/include/rules_fuzzing.h \
  && printf '#include <stddef.h>\nextern "C" void rules_fuzzing_dummy(){}\n' > /fuzz/build/dummy.cpp \
- && CC=gf_libafl_cc CXX=gf_libafl_cxx gf_libafl_cxx -c /fuzz/build/dummy.cpp -o /fuzz/build/dummy.o \
+ && CC=stitch_libafl_cc CXX=stitch_libafl_cxx stitch_libafl_cxx -c /fuzz/build/dummy.cpp -o /fuzz/build/dummy.o \
  && ar rcs /fuzz/install/lib/librules_fuzzing.a /fuzz/build/dummy.o
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

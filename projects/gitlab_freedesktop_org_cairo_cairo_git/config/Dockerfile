@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && python3 -m pip install --no-cache-dir 'meson>=1.3.0,<1.6'
 
 # Configure, build, and install cairo statically with minimal deps
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 
 # Use a separate build dir and install to /fuzz/install

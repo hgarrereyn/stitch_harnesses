@@ -38,7 +38,7 @@ EOF
 # Build static library from the source file
 RUN set -eux; \
     cd /fuzz/build; \
-    gf_libafl_cxx -I/fuzz/install/include -I/fuzz/src/nav2_voxel_grid/include -include assert.h -fPIC -c /fuzz/src/nav2_voxel_grid/src/voxel_grid.cpp -o voxel_grid.o; \
+    stitch_libafl_cxx -I/fuzz/install/include -I/fuzz/src/nav2_voxel_grid/include -include assert.h -fPIC -c /fuzz/src/nav2_voxel_grid/src/voxel_grid.cpp -o voxel_grid.o; \
     ar rcs /fuzz/install/lib/libnav2_voxel_grid.a voxel_grid.o; \
     ranlib /fuzz/install/lib/libnav2_voxel_grid.a
 

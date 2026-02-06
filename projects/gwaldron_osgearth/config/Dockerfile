@@ -60,6 +60,6 @@ osgEarth::Version osgEarth::parseVersion(const char* in) {
 }
 EOF
 
-RUN gf_libafl_cxx -std=c++17 -I${PREFIX}/include -c /tmp/build/version_shim.cpp -o /tmp/build/version_shim.o && \
+RUN stitch_libafl_cxx -std=c++17 -I${PREFIX}/include -c /tmp/build/version_shim.cpp -o /tmp/build/version_shim.o && \
     ar rcs ${PREFIX}/lib/libosgEarth.a /tmp/build/version_shim.o && \
     rm -rf /tmp/build

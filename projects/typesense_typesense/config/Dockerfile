@@ -17,6 +17,6 @@ RUN cp -r /fuzz/src/include/* ${PREFIX}/include/
 
 # Build a minimal static library to link against
 RUN echo "void __ts_dummy(void){}" > /tmp/dummy.c \
- && gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
+ && stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
  && ar rcs ${PREFIX}/lib/libtypesense.a /tmp/dummy.o \
  && rm -f /tmp/dummy.c /tmp/dummy.o

@@ -11,7 +11,7 @@ WORKDIR /fuzz/src
 # Use autopoint to provide gettext infrastructure, then autoreconf, then build/install
 RUN autopoint -f && autoreconf -fi && \
     mkdir -p build && cd build && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ../configure \
       --prefix=/fuzz/install \
       --disable-shared --enable-static \

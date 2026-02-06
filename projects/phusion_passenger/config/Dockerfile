@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build a minimal static library from the C++ supportlib (oxt)
 # and install headers for inclusion
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN set -eux; \
     install -d /fuzz/install/include/passenger /fuzz/install/lib /tmp/build_oxt; \

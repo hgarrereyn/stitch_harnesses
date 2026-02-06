@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Build and install jq as a static library with builtin oniguruma
 WORKDIR /fuzz/src
 RUN autoreconf -fi
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --disable-shared --enable-static \
     --with-oniguruma=builtin \
     --prefix=/fuzz/install

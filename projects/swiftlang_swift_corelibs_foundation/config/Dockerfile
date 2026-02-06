@@ -15,7 +15,7 @@ RUN mkdir -p /fuzz/install/lib && \
     typedef struct _xmlParserCtxt *_CFXMLInterfaceParserContext;
     int _CFXMLInterfaceSAX2GetLineNumber(_CFXMLInterfaceParserContext ctx) { (void)ctx; return 0; }
 EOF
-RUN gf_libafl_cc -c -O2 -fPIC -o /tmp/cfxml_stub.o /tmp/cfxml_stub.c && \
+RUN stitch_libafl_cc -c -O2 -fPIC -o /tmp/cfxml_stub.o /tmp/cfxml_stub.c && \
     ar rcs /fuzz/install/lib/libcfxmlstub.a /tmp/cfxml_stub.o && \
     ranlib /fuzz/install/lib/libcfxmlstub.a
 

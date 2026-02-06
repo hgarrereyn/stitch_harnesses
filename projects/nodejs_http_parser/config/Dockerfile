@@ -10,7 +10,7 @@ WORKDIR /fuzz/src
 
 # Build only the static library (libhttp_parser.a) using the required compiler
 RUN make clean || true \
- && make CC=gf_libafl_cc AR=ar package \
+ && make CC=stitch_libafl_cc AR=ar package \
  && install -d /fuzz/install/include /fuzz/install/lib \
  && install -m644 http_parser.h /fuzz/install/include/ \
  && install -m644 libhttp_parser.a /fuzz/install/lib/

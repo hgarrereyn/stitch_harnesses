@@ -14,7 +14,7 @@ RUN mkdir -p /fuzz/install/include/nextcommon /fuzz/install/lib /tmp/build && \
     cp -r /fuzz/src/engine/common/include/*.h /fuzz/install/include/nextcommon/
 
 # Build static library with fuzzing compilers
-RUN gf_libafl_cxx -fPIC -O2 -I/fuzz/src/engine/common/include -c /fuzz/src/engine/common/src/NextDictionary.cpp -o /tmp/build/NextDictionary.o && \
-    gf_libafl_cxx -fPIC -O2 -I/fuzz/src/engine/common/include -c /fuzz/src/engine/common/src/NextLog.cpp -o /tmp/build/NextLog.o && \
+RUN stitch_libafl_cxx -fPIC -O2 -I/fuzz/src/engine/common/include -c /fuzz/src/engine/common/src/NextDictionary.cpp -o /tmp/build/NextDictionary.o && \
+    stitch_libafl_cxx -fPIC -O2 -I/fuzz/src/engine/common/include -c /fuzz/src/engine/common/src/NextLog.cpp -o /tmp/build/NextLog.o && \
     ar rcs /fuzz/install/lib/libnextcommon.a /tmp/build/NextDictionary.o /tmp/build/NextLog.o && \
     ranlib /fuzz/install/lib/libnextcommon.a

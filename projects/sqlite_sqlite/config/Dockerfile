@@ -16,7 +16,7 @@ RUN ./configure \
     --prefix=/fuzz/install \
     --disable-shared \
     --enable-static \
-    CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
  && make -j$(nproc) \
  && make install

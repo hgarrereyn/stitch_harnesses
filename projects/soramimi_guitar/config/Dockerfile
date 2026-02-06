@@ -14,7 +14,7 @@ RUN mkdir -p /fuzz/build "$PREFIX"/lib "$PREFIX"/include/soramimi_guitar
 WORKDIR /fuzz/build
 
 # Compile objects with the provided clang wrappers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN SRCDIR=/fuzz/src/src && \
     $CXX -O2 -fPIC -I"$SRCDIR" -I"$SRCDIR/common" -c "$SRCDIR/webclient.cpp" -o webclient.o && \
     $CXX -O2 -fPIC -I"$SRCDIR" -I"$SRCDIR/common" -c "$SRCDIR/inetresolver.cpp" -o inetresolver.o && \

@@ -8,8 +8,8 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Set compilers to fuzzer wrappers
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Configure, build, and install libpsl statically using Meson
 WORKDIR /fuzz/src

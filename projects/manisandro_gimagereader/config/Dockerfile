@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # Build a minimal static library from the reusable common components of gImageReader
 # and install headers for linking.
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     INSTALL_PREFIX=/fuzz/install
 
 RUN set -eux; \

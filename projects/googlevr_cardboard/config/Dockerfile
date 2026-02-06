@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Use the provided fuzzing compiler wrappers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Prepare install tree and copy public headers
 RUN mkdir -p /fuzz/build /fuzz/install/include /fuzz/install/lib && \

@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends binutils findut
 
 # Build static libraries with the provided Makefile
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc
+ENV CC=stitch_libafl_cc
 # Avoid treating warnings as errors to make builds robust under different compilers
 ENV WNOERROR=1
 RUN make -j$(nproc)
@@ -17,4 +17,4 @@ RUN mkdir -p /fuzz/install/include /fuzz/install/lib \
     && cp build/*.a /fuzz/install/lib/
 
 # Build and install external dependency objects needed at link time
-RUN gf_libafl_cc -DWITH_STDLIB -c src/external_deps/rand.c -o /fuzz/install/lib/rand.o
+RUN stitch_libafl_cc -DWITH_STDLIB -c src/external_deps/rand.c -o /fuzz/install/lib/rand.o

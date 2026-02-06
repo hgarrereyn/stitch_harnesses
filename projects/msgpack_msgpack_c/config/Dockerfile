@@ -12,4 +12,4 @@ RUN mkdir -p /fuzz/install/include /fuzz/install/lib /fuzz/install/share \
  && cp -a /usr/lib/x86_64-linux-gnu/libmsgpackc.* /fuzz/install/lib/ || true
 
 # No build is required because the C++ API is header-only and C lib is provided by the system package
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

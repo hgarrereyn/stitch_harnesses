@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 # Install minimal tools needed to build a static library
 RUN apt-get update && apt-get install -y --no-install-recommends binutils && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 # Build a static library from pak_src (exclude CLI main.c) and install headers
 RUN set -eux; \

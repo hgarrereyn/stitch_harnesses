@@ -20,7 +20,7 @@ RUN mkdir -p /fuzz/install/include/lib && \
 
 # Build a minimal static libfrr with a subset of sources sufficient for linking
 RUN mkdir -p /fuzz/build && \
-    gf_libafl_cc -c -O2 -fPIC -I. -Ilib -o /fuzz/build/base64.o lib/base64.c && \
+    stitch_libafl_cc -c -O2 -fPIC -I. -Ilib -o /fuzz/build/base64.o lib/base64.c && \
     ar rcs /fuzz/build/libfrr.a /fuzz/build/base64.o && \
     mkdir -p /fuzz/install/lib && \
     cp /fuzz/build/libfrr.a /fuzz/install/lib/

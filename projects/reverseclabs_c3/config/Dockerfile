@@ -16,6 +16,6 @@ RUN cp -r /fuzz/src/Src/Common/json ${PREFIX}/include/Common/ \
 
 # Build a tiny static library to satisfy linking (-lc3)
 RUN echo "void c3_dummy(){}" > /tmp/dummy.c \
-    && gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
+    && stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
     && ar rcs ${PREFIX}/lib/libc3.a /tmp/dummy.o \
     && rm -f /tmp/dummy.c /tmp/dummy.o

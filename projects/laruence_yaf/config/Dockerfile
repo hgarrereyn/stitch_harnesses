@@ -11,9 +11,9 @@ ENV INSTALL_PREFIX=/fuzz/install
 # Build and "install" Yaf into /fuzz/install
 WORKDIR /fuzz/src
 
-# Use gf_libafl_cc/gf_libafl_cxx for compilation via ./configure
+# Use stitch_libafl_cc/stitch_libafl_cxx for compilation via ./configure
 RUN phpize \
- && CC=gf_libafl_cc CXX=gf_libafl_cxx ./configure \
+ && CC=stitch_libafl_cc CXX=stitch_libafl_cxx ./configure \
  && make -j"$(nproc)"
 
 # Stage install: copy artifacts to /fuzz/install

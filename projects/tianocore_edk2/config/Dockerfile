@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build the BaseTools Common static library with the fuzzing compiler wrappers
 WORKDIR /fuzz/src/BaseTools/Source/C/Common
-ENV CC=gf_libafl_cc
+ENV CC=stitch_libafl_cc
 # Build only the Common library to avoid extra tool dependencies
 RUN make HOST_ARCH=X64
 

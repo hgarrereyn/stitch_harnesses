@@ -8,7 +8,7 @@ RUN set -eux; \
     install -d /fuzz/install/include /fuzz/install/lib /tmp/build; \
     cp /fuzz/src/src_c/include/bitmask.h /fuzz/install/include/; \
     cd /tmp/build; \
-    gf_libafl_cc -O2 -c /fuzz/src/src_c/bitmask.c -I/fuzz/install/include -o bitmask.o; \
+    stitch_libafl_cc -O2 -c /fuzz/src/src_c/bitmask.c -I/fuzz/install/include -o bitmask.o; \
     ar rcs libbitmask.a bitmask.o; \
     ranlib libbitmask.a || true; \
     cp libbitmask.a /fuzz/install/lib/; \

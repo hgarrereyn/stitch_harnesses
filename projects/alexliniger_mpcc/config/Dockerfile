@@ -11,8 +11,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 
 WORKDIR /fuzz/src/C++
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 RUN bash -lc "./install.sh"
 
@@ -29,10 +29,10 @@ RUN mkdir -p /fuzz/build/mpcc && \
           MPC/mpc.cpp" && \
     for f in $SRCs; do \
       echo Compiling $f; \
-      gf_libafl_cxx $CXXFLAGS $INCS -c $f -o /fuzz/build/mpcc/$(basename $f).o; \
+      stitch_libafl_cxx $CXXFLAGS $INCS -c $f -o /fuzz/build/mpcc/$(basename $f).o; \
     done && \
     echo '#include "MPC/mpc.h"\n#include "Interfaces/hpipm_interface.h"\n#include <array>\nnamespace mpcc {\nstd::array<OptVariables,N+1> HpipmInterface::solveMPC(std::array<Stage,N+1>&, const State&, int *status) { if(status) *status = -1; return std::array<OptVariables,N+1>(); }\n}' > /fuzz/build/mpcc/hpipm_interface_stub.cpp && \
-    gf_libafl_cxx $CXXFLAGS $INCS -c /fuzz/build/mpcc/hpipm_interface_stub.cpp -o /fuzz/build/mpcc/hpipm_interface_stub.o && \
+    stitch_libafl_cxx $CXXFLAGS $INCS -c /fuzz/build/mpcc/hpipm_interface_stub.cpp -o /fuzz/build/mpcc/hpipm_interface_stub.o && \
     mkdir -p /fuzz/install/lib /fuzz/install/include/mpcc && \
     ar rcs /fuzz/install/lib/libmpcc.a /fuzz/build/mpcc/*.o && \
     cp -r MPC Model Cost Constraints Params Spline Plotting Interfaces config.h types.h /fuzz/install/include/mpcc/ && \

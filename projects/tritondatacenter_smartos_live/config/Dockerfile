@@ -3,13 +3,13 @@ FROM ${BASE_IMAGE}
 
 # Build a tiny static library from src/nomknod.c and install headers/libs
 # Compilers are provided by the base image (clang-17 wrappers):
-#   C:  gf_libafl_cc
-#   C++: gf_libafl_cxx
+#   C:  stitch_libafl_cc
+#   C++: stitch_libafl_cxx
 
 RUN set -eux; \
     mkdir -p /fuzz/install/include /fuzz/install/lib; \
     cd /fuzz/src; \
-    gf_libafl_cc -O2 -fno-omit-frame-pointer -g -c src/nomknod.c -o /tmp/nomknod.o; \
+    stitch_libafl_cc -O2 -fno-omit-frame-pointer -g -c src/nomknod.c -o /tmp/nomknod.o; \
     ar rcs /fuzz/install/lib/libnomknod.a /tmp/nomknod.o; \
     rm -f /tmp/nomknod.o; \
     printf '%s\n' \

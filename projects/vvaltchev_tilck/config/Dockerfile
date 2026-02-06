@@ -1,8 +1,8 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Install minimal headers and provide generated config stand-ins
 RUN mkdir -p /fuzz/install/include/tilck /fuzz/install/include/tilck_gen_headers && \

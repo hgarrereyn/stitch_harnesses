@@ -11,7 +11,7 @@ RUN mkdir -p /fuzz/install/include/openlara && \
     cp -r /fuzz/src/src/* /fuzz/install/include/openlara/
 
 # Build a tiny static library placeholder for linking
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN mkdir -p /fuzz/build /fuzz/install/lib && \
     echo "int openlara_dummy_symbol = 0;" > /fuzz/build/dummy.c && \
     ${CC} -c /fuzz/build/dummy.c -o /fuzz/build/dummy.o && \

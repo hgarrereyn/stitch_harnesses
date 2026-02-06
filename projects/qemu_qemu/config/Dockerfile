@@ -6,8 +6,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     meson ninja-build pkg-config python3 python3-setuptools python3-venv python3-tomli libglib2.0-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Configure a minimal build that does not build any emulators/tools, to still generate build system
 WORKDIR /fuzz/src

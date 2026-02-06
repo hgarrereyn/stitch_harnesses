@@ -66,6 +66,6 @@ void ASSTAPI AsstLog(const char* /*level*/, const char* /*message*/) {}
 } // extern "C"
 EOF
 
-RUN gf_libafl_cxx -O2 -fPIC -I/fuzz/install/include -c /fuzz/build/maa_stub.cpp -o /fuzz/build/maa_stub.o \
+RUN stitch_libafl_cxx -O2 -fPIC -I/fuzz/install/include -c /fuzz/build/maa_stub.cpp -o /fuzz/build/maa_stub.o \
  && ar rcs /fuzz/install/lib/libMaaCore.a /fuzz/build/maa_stub.o \
  && ranlib /fuzz/install/lib/libMaaCore.a

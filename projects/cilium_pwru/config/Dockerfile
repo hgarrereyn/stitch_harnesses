@@ -14,7 +14,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 WORKDIR /fuzz/src/libpcap
 # Configure, build, and install static libpcap into /fuzz/install using the required compiler
-RUN CC=gf_libafl_cc ./configure \
+RUN CC=stitch_libafl_cc ./configure \
       --disable-protochain \
       --disable-rdma \
       --disable-shared \

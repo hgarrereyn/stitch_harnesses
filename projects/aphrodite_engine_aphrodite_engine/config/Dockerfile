@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build a tiny static library from self-contained core headers only
 # and install headers + lib into /fuzz/install
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN mkdir -p /fuzz/build /fuzz/install/include/aphrodite_kernels/core /fuzz/install/lib && \
     # Copy self-contained public headers

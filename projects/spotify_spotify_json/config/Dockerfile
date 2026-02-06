@@ -12,8 +12,8 @@ RUN cmake -G Ninja \
     -S /fuzz/src \
     -B /tmp/build \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DSPOTIFY_JSON_BUILD_TESTS=OFF \
     -DBUILD_SHARED_LIBS=OFF \

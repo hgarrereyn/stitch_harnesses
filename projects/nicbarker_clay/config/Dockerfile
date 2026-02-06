@@ -11,7 +11,7 @@ RUN mkdir -p /fuzz/install/include /fuzz/install/lib /tmp/build
 RUN printf "#define CLAY_IMPLEMENTATION\n#include \"/fuzz/src/clay.h\"\n" > /tmp/build/clay_lib.c
 
 # Compile and archive into a static library
-RUN gf_libafl_cc -O2 -fPIC -I/fuzz/src -c /tmp/build/clay_lib.c -o /tmp/build/clay_lib.o && \
+RUN stitch_libafl_cc -O2 -fPIC -I/fuzz/src -c /tmp/build/clay_lib.c -o /tmp/build/clay_lib.o && \
     ar rcs /fuzz/install/lib/libclay.a /tmp/build/clay_lib.o
 
 # Install the original header

@@ -12,7 +12,7 @@ WORKDIR /fuzz/src
 
 # Configure and build with CMake
 RUN mkdir -p build && cd build && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     cmake -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \

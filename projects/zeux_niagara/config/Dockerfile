@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 
 # Build a minimal static library from the subset of Niagara that doesn't require external submodules
 # We only compile src/fileutils.cpp into a static lib, and install its header.
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx INSTALL_PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx INSTALL_PREFIX=/fuzz/install
 
 RUN mkdir -p ${INSTALL_PREFIX}/lib ${INSTALL_PREFIX}/include && \
     cd /fuzz/src && \

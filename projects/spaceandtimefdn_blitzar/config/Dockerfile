@@ -29,5 +29,5 @@ RUN printf '%s\n' \
 '  (void)commitments; (void)num_sequences; (void)descriptors; (void)offset_generators; }' \
 '}' > stub.cpp
 
-RUN gf_libafl_cxx -fPIC -shared stub.cpp -I${PREFIX}/include -o ${PREFIX}/lib/libblitzar.so
+RUN stitch_libafl_cxx -fPIC -shared stub.cpp -I${PREFIX}/include -o ${PREFIX}/lib/libblitzar.so
 

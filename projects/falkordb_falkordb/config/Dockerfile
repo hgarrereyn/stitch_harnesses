@@ -23,7 +23,7 @@ EOF
 
 # Build and install the static library and headers
 RUN set -eux; \
-    gf_libafl_cc -fPIC -I./src -Ideps/xxHash -c /tmp/build/minival.c -o /tmp/build/minival.o; \
+    stitch_libafl_cc -fPIC -I./src -Ideps/xxHash -c /tmp/build/minival.c -o /tmp/build/minival.o; \
     ar rcs ${PREFIX}/lib/libfalkordb.a /tmp/build/minival.o; \
     cp src/redismodule.h ${PREFIX}/include/; \
     cp src/RG.h ${PREFIX}/include/; \

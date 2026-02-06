@@ -13,10 +13,10 @@ ENV SRC_DIR=/fuzz/src \
 
 RUN mkdir -p /fuzz/build "$INSTALL_PREFIX/lib" "$INSTALL_PREFIX/include" \
  && cd /fuzz/build \
- && gf_libafl_cc -O2 -fPIC -I"$SRC_DIR" -I"$SRC_DIR/example" \
+ && stitch_libafl_cc -O2 -fPIC -I"$SRC_DIR" -I"$SRC_DIR/example" \
       -DCO_CONFIG_FIFO=CO_CONFIG_FIFO_ENABLE \
       -c "$SRC_DIR/301/CO_fifo.c" -o CO_fifo.o \
- && gf_libafl_cc -O2 -fPIC -I"$SRC_DIR" -I"$SRC_DIR/example" \
+ && stitch_libafl_cc -O2 -fPIC -I"$SRC_DIR" -I"$SRC_DIR/example" \
       -c "$SRC_DIR/301/crc16-ccitt.c" -o crc16-ccitt.o \
  && ar rcs libcanopennode.a CO_fifo.o crc16-ccitt.o \
  && cp libcanopennode.a "$INSTALL_PREFIX/lib/"

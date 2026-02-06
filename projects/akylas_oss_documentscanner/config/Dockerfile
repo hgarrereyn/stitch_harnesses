@@ -16,7 +16,7 @@ RUN sed -i 's/transform\.starts_with(\"whitepaper\")/transform.rfind(\"whitepape
     sed -i 's/transform\.starts_with(\"color\")/transform.rfind(\"color\", 0) == 0/' /fuzz/src/cpp/src/DocumentDetector.cpp
 
 # Build static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN mkdir -p /fuzz/build /fuzz/install/lib /fuzz/install/include
 
@@ -24,10 +24,10 @@ RUN mkdir -p /fuzz/build /fuzz/install/lib /fuzz/install/include
 RUN set -eux; \
     INC="-I/fuzz/src/cpp/src/include"; \
     CXXFLAGS="-O2 -fPIC $INC $(pkg-config --cflags opencv4)"; \
-    gf_libafl_cxx -c /fuzz/src/cpp/src/Utils.cpp $CXXFLAGS -o /fuzz/build/Utils.o; \
-    gf_libafl_cxx -c /fuzz/src/cpp/src/ColorSimplificationTransform.cpp $CXXFLAGS -o /fuzz/build/ColorSimplificationTransform.o; \
-    gf_libafl_cxx -c /fuzz/src/cpp/src/WhitePaperTransform.cpp $CXXFLAGS -o /fuzz/build/WhitePaperTransform.o; \
-    gf_libafl_cxx -c /fuzz/src/cpp/src/DocumentDetector.cpp $CXXFLAGS -o /fuzz/build/DocumentDetector.o; \
+    stitch_libafl_cxx -c /fuzz/src/cpp/src/Utils.cpp $CXXFLAGS -o /fuzz/build/Utils.o; \
+    stitch_libafl_cxx -c /fuzz/src/cpp/src/ColorSimplificationTransform.cpp $CXXFLAGS -o /fuzz/build/ColorSimplificationTransform.o; \
+    stitch_libafl_cxx -c /fuzz/src/cpp/src/WhitePaperTransform.cpp $CXXFLAGS -o /fuzz/build/WhitePaperTransform.o; \
+    stitch_libafl_cxx -c /fuzz/src/cpp/src/DocumentDetector.cpp $CXXFLAGS -o /fuzz/build/DocumentDetector.o; \
     ar rcs /fuzz/install/lib/libdocumentscanner.a /fuzz/build/*.o
 
 # Install headers (including bundled jsoncons)

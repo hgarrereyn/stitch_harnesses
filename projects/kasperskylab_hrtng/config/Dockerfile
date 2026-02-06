@@ -16,8 +16,8 @@ RUN set -eux; \
     cmake -S . -B build -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DBUILD_SHARED_LIBS=OFF \
       -DCRYPTOPP_BUILD_TESTING=OFF && \
     cmake --build build --target install

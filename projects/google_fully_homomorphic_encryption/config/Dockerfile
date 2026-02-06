@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # No extra system dependencies are required for building a tiny static lib
 # from the repository sources.
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 RUN set -eux; \

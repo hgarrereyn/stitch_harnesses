@@ -7,8 +7,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 WORKDIR /fuzz/src
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cp -r quiche /fuzz/install/include/ && \
     "$CXX" -O2 -fPIC -I/fuzz/src -I/fuzz/src/quiche/common/platform/default \

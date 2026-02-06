@@ -23,6 +23,6 @@ EOF
 RUN set -eux; \
     mkdir -p /fuzz/install/lib; \
     echo 'int hip_stub(void){return 0;}' > /tmp/hip_stub.c; \
-    CC=gf_libafl_cc gf_libafl_cc -c /tmp/hip_stub.c -o /tmp/hip_stub.o; \
+    CC=stitch_libafl_cc stitch_libafl_cc -c /tmp/hip_stub.c -o /tmp/hip_stub.o; \
     ar rcs /fuzz/install/lib/libhip_stub.a /tmp/hip_stub.o; \
     rm -f /tmp/hip_stub.c /tmp/hip_stub.o

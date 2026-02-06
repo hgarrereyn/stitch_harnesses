@@ -30,7 +30,7 @@ RUN set -eux; \
 
 # Compile DFHackVersion.cpp into a static library
 RUN set -eux; \
-    gf_libafl_cxx -c DFHackVersion.cpp \
+    stitch_libafl_cxx -c DFHackVersion.cpp \
       -O2 -fPIC \
       -I./include \
       -DDFHACK_VERSION='"53.10-r1"' \

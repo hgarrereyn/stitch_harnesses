@@ -12,9 +12,9 @@ ENV SRC=/fuzz/src \
 RUN mkdir -p ${BUILD} ${PREFIX}/include ${PREFIX}/lib \
  && printf "#ifndef KAMYU_LEETCODE_H\n#define KAMYU_LEETCODE_H\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint kamyu_sum(int a, int b);\n#ifdef __cplusplus\n}\n#endif\n#endif\n" > ${BUILD}/leetcode.h \
  && printf "#include \"C++/add-two-integers.cpp\"\nextern \"C\" int kamyu_sum(int a, int b) {\n    Solution s;\n    return s.sum(a,b);\n}\n" > ${BUILD}/wrapper.cpp \
- && gf_libafl_cxx -O2 -fPIC -I${SRC} -c ${BUILD}/wrapper.cpp -o ${BUILD}/wrapper.o \
+ && stitch_libafl_cxx -O2 -fPIC -I${SRC} -c ${BUILD}/wrapper.cpp -o ${BUILD}/wrapper.o \
  && ar rcs ${BUILD}/libleetcode.a ${BUILD}/wrapper.o \
  && cp ${BUILD}/libleetcode.a ${PREFIX}/lib/ \
  && cp ${BUILD}/leetcode.h ${PREFIX}/include/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

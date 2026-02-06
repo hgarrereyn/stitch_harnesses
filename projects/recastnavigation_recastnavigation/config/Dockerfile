@@ -7,7 +7,7 @@ RUN apt-get update && \
         cmake ninja-build && \
     rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 
 # Configure with CMake using Ninja, install to /fuzz/install, static libs only, disable extras
@@ -19,6 +19,6 @@ RUN cmake -S . -B build \
     -DRECASTNAVIGATION_DEMO=OFF \
     -DRECASTNAVIGATION_TESTS=OFF \
     -DRECASTNAVIGATION_EXAMPLES=OFF \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx && \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx && \
     cmake --build build --target install --config Release

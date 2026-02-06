@@ -27,7 +27,7 @@ RUN mkdir -p /fuzz/build /fuzz/install/include /fuzz/install/lib && \
 '// This TU ensures we can produce a static archive for linking.' \
 'void __cpalgorithms_archive_anchor() {}' \
     > /fuzz/build/cp_algorithms.cpp && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx gf_libafl_cxx -c /fuzz/build/cp_algorithms.cpp -o /fuzz/build/cp_algorithms.o && \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx stitch_libafl_cxx -c /fuzz/build/cp_algorithms.cpp -o /fuzz/build/cp_algorithms.o && \
     ar rcs /fuzz/install/lib/libcpalgorithms.a /fuzz/build/cp_algorithms.o && \
     install -m 0644 /fuzz/build/cp_algorithms.h /fuzz/install/include/cp_algorithms.h
 

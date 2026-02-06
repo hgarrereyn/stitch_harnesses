@@ -15,6 +15,6 @@ RUN install -m 0644 -D /fuzz/src/packages/react-native-nitro-modules/cpp/utils/N
 
 # Build a tiny static library to satisfy linker requirements
 RUN echo "void __nitro_placeholder(){}" > /tmp/placeholder.c && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx gf_libafl_cc -c /tmp/placeholder.c -o /tmp/placeholder.o && \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx stitch_libafl_cc -c /tmp/placeholder.c -o /tmp/placeholder.o && \
     ar rcs ${PREFIX}/lib/libnitro.a /tmp/placeholder.o && \
     rm -f /tmp/placeholder.c /tmp/placeholder.o

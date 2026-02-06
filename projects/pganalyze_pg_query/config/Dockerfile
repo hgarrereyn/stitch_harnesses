@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Build static libpg_query from the vendored sources
 ENV SRC_DIR=/fuzz/src/ext/pg_query \
     PREFIX=/fuzz/install \
-    CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+    CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 RUN mkdir -p /build && \
     mkdir -p ${PREFIX}/lib ${PREFIX}/include && \

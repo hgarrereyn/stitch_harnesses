@@ -10,6 +10,6 @@ RUN mkdir -p /fuzz/install/lib /fuzz/install/include && \
     mkdir -p /tmp/ipxe_root && \
     cp -r /fuzz/src/src/include/ipxe /tmp/ipxe_root/ && \
     cd /fuzz/src/src && \
-    gf_libafl_cc -I/tmp/ipxe_root -include /tmp/ipxe_shim.h -c core/base64.c -o /tmp/base64.o && \
+    stitch_libafl_cc -I/tmp/ipxe_root -include /tmp/ipxe_shim.h -c core/base64.c -o /tmp/base64.o && \
     ar rcs /fuzz/install/lib/libipxe.a /tmp/base64.o && \
     cp -r /tmp/ipxe_root/ipxe /fuzz/install/include/

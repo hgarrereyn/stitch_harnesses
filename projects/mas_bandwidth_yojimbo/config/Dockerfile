@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # Install build tools and system libsodium
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates libsodium-dev && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Build static lib and install
 RUN set -eux; \

@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build and install libnestegg statically
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN autoreconf --install --force
 RUN ./configure --prefix=/fuzz/install --disable-shared --enable-static
 RUN make -j"$(nproc)" && make install

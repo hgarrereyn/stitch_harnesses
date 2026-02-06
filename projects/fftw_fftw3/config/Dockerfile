@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Use provided clang wrappers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 
@@ -34,6 +34,6 @@ RUN printf '%s\n' \
   'void *fftw_solvtab_rdft_r2cb = 0;' \
   'void *fftw_solvtab_rdft_r2r = 0;' \
   > /tmp/fftw_stubs.c
-RUN gf_libafl_cc -c /tmp/fftw_stubs.c -o /tmp/fftw_stubs.o && \
+RUN stitch_libafl_cc -c /tmp/fftw_stubs.c -o /tmp/fftw_stubs.o && \
     ar rcs /fuzz/install/lib/libfftw3_stub.a /tmp/fftw_stubs.o && \
     rm -f /tmp/fftw_stubs.c /tmp/fftw_stubs.o

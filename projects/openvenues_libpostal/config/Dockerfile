@@ -12,7 +12,7 @@ WORKDIR /fuzz/src
 RUN ./bootstrap.sh
 
 # Configure for static build, set compilers, install prefix, and disable data download to keep image small
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure \
       --prefix=/fuzz/install \
       --disable-shared --enable-static \

@@ -18,8 +18,8 @@ RUN printf '#ifndef GNUPG_MINI_CONFIG_H\n#define GNUPG_MINI_CONFIG_H\n\n#include
 RUN printf '#include <unistd.h>\n#include <stdlib.h>\nchar *gnupg_getcwd(void){\n  long sz = 4096;\n  char *buf = (char*)malloc(sz);\n  if(!buf) return NULL;\n  if(getcwd(buf, sz)) return buf;\n  free(buf);\n  return NULL;\n}\n' > /fuzz/build_miniconf/mini_shims.c
 
 # Compile a subset of the common module into a static library
-RUN gf_libafl_cc -O2 -I/fuzz/build_miniconf -I/fuzz/src/common -c /fuzz/src/common/stringhelp.c -o /tmp/stringhelp.o && \
-    gf_libafl_cc -O2 -I/fuzz/build_miniconf -I/fuzz/src/common -c /fuzz/src/common/percent.c -o /tmp/percent.o && \
-    gf_libafl_cc -O2 -I/fuzz/build_miniconf -c /fuzz/build_miniconf/mini_shims.c -o /tmp/mini_shims.o && \
+RUN stitch_libafl_cc -O2 -I/fuzz/build_miniconf -I/fuzz/src/common -c /fuzz/src/common/stringhelp.c -o /tmp/stringhelp.o && \
+    stitch_libafl_cc -O2 -I/fuzz/build_miniconf -I/fuzz/src/common -c /fuzz/src/common/percent.c -o /tmp/percent.o && \
+    stitch_libafl_cc -O2 -I/fuzz/build_miniconf -c /fuzz/build_miniconf/mini_shims.c -o /tmp/mini_shims.o && \
     ar rcs /fuzz/install/lib/libcommon.a /tmp/stringhelp.o /tmp/percent.o /tmp/mini_shims.o && \
     install -m 0644 /fuzz/src/common/stringhelp.h /fuzz/src/common/types.h /fuzz/install/include/gnupg/

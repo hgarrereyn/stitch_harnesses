@@ -9,7 +9,7 @@ RUN apt-get update && \
 
 # Build and install pistache statically with Meson
 WORKDIR /fuzz/src
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN meson setup build \
       --buildtype=release \
       --prefix=/fuzz/install \

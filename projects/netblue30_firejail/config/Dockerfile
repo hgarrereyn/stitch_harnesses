@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config gawk make sed coreutils findutils && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 

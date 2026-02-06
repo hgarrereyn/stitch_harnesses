@@ -12,7 +12,7 @@ WORKDIR /fuzz/src
 
 # Install JS deps and generate C sources
 RUN npm ci && \
-    make build/libllhttp.a CLANG=gf_libafl_cc && \
+    make build/libllhttp.a CLANG=stitch_libafl_cc && \
     mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cp build/llhttp.h /fuzz/install/include/llhttp.h && \
     cp build/libllhttp.a /fuzz/install/lib/

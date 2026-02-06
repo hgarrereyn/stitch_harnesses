@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 # Build static library: minizip unzip (portable parts only)
 RUN set -eux; \

@@ -22,7 +22,7 @@ RUN wget -qO /tmp/kitware.sh https://apt.kitware.com/kitware-archive.sh \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure, build, and install only the core static OpenVDB library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 RUN cmake -S . -B build \
     -G Ninja \

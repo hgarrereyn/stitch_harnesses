@@ -6,6 +6,6 @@ RUN set -eux; \
     mkdir -p /fuzz/install/include; \
     cp -v /fuzz/src/cute_*.h /fuzz/install/include/
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install

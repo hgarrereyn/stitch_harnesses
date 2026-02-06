@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Configure and build Tracy as a static library, install to /fuzz/install
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 RUN cmake -S . -B build -G Ninja \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \

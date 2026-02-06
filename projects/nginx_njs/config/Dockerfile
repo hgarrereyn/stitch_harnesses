@@ -10,8 +10,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 WORKDIR /fuzz/src
 
 # Use provided compiler wrappers and build only the static library
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Configure and build (disable optional deps to avoid external link requirements)
 RUN ./configure --build-dir=build --no-openssl --no-libxml2 --no-zlib && \

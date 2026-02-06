@@ -9,8 +9,8 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Build static library from project sources using the provided clang wrappers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Build objects (avoid -Werror) and create a static library, then install headers and lib
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include && \

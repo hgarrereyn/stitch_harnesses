@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 # Windows-only project; provide a minimal shim library to allow building/linking tests on Linux.
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 RUN set -eux; \

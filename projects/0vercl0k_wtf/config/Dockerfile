@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN cmake -S /fuzz/src/src/libs/kdmp-parser \
     -B /tmp/build-kdmp \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx
 
 # Build to generate the configured header
 RUN cmake --build /tmp/build-kdmp -j

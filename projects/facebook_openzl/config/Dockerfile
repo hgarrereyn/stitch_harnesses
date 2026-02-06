@@ -17,7 +17,7 @@ WORKDIR /fuzz/src
 
 # Build static library using Makefile, forcing system zstd/lz4 and skipping heavy deps
 RUN make libopenzl.a \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     BUILD_TYPE=OPT \
     SKIP_BUILDDEPS_CHECK=1 \
     LIBXGBOOST_A= LIBDMLC_A= \

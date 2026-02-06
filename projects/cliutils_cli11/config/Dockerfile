@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-bui
 WORKDIR /fuzz/src
 
 # Use fuzzer compiler wrappers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Configure, build, and install CLI11 as a precompiled static library and install all headers (including impl)
 RUN cmake -S . -B build -G Ninja \

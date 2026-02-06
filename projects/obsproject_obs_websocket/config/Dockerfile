@@ -16,4 +16,4 @@ RUN mkdir -p ${PREFIX}/include
 RUN cp /fuzz/src/lib/obs-websocket-api.h ${PREFIX}/include/
 
 # No build needed for header-only API. Ensure compilers are set for any potential builds.
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

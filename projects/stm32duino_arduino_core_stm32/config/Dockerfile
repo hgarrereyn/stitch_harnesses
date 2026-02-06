@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends rsync && rm -rf
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     rsync -a --exclude 'CMakeLists.txt' /fuzz/src/cores/arduino/ /fuzz/install/include/ && \
     echo "int __stm32duino_placeholder;" > /tmp/dummy.c && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
     ar rcs /fuzz/install/lib/libstm32duino_core.a /tmp/dummy.o && \
     rm -f /tmp/dummy.c /tmp/dummy.o
 

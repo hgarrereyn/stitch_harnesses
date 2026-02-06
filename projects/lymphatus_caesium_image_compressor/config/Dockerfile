@@ -22,4 +22,4 @@ RUN set -eux; \
 RUN install -m 0644 /fuzz/src/src/include/libcaesium.h /fuzz/install/include/
 
 # Environment for compilers and install prefix (not used directly since we build Rust lib)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install

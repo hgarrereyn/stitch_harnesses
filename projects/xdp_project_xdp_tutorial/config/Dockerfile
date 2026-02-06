@@ -13,8 +13,8 @@ WORKDIR /fuzz/src
 RUN if [ -f .gitmodules ]; then git submodule update --init --recursive; fi
 
 # Use fuzzing compilers for userland, but clang-17 for BPF code
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 ENV CLANG=clang-17
 ENV ARCH_INCLUDES="-I/usr/include -I/usr/include/x86_64-linux-gnu -I/usr/include/i386-linux-gnu"
 

@@ -11,7 +11,7 @@ RUN set -eux; \
     ; \
     rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx PREFIX=/fuzz/install
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx PREFIX=/fuzz/install
 
 # Compile static library and install headers
 RUN set -eux; \

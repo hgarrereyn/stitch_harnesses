@@ -25,7 +25,7 @@ RUN bash -lc 'printf %b "#ifndef ADAFRUIT_STUB_I2CDEVICE_H\n#define ADAFRUIT_STU
 RUN bash -lc 'printf %b "#ifndef ADAFRUIT_STUB_SPIDEVICE_H\n#define ADAFRUIT_STUB_SPIDEVICE_H\n#include \"SPI.h\"\nclass Adafruit_SPIDevice { public: Adafruit_SPIDevice(int8_t cs, uint32_t freq=1000000, uint8_t bitOrder=0, uint8_t dataMode=0, void* spi=&SPI) {} bool begin() { return true; } };\n#endif\n" > ${STUBS}/Adafruit_SPIDevice.h'
 
 # Build only the core GFX sources into a static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN bash -lc "${CXX} -I${STUBS} -I${SRC} -DARDUINO=100 -fPIC -c ${SRC}/Adafruit_GFX.cpp -o ${BUILD}/Adafruit_GFX.o"
 RUN bash -lc "${CC}  -I${STUBS} -I${SRC} -DARDUINO=100 -fPIC -c ${SRC}/glcdfont.c     -o ${BUILD}/glcdfont.o"
 RUN bash -lc "ar rcs ${PREFIX}/lib/libadafruit_gfx.a ${BUILD}/Adafruit_GFX.o ${BUILD}/glcdfont.o"

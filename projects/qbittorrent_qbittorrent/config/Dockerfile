@@ -2,8 +2,8 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # Use fuzzing compiler wrappers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Create install prefix and install header-only public API we will target
 RUN mkdir -p /fuzz/install/include/qbittorrent /fuzz/install/lib \

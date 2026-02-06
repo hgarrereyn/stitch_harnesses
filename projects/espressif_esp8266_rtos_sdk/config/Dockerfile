@@ -8,7 +8,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /fuzz/install/include /fuzz/install/lib /work; \
     cd /work; \
-    gf_libafl_cc -O2 -fPIC -I/fuzz/src/components/http_parser/include -c /fuzz/src/components/http_parser/src/http_parser.c -o http_parser.o; \
+    stitch_libafl_cc -O2 -fPIC -I/fuzz/src/components/http_parser/include -c /fuzz/src/components/http_parser/src/http_parser.c -o http_parser.o; \
     ar rcs libhttp_parser.a http_parser.o; \
     install -m 0644 libhttp_parser.a /fuzz/install/lib/; \
     install -m 0644 /fuzz/src/components/http_parser/include/http_parser.h /fuzz/install/include/

@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # Install minimal extra tools (cmake might not be present in base image)
 RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 

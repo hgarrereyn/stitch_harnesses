@@ -18,7 +18,7 @@ RUN ./utils/git-sync-deps
 
 # Configure, build and install
 WORKDIR /fuzz/build
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN cmake -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \

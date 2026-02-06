@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libthrift-dev libssl-dev libevent-dev libboost-dev ca-certificates && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include/infinity_client && \

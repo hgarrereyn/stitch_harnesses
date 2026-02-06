@@ -11,7 +11,7 @@ WORKDIR /fuzz/src
 
 # Generate configure script and build static libmagic
 RUN autoreconf -fiv
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install \
     --disable-shared --enable-static
 

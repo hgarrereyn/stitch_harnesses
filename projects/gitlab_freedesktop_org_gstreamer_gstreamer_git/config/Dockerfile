@@ -12,7 +12,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 
 # Build and install GStreamer core statically from subproject, using system glib
 WORKDIR /fuzz/src/subprojects/gstreamer
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN meson setup builddir \
       --prefix=/fuzz/install \
       --libdir=lib \

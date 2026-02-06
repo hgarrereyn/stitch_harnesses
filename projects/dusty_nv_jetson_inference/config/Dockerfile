@@ -18,7 +18,7 @@ RUN set -eux; \
 'int force_ref() { return jetson_inference_stub::version(); }' \
     > /tmp/build/stub.cpp; \
     cp /tmp/build/stub.h /fuzz/install/include/jetson-inference/stub.h; \
-    gf_libafl_cxx -fPIC -c /tmp/build/stub.cpp -I/fuzz/install/include -o /tmp/build/stub.o; \
+    stitch_libafl_cxx -fPIC -c /tmp/build/stub.cpp -I/fuzz/install/include -o /tmp/build/stub.o; \
     ar rcs /fuzz/install/lib/libjetson-inference.a /tmp/build/stub.o; \
     rm -rf /tmp/build
 

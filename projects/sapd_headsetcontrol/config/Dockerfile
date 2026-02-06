@@ -18,8 +18,8 @@ RUN cmake -S /fuzz/src -B /fuzz/build \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBRARY=OFF \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_CXX_FLAGS="-stdlib=libc++"
 
 RUN cmake --build /fuzz/build --target install -j$(nproc)

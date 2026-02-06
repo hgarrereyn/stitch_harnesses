@@ -12,7 +12,7 @@ RUN mkdir -p ${PREFIX}/lib ${PREFIX}/include/esphome/components/xxtea
 
 # Compile and archive static library
 WORKDIR /tmp/build
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ${CXX} -O2 -fPIC -c /fuzz/src/esphome/components/xxtea/xxtea.cpp -o xxtea.o \
  && ar rcs libesphome_xxtea.a xxtea.o \
  && cp libesphome_xxtea.a ${PREFIX}/lib/ \

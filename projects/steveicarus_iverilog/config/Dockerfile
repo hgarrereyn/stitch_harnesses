@@ -19,7 +19,7 @@ WORKDIR /fuzz/src
 
 # Generate configure script (building from git) and configure with fuzzing compilers
 RUN sh autoconf.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install && \
     make -j"$(nproc)" && \
     make install

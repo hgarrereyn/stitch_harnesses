@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # No extra system dependencies required
 
 # Build and install static libraries manually using the required compilers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib && \
     cd /fuzz/src && \

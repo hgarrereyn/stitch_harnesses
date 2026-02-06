@@ -13,10 +13,10 @@ RUN printf "#include <stdint.h>\nint usb_dc_init(uint8_t busid){(void)busid;retu
 
 # Compile and archive static library
 RUN cd /fuzz/src && \
-    gf_libafl_cc -I/fuzz/build -I/fuzz/src -I/fuzz/src/common -I/fuzz/src/core -c core/usbd_core.c -O2 -o /fuzz/build/usbd_core.o && \
-    gf_libafl_cc -c /fuzz/build/usb_dc_stub.c -O2 -o /fuzz/build/usb_dc_stub.o && \
+    stitch_libafl_cc -I/fuzz/build -I/fuzz/src -I/fuzz/src/common -I/fuzz/src/core -c core/usbd_core.c -O2 -o /fuzz/build/usbd_core.o && \
+    stitch_libafl_cc -c /fuzz/build/usb_dc_stub.c -O2 -o /fuzz/build/usb_dc_stub.o && \
     ar rcs /fuzz/install/lib/libcherryusb.a /fuzz/build/usbd_core.o /fuzz/build/usb_dc_stub.o && \
     cp -a common/*.h /fuzz/install/include/common/ && \
     cp -a core/*.h /fuzz/install/include/core/
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

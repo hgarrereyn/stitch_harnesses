@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates build-essential && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Install headers and create a minimal static lib to satisfy linking
 RUN mkdir -p /fuzz/install/include/velox/type /fuzz/install/lib/velox /tmp/build && \

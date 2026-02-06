@@ -15,7 +15,7 @@ WORKDIR /fuzz/src/app/src/main/jni/moonlight-core/moonlight-common-c
 
 # Try CMake first; if it doesn't install headers, fall back to manual install
 RUN mkdir -p build && cd build \
- && CC=gf_libafl_cc CXX=gf_libafl_cxx cmake -G Ninja \
+ && CC=stitch_libafl_cc CXX=stitch_libafl_cxx cmake -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \

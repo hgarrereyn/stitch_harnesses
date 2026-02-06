@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN mkdir -p /build && \
     cmake -G Ninja -S /fuzz/src -B /build \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
       -DGC_BUILD_SHARED_LIBS=OFF \
       -DBUILD_TESTING=OFF \

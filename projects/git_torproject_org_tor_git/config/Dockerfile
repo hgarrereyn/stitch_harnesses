@@ -15,7 +15,7 @@ WORKDIR /fuzz/src
 RUN if [ -f ./autogen.sh ]; then ./autogen.sh; fi
 
 # Configure with fuzzer compilers and minimal extras; install prefix is /fuzz/install
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install \
       --disable-asciidoc --disable-manpage --disable-html-manual \
       --disable-systemd --disable-unittests || (cat config.log || true; exit 1)

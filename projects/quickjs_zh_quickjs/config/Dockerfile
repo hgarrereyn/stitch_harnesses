@@ -9,7 +9,7 @@ WORKDIR /fuzz/src
 
 # Avoid strip requirement during install, set install prefix
 # Use libAFL compilers as required
-RUN make -j"$(nproc)" CC=gf_libafl_cc STRIP=true PREFIX=/fuzz/install && \
-    make -j"$(nproc)" CC=gf_libafl_cc STRIP=true PREFIX=/fuzz/install install
+RUN make -j"$(nproc)" CC=stitch_libafl_cc STRIP=true PREFIX=/fuzz/install && \
+    make -j"$(nproc)" CC=stitch_libafl_cc STRIP=true PREFIX=/fuzz/install install
 
 ENV PKG_CONFIG_PATH=/fuzz/install/lib/pkgconfig

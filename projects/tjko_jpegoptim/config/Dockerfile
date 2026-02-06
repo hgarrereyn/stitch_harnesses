@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Configure and build jpegoptim as a static library (BUILD_FUZZERS builds a lib target)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx CFLAGS="-fno-lto" CXXFLAGS="-fno-lto"
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx CFLAGS="-fno-lto" CXXFLAGS="-fno-lto"
 RUN cmake -S /fuzz/src -B /fuzz/build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \

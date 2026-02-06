@@ -7,8 +7,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     libcap-dev libseccomp-dev libyajl-dev libsystemd-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 ENV PREFIX=/fuzz/install
 
 WORKDIR /fuzz/src

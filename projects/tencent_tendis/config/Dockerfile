@@ -8,4 +8,4 @@ RUN mkdir -p /fuzz/install/include && \
 # Provide lib and bin dirs for consistency
 RUN mkdir -p /fuzz/install/lib /fuzz/install/bin
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx

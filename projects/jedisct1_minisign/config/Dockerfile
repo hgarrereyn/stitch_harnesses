@@ -12,8 +12,8 @@ WORKDIR /fuzz/src
 
 # Configure with the fuzzing compilers and install prefix
 RUN mkdir -p build && cd build && \
-    cmake -DCMAKE_C_COMPILER=gf_libafl_cc \
-          -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    cmake -DCMAKE_C_COMPILER=stitch_libafl_cc \
+          -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
           -DCMAKE_BUILD_TYPE=RelWithDebInfo \
           -DCMAKE_INSTALL_PREFIX=/fuzz/install \
           .. && \

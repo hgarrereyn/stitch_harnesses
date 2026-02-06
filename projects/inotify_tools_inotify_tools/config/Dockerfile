@@ -10,7 +10,7 @@ WORKDIR /fuzz/src
 
 # Generate build system and configure
 RUN autoreconf -fi
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx \
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --disable-shared --enable-static
 
 # Build and install

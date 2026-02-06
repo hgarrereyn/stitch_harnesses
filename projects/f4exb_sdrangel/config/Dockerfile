@@ -8,7 +8,7 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Build a static lib from qrtplib sources only, and install headers
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN set -eux; \
     install -d /fuzz/install/lib /fuzz/install/include/qrtplib /tmp/qrtplib_build; \

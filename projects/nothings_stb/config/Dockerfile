@@ -3,8 +3,8 @@ FROM ${BASE_IMAGE}
 
 # No external dependencies required; header-only libraries.
 # Use the required compilers and set install prefix
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     PREFIX=/fuzz/install
 
 # Install: copy headers into /fuzz/install/include

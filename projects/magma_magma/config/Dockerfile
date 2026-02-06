@@ -15,8 +15,8 @@ ENV MAGMA_ROOT=/fuzz/src
 RUN cmake -G Ninja \
     -S /fuzz/src/lte/gateway/c/core/common \
     -B /tmp/build \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DBUILD_SHARED_LIBS=OFF \
   && cmake --build /tmp/build -j

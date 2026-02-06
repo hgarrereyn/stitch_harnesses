@@ -16,5 +16,5 @@ RUN mkdir -p /fuzz/install/include/framework /fuzz/install/include/glm /fuzz/ins
 
 # Create an empty static library named libframework.a to link against
 RUN printf "void __framework_placeholder(){}" > /tmp/fw.c && \
-    gf_libafl_cc -c /tmp/fw.c -o /tmp/fw.o && \
+    stitch_libafl_cc -c /tmp/fw.c -o /tmp/fw.o && \
     ar rcs /fuzz/install/lib/libframework.a /tmp/fw.o

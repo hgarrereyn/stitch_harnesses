@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Configure & build OGRE (static OgreMain only, no plugins/render systems/tools)
 WORKDIR /fuzz/src
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN cmake -S . -B build \
     -G Ninja \

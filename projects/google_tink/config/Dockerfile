@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates unzip cmake ninja-build make pkg-config golang-go \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Configure and build Tink (this fetches third-party deps via CMake)
 RUN cmake -S /fuzz/src -B /fuzz/build -G Ninja \

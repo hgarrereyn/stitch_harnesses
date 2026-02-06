@@ -15,5 +15,5 @@ RUN set -eux; \
     mkdir -p ${PREFIX}/lib ${PREFIX}/include/scintilla; \
     cp -r scintilla/include/* ${PREFIX}/include/scintilla/; \
     echo 'int scintilla_stub(void) { return 0; }' > /tmp/scintilla_stub.c; \
-    gf_libafl_cc -c /tmp/scintilla_stub.c -o /tmp/scintilla_stub.o; \
+    stitch_libafl_cc -c /tmp/scintilla_stub.c -o /tmp/scintilla_stub.o; \
     ar rcs ${PREFIX}/lib/libscintilla.a /tmp/scintilla_stub.o

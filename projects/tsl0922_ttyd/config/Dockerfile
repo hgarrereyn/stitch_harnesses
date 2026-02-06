@@ -6,7 +6,7 @@ FROM ${BASE_IMAGE}
 RUN set -eux; \
     install -d /fuzz/install/include/ttyd /fuzz/install/lib; \
     install -m 0644 /fuzz/src/src/utils.h /fuzz/install/include/ttyd/utils.h; \
-    gf_libafl_cc -O2 -fPIC -c /fuzz/src/src/utils.c -o /tmp/utils.o; \
+    stitch_libafl_cc -O2 -fPIC -c /fuzz/src/src/utils.c -o /tmp/utils.o; \
     ar rcs /fuzz/install/lib/libttyd.a /tmp/utils.o; \
     ranlib /fuzz/install/lib/libttyd.a; \
     nm -g --defined-only /fuzz/install/lib/libttyd.a | head -n 20 || true

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Configure, build, and install ReadStat
 WORKDIR /fuzz/src
 RUN ./autogen.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --enable-static --disable-shared && \
     make -j"$(nproc)" && \
     make install

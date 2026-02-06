@@ -12,8 +12,8 @@ WORKDIR /fuzz/src
 RUN autoreconf -vfi
 
 # Configure with fuzzing compilers and static library only
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 RUN ./configure \
     --prefix=/fuzz/install \
     --disable-shared \

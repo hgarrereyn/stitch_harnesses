@@ -11,6 +11,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 WORKDIR /fuzz/src
 RUN ./autogen.sh
-RUN CC=gf_libafl_cc CXX=gf_libafl_cxx ./configure --prefix=/fuzz/install --disable-shared --enable-static --disable-bootstrap
+RUN CC=stitch_libafl_cc CXX=stitch_libafl_cxx ./configure --prefix=/fuzz/install --disable-shared --enable-static --disable-bootstrap
 RUN make -j"$(nproc)"
 RUN make install

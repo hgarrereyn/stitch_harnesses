@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake ninja-build make pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 
 RUN cmake -S . -B build \

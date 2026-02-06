@@ -6,8 +6,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     meson ninja-build pkg-config libmbedtls-dev ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 # Build and install ps3netsrv
 WORKDIR /fuzz/src/_Projects_/ps3netsrv

@@ -16,8 +16,8 @@ WORKDIR /fuzz/build
 
 # Configure the CMake project using the LibAFL compiler wrappers
 RUN cmake -G Ninja \
-  -DCMAKE_C_COMPILER=gf_libafl_cc \
-  -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+  -DCMAKE_C_COMPILER=stitch_libafl_cc \
+  -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   /fuzz/src

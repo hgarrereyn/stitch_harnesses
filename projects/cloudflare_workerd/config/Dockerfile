@@ -8,7 +8,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # "Install" header-only parts of workerd we want to expose for fuzzing
 # Use the requested compilers for any build steps (not strictly needed for header copy)
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Install headers into /fuzz/install/include
 RUN mkdir -p /fuzz/install/include/workerd/util && \

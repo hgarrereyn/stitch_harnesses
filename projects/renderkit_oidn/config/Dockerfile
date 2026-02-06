@@ -20,8 +20,8 @@ RUN wget -O /tmp/ispc.tar.gz https://github.com/ispc/ispc/releases/download/${IS
 WORKDIR /fuzz/src
 RUN mkdir -p build && cd build && \
     cmake -G Ninja \
-      -DCMAKE_C_COMPILER=gf_libafl_cc \
-      -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+      -DCMAKE_C_COMPILER=stitch_libafl_cc \
+      -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
       -DCMAKE_INSTALL_PREFIX=/fuzz/install \
       -DOIDN_STATIC_LIB=ON \
       -DOIDN_APPS=OFF \

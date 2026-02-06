@@ -6,7 +6,7 @@ WORKDIR /fuzz/src
 
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib \
  && make -j"$(nproc)" \
-      CC=gf_libafl_cc \
+      CC=stitch_libafl_cc \
       AR="ar rc" \
       RANLIB=ranlib \
       MYCFLAGS="-DLUA_USE_LINUX" \

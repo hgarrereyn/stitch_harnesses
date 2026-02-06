@@ -23,7 +23,7 @@ RUN set -eux; \
     echo 'const char* w2l_shim_version() {' >> /tmp/w2lshim/w2l_shim.cpp; \
     echo '    return "wav2letter shim 0.1";' >> /tmp/w2lshim/w2l_shim.cpp; \
     echo '}' >> /tmp/w2lshim/w2l_shim.cpp; \
-    gf_libafl_cxx -fPIC -O2 -c /tmp/w2lshim/w2l_shim.cpp -o /tmp/w2lshim/w2l_shim.o; \
+    stitch_libafl_cxx -fPIC -O2 -c /tmp/w2lshim/w2l_shim.cpp -o /tmp/w2lshim/w2l_shim.o; \
     ar rcs /tmp/w2lshim/libw2lshim.a /tmp/w2lshim/w2l_shim.o; \
     install -m 0644 /tmp/w2lshim/libw2lshim.a /fuzz/install/lib/; \
     install -m 0644 /tmp/w2lshim/w2l_shim.h /fuzz/install/include/; \

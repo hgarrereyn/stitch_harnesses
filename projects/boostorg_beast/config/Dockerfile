@@ -8,7 +8,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 ENV PREFIX=/fuzz/install
 RUN mkdir -p ${PREFIX}/include ${PREFIX}/lib
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 RUN cp -r /usr/include/boost ${PREFIX}/include/ && \
     cp -r /fuzz/src/include/boost/* ${PREFIX}/include/boost/

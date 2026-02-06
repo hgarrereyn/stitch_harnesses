@@ -16,7 +16,7 @@ RUN set -eux; \
     find "$SRC_DIR" -name '*.c' > /tmp/cfiles.list && \
     while IFS= read -r f; do \
       out=/tmp/build/$(basename "$f" .c).o; \
-      gf_libafl_cc -O2 -fPIC -w -I"$SRC_DIR/Config" -I"$SRC_DIR/GUI" -I"$SRC_DIR/Fonts" -I"$SRC_DIR/e-Paper" -c "$f" -o "$out"; \
+      stitch_libafl_cc -O2 -fPIC -w -I"$SRC_DIR/Config" -I"$SRC_DIR/GUI" -I"$SRC_DIR/Fonts" -I"$SRC_DIR/e-Paper" -c "$f" -o "$out"; \
     done < /tmp/cfiles.list && \
     ar rcs ${INSTALL_PREFIX}/lib/libwaveshare_epaper.a /tmp/build/*.o && \
     mkdir -p ${INSTALL_PREFIX}/include/waveshare/Config ${INSTALL_PREFIX}/include/waveshare/GUI ${INSTALL_PREFIX}/include/waveshare/Fonts ${INSTALL_PREFIX}/include/waveshare/e-Paper && \

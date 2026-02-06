@@ -5,8 +5,8 @@ FROM ${BASE_IMAGE}
 # This avoids Windows-only sources in the main project and provides a usable C API
 
 # Environment
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx \
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx \
     INSTALL_PREFIX=/fuzz/install
 
 RUN set -eux; \

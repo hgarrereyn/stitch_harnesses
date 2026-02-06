@@ -8,7 +8,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ca-certificates pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 WORKDIR /fuzz/src
 
 # Configure with most features disabled for a lightweight setup
@@ -16,8 +16,8 @@ RUN cmake -S . -B /fuzz/build \
     -G Ninja \
     -DCMAKE_INSTALL_PREFIX=/fuzz/install \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gf_libafl_cc \
-    -DCMAKE_CXX_COMPILER=gf_libafl_cxx \
+    -DCMAKE_C_COMPILER=stitch_libafl_cc \
+    -DCMAKE_CXX_COMPILER=stitch_libafl_cxx \
     -DUSE_SHARED_LIBS=OFF \
     -DDO_NOT_USE_QT_VERSION_6_LIBS=ON \
     -DPLATFORM=linux \

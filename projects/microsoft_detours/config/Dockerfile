@@ -113,9 +113,9 @@ RUN bash -lc "printf '%s\n' \
 
 # Create a tiny static library stub so linking succeeds
 RUN bash -lc 'echo "void __detours_dummy(void){}" > /tmp/dummy.c && \
-    gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
+    stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o && \
     ar rcs /fuzz/install/lib/libdetours.a /tmp/dummy.o && \
     rm -f /tmp/dummy.c /tmp/dummy.o'
 
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 ENV PREFIX=/fuzz/install

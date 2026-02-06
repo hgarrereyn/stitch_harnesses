@@ -7,7 +7,7 @@ WORKDIR /fuzz/src
 
 # Build only the static library using required compilers
 RUN make clean || true \
- && make -j$(nproc) my_api.a CXX=gf_libafl_cxx CC=gf_libafl_cc
+ && make -j$(nproc) my_api.a CXX=stitch_libafl_cxx CC=stitch_libafl_cc
 
 # Install headers and library to /fuzz/install
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib \

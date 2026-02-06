@@ -12,7 +12,7 @@ WORKDIR /fuzz/src
 
 # Generate configure script and build
 RUN ./boot.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --enable-shared=no --enable-static=yes && \
     make -j"$(nproc)" && \
     make install

@@ -11,7 +11,7 @@ WORKDIR /fuzz/src
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib
 
 # Build crc16 as a static library using the required compilers
-RUN gf_libafl_cc -c -O2 -IMarlin/src/libs -o /tmp/crc16.o Marlin/src/libs/crc16.cpp \
+RUN stitch_libafl_cc -c -O2 -IMarlin/src/libs -o /tmp/crc16.o Marlin/src/libs/crc16.cpp \
  && ar rcs /fuzz/install/lib/libmarlinutils.a /tmp/crc16.o \
  && cp Marlin/src/libs/crc16.h /fuzz/install/include/
 

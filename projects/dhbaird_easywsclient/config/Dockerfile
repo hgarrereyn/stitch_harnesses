@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 
 # Build and install easywsclient as a static library
 RUN set -eux; \
-    export CC=gf_libafl_cc CXX=gf_libafl_cxx; \
+    export CC=stitch_libafl_cc CXX=stitch_libafl_cxx; \
     mkdir -p /fuzz/install/include /fuzz/install/lib; \
     cd /fuzz/src; \
     $CXX -O2 -fPIC -c easywsclient.cpp -o easywsclient.o; \

@@ -7,8 +7,8 @@ WORKDIR /fuzz/src
 # Configure for static libs only, no programs or docs; disable x86 asm to avoid nasm/yasm dependency
 RUN ./configure \
     --prefix=/fuzz/install \
-    --cc=gf_libafl_cc \
-    --cxx=gf_libafl_cxx \
+    --cc=stitch_libafl_cc \
+    --cxx=stitch_libafl_cxx \
     --disable-shared \
     --enable-static \
     --disable-programs \

@@ -20,6 +20,6 @@ RUN set -eux; \
 # Create a tiny static library exposing a small subset of the API for linking
 RUN set -eux; \
     printf '%s\n' '#include <cstdint>' '#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)' '#include <unistd.h>' '#elif defined(_WIN32)' '#define _WINSOCKAPI_' '#include <windows.h>' '#endif' 'namespace app { unsigned int getProcessId() {' '#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)' 'return getpid();' '#elif defined(_WIN32)' 'return GetCurrentProcessId();' '#endif' '}}' > /tmp/mini.cpp; \
-    gf_libafl_cxx -O2 -fPIC -c /tmp/mini.cpp -o /tmp/app.o; \
+    stitch_libafl_cxx -O2 -fPIC -c /tmp/mini.cpp -o /tmp/app.o; \
     ar rcs /fuzz/install/lib/libneutralinojs_api.a /tmp/app.o; \
     rm -f /tmp/mini.cpp /tmp/app.o

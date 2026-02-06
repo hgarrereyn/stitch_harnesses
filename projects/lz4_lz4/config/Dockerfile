@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 # Build and install static liblz4 to /fuzz/install using gf_libafl toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
-ENV CC=gf_libafl_cc \
-    CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc \
+    CXX=stitch_libafl_cxx
 
 WORKDIR /fuzz/src
 

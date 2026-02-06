@@ -16,12 +16,12 @@ RUN cp /fuzz/src/nk/nuklear.h ${PREFIX}/include/ && \
 
 # Build static library using required compilers
 RUN set -eux; \
-    gf_libafl_cc -I/fuzz/src/nk -c /fuzz/src/nk/nk.c -o /tmp/nk.o; \
+    stitch_libafl_cc -I/fuzz/src/nk -c /fuzz/src/nk/nk.c -o /tmp/nk.o; \
     echo '#define NK_IMPLEMENTATION' > /tmp/nuklear_impl.c; \
     echo '#define NK_INCLUDE_FIXED_TYPES' >> /tmp/nuklear_impl.c; \
     echo '#define NK_INCLUDE_STANDARD_VARARGS' >> /tmp/nuklear_impl.c; \
     echo '#define NK_INCLUDE_STANDARD_IO' >> /tmp/nuklear_impl.c; \
     echo '#include "/fuzz/src/nk/nuklear.h"' >> /tmp/nuklear_impl.c; \
-    gf_libafl_cc -I/fuzz/src/nk -c /tmp/nuklear_impl.c -o /tmp/nuklear_impl.o; \
+    stitch_libafl_cc -I/fuzz/src/nk -c /tmp/nuklear_impl.c -o /tmp/nuklear_impl.o; \
     ar rcs ${PREFIX}/lib/libnuklear.a /tmp/nuklear_impl.o /tmp/nk.o; \
     rm -f /tmp/nuklear_impl.c /tmp/nuklear_impl.o /tmp/nk.o

@@ -15,6 +15,6 @@ RUN mkdir -p /fuzz/install/include /fuzz/install/lib \
 
 # Build a tiny dummy static library named libdiskann.a using the fuzzing compilers
 RUN echo "void __diskann_dummy(){}" > /tmp/dummy.c \
- && gf_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
+ && stitch_libafl_cc -c /tmp/dummy.c -o /tmp/dummy.o \
  && ar rcs /fuzz/install/lib/libdiskann.a /tmp/dummy.o \
  && rm -f /tmp/dummy.c /tmp/dummy.o

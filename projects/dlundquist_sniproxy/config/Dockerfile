@@ -14,7 +14,7 @@ WORKDIR /fuzz/src
 RUN ./autogen.sh
 
 # Configure with fuzzing compilers and install prefix
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 RUN ./configure --enable-dns --prefix=/fuzz/install
 
 # Build and install the project

@@ -11,7 +11,7 @@ WORKDIR /fuzz/src
 
 # Build the library using provided makefile with required compilers
 RUN make clean || true \
- && make -j"$(nproc)" lib CXX=gf_libafl_cxx \
+ && make -j"$(nproc)" lib CXX=stitch_libafl_cxx \
  && mkdir -p /fuzz/install/lib /fuzz/install/include \
  && cp -a libunrar.a /fuzz/install/lib/ \
  && cp -a dll.hpp /fuzz/install/include/

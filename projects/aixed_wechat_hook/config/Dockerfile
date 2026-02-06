@@ -4,8 +4,8 @@ FROM ${BASE_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Set compilers to fuzzing wrappers
-ENV CC=gf_libafl_cc
-ENV CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc
+ENV CXX=stitch_libafl_cxx
 
 # Create install dirs
 RUN mkdir -p /fuzz/install/include/aixed_wechat_hook /fuzz/install/lib /fuzz/build

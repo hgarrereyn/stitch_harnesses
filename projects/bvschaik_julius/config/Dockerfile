@@ -2,7 +2,7 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # No extra packages needed for building a small static library
-ENV CC=gf_libafl_cc CXX=gf_libafl_cxx
+ENV CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Build and install a minimal static library exposing Julius core API headers
 RUN mkdir -p /fuzz/build /fuzz/install/lib /fuzz/install/include && \

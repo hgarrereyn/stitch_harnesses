@@ -16,7 +16,7 @@ void xcode_utf_fixed_tests(void) {}
 }
 EOF
 RUN set -eux; \
-    gf_libafl_cxx -O2 -fPIC -c /tmp/build/xcode_utf_fixed_min.cpp -o /tmp/build/xcode_utf_fixed_min.o; \
+    stitch_libafl_cxx -O2 -fPIC -c /tmp/build/xcode_utf_fixed_min.cpp -o /tmp/build/xcode_utf_fixed_min.o; \
     ar rcs /fuzz/install/lib/libxcodeutf.a /tmp/build/xcode_utf_fixed_min.o
 
 ENV CPATH=/fuzz/install/include${CPATH:+:$CPATH} \

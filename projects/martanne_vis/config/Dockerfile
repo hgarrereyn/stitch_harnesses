@@ -12,7 +12,7 @@ WORKDIR /fuzz/src
 
 # Build a static library directly from the amalgamated vis.c and install headers
 RUN mkdir -p /fuzz/install/lib /fuzz/install/include /fuzz/install/share/vis \
- && gf_libafl_cc -std=c99 -DNDEBUG -DVERSION=\"v0.0\" -DVIS_PATH=\"/fuzz/install/share/vis\" -DVIS_INTERNAL= -O2 -I. $(pkg-config --cflags termkey) -c vis.c -o vis.o \
+ && stitch_libafl_cc -std=c99 -DNDEBUG -DVERSION=\"v0.0\" -DVIS_PATH=\"/fuzz/install/share/vis\" -DVIS_INTERNAL= -O2 -I. $(pkg-config --cflags termkey) -c vis.c -o vis.o \
  && ar rcs /fuzz/install/lib/libvis.a vis.o \
  && cp -t /fuzz/install/include \
     vis.h ui.h view.h text-regex.h array.h buffer.h text.h util.h \

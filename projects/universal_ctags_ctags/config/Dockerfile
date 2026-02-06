@@ -9,7 +9,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Build and install libreadtags (the C library provided by universal-ctags)
 WORKDIR /fuzz/src/libreadtags
 RUN ./autogen.sh && \
-    CC=gf_libafl_cc CXX=gf_libafl_cxx \
+    CC=stitch_libafl_cc CXX=stitch_libafl_cxx \
     ./configure --prefix=/fuzz/install --disable-shared --enable-static && \
     make -j"$(nproc)" && \
     make install

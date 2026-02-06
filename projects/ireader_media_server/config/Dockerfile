@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build libflv static library with fuzzing compilers
 WORKDIR /fuzz/src/libflv
-RUN make -j"$(nproc)" RELEASE=1 CC=gf_libafl_cc CXX=gf_libafl_cxx
+RUN make -j"$(nproc)" RELEASE=1 CC=stitch_libafl_cc CXX=stitch_libafl_cxx
 
 # Install: copy headers and static lib
 RUN mkdir -p /fuzz/install/include /fuzz/install/lib \
