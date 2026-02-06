@@ -1,0 +1,352 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct Timer *",
+      "aliases": [],
+      "definition": "struct Timer {\n    /* Offsets in timers array */\n    unsigned int next, prev;\n\n    /* The components remaining for this untriggered run */\n    unsigned int components[5];\n\n    /* We need to track the original Ms in case of repeat timers */\n    unsigned int nextOriginalMs;\n\n    /* Overshoot Ms is used to track accumulated overshoot and to remove smallest 10ms when overshot more than 10ms */\n    unsigned int overshootMs;\n\n    /* What list the timer is in */\n    unsigned int componentOffset;\n};",
+      "description": "Intrinsic timer node used by the timing system. Each Timer participates in a per-component doubly linked list (indexed by componentOffset), with next/prev storing indices into the global timers array. The components array tracks remaining ticks per resolution bucket. overshootMs tracks accumulated overshoot; nextOriginalMs is reserved for potential repeat timers but is not used in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "cb",
+      "signature": "void cb();",
+      "description": "Prints a message when a timer triggers. Intended as a sample callback; real callbacks are set via setTimeout_.",
+      "requirements": [
+        "No inputs or state requirements.",
+        "Intended for demonstration/testing; production code should set its own callback via setTimeout_."
+      ],
+      "error": null
+    },
+    {
+      "name": "init",
+      "signature": "void init();",
+      "description": "Initializes the timer subsystem. Resets the free timer stack and clears all per-component list heads.",
+      "requirements": [
+        "Must be called before allocateTimer, setTimeout_, addTimerToList, tick, or any list manipulation functions.",
+        "Calling init after timers have been allocated or lists populated will reset internal state and invalidate existing timers."
+      ],
+      "error": null
+    },
+    {
+      "name": "allocateTimer",
+      "signature": "unsigned int allocateTimer();",
+      "description": "Obtains a free timer ID from the freeTimers stack and returns it.",
+      "requirements": [
+        "init must have been called to populate the free timer stack.",
+        "There must be at least one free timer available; otherwise behavior is undefined (no bounds checks).",
+        "Each returned timer ID must later be returned via freeTimer exactly once before being reallocated again."
+      ],
+      "error": null
+    },
+    {
+      "name": "freeTimer",
+      "signature": "void freeTimer(unsigned int timer);",
+      "description": "Returns a timer ID to the free timer stack for reuse.",
+      "requirements": [
+        "The timer must have been previously returned by allocateTimer and not yet freed.",
+        "The timer should not still be linked in any component list when freed (unlink first).",
+        "Do not free the same timer more than once."
+      ],
+      "error": null
+    },
+    {
+      "name": "divideComponents",
+      "signature": "unsigned int divideComponents(unsigned int components[5], unsigned int *biggestSetComponent, unsigned int ms);",
+      "description": "Decomposes a timeout in milliseconds into counts of five timer components with granularities {10,50,100,500,1000} ms. Fills components with the number of ticks for each granularity and returns the overshoot in milliseconds needed to round up to the next 10 ms tick.",
+      "requirements": [
+        "components must point to a writable array of at least 5 unsigned ints and should be zero-initialized before the call (function only writes indices it divides and may increment components[0]).",
+        "biggestSetComponent must be a valid pointer to an unsigned int and should be initialized to 0 before the call; it will be updated to the highest component index that was set.",
+        "ms may be any unsigned int; non-multiples of 10 will cause components[0] to be incremented and an overshoot (10 - ms % 10) to be returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "addTimerToList",
+      "signature": "void addTimerToList(unsigned int timer, unsigned int componentOffset);",
+      "description": "Inserts a timer into the head of the per-component doubly linked list identified by componentOffset and records that membership in the timer.",
+      "requirements": [
+        "timer must be a valid timer ID (e.g., from allocateTimer) and not currently linked in any list.",
+        "componentOffset must be in the range [0, 4], corresponding to the five component lists.",
+        "Caller must ensure timer->prev/next linkage will not corrupt existing lists (i.e., do not add the same timer twice)."
+      ],
+      "error": null
+    },
+    {
+      "name": "removeTimerFromList",
+      "signature": "unsigned int removeTimerFromList(unsigned int timer, unsigned int componentOffset);",
+      "description": "Unlinks a timer from the specified per-component list. Returns the next timer in that list after the removed node, or UINT_MAX if none.",
+      "requirements": [
+        "timer must currently be linked in the list identified by componentOffset.",
+        "componentOffset must be in the range [0, 4].",
+        "If the timer is not in the specified list, list integrity can be corrupted.",
+        "Return value should be checked for UINT_MAX to detect end-of-list."
+      ],
+      "error": null
+    },
+    {
+      "name": "moveTimerToList",
+      "signature": "unsigned int moveTimerToList(unsigned int timer, unsigned int newComponentOffset);",
+      "description": "Moves a timer from its current per-component list to another specified list. Returns the next timer in the original list after the moved node, or UINT_MAX if none.",
+      "requirements": [
+        "timer must currently be linked in some component list; its current list is taken from timers[timer].componentOffset.",
+        "newComponentOffset must be in the range [0, 4].",
+        "Caller should use the return value to continue iteration safely when iterating the original list."
+      ],
+      "error": null
+    },
+    {
+      "name": "tick",
+      "signature": "void tick(unsigned int componentOffset);",
+      "description": "Advances the timers in the specified component list by one tick for that granularity, moving timers to more precise lists or invoking their callbacks when all components reach zero.",
+      "requirements": [
+        "componentOffset must be in the range [0, 4]; it should correspond to a system tick of componentMultiplierMs[componentOffset] milliseconds.",
+        "Callbacks invoked via timerCallbacks[timer]() must not modify the timer lists during execution (per in-code comment).",
+        "tick should be called by a system timer at the cadence matching the component’s granularity for correct scheduling."
+      ],
+      "error": null
+    },
+    {
+      "name": "setTimeout_",
+      "signature": "unsigned int setTimeout_(void (*cb)(), unsigned int ms);",
+      "description": "Schedules a one-shot timer to invoke the provided callback after approximately ms milliseconds, rounded up to the next 10 ms tick. Returns the allocated timer ID.",
+      "requirements": [
+        "init must have been called before use to initialize free timers and list heads.",
+        "cb must be a valid non-null function pointer taking no arguments; if null, calling it will cause a crash.",
+        "There must be a free timer available; otherwise behavior is undefined.",
+        "The returned timer is linked into an internal list and must be cleared with clearTimeout_ if cancellation is needed before it fires."
+      ],
+      "error": null
+    },
+    {
+      "name": "clearTimeout_",
+      "signature": "void clearTimeout_(unsigned int timer);",
+      "description": "Cancels a scheduled timer by unlinking it from its current list and returning it to the free timer pool.",
+      "requirements": [
+        "timer must be a valid timer ID currently linked in a component list created by setTimeout_ or addTimerToList.",
+        "Do not pass a timer that has already been freed; doing so will corrupt the free stack.",
+        "Should not be called from within a tick callback that might be iterating the same list (list modification is not supported during callback execution)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "cb",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simple invocation of the demonstration callback. No state or inputs required.\ncb();\n\n// Validation: This stub has no inputs/outputs and exercises the function directly."
+    },
+    {
+      "name": "init",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Initialize the timer subsystem.\ninit();\n\n// Track initialization epochs so handles created before a reset are rejected safely.\nint gen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nFUZZ_SET_ATTR_INT_GLOBAL(\"init_gen\", gen + 1);\n\n// Validation: Sets a monotonically increasing init_gen used by other stubs to enforce pre/post-init semantics."
+    },
+    {
+      "name": "allocateTimer",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "code": "// allocateTimer requires the subsystem to be initialized.\nint gen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nif (gen <= 0) { FUZZ_BAIL(); }\n\n// Obtain a free timer ID.\nunsigned int id = allocateTimer();\n\n// Wrap the primitive ID in an opaque handle object for the fuzzer pool.\n// Use a non-null token pointer as the identity; attributes carry the actual ID.\nvoid *timer_handle = (void *)(unsigned long)(id + 1u);\n\n// Track lifecycle and provenance on the handle.\nFUZZ_SET_ATTR_INT(timer_handle, \"id\", (int)id);\nFUZZ_SET_ATTR_INT(timer_handle, \"allocated\", 1);       // allocated from free stack\nFUZZ_SET_ATTR_INT(timer_handle, \"linked\", 0);          // not in any list yet\nFUZZ_SET_ATTR_INT(timer_handle, \"component\", -1);      // unknown/unset\nFUZZ_SET_ATTR_INT(timer_handle, \"componentKnown\", 0);  // component membership unknown\nFUZZ_SET_ATTR_INT(timer_handle, \"gen\", gen);           // init generation when obtained\n\n// Validation: Ensures init was called and produces a non-null opaque handle with tracked ID and state."
+    },
+    {
+      "name": "freeTimer",
+      "inputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Validate initialization epoch consistency.\nint curGen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nint hGen = FUZZ_GET_ATTR_INT(timer_handle, \"gen\");\nif (hGen != curGen || curGen <= 0) { FUZZ_BAIL(); }\n\n// Enforce lifecycle requirements: must be allocated and not linked.\nint allocated = FUZZ_GET_ATTR_INT(timer_handle, \"allocated\");\nint linked = FUZZ_GET_ATTR_INT(timer_handle, \"linked\");\nif (!allocated || linked) { FUZZ_BAIL(); }\n\nunsigned int id = (unsigned int)FUZZ_GET_ATTR_INT(timer_handle, \"id\");\n\n// Return the timer ID to the free stack.\nfreeTimer(id);\n\n// Mark handle as freed so it won't be reused incorrectly.\nFUZZ_SET_ATTR_INT(timer_handle, \"allocated\", 0);\nFUZZ_SET_ATTR_INT(timer_handle, \"linked\", 0);\nFUZZ_SET_ATTR_INT(timer_handle, \"component\", -1);\nFUZZ_SET_ATTR_INT(timer_handle, \"componentKnown\", 0);\n\n// Validation: Only frees timers that were allocated and not in any list; handle is dropped by not returning it."
+    },
+    {
+      "name": "divideComponents",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare zero-initialized component array and biggest index per requirements.\nunsigned int comps[5] = {0,0,0,0,0};\nunsigned int biggest = 0;\n\n// Any ms is allowed; generate fuzzed milliseconds.\nunsigned int ms = *FUZZ_PARAM(unsigned int);\n\n// Call the target function.\nunsigned int overshoot = divideComponents(comps, &biggest, ms);\n\n// Basic property checks per description: overshoot matches rounding to next 10ms tick.\nunsigned int expOvershoot = (ms % 10 == 0) ? 0u : (10u - (ms % 10u));\nFUZZ_ASSERT(overshoot == expOvershoot, \"overshoot must equal 10 - (ms % 10) when ms not multiple of 10\");\nif (ms % 10u != 0u) {\n    // components[0] should have been incremented due to rounding up.\n    FUZZ_ASSERT(comps[0] > 0u, \"components[0] should be incremented for non-10ms multiples\");\n}\n\n// Validation: Ensures buffer initialization requirements and asserts key rounding properties."
+    },
+    {
+      "name": "addTimerToList",
+      "inputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate initialization epoch consistency.\nint curGen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nint hGen = FUZZ_GET_ATTR_INT(timer_handle, \"gen\");\nif (hGen != curGen || curGen <= 0) { FUZZ_BAIL(); }\n\n// The timer must be allocated and not currently linked.\nint allocated = FUZZ_GET_ATTR_INT(timer_handle, \"allocated\");\nint linked = FUZZ_GET_ATTR_INT(timer_handle, \"linked\");\nif (!allocated || linked) { FUZZ_BAIL(); }\n\nunsigned int id = (unsigned int)FUZZ_GET_ATTR_INT(timer_handle, \"id\");\n\n// Choose a valid component offset in [0,4].\nunsigned int componentOffset = (*FUZZ_PARAM(unsigned int)) % 5u;\n\n// Insert timer into the specified component list.\naddTimerToList(id, componentOffset);\n\n// Update handle state to reflect list membership.\nFUZZ_SET_ATTR_INT(timer_handle, \"linked\", 1);\nFUZZ_SET_ATTR_INT(timer_handle, \"component\", (int)componentOffset);\nFUZZ_SET_ATTR_INT(timer_handle, \"componentKnown\", 1);\n\n// Keep the handle alive by returning it as an output.\n\n// Validation: Enforces not-linked precondition and valid component range; records membership for subsequent operations."
+    },
+    {
+      "name": "removeTimerFromList",
+      "inputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate initialization epoch consistency.\nint curGen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nint hGen = FUZZ_GET_ATTR_INT(timer_handle, \"gen\");\nif (hGen != curGen || curGen <= 0) { FUZZ_BAIL(); }\n\n// The timer must be currently linked into a known component list.\nint linked = FUZZ_GET_ATTR_INT(timer_handle, \"linked\");\nint componentKnown = FUZZ_GET_ATTR_INT(timer_handle, \"componentKnown\");\nint comp = FUZZ_GET_ATTR_INT(timer_handle, \"component\");\nif (!linked || !componentKnown || comp < 0 || comp > 4) { FUZZ_BAIL(); }\n\nunsigned int id = (unsigned int)FUZZ_GET_ATTR_INT(timer_handle, \"id\");\n\n// Use the recorded component for safe unlinking; enforce [0,4].\nunsigned int componentOffset = (unsigned int)comp;\n\n// Remove the timer and capture the returned next ID to exercise the API; check for end-of-list marker.\nunsigned int nextId = removeTimerFromList(id, componentOffset);\nif (nextId == (unsigned int)-1) {\n    // End of list reached; acceptable per API.\n}\n\n// Update handle state to reflect it is no longer linked.\nFUZZ_SET_ATTR_INT(timer_handle, \"linked\", 0);\nFUZZ_SET_ATTR_INT(timer_handle, \"component\", -1);\nFUZZ_SET_ATTR_INT(timer_handle, \"componentKnown\", 0);\n\n// Keep the handle for further reuse (e.g., re-adding or freeing later).\n\n// Validation: Ensures the timer was linked in the specified list and safely updates state after unlinking."
+    },
+    {
+      "name": "moveTimerToList",
+      "inputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate initialization epoch consistency.\nint curGen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nint hGen = FUZZ_GET_ATTR_INT(timer_handle, \"gen\");\nif (hGen != curGen || curGen <= 0) { FUZZ_BAIL(); }\n\n// The timer must be currently linked in some list.\nint linked = FUZZ_GET_ATTR_INT(timer_handle, \"linked\");\nint componentKnown = FUZZ_GET_ATTR_INT(timer_handle, \"componentKnown\");\nint curComp = FUZZ_GET_ATTR_INT(timer_handle, \"component\");\nif (!linked || !componentKnown || curComp < 0 || curComp > 4) { FUZZ_BAIL(); }\n\nunsigned int id = (unsigned int)FUZZ_GET_ATTR_INT(timer_handle, \"id\");\n\n// Choose a new component in [0,4]; if it equals current, adjust to exercise a true move.\nunsigned int newComp = (*FUZZ_PARAM(unsigned int)) % 5u;\nif ((int)newComp == curComp) { newComp = (newComp + 1u) % 5u; }\n\n// Move the timer and capture the returned next ID for coverage; may be UINT_MAX.\nunsigned int nextId = moveTimerToList(id, newComp);\nif (nextId == (unsigned int)-1) {\n    // End of original list; acceptable.\n}\n\n// Update handle to reflect new membership.\nFUZZ_SET_ATTR_INT(timer_handle, \"linked\", 1);\nFUZZ_SET_ATTR_INT(timer_handle, \"component\", (int)newComp);\nFUZZ_SET_ATTR_INT(timer_handle, \"componentKnown\", 1);\n\n// Validation: Requires an already-linked timer and transitions it to a valid new list, preserving iteration semantics."
+    },
+    {
+      "name": "tick",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Pick a valid component offset [0,4] and advance timers by one tick for that granularity.\nunsigned int componentOffset = (*FUZZ_PARAM(unsigned int)) % 5u;\n\n// Note: Callbacks must not mutate lists; the default cb() used elsewhere is benign.\ntick(componentOffset);\n\n// Validation: Exercises tick on a valid component bucket; no persistent state exchanged here."
+    },
+    {
+      "name": "setTimeout_",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "code": "// Requires initialization prior to scheduling timeouts.\nint gen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nif (gen <= 0) { FUZZ_BAIL(); }\n\n// Generate a fuzzed delay; any unsigned is allowed.\nunsigned int ms = *FUZZ_PARAM(unsigned int);\n\n// Provide a non-null callback; use the provided sample cb().\nunsigned int id = setTimeout_(cb, ms);\n\n// Wrap the returned timer ID in an opaque handle for the object pool.\nvoid *timer_handle = (void *)(unsigned long)(id + 1u);\n\n// Record that this timer is allocated and currently linked by the scheduler.\nFUZZ_SET_ATTR_INT(timer_handle, \"id\", (int)id);\nFUZZ_SET_ATTR_INT(timer_handle, \"allocated\", 1);\nFUZZ_SET_ATTR_INT(timer_handle, \"linked\", 1);\n// We do not know which component bucket it was placed into; mark unknown.\nFUZZ_SET_ATTR_INT(timer_handle, \"component\", -1);\nFUZZ_SET_ATTR_INT(timer_handle, \"componentKnown\", 0);\nFUZZ_SET_ATTR_INT(timer_handle, \"gen\", gen);\n\n// Validation: Ensures init has occurred and produces a live, linked timer handle for downstream operations."
+    },
+    {
+      "name": "clearTimeout_",
+      "inputs": [
+        {
+          "name": "timer_handle",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Validate initialization epoch consistency.\nint curGen = FUZZ_GET_ATTR_INT_GLOBAL(\"init_gen\");\nint hGen = FUZZ_GET_ATTR_INT(timer_handle, \"gen\");\nif (hGen != curGen || curGen <= 0) { FUZZ_BAIL(); }\n\n// clearTimeout_ requires a valid timer ID currently linked in a list.\nint allocated = FUZZ_GET_ATTR_INT(timer_handle, \"allocated\");\nint linked = FUZZ_GET_ATTR_INT(timer_handle, \"linked\");\nif (!allocated || !linked) { FUZZ_BAIL(); }\n\nunsigned int id = (unsigned int)FUZZ_GET_ATTR_INT(timer_handle, \"id\");\n\n// Cancel the scheduled timer and return it to the free pool.\nclearTimeout_(id);\n\n// Mark the handle as freed and unlinked.\nFUZZ_SET_ATTR_INT(timer_handle, \"allocated\", 0);\nFUZZ_SET_ATTR_INT(timer_handle, \"linked\", 0);\nFUZZ_SET_ATTR_INT(timer_handle, \"component\", -1);\nFUZZ_SET_ATTR_INT(timer_handle, \"componentKnown\", 0);\n\n// Validation: Only cancels timers that are known linked; handle is dropped after this call."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "cb",
+      "data_types": []
+    },
+    {
+      "name": "init",
+      "data_types": []
+    },
+    {
+      "name": "allocateTimer",
+      "data_types": []
+    },
+    {
+      "name": "freeTimer",
+      "data_types": []
+    },
+    {
+      "name": "divideComponents",
+      "data_types": []
+    },
+    {
+      "name": "addTimerToList",
+      "data_types": []
+    },
+    {
+      "name": "removeTimerFromList",
+      "data_types": []
+    },
+    {
+      "name": "moveTimerToList",
+      "data_types": []
+    },
+    {
+      "name": "tick",
+      "data_types": []
+    },
+    {
+      "name": "setTimeout_",
+      "data_types": []
+    },
+    {
+      "name": "clearTimeout_",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2131,
+            "output_tokens": 245,
+            "total_tokens": 2376
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1709,
+            "output_tokens": 53,
+            "total_tokens": 1762
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2186,
+            "output_tokens": 2715,
+            "total_tokens": 4901
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5318,
+            "output_tokens": 6359,
+            "total_tokens": 11677
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 178.45488095283508,
+    "scan_objects": 6.0221943855285645,
+    "validate_objects": 0.2625923156738281,
+    "scan_functions": 60.04955244064331,
+    "synthesis": 112.06528425216675,
+    "fill": 0,
+    "classify": 0.05460476875305176,
+    "build_generators": 0.000057697296142578125
+  }
+}

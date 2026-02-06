@@ -1,0 +1,397 @@
+{
+  "objects": [
+    {
+      "ptr_type": "bloaty::RangeMap *",
+      "aliases": [],
+      "definition": "class RangeMap {\n public:\n  RangeMap() = default;\n  RangeMap(RangeMap&& other) = default;\n  RangeMap& operator=(RangeMap&& other) = default;\n  RangeMap(RangeMap& other) = delete;\n  RangeMap& operator=(RangeMap& other) = delete;\n\n  // Adds a range to this map.\n  void AddRange(uint64_t addr, uint64_t size, const std::string& val);\n\n  // Adds a range to this map (in domain D1) that also corresponds to a\n  // different range in a different map (in domain D2).  The correspondance will\n  // be noted to allow us to translate into the other domain later.\n  void AddDualRange(uint64_t addr, uint64_t size, uint64_t otheraddr,\n                    const std::string& val);\n\n  // Adds a range to this map (in domain D1), and also adds corresponding ranges\n  // to |other| (in domain D2), using |translator| (in domain D1) to translate\n  // D1->D2.  The translation is performed using information from previous\n  // AddDualRange() calls on |translator|.\n  //\n  // Returns true if the entire range [addr, size] was present in the\n  // |translator| map.  (This does not necessarily mean that every part of the\n  // range was actually translated).  If the return value is false, then the\n  // contents of |this| and |other| are undefined (Bloaty will bail in this\n  // case).\n  bool AddRangeWithTranslation(uint64_t addr, uint64_t size,\n                               const std::string& val,\n                               const RangeMap& translator, bool verbose,\n                               RangeMap* other);\n\n  // Collapses adjacent ranges with the same label. This reduces memory usage\n  // and removes redundant noise from the output when dumping a full memory map\n  // (in normal Bloaty output it makes no difference, because all labels with\n  // the same name are added together).\n  //\n  // TODO(haberman): see if we can do this at insertion time instead, so it\n  // doesn't require a second pass.\n  void Compress();\n\n  // Returns whether this RangeMap fully covers the given range.\n  bool CoversRange(uint64_t addr, uint64_t size) const;\n\n  // Returns the maximum address contained in this map.\n  uint64_t GetMaxAddress() const;\n\n  // Translates |addr| into the other domain, returning |true| if this was\n  // successful.\n  bool Translate(uint64_t addr, uint64_t *translated) const;\n\n  // Looks for a range within this map that contains |addr|.  If found, returns\n  // true and sets |label| to the corresponding label, and |offset| to the\n  // offset from the beginning of this range.\n  bool TryGetLabel(uint64_t addr, std::string* label) const;\n  bool TryGetLabelForRange(uint64_t addr, uint64_t size,\n                           std::string* label) const;\n\n  // Looks for a range that starts exactly on |addr|.  If it exists, returns\n  // true and sets |size| to its size.\n  bool TryGetSize(uint64_t addr, uint64_t* size) const;\n\n  std::string DebugString() const;\n\n  static std::string EntryDebugString(uint64_t addr, uint64_t size,\n                                      uint64_t other_start,\n                                      const std::string& label) {\n    std::string end =\n        size == kUnknownSize ? \"?\" : absl::StrCat(absl::Hex(addr + size));\n    std::string ret = absl::StrCat(\"[\", absl::Hex(addr), \", \", end,\n                                   \"] (size=\", absl::Hex(size), \"): \", label);\n    if (other_start != UINT64_MAX) {\n      absl::StrAppend(&ret, \", other_start=\", absl::Hex(other_start));\n    }\n    return ret;\n  }\n\n  template <class T>\n  std::string EntryDebugString(T it) const {\n    if (it == mappings_.end()) {\n      return \"[end]\";\n    } else {\n      return EntryDebugString(it->first, it->second.size,\n                              it->second.other_start, it->second.label);\n    }\n  }\n\n  template <class Func>\n  static void ComputeRollup(const std::vector<const RangeMap*>& range_maps,\n                            Func func);\n\n  template <class Func>\n  void ForEachRange(Func func) const {\n    for (auto iter = mappings_.begin(); iter != mappings_.end(); ++iter) {\n      func(iter->first, RangeEnd(iter) - iter->first);\n    }\n  }\n\n  template <class Func>\n  void ForEachRangeWithStart(uint64_t start, Func func) const {\n    for (auto iter = FindContaining(start); iter != mappings_.end(); ++iter) {\n      if (!func(iter->second.label, iter->first,\n                RangeEnd(iter) - iter->first)) {\n        return;\n      }\n    }\n  }\n\n  static constexpr uint64_t kUnknownSize = UINT64_MAX;\n\n private:\n  friend class RangeMapTest;\n  static const uint64_t kNoTranslation = UINT64_MAX;\n\n  struct Entry {\n    Entry(const std::string& label_, uint64_t size_, uint64_t other_)\n        : label(label_), size(size_), other_start(other_) {}\n    std::string label;\n    uint64_t size;\n    uint64_t other_start;  // kNoTranslation if there is no mapping.\n\n    bool HasTranslation() const { return other_start != kNoTranslation; }\n    bool HasFallbackLabel() const { return !label.empty() && label[0] == '['; }\n\n    // We assume that short regions that were unattributed (have fallback\n    // labels) are actually padding. We could probably make this heuristic\n    // a bit more robust.\n    bool IsShortFallback() const { return size <= 16 && HasFallbackLabel(); }\n  };\n\n  typedef std::map<uint64_t, Entry> Map;\n  Map mappings_;\n\n  template <class T>\n  void CheckConsistency(T iter) const {\n    assert(iter->first + iter->second.size > iter->first);\n    assert(iter == mappings_.begin() ||\n           RangeEnd(std::prev(iter)) <= iter->first);\n    assert(std::next(iter) == mappings_.end() ||\n           RangeEnd(iter) <= std::next(iter)->first);\n  }\n\n  template <class T>\n  bool EntryContains(T iter, uint64_t addr) const {\n    return addr >= iter->first && addr < RangeEnd(iter);\n  }\n\n  template <class T>\n  bool EntryContainsStrict(T iter, uint64_t addr) const {\n    if (iter->second.size == kUnknownSize) {\n      return iter->first == addr;\n    } else {\n      return addr >= iter->first && addr < RangeEnd(iter);\n    }\n  }\n\n  template <class T>\n  void MaybeSetLabel(T iter, const std::string& label, uint64_t addr,\n                     uint64_t end);\n\n  // When the size is unknown return |unknown| for the end.\n  uint64_t RangeEndUnknownLimit(Map::const_iterator iter,\n                                uint64_t unknown) const {\n    if (iter->second.size == kUnknownSize) {\n      Map::const_iterator next = std::next(iter);\n      if (IterIsEnd(next) || next->first > unknown) {\n        return unknown;\n      } else {\n        return next->first;\n      }\n    } else {\n      uint64_t ret = iter->first + iter->second.size;\n      assert(ret > iter->first);\n      return ret;\n    }\n  }\n\n  uint64_t RangeEnd(Map::const_iterator iter) const {\n    return RangeEndUnknownLimit(iter, UINT64_MAX);\n  }\n\n  bool IterIsEnd(Map::const_iterator iter) const {\n    return iter == mappings_.end();\n  }\n\n  template <class T>\n  uint64_t TranslateWithEntry(T iter, uint64_t addr) const;\n\n  template <class T>\n  bool TranslateAndTrimRangeWithEntry(T iter, uint64_t addr, uint64_t size,\n                                      uint64_t* trimmed_addr,\n                                      uint64_t* translated_addr,\n                                      uint64_t* trimmed_size) const;\n\n  // Finds the entry that contains |addr|.  If no such mapping exists, returns\n  // mappings_.end().\n  Map::const_iterator FindContaining(uint64_t addr) const;\n\n  // Finds the entry that contains |addr|, or the very next entry (which may be\n  // mappings_.end()).\n  Map::iterator FindContainingOrAfter(uint64_t addr);\n  Map::const_iterator FindContainingOrAfter(uint64_t addr) const;\n};\n\ntemplate <class Func>\nvoid RangeMap::ComputeRollup(const std::vector<const RangeMap*>& range_maps,\n                             Func func) {\n  assert(range_maps.size() > 0);\n  std::vector<Map::const_iterator> iters;\n\n  if (range_maps[0]->mappings_.empty()) {\n    for (int i = 0; i < range_maps.size(); i++) {\n      const RangeMap* range_map = range_maps[i];\n      if (!range_map->mappings_.empty()) {\n        printf(\n            \"Error, range (%s) exists at index %d, but base map is empty\\n\",\n            range_map->EntryDebugString(range_map->mappings_.begin()).c_str(),\n            i);\n        assert(false);\n        throw std::runtime_error(\"Range extends beyond base map.\");\n      }\n    }\n    return;\n  }\n\n  iters.reserve(range_maps.size());\n  for (auto range_map : range_maps) {\n    iters.push_back(range_map->mappings_.begin());\n  }\n\n  // Iterate over all ranges in parallel to perform this transformation:\n  //\n  //   -----  -----  -----             ---------------\n  //     |      |      1                    A,X,1\n  //     |      X    -----             ---------------\n  //     |      |      |                    A,X,2\n  //     A    -----    |               ---------------\n  //     |      |      |                      |\n  //     |      |      2      ----->          |\n  //     |      Y      |                    A,Y,2\n  //     |      |      |                      |\n  //   -----    |      |               ---------------\n  //     B      |      |                    B,Y,2\n  //   -----  -----  -----             ---------------\n  //\n  //\n  //   -----  -----  -----             ---------------\n  //     C      Z      3                    C,Z,3\n  //   -----  -----  -----             ---------------\n  //\n  // All input maps must cover exactly the same domain.\n\n  // Outer loop: once per continuous (gapless) region.\n  while (true) {\n    std::vector<std::string> keys;\n    uint64_t current = 0;\n\n    if (range_maps[0]->IterIsEnd(iters[0])) {\n      // Termination condition: all iterators must be at end.\n      for (int i = 0; i < range_maps.size(); i++) {\n        if (!range_maps[i]->IterIsEnd(iters[i])) {\n          printf(\n              \"Error, range (%s) extends beyond final base map range \"\n              \"(%s)\\n\",\n              range_maps[i]->EntryDebugString(iters[i]).c_str(),\n              range_maps[0]->EntryDebugString(std::prev(iters[0])).c_str());\n          assert(false);\n          throw std::runtime_error(\"Range extends beyond base map.\");\n        }\n      }\n      return;\n    } else {\n      // Starting a new continuous range: all iterators must start at the same\n      // place.\n      current = iters[0]->first;\n      for (int i = 0; i < range_maps.size(); i++)  {\n        if (range_maps[i]->IterIsEnd(iters[i])) {\n          printf(\n              \"Error, no more ranges for index %d but we need one \"\n              \"to match (%s)\\n\",\n              i, range_maps[0]->EntryDebugString(iters[0]).c_str());\n          assert(false);\n          throw std::runtime_error(\"No more ranges.\");\n        } else if (iters[i]->first != current) {\n          printf(\n              \"Error, range (%s) doesn't match the beginning of base range \"\n              \"(%s)\\n\",\n              range_maps[i]->EntryDebugString(iters[i]).c_str(),\n              range_maps[0]->EntryDebugString(iters[0]).c_str());\n          assert(false);\n          throw std::runtime_error(\"No more ranges.\");\n        }\n        keys.push_back(iters[i]->second.label);\n      }\n    }\n\n    bool continuous = true;\n\n    // Inner loop: once per range within the continuous region.\n    while (continuous) {\n      uint64_t next_break = UINT64_MAX;\n\n      for (int i = 0; i < iters.size(); i++) {\n        next_break = std::min(next_break, range_maps[i]->RangeEnd(iters[i]));\n      }\n\n      func(keys, current, next_break);\n\n      // Advance all iterators with ranges ending at next_break.\n      for (int i = 0; i < iters.size(); i++) {\n        const RangeMap& map = *range_maps[i];\n        Map::const_iterator& iter = iters[i];\n        uint64_t end = continuous ? map.RangeEnd(iter)\n                                  : map.RangeEndUnknownLimit(iter, next_break);\n\n        if (end != next_break) {\n          continue;\n        }\n        ++iter;\n\n        // Test for discontinuity.\n        if (map.IterIsEnd(iter) || iter->first != next_break) {\n          if (i > 0 && continuous) {\n            printf(\n                \"Error, gap between ranges (%s) and (%s) fails to cover base \"\n                \"range (%s)\\n\",\n                map.EntryDebugString(std::prev(iter)).c_str(),\n                map.EntryDebugString(iter).c_str(),\n                range_maps[0]->EntryDebugString(iters[0]).c_str());\n            assert(false);\n            throw std::runtime_error(\"Entry range extends beyond base range\");\n          }\n          assert(i == 0 || !continuous);\n          continuous = false;\n        } else {\n          assert(continuous);\n          keys[i] = iter->second.label;\n        }\n      }\n      current = next_break;\n    }\n  }\n}\n",
+      "description": "Mapping structure for non-overlapping half-open address ranges [addr, addr+size) to string labels, with optional cross-domain translation to a second address space. Provides insertion of ranges (including dual ranges with translation), queries (coverage, lookup, size), translation, compression of adjacent identical labels, iteration utilities, and a rollup over multiple maps that must share identical domain coverage. Move-only; copying is disabled. Unknown size is represented by kUnknownSize. Internal storage is a std::map<uint64_t, Entry>.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "bloaty::RangeMapTest *",
+      "aliases": [],
+      "definition": "class RangeMapTest;",
+      "description": "Forward declaration of a test fixture/class used for unit testing RangeMap. No definition is provided in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "bloaty::RangeMap::RangeMap",
+      "signature": "bloaty::RangeMap::RangeMap()",
+      "description": "Default-constructs an empty RangeMap with no ranges and no translations. Typical usage: create a RangeMap instance before adding ranges via AddRange/AddDualRange.",
+      "requirements": [
+        "Object is initially empty; no other preconditions."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::operator=",
+      "signature": "bloaty::RangeMap& bloaty::RangeMap::operator=(bloaty::RangeMap&& other)",
+      "description": "Move-assigns from other, replacing the contents of this RangeMap with those of other. After assignment, other is left in a valid but unspecified state.",
+      "requirements": [
+        "other must be an rvalue (moved-from) RangeMap."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::AddRange",
+      "signature": "void bloaty::RangeMap::AddRange(uint64_t addr, uint64_t size, const std::string& val)",
+      "description": "Adds a labeled range [addr, addr + size) to this map in the primary domain. Ranges in a RangeMap must be non-overlapping. Intended to build up the address-to-label mapping before queries or translations.",
+      "requirements": [
+        "Ranges added to this map must be non-overlapping with existing ranges.",
+        "addr + size must not overflow 64-bit unsigned arithmetic; the implementation asserts internal consistency.",
+        "size should represent the exact length of the range in bytes; behavior for size == 0 is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::AddDualRange",
+      "signature": "void bloaty::RangeMap::AddDualRange(uint64_t addr, uint64_t size, uint64_t otheraddr, const std::string& val)",
+      "description": "Adds a labeled range [addr, addr + size) to this map (domain D1) and records that it corresponds to a range starting at otheraddr in a different domain (D2). This establishes translation metadata used by Translate and AddRangeWithTranslation.",
+      "requirements": [
+        "Ranges added to this map must be non-overlapping with existing ranges.",
+        "addr + size must not overflow 64-bit unsigned arithmetic; the implementation asserts internal consistency.",
+        "otheraddr is the start of the corresponding range in the other domain; its validity is not otherwise checked here."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::AddRangeWithTranslation",
+      "signature": "bool bloaty::RangeMap::AddRangeWithTranslation(uint64_t addr, uint64_t size, const std::string& val, const bloaty::RangeMap& translator, bool verbose, bloaty::RangeMap* other)",
+      "description": "Adds a range [addr, addr + size) with label val to this map (domain D1) and simultaneously adds corresponding translated ranges to other (domain D2) using translator (domain D1) to translate D1→D2 based on prior AddDualRange calls on translator. Returns true if the entire [addr, addr + size) was present in translator. If false, the contents of this and other are documented as undefined and the caller should abort using these maps.",
+      "requirements": [
+        "translator must contain translation metadata (from prior AddDualRange calls) that covers the entire [addr, addr + size) in its domain for a successful return.",
+        "Callers must check the boolean return value; if false, both this and other must not be used further as their contents are undefined.",
+        "other must be a non-null pointer to a RangeMap to receive translated ranges.",
+        "Ranges added to this map must be non-overlapping with existing ranges.",
+        "addr + size must not overflow 64-bit unsigned arithmetic.",
+        "verbose controls diagnostic logging only; no functional preconditions."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::Compress",
+      "signature": "void bloaty::RangeMap::Compress()",
+      "description": "Collapses adjacent ranges that have the same label to reduce memory usage and noise when dumping full maps. No effect on aggregate reporting where identical labels are summed.",
+      "requirements": [
+        "The map should be in a consistent, non-overlapping state prior to calling.",
+        "May be called any time after range insertion to coalesce adjacent same-labeled regions."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::CoversRange",
+      "signature": "bool bloaty::RangeMap::CoversRange(uint64_t addr, uint64_t size) const",
+      "description": "Returns true if this RangeMap fully covers the range [addr, addr + size) with one or more of its ranges; false otherwise.",
+      "requirements": [
+        "addr and size define the half-open interval [addr, addr + size).",
+        "addr + size must be representable in 64-bit unsigned arithmetic (no overflow)."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::GetMaxAddress",
+      "signature": "uint64_t bloaty::RangeMap::GetMaxAddress() const",
+      "description": "Returns the maximum address contained in this map (the greatest end address of any stored range).",
+      "requirements": [
+        "Meaningful only when the map is non-empty; behavior for an empty map is not documented in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::Translate",
+      "signature": "bool bloaty::RangeMap::Translate(uint64_t addr, uint64_t* translated) const",
+      "description": "Translates addr from this map's domain into the corresponding address in the other domain using previously established dual-range metadata. Returns true on success and writes the translated address via translated.",
+      "requirements": [
+        "translated must be a non-null pointer to receive the result.",
+        "A translation must have been established (via AddDualRange on the relevant entries); otherwise returns false."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::TryGetLabel",
+      "signature": "bool bloaty::RangeMap::TryGetLabel(uint64_t addr, std::string* label) const",
+      "description": "If a stored range contains addr, sets label to that range’s label and returns true; otherwise returns false and leaves label unspecified.",
+      "requirements": [
+        "label must be a non-null pointer.",
+        "addr is interpreted in the primary domain of this map."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::TryGetLabelForRange",
+      "signature": "bool bloaty::RangeMap::TryGetLabelForRange(uint64_t addr, uint64_t size, std::string* label) const",
+      "description": "If a stored range fully covers [addr, addr + size), sets label to that range’s label and returns true; otherwise returns false.",
+      "requirements": [
+        "label must be a non-null pointer.",
+        "addr + size must be representable in 64-bit unsigned arithmetic (no overflow)."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::TryGetSize",
+      "signature": "bool bloaty::RangeMap::TryGetSize(uint64_t addr, uint64_t* size) const",
+      "description": "If a stored range starts exactly at addr, writes that range’s size to size and returns true; otherwise returns false.",
+      "requirements": [
+        "size must be a non-null pointer.",
+        "addr must equal the exact start of a stored range for success."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::DebugString",
+      "signature": "std::string bloaty::RangeMap::DebugString() const",
+      "description": "Returns a human-readable debug string describing the contents of the RangeMap. Useful for diagnostics and unit testing.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::EntryDebugString",
+      "signature": "static std::string bloaty::RangeMap::EntryDebugString(uint64_t addr, uint64_t size, uint64_t other_start, const std::string& label)",
+      "description": "Formats a single entry as a debug string: [addr, end) (size=...) : label, optionally including other_start if a translation exists. Used for diagnostics.",
+      "requirements": [
+        "addr and size should correspond to a valid stored entry semantics in the map using half-open intervals.",
+        "When size equals bloaty::RangeMap::kUnknownSize, end is rendered as '?'."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::EntryDebugString",
+      "signature": "template <class T> std::string bloaty::RangeMap::EntryDebugString(T it) const",
+      "description": "Formats the entry pointed to by iterator it as a debug string. If it equals mappings_.end(), returns \"[end]\". Otherwise delegates to the static EntryDebugString overload.",
+      "requirements": [
+        "it must be a valid iterator comparable to this->mappings_.end() and, if not end(), must reference an entry from this RangeMap."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::ComputeRollup",
+      "signature": "template <class Func> static void bloaty::RangeMap::ComputeRollup(const std::vector<const bloaty::RangeMap*>& range_maps, Func func)",
+      "description": "Iterates over multiple RangeMaps in lockstep, partitioning their common covered domain into contiguous subranges where labels are stable, and invokes func(keys, start, end) for each subrange. keys is a vector<string> of the current labels, one per map. All input maps must cover exactly the same domain.",
+      "requirements": [
+        "range_maps.size() must be > 0.",
+        "If range_maps[0] (the base map) is empty, all other maps must also be empty; otherwise a runtime_error is thrown.",
+        "All non-empty input maps must cover exactly the same domain without gaps; mismatches cause assertions and runtime_error exceptions.",
+        "func must be callable with (const std::vector<std::string>& keys, uint64_t start, uint64_t end)."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::ForEachRange",
+      "signature": "template <class Func> void bloaty::RangeMap::ForEachRange(Func func) const",
+      "description": "Invokes func(start, size) for each stored range in ascending address order.",
+      "requirements": [
+        "func must be callable with (uint64_t start, uint64_t size).",
+        "Iteration order is ascending by start address; func should not modify the RangeMap."
+      ],
+      "error": null
+    },
+    {
+      "name": "bloaty::RangeMap::ForEachRangeWithStart",
+      "signature": "template <class Func> void bloaty::RangeMap::ForEachRangeWithStart(uint64_t start, Func func) const",
+      "description": "Starting from the range that contains start (or the next one), iterates forward and calls func(label, addr, size) for each range until func returns false or the end is reached. Allows early termination based on the callback return value.",
+      "requirements": [
+        "func must be callable with (const std::string& label, uint64_t addr, uint64_t size) and return a boolean-like value; returning false stops iteration.",
+        "start is used to find the containing or next range; if no such range exists, no callbacks are invoked.",
+        "func must not modify the RangeMap."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "bloaty::RangeMap::RangeMap",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "range_map",
+          "type": "bloaty::RangeMap *"
+        }
+      ],
+      "code": "// Default-construct a new RangeMap and hand ownership to the fuzzer runtime\nbloaty::RangeMap* range_map = new bloaty::RangeMap();\n// Initialize bookkeeping attributes for non-overlap insertions done by our stubs\nFUZZ_SET_ATTR_INT(range_map, \"max_end\", 0);      // highest end address inserted so far\nFUZZ_SET_ATTR_INT(range_map, \"cov_start\", 0);    // first addr for contiguous coverage (used by translator maps)\nFUZZ_SET_ATTR_INT(range_map, \"cov_end\", 0);      // last contiguous end (used by translator maps)\n"
+    },
+    {
+      "name": "bloaty::RangeMap::operator=",
+      "inputs": [
+        {
+          "name": "self",
+          "type": "bloaty::RangeMap *"
+        },
+        {
+          "name": "other",
+          "type": "bloaty::RangeMap *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "self",
+          "type": "bloaty::RangeMap *"
+        },
+        {
+          "name": "other",
+          "type": "bloaty::RangeMap *"
+        }
+      ],
+      "code": "// Enforce that move-assigning from itself is avoided; requires distinct objects\nif (self == other) { FUZZ_BAIL(); }\n// Perform move assignment; 'other' becomes moved-from but remains valid\n*self = std::move(*other);\n// Preserve attributes on self; moved-from 'other' may lose meaning but is still valid\n// We retain both objects for further fuzzing\n"
+    },
+    {
+      "name": "bloaty::RangeMap::ComputeRollup",
+      "inputs": [
+        {
+          "name": "self",
+          "type": "bloaty::RangeMap *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "self",
+          "type": "bloaty::RangeMap *"
+        }
+      ],
+      "code": "// Use a single-map rollup, which trivially satisfies the \"identical domain\" requirement\nstd::vector<const bloaty::RangeMap*> maps;\nmaps.push_back(self);\n// Callback matches the required signature; do minimal work\nauto cb = [](const std::vector<std::string>& keys, uint64_t start, uint64_t end) {\n  // Basic property: start < end for any emitted subrange\n  if (!(end >= start)) { FUZZ_ASSERT(false, \"ComputeRollup emitted invalid range\"); }\n};\n// Call; with a single map, invariants hold regardless of content\nbloaty::RangeMap::ComputeRollup(maps, cb);\n"
+    },
+    {
+      "name": "bloaty::RangeMap::ForEachRange",
+      "inputs": [
+        {
+          "name": "self",
+          "type": "bloaty::RangeMap *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "self",
+          "type": "bloaty::RangeMap *"
+        }
+      ],
+      "code": "// Iterate over all ranges; callback must be callable with (start, size)\nuint64_t count = 0;\nself->ForEachRange([&](uint64_t start, uint64_t size){\n  // Sanity: ranges should be non-empty\n  if (!(size > 0)) { FUZZ_ASSERT(false, \"Observed zero-sized range\"); }\n  count++;\n});\n(void)count;\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "bloaty::RangeMap::EntryDebugString",
+      "reason": "The iterator-based template overload requires access to RangeMap’s internal iterator type and mappings_, which are private and cannot be constructed outside the class in a harness."
+    },
+    {
+      "name": "bloaty::RangeMap::AddRange",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::AddDualRange",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::AddRangeWithTranslation",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::Compress",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::CoversRange",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::GetMaxAddress",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::Translate",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::TryGetLabel",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::TryGetLabelForRange",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::TryGetSize",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::DebugString",
+      "reason": "Implementation is not linked in this environment, causing undefined references at link time."
+    },
+    {
+      "name": "bloaty::RangeMap::ForEachRangeWithStart",
+      "reason": "Template depends on non-inline FindContaining which is not linked here, leading to undefined reference errors."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "bloaty::RangeMap::RangeMap",
+      "data_types": []
+    },
+    {
+      "name": "bloaty::RangeMap::operator=",
+      "data_types": []
+    },
+    {
+      "name": "bloaty::RangeMap::ComputeRollup",
+      "data_types": []
+    },
+    {
+      "name": "bloaty::RangeMap::ForEachRange",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4064,
+            "output_tokens": 4019,
+            "total_tokens": 8083
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3642,
+            "output_tokens": 210,
+            "total_tokens": 3852
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4283,
+            "output_tokens": 4250,
+            "total_tokens": 8533
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 25792,
+            "output_tokens": 6946,
+            "total_tokens": 32738
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 262.86414766311646,
+    "scan_objects": 35.11645793914795,
+    "validate_objects": 0.8468418121337891,
+    "scan_functions": 70.90488338470459,
+    "synthesis": 155.94032454490662,
+    "fill": 0,
+    "classify": 0.054784536361694336,
+    "build_generators": 0.00006079673767089844
+  }
+}

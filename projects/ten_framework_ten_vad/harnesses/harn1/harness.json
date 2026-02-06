@@ -1,0 +1,210 @@
+{
+  "objects": [
+    {
+      "ptr_type": "ten_vad_handle_t *",
+      "aliases": [],
+      "definition": "typedef void *ten_vad_handle_t;",
+      "description": "Opaque handle type for a TEN VAD (voice activity detection) instance. It represents an implementation-defined object managed via the provided create/process/destroy API. Treat it as an opaque pointer; do not dereference or assume layout.",
+      "direct_api_constructors": [
+        "ten_vad_create"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "ten_vad_create",
+      "signature": "TENVAD_API int ten_vad_create(ten_vad_handle_t *handle, size_t hop_size, float threshold);",
+      "description": "Create and initialize a TEN VAD instance. On success, writes an opaque handle to *handle. The hop_size defines the frame step (in samples) expected by subsequent processing calls. The threshold sets the decision boundary for classifying voice activity based on the computed probability (>= threshold => voice). Returns 0 on success, -1 on error.",
+      "requirements": [
+        "handle must be a non-null pointer to storage for a ten_vad_handle_t; on success it will be assigned a valid handle.",
+        "hop_size is the number of samples between frame starts; it must be a positive value and must match the audio_data_length used in ten_vad_process.",
+        "threshold must be within [0.0, 1.0].",
+        "Caller must check the return value: 0 indicates success; -1 indicates error and no usable handle.",
+        "A successfully created handle must be released with ten_vad_destroy to avoid resource leaks."
+      ],
+      "error": null
+    },
+    {
+      "name": "ten_vad_process",
+      "signature": "TENVAD_API int ten_vad_process(ten_vad_handle_t handle, const int16_t *audio_data, size_t audio_data_length, float *out_probability, int *out_flag);",
+      "description": "Process one audio frame for voice activity detection using a previously created VAD handle. Writes the probability of voice activity to out_probability in [0.0, 1.0] and a binary decision to out_flag (0: no voice, 1: voice), where the decision uses the threshold configured at creation. Returns 0 on success, -1 on error. Note: The comment mentions ten_vad_init(), but no such function exists in this header; it likely refers to ten_vad_create().",
+      "requirements": [
+        "handle must be a valid ten_vad_handle_t previously returned by ten_vad_create and not yet destroyed.",
+        "audio_data must be a non-null pointer to int16_t samples.",
+        "audio_data_length must equal the hop_size provided to ten_vad_create.",
+        "out_probability must be a non-null pointer to writable float storage (at least 1 element). On success, value will be in [0.0, 1.0].",
+        "out_flag must be a non-null pointer to writable int storage (at least 1 element). On success, value will be 0 or 1 (1 iff out_probability >= threshold).",
+        "Caller must check the return value: 0 indicates success; -1 indicates error.",
+        "The input buffer must contain exactly one analysis frame corresponding to the configured hop size; sample format is 16-bit signed PCM."
+      ],
+      "error": null
+    },
+    {
+      "name": "ten_vad_destroy",
+      "signature": "TENVAD_API int ten_vad_destroy(ten_vad_handle_t *handle);",
+      "description": "Destroy a TEN VAD instance and release its resources. On return, sets *handle to NULL. Returns 0 on success, -1 on error.",
+      "requirements": [
+        "handle must be a non-null pointer to a ten_vad_handle_t obtained from ten_vad_create.",
+        "*handle must be a valid, currently active handle that has not already been destroyed.",
+        "After successful return, *handle is set to NULL and must not be used in further calls.",
+        "Caller must check the return value: 0 indicates success; -1 indicates error."
+      ],
+      "error": null
+    },
+    {
+      "name": "ten_vad_get_version",
+      "signature": "TENVAD_API const char *ten_vad_get_version(void);",
+      "description": "Retrieve the TEN VAD library version string (e.g., \"1.0.0\"). Intended for diagnostics, logging, or feature gating. The returned string should be treated as read-only.",
+      "requirements": [
+        "No arguments required.",
+        "The returned const char* points to a read-only, null-terminated string; do not modify or free it.",
+        "Pointer validity/lifetime is not explicitly documented; assume it remains valid for typical library lifetime."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ten_vad_create",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "handle",
+          "type": "ten_vad_handle_t *"
+        }
+      ],
+      "code": "// Generate a valid hop_size in [1, 1024] to bound allocations for subsequent processing\nsize_t hop_size = (size_t)(*FUZZ_PARAM(unsigned int) % 1024) + 1;\n// Generate a valid threshold in [0.0, 1.0] with millisecond precision for attribute tracking\nunsigned int thr_milli = *FUZZ_PARAM(unsigned int) % 1001; // 0..1000\nfloat threshold = (float)thr_milli / 1000.0f;\n\n// Allocate persistent storage for the opaque handle value; this storage itself is kept in the pool\n// The API will write the implementation-defined pointer value into *handle\nten_vad_handle_t *handle = (ten_vad_handle_t *)malloc(sizeof(ten_vad_handle_t));\nif (!handle) { FUZZ_BAIL(); }\n*handle = (ten_vad_handle_t)0; // initialize to NULL prior to creation\n\n// Invoke create. Requirements enforced: non-null handle storage, positive hop_size, threshold in [0,1]\nint rc = ten_vad_create(handle, hop_size, threshold);\nif (rc != 0) { FUZZ_BAIL(); }\n\n// Track configuration/state on the handle storage for later validation and correct API usage\nFUZZ_SET_ATTR_INT(handle, \"created\", 1);\nFUZZ_SET_ATTR_INT(handle, \"hop_size\", (int)hop_size);\nFUZZ_SET_ATTR_INT(handle, \"thresh_milli\", (int)thr_milli);\n\n// Output: the storage pointer, which now holds a valid opaque instance pointer"
+    },
+    {
+      "name": "ten_vad_process",
+      "inputs": [
+        {
+          "name": "handle",
+          "type": "ten_vad_handle_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "handle",
+          "type": "ten_vad_handle_t *"
+        }
+      ],
+      "code": "// Validate input storage pointer and that it represents an active, created instance\nif (!handle) { FUZZ_BAIL(); }\nint created = FUZZ_GET_ATTR_INT(handle, \"created\");\nif (created != 1) { FUZZ_BAIL(); }\n// The API expects a valid opaque handle value (not the storage pointer)\nten_vad_handle_t hval = *handle;\nif (!hval) { FUZZ_BAIL(); }\n\n// Retrieve the hop_size configured at creation; enforce bounds to keep allocations small\nint hop_size = FUZZ_GET_ATTR_INT(handle, \"hop_size\");\nif (hop_size <= 0 || hop_size > 1024) { FUZZ_BAIL(); }\n\n// Build exactly one analysis frame of int16_t PCM samples of length hop_size\n// Use FUZZ_PARAM_STR() as a source of bytes and map into int16_t values\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() == 0) { FUZZ_BAIL(); }\nint16_t *frame = (int16_t *)malloc((size_t)hop_size * sizeof(int16_t));\nif (!frame) { FUZZ_BAIL(); }\n// Fill deterministically from src bytes to avoid undefined reads\nconst unsigned char *bytes = (const unsigned char *)src.data();\nsize_t blen = src.size();\nfor (int i = 0; i < hop_size; ++i) {\n    unsigned char b0 = bytes[(2u * (unsigned)i) % blen];\n    unsigned char b1 = bytes[(2u * (unsigned)i + 1u) % blen];\n    // Little-endian assemble into signed 16-bit\n    int16_t sample = (int16_t)((uint16_t)b0 | ((uint16_t)b1 << 8));\n    frame[i] = sample;\n}\n\nfloat out_probability = -1.0f;\nint out_flag = -1;\nint rc = ten_vad_process(hval, frame, (size_t)hop_size, &out_probability, &out_flag);\nfree(frame);\nif (rc != 0) { FUZZ_BAIL(); }\n\n// Postconditions required by API\nFUZZ_ASSERT(out_probability >= 0.0f && out_probability <= 1.0f, \"probability out of [0,1]\");\nFUZZ_ASSERT(out_flag == 0 || out_flag == 1, \"flag not binary\");\n\n// Decision property: flag must reflect probability vs threshold configured at creation\nint thr_milli = FUZZ_GET_ATTR_INT(handle, \"thresh_milli\");\nfloat threshold = (float)thr_milli / 1000.0f;\nint expected_flag = (out_probability >= threshold) ? 1 : 0;\nFUZZ_ASSERT(out_flag == expected_flag, \"flag does not match threshold comparison\");\n\n// Output: the handle storage remains valid and is returned to the pool"
+    },
+    {
+      "name": "ten_vad_destroy",
+      "inputs": [
+        {
+          "name": "handle",
+          "type": "ten_vad_handle_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "handle",
+          "type": "ten_vad_handle_t *"
+        }
+      ],
+      "code": "// Validate input storage pointer and that it represents an active, created instance\nif (!handle) { FUZZ_BAIL(); }\nint created = FUZZ_GET_ATTR_INT(handle, \"created\");\nif (created != 1) { FUZZ_BAIL(); }\nif (!*handle) { FUZZ_BAIL(); }\n\n// Invoke destroy; on success, *handle must be set to NULL by the API\nint rc = ten_vad_destroy(handle);\nif (rc != 0) { FUZZ_BAIL(); }\nFUZZ_ASSERT(*handle == (ten_vad_handle_t)0, \"*handle not NULL after destroy\");\n\n// Update state to reflect the destroyed instance; storage remains reusable\nFUZZ_SET_ATTR_INT(handle, \"created\", 0);\n// Keep hop_size/thresh_milli attributes for potential reuse by another create if desired"
+    },
+    {
+      "name": "ten_vad_get_version",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simple query function with no inputs/outputs; verify returned pointer is non-null and looks like a C-string\nconst char *ver = ten_vad_get_version();\nif (!ver) { FUZZ_BAIL(); }\n// Validate it is reasonably small and null-terminated within a bound to avoid unbounded scans\nsize_t max_scan = 256;\nsize_t i = 0;\nfor (; i < max_scan && ver[i] != '\\0'; ++i) {}\nFUZZ_ASSERT(i < max_scan, \"version string not null-terminated within bound\");"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "ten_vad_create",
+      "data_types": []
+    },
+    {
+      "name": "ten_vad_destroy",
+      "data_types": []
+    },
+    {
+      "name": "ten_vad_get_version",
+      "data_types": []
+    },
+    {
+      "name": "ten_vad_process",
+      "data_types": [
+        "16-bit PCM audio frame"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "16-bit PCM audio frame",
+      "description": "A buffer representing a single frame of signed 16-bit little-endian PCM audio samples. The buffer length is exactly hop_size samples (hop_size provided during VAD creation). Each sample is an int16 value; no header or container format, just raw PCM data."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "16-bit PCM audio frame",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# This generator produces a bytes buffer intended for FUZZ_PARAM_STR in the stub.\n# The stub maps consecutive little-endian 16-bit words from this byte string into\n# a hop_size-length int16 frame via modulo indexing. Therefore, producing a mix of\n# patterns in the underlying bytes will yield frames that can represent silence,\n# tones, speech-like envelopes, clipped peaks, and noise-like content.\n#\n# Constraints inferred from the fuzzer stub and API:\n# - hop_size is in (0, 1024]; process requires exactly one frame of that length.\n# - FUZZ_PARAM_STR must be non-empty; bytes are consumed in pairs (with wrap).\n# - Little-endian int16 assembly is used.\n#\n# Strategy:\n# - Build a composite byte buffer made of several segments. Each segment is an\n#   array of int16 samples serialized little-endian. We include patterns:\n#   * Silence (0)\n#   * Low-amplitude noise\n#   * High-amplitude (near-clipping) noise\n#   * Single-frequency sine waves at various amplitudes\n#   * Square and sawtooth waves\n#   * Impulses and DC offsets\n#   * Gradual ramps (fade in/out)\n# - Keep total size <= 4096 bytes.\n# - Randomize order and parameters seeded by the input seed.\n#\n# Even though the exact hop_size is unknown at generation time, the modulo access\n# in the stub ensures any non-empty buffer works. Providing diverse content\n# increases the chance that constructed frames vary across calls and trigger\n# different probability/threshold branches.\n\nMAX_BYTES = 4096\n\n\ndef _pack_int16(vals: List[int]) -> bytes:\n    # Clamp and pack to little-endian int16\n    out = bytearray()\n    for v in vals:\n        if v > 32767:\n            v = 32767\n        elif v < -32768:\n            v = -32768\n        out += struct.pack('<h', v)\n    return bytes(out)\n\n\ndef _gen_silence(n: int) -> bytes:\n    return _pack_int16([0] * n)\n\n\ndef _gen_noise(n: int, amp: int, rng: random.Random) -> bytes:\n    # Uniform noise in [-amp, amp]\n    vals = [rng.randint(-amp, amp) for _ in range(n)]\n    return _pack_int16(vals)\n\n\ndef _gen_sine(n: int, amp: int, period_samples: float, phase: float) -> bytes:\n    import math\n    vals = []\n    for i in range(n):\n        s = math.sin((2.0 * math.pi * i) / period_samples + phase)\n        vals.append(int(amp * s))\n    return _pack_int16(vals)\n\n\ndef _gen_square(n: int, amp: int, period_samples: int, duty: float) -> bytes:\n    duty = max(0.01, min(0.99, duty))\n    vals = []\n    for i in range(n):\n        t = i % period_samples\n        on = t < int(period_samples * duty)\n        vals.append(amp if on else -amp)\n    return _pack_int16(vals)\n\n\ndef _gen_saw(n: int, amp: int, period_samples: int) -> bytes:\n    vals = []\n    for i in range(n):\n        t = i % period_samples\n        # Map t in [0, period) to [-amp, amp]\n        v = int((-amp) + (2.0 * amp) * (t / max(1, period_samples - 1)))\n        vals.append(v)\n    return _pack_int16(vals)\n\n\ndef _gen_impulses(n: int, amp: int, every: int) -> bytes:\n    vals = []\n    for i in range(n):\n        if every > 0 and (i % every) == 0:\n            vals.append(amp if ((i // max(1, every)) % 2) == 0 else -amp)\n        else:\n            vals.append(0)\n    return _pack_int16(vals)\n\n\ndef _gen_dc(n: int, level: int) -> bytes:\n    return _pack_int16([level] * n)\n\n\ndef _gen_ramp(n: int, start: int, end: int) -> bytes:\n    if n <= 1:\n        return _pack_int16([start])\n    vals = []\n    for i in range(n):\n        t = i / (n - 1)\n        v = int(round(start + (end - start) * t))\n        vals.append(v)\n    return _pack_int16(vals)\n\n\ndef _choose_period(rng: random.Random) -> int:\n    # Choose musically interesting or arbitrary small integer periods to vary spectral content\n    candidates = [16, 20, 21, 24, 32, 40, 48, 50, 64, 80, 96, 100, 128, 160, 192, 200, 256]\n    return rng.choice(candidates)\n\n\ndef _choose_amp(rng: random.Random, level: str) -> int:\n    if level == 'low':\n        return rng.randint(300, 2000)\n    if level == 'mid':\n        return rng.randint(2000, 12000)\n    # high\n    return rng.randint(18000, 32000)\n\n\ndef _shuffle_segments(segs: List[bytes], rng: random.Random) -> List[bytes]:\n    rng.shuffle(segs)\n    return segs\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Determine a target total sample count. We want enough bytes so modulo access\n    # produces variety across hop_size up to 1024. Pick between 128 and 1536 samples.\n    total_samples_target = rng.randint(128, 1536)\n\n    segments: List[bytes] = []\n\n    # Always include a brief silence and a ramp to anchor extremes.\n    segments.append(_gen_silence(rng.randint(16, 96)))\n    segments.append(_gen_ramp(rng.randint(32, 192), -2000, 2000))\n\n    # Add a few randomized waveform segments\n    count_wave_segs = rng.randint(4, 9)\n    for _ in range(count_wave_segs):\n        kind = rng.choice([\n            'noise_low', 'noise_high', 'sine_low', 'sine_mid', 'sine_high',\n            'square', 'saw', 'impulses', 'dc', 'ramp']\n        )\n        n = rng.randint(24, 256)\n        if kind == 'noise_low':\n            segments.append(_gen_noise(n, _choose_amp(rng, 'low'), rng))\n        elif kind == 'noise_high':\n            segments.append(_gen_noise(n, _choose_amp(rng, 'high'), rng))\n        elif kind.startswith('sine_'):\n            level = kind.split('_')[1]\n            amp = _choose_amp(rng, level if level in ('low', 'mid', 'high') else 'mid')\n            period = _choose_period(rng)\n            phase = rng.uniform(0.0, 2.0 * 3.141592653589793)\n            segments.append(_gen_sine(n, amp, float(period), phase))\n        elif kind == 'square':\n            amp = _choose_amp(rng, rng.choice(['mid', 'high']))\n            period = _choose_period(rng)\n            duty = rng.uniform(0.2, 0.8)\n            segments.append(_gen_square(n, amp, period, duty))\n        elif kind == 'saw':\n            amp = _choose_amp(rng, rng.choice(['low', 'mid']))\n            period = _choose_period(rng)\n            segments.append(_gen_saw(n, amp, period))\n        elif kind == 'impulses':\n            amp = _choose_amp(rng, rng.choice(['mid', 'high']))\n            every = rng.choice([4, 8, 12, 16, 24, 32])\n            segments.append(_gen_impulses(n, amp, every))\n        elif kind == 'dc':\n            level = rng.choice([-16000, -8000, -1000, 0, 1000, 8000, 16000, 28000])\n            segments.append(_gen_dc(n, level))\n        elif kind == 'ramp':\n            start = rng.randint(-30000, 30000)\n            end = rng.randint(-30000, 30000)\n            segments.append(_gen_ramp(n, start, end))\n\n    # Shuffle segments to vary ordering\n    _shuffle_segments(segments, rng)\n\n    # Concatenate until reaching the target sample count or byte budget\n    out = bytearray()\n    for seg in segments:\n        if len(out) + len(seg) > MAX_BYTES:\n            break\n        out.extend(seg)\n        if len(out) >= total_samples_target * 2:\n            break\n\n    # Ensure non-empty length; if empty (unlikely), fall back to short sine and silence\n    if not out:\n        out.extend(_gen_silence(32))\n        out.extend(_gen_sine(64, 8000, 32.0, 0.0))\n\n    # Trim to MAX_BYTES for safety and to a multiple of 2 bytes to align int16 pairs\n    if len(out) % 2 == 1:\n        out = out[:-1]\n    if len(out) == 0:\n        # Guarantee at least one int16 pair\n        out.extend(_pack_int16([0, 0]))\n    return bytes(out[:MAX_BYTES])\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1497,
+            "output_tokens": 103,
+            "total_tokens": 1600
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1075,
+            "output_tokens": 36,
+            "total_tokens": 1111
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1529,
+            "output_tokens": 1603,
+            "total_tokens": 3132
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4611,
+            "output_tokens": 4728,
+            "total_tokens": 9339
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2674,
+            "output_tokens": 105,
+            "total_tokens": 2779
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 173.95314860343933,
+    "scan_objects": 2.8596608638763428,
+    "validate_objects": 0.18922662734985352,
+    "scan_functions": 30.184301376342773,
+    "synthesis": 89.61492872238159,
+    "fill": 0,
+    "classify": 2.909714460372925,
+    "build_generators": 48.194661140441895
+  }
+}

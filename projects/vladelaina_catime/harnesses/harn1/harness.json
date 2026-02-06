@@ -1,0 +1,202 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No structs, classes, enums, or typedefs are defined in the provided headers. Both headers only declare functions; they introduce no new custom data types.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "safe_strncpy",
+      "signature": "int safe_strncpy(char* dest, const char* src, size_t dest_size);",
+      "description": "Copies the source C-string into the destination buffer with bounds checking and guaranteed null termination. Returns the number of characters in the resulting string on success, or -1 if the source was truncated to fit or on error. Use this to safely copy strings into fixed-size buffers while ensuring null termination.",
+      "requirements": [
+        "dest must point to a writable buffer of at least dest_size bytes.",
+        "dest_size is the total size of dest including space for the terminating null and should be > 0.",
+        "src should be a valid, null-terminated string (inferred from typical strcpy semantics).",
+        "dest and src should not overlap (inferred from typical string copy requirements).",
+        "Caller should check the return value and handle -1 as truncation or error."
+      ],
+      "error": null
+    },
+    {
+      "name": "safe_strncat",
+      "signature": "int safe_strncat(char* dest, const char* src, size_t dest_size);",
+      "description": "Appends the source C-string to the destination string with bounds checking and guaranteed null termination. Returns the new total string length on success, or -1 if the result was truncated to fit or on error. Use this to safely concatenate strings into fixed-size buffers while ensuring null termination.",
+      "requirements": [
+        "dest must point to a writable buffer of at least dest_size bytes.",
+        "dest must contain a valid, null-terminated string before the call.",
+        "dest_size is the total size of dest including space for the terminating null and should be > 0.",
+        "src should be a valid, null-terminated string (inferred from typical strcat semantics).",
+        "dest and src should not overlap (inferred from typical string concatenation requirements).",
+        "Caller should check the return value and handle -1 as truncation or error."
+      ],
+      "error": null
+    },
+    {
+      "name": "NaturalCompareW",
+      "signature": "int NaturalCompareW(const wchar_t* a, const wchar_t* b);",
+      "description": "Performs a case-insensitive natural (numeric-aware) comparison of two wide-character strings. Numeric sequences are compared by numeric value rather than lexicographically; leading zeros do not affect ordering. Returns -1, 0, or 1 for a < b, equal, or a > b respectively. Use for human-friendly sorting of wide strings containing numbers.",
+      "requirements": [
+        "a and b should be valid, null-terminated wide strings.",
+        "Pointers a and b must be non-null (inferred from comparison semantics).",
+        "Return value must be interpreted as -1, 0, or 1 to determine ordering."
+      ],
+      "error": null
+    },
+    {
+      "name": "NaturalCompareA",
+      "signature": "int NaturalCompareA(const char* a, const char* b);",
+      "description": "Performs a natural (numeric-aware), case-insensitive comparison of two narrow-character strings (UTF-8 or ASCII). Numeric sequences are compared by numeric value rather than lexicographically; leading zeros do not affect ordering. Returns -1, 0, or 1 for a < b, equal, or a > b respectively. Use for human-friendly sorting of strings containing numbers.",
+      "requirements": [
+        "a and b should be valid, null-terminated narrow strings (UTF-8 or ASCII).",
+        "Pointers a and b must be non-null (inferred from comparison semantics).",
+        "Return value must be interpreted as -1, 0, or 1 to determine ordering."
+      ],
+      "error": null
+    },
+    {
+      "name": "NaturalPathCompareW",
+      "signature": "int NaturalPathCompareW(const wchar_t* a, const wchar_t* b);",
+      "description": "Compares two wide-character filesystem paths using natural (numeric-aware) ordering with the additional rule that, at each directory level, files are sorted before subdirectories. Returns -1, 0, or 1 for a < b, equal, or a > b respectively. Intended for sorting wide path strings in a user-friendly manner.",
+      "requirements": [
+        "a and b should be valid, null-terminated wide strings representing paths.",
+        "Pointers a and b must be non-null (inferred from comparison semantics).",
+        "The method used to distinguish files from folders is not specified; callers should not assume existence checks—behavior for ambiguous inputs is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "NaturalPathCompareA",
+      "signature": "int NaturalPathCompareA(const char* a, const char* b);",
+      "description": "Compares two narrow-character filesystem paths using natural (numeric-aware) ordering with the additional rule that, at each directory level, files are sorted before subdirectories. Returns -1, 0, or 1 for a < b, equal, or a > b respectively. Intended for sorting narrow path strings in a user-friendly manner.",
+      "requirements": [
+        "a and b should be valid, null-terminated narrow strings (UTF-8 or ASCII) representing paths.",
+        "Pointers a and b must be non-null (inferred from comparison semantics).",
+        "The method used to distinguish files from folders is not specified; callers should not assume existence checks—behavior for ambiguous inputs is unknown."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "safe_strncpy",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a destination buffer size in [1, 1024]\nsize_t dest_size = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\n// Allocate a writable destination buffer of exactly dest_size bytes\nstd::vector<char> dest(dest_size);\n// src must be a valid, null-terminated C-string\nstd::string src = FUZZ_PARAM_STR();\nconst char *src_c = src.c_str();\n// Precondition notes being enforced:\n// - dest is writable and has size dest_size\n// - dest_size > 0 by construction\n// - src is null-terminated via std::string::c_str()\n// - dest and src do not overlap (distinct allocations)\nint ret = safe_strncpy(dest.data(), src_c, dest_size);\n// Postconditions/properties: guaranteed null-termination within dest_size\nsize_t observed_len = 0;\nbool found_null = false;\nfor (observed_len = 0; observed_len < dest_size; ++observed_len) {\n    if (dest[observed_len] == '\\0') { found_null = true; break; }\n}\nFUZZ_ASSERT(found_null, \"safe_strncpy must null-terminate within dest_size\");\nif (ret != -1) {\n    FUZZ_ASSERT((size_t)ret == observed_len, \"Return value should equal resulting strlen(dest)\");\n}\n// Validation: Inputs are ephemeral, non-overlapping, and constraints are enforced. Result is checked for null-termination and length consistency.\n"
+    },
+    {
+      "name": "safe_strncat",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate destination buffer size in [1, 1024]\nsize_t dest_size = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\nstd::vector<char> dest(dest_size);\n// Initialize dest with a valid null-terminated string within dest_size\nstd::string init = FUZZ_PARAM_STR();\nsize_t init_copy = init.size();\nif (init_copy >= dest_size) init_copy = dest_size - 1; // ensure space for NUL\nfor (size_t i = 0; i < init_copy; ++i) dest[i] = init[i];\ndest[init_copy] = '\\0';\n// Prepare src as a valid null-terminated C-string\nstd::string src = FUZZ_PARAM_STR();\nconst char *src_c = src.c_str();\n// Preconditions enforced:\n// - dest is writable, sized dest_size (>0) and contains a valid C-string\n// - src is a valid C-string\n// - Non-overlap holds via distinct allocations\nint ret = safe_strncat(dest.data(), src_c, dest_size);\n// Postconditions: guaranteed null-termination within dest_size\nsize_t observed_len = 0;\nbool found_null = false;\nfor (observed_len = 0; observed_len < dest_size; ++observed_len) {\n    if (dest[observed_len] == '\\0') { found_null = true; break; }\n}\nFUZZ_ASSERT(found_null, \"safe_strncat must null-terminate within dest_size\");\nif (ret != -1) {\n    FUZZ_ASSERT((size_t)ret == observed_len, \"Return value should equal resulting strlen(dest)\");\n}\n// Validation: dest pre-filled as a valid string; after call we assert null-termination and length-return consistency.\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "NaturalCompareW",
+      "reason": "Function implementation is not available in the current toolchain, causing undefined references at link time."
+    },
+    {
+      "name": "NaturalCompareA",
+      "reason": "Function implementation is not available in the current toolchain, causing undefined references at link time."
+    },
+    {
+      "name": "NaturalPathCompareW",
+      "reason": "Function implementation is not available in the current toolchain, causing undefined references at link time."
+    },
+    {
+      "name": "NaturalPathCompareA",
+      "reason": "Function implementation is not available in the current toolchain, causing undefined references at link time."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "safe_strncpy",
+      "data_types": [
+        "null-terminated string"
+      ]
+    },
+    {
+      "name": "safe_strncat",
+      "data_types": [
+        "null-terminated string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "null-terminated string",
+      "description": "A C-style string buffer terminated by a single NUL byte (\"\\0\"). The content can be arbitrary bytes up to but not including the terminator; typical usage assumes textual data such as ASCII or UTF-8, but the defining property is proper NUL termination so C string functions can read it safely."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "null-terminated string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# This generator creates valid null-terminated strings intended for FUZZ_PARAM_STR\n# and FUZZ_PARAM_FILENAME in the fuzz stubs. The stubs here require valid C-strings\n# with a wide range of characteristics. We pack multiple strings into one buffer,\n# separated by newlines. The fuzzer framework will typically split or sample from\n# this initial corpus. All strings are NUL-terminated within the buffer.\n\n# Strategy:\n# - Produce a mix of interesting strings for safe_strncpy/safe_strncat:\n#   * very short, empty, and maximal lengths\n#   * ASCII, mixed case, numbers (including long numeric runs, leading zeros)\n#   * path-like strings (for potential reuse across other fuzz targets)\n#   * strings containing spaces, punctuation, and repeated chars\n#   * UTF-8 multibyte sequences\n# - Ensure each string is valid and NUL-terminated, without embedded NULs so they\n#   are fully visible to the C code using c_str().\n# - Keep total size <= 4096 bytes.\n\nASCII_LETTERS = string.ascii_letters\nDIGITS = string.digits\nPUNCT = \"-_.,+()[]{}!@#$%^&=~\\'` \"\nPATH_SEPS = [\"/\", \"\\\\\"]\n\nUTF8_SAMPLES = [\n    \"café\",              # Latin-1 supplement\n    \"naïve\",             # diaeresis\n    \"straße\",            # eszett\n    \"日本語\",              # CJK\n    \"emoji-🙂-🚀\",        # emoji\n    \"Ångström\",          # Scandinavian\n    \"résumé\",            # accents\n]\n\ndef rand_str_ascii(rng: random.Random, length: int) -> str:\n    alphabet = ASCII_LETTERS + DIGITS + PUNCT\n    return ''.join(rng.choice(alphabet) for _ in range(length))\n\ndef rand_numeric_run(rng: random.Random, min_len: int = 1, max_len: int = 32, leading_zeros: bool = False) -> str:\n    n = rng.randint(min_len, max_len)\n    if leading_zeros:\n        z = rng.randint(1, min(8, n))\n        rest = n - z\n        num = '0' * z + (''.join(rng.choice(DIGITS[1:]) for _ in range(rest)) if rest > 0 else '')\n        if rest == 0:\n            num += '0'  # ensure at least one non-empty sequence\n        return num\n    else:\n        first = rng.choice(DIGITS[1:]) if n > 0 else '0'\n        tail = ''.join(rng.choice(DIGITS) for _ in range(max(0, n - 1)))\n        return first + tail\n\ndef rand_filename(rng: random.Random) -> str:\n    # Create plausible filenames and paths with natural-sort-relevant parts\n    parts: List[str] = []\n    depth = rng.randint(0, 4)\n    for i in range(depth):\n        # folder names with numbers and variants\n        base = rng.choice([\n            f\"folder{rng.randint(0, 200)}\",\n            f\"dir{rand_numeric_run(rng, 1, 6, leading_zeros=rng.random()<0.5)}\",\n            f\"Section{rng.randint(1, 50)}\",\n            rand_str_ascii(rng, rng.randint(3, 10)).strip(),\n        ]).strip()\n        base = base or \"dir\"\n        parts.append(base)\n    file_base = rng.choice([\n        f\"file{rng.randint(0, 9999)}\",\n        f\"img{rand_numeric_run(rng, 1, 8, leading_zeros=True)}\",\n        f\"v{rng.randint(0, 20)}.{rng.randint(0, 9)}\",\n        f\"data_{rng.randint(1, 100)}\",\n        rand_str_ascii(rng, rng.randint(3, 12)).strip(),\n    ])\n    ext = rng.choice([\".txt\", \".bin\", \".csv\", \".json\", \".log\", \".dat\", \"\"])\n    filename = (file_base or \"file\") + ext\n    sep = rng.choice(PATH_SEPS)\n    path = sep.join([p for p in parts if p] + [filename]) if parts else filename\n    # Optionally make it look like a directory (no extension, trailing sep)\n    if rng.random() < 0.1:\n        path = path.rstrip('\\\\/') + sep\n    return path\n\ndef mix_case_variants(s: str) -> List[str]:\n    return [s, s.lower(), s.upper(), s.title()]\n\ndef bounded_concat(parts: List[str], max_len: int, sep: str = \"\") -> str:\n    out = []\n    total = 0\n    for p in parts:\n        add = (sep if out else \"\") + p\n        if total + len(add) > max_len:\n            break\n        out.append(add if out else p)\n        total += len(add)\n    return ''.join(out)\n\ndef make_interesting_strings(rng: random.Random, budget: int) -> List[str]:\n    strs: List[str] = []\n\n    # Core small cases\n    strs.append(\"\")\n    strs.append(\"a\")\n    strs.append(\"A\")\n    strs.append(\"0\")\n    strs.append(\" \")\n\n    # Case-insensitive and numeric-aware comparisons triggers\n    for base in [\"file1\", \"file02\", \"file10\", \"file2\", \"File003\", \"file0001\", \"file0010\", \"file00010\", \"IMG12\", \"img0012\"]:\n        strs.extend(mix_case_variants(base))\n\n    # Long numeric runs with/without leading zeros\n    for _ in range(6):\n        strs.append(rand_numeric_run(rng, 1, 32, leading_zeros=False))\n        strs.append(rand_numeric_run(rng, 2, 32, leading_zeros=True))\n\n    # Mixed alnum with embedded numbers\n    for _ in range(8):\n        left = rand_str_ascii(rng, rng.randint(1, 6))\n        num = rand_numeric_run(rng, 1, 10, leading_zeros=rng.random() < 0.5)\n        right = rand_str_ascii(rng, rng.randint(0, 6))\n        strs.append(left + num + right)\n\n    # Path-like strings\n    for _ in range(8):\n        strs.append(rand_filename(rng))\n\n    # UTF-8 samples\n    strs.extend(UTF8_SAMPLES)\n\n    # Very long but valid strings (for boundary near 1024)\n    long1 = bounded_concat([\n        \"prefix-\", \"A\" * 200, \"-\", \"9\" * 100, \"-\", \"B\" * 200, \"-tail\"\n    ], 600)\n    long2 = bounded_concat([\n        rand_filename(rng), \"/\", \"part\", rand_numeric_run(rng, 10, 40, True), \".log\"\n    ], 400)\n    strs.append(long1)\n    strs.append(long2)\n\n    # Punctuation-heavy\n    for _ in range(4):\n        strs.append(rand_str_ascii(rng, rng.randint(10, 40)))\n\n    # Ensure we don't exceed budget when packed with NULs and newlines\n    packed_overhead = len(strs) * 2  # NUL + possibly newline per entry\n    # Trim or shorten if necessary\n    def total_size(cands: List[str]) -> int:\n        return sum(len(s) + 1 for s in cands)  # NUL per string\n\n    # If too large, randomly drop some entries\n    rng.shuffle(strs)\n    while total_size(strs) > budget:\n        if not strs:\n            break\n        strs.pop()\n\n    # Guarantee presence of certain canonical cases\n    must_have = [\"\", \"file1\", \"file02\", \"file10\", \"file2\", \"img0012\", \"IMG12\", \"0\", \" \"]\n    for m in must_have:\n        if m not in strs:\n            # Insert while respecting budget\n            if total_size(strs) + len(m) + 1 <= budget:\n                strs.append(m)\n            else:\n                # Replace last\n                if strs:\n                    strs[-1] = m\n                else:\n                    strs.append(m)\n\n    return strs\n\n\ndef pack_strings_as_bytes(strs: List[str]) -> bytes:\n    # Pack as: str1 + '\\0' + str2 + '\\0' + ... (final has trailing NUL)\n    # No embedded NULs in any string; ensure via replace.\n    cleaned = [s.replace('\\x00', '') for s in strs]\n    joined = b''.join(s.encode('utf-8', errors='strict') + b'\\x00' for s in cleaned)\n    return joined\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Budget 4096 bytes max\n    budget = 4096\n\n    strs = make_interesting_strings(rng, budget)\n\n    # Slight randomization: shuffle order to create variety under same seed domain\n    rng.shuffle(strs)\n\n    data = pack_strings_as_bytes(strs)\n\n    # As a final guard, truncate to budget (should already be <= budget)\n    if len(data) > budget:\n        data = data[:budget]\n        # Ensure last byte ends at NUL terminator boundary\n        if data and data[-1] != 0:\n            # backtrack to last NUL if any; else append one if room\n            last_nul = data.rfind(b\"\\x00\")\n            if last_nul != -1:\n                data = data[: last_nul + 1]\n            else:\n                # force minimal single empty string\n                data = b\"\\x00\"\n\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1320,
+            "output_tokens": 69,
+            "total_tokens": 1389
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 898,
+            "output_tokens": 42,
+            "total_tokens": 940
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1360,
+            "output_tokens": 1737,
+            "total_tokens": 3097
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 13133,
+            "output_tokens": 4792,
+            "total_tokens": 17925
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2923,
+            "output_tokens": 170,
+            "total_tokens": 3093
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 193.97308707237244,
+    "scan_objects": 2.64314341545105,
+    "validate_objects": 0.20270371437072754,
+    "scan_functions": 29.322185754776,
+    "synthesis": 120.12014150619507,
+    "fill": 0,
+    "classify": 4.321181058883667,
+    "build_generators": 37.363107681274414
+  }
+}

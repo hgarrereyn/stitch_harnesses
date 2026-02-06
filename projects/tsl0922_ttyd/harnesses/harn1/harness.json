@@ -1,0 +1,289 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No user-defined types are defined in this header. It only declares utility functions and a macro. There are no structs, enums, typedefs, or classes to document.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "xmalloc",
+      "signature": "void *xmalloc(size_t size);",
+      "description": "Allocate a memory block of the requested size, with an internal NULL check. Intended as a safer malloc wrapper that handles allocation failure (likely by aborting or otherwise not returning NULL). Returns a pointer to the allocated block on success. Usage: call to allocate size bytes; free with free when done. Specific failure behavior is not documented here.",
+      "requirements": [
+        "size should be the number of bytes to allocate; typical usage allows 0 but the behavior for size==0 is unknown",
+        "The returned pointer should be freed with free (or a compatible deallocator) when no longer needed",
+        "Behavior on allocation failure is unspecified here (commonly xmalloc exits instead of returning NULL); callers should not rely on NULL being returned",
+        "Thread-safety and alignment guarantees are as per the underlying allocator; no additional guarantees documented"
+      ],
+      "error": null
+    },
+    {
+      "name": "xrealloc",
+      "signature": "void *xrealloc(void *p, size_t size);",
+      "description": "Reallocate a memory block to a new size, with an internal NULL check. Intended as a safer realloc wrapper that handles allocation failure (likely by aborting or otherwise not returning NULL). If p is NULL, behaves like allocation of size bytes. Returns a pointer to the (possibly moved) block on success.",
+      "requirements": [
+        "p must be either NULL or a pointer obtained from a compatible allocator (e.g., malloc/xmalloc/realloc family)",
+        "size is the new size in bytes; behavior for size==0 is unknown",
+        "On success, the old pointer p must not be used; use the returned pointer instead",
+        "The returned pointer should be freed with free (or a compatible deallocator) when no longer needed",
+        "Behavior on allocation failure is unspecified here (commonly xrealloc exits instead of returning NULL); callers should not rely on NULL being returned"
+      ],
+      "error": null
+    },
+    {
+      "name": "uppercase",
+      "signature": "char *uppercase(char *s);",
+      "description": "Convert the given C string to upper case in place. Returns s for convenience. Intended for ASCII/locale-default transformations; specifics about locale or encoding are not documented.",
+      "requirements": [
+        "s must be a non-NULL, writable, null-terminated C string",
+        "The buffer referenced by s must be large enough to hold the transformed string in place (no growth expected for ASCII)",
+        "Behavior on non-ASCII/locale-specific characters is unspecified"
+      ],
+      "error": null
+    },
+    {
+      "name": "lowercase",
+      "signature": "char *lowercase(char *s);",
+      "description": "Convert the given C string to lower case in place. Returns s for convenience. Intended for ASCII/locale-default transformations; specifics about locale or encoding are not documented.",
+      "requirements": [
+        "s must be a non-NULL, writable, null-terminated C string",
+        "The buffer referenced by s must be large enough to hold the transformed string in place (no growth expected for ASCII)",
+        "Behavior on non-ASCII/locale-specific characters is unspecified"
+      ],
+      "error": null
+    },
+    {
+      "name": "endswith",
+      "signature": "bool endswith(const char *str, const char *suffix);",
+      "description": "Check whether the string str ends with the given suffix. Returns true if str has suffix as its final substring, otherwise false. Matching appears case-sensitive; no special handling for locales or encodings is documented.",
+      "requirements": [
+        "str must be a non-NULL, null-terminated C string",
+        "suffix must be a non-NULL, null-terminated C string",
+        "Empty suffix behavior is unspecified (commonly considered true)"
+      ],
+      "error": null
+    },
+    {
+      "name": "get_sig_name",
+      "signature": "int get_sig_name(int sig, char *buf, size_t len);",
+      "description": "Write a human-readable signal name for the signal number sig into buf. Returns an int status code (exact semantics not documented here). Typical usage: provide a buffer and its length; on success buf contains a null-terminated signal name such as \"SIGHUP\".",
+      "requirements": [
+        "buf must be a non-NULL writable buffer",
+        "len must specify the size of buf in bytes and be large enough to hold the resulting string including the terminating null; required minimum size is not documented",
+        "sig should be a valid signal number for the target platform; behavior for invalid values is unspecified",
+        "Return value semantics (0/negative/length) are not documented; callers should check the return and/or resulting buffer defensively"
+      ],
+      "error": null
+    },
+    {
+      "name": "get_sig",
+      "signature": "int get_sig(const char *sig_name);",
+      "description": "Return the signal number corresponding to a string like \"SIGHUP\". Returns an int code; exact error signaling for unknown names is not documented.",
+      "requirements": [
+        "sig_name must be a non-NULL, null-terminated C string and should be of the form \"SIG...\" (e.g., \"SIGHUP\")",
+        "Behavior for unknown or malformed names is unspecified (may return -1 or 0 depending on implementation)",
+        "Case sensitivity of the input is not documented"
+      ],
+      "error": null
+    },
+    {
+      "name": "open_uri",
+      "signature": "int open_uri(char *uri);",
+      "description": "Open the given URI with the system’s default application. Returns an int status code; exact success/error conventions are not documented. Typical behavior may delegate to platform-specific mechanisms (e.g., xdg-open, open, or ShellExecute).",
+      "requirements": [
+        "uri must be a non-NULL, null-terminated C string representing a valid URI or path",
+        "The URI must be acceptable to the underlying OS mechanism; unsupported schemes or invalid URIs may fail",
+        "Return value semantics are unspecified; callers should treat nonzero/negative values as potential errors depending on implementation"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "xmalloc",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mem",
+          "type": "void *"
+        }
+      ],
+      "code": "// Generate a safe, bounded allocation size (avoid 0; keep <2048 for perf)\nsize_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 2048u) + 1u;\n// Call the target function\nvoid *mem = xmalloc(size);\n// Many xmalloc implementations never return NULL (abort instead), but defensively bail if they do\nif (!mem) { FUZZ_BAIL(); }\n// Track allocation metadata for downstream consumers (e.g., xrealloc/free)\nFUZZ_SET_ATTR_INT(mem, \"alloc\", 1);\nFUZZ_SET_ATTR_INT(mem, \"size\", (int)size);\n// Provide the allocated block as an output owned by the fuzzer runtime"
+    },
+    {
+      "name": "xrealloc",
+      "inputs": [
+        {
+          "name": "p",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mem",
+          "type": "void *"
+        }
+      ],
+      "code": "// Constrain new size (avoid 0; keep <2048 for perf)\nsize_t new_size = (size_t)(*FUZZ_PARAM(unsigned int) % 2048u) + 1u;\n// xrealloc requires p to be NULL or a compatible heap pointer. If our input lacks the\n// allocation attribute, treat it as NULL to comply with the API contract.\nvoid *p_use = nullptr;\nif (FUZZ_GET_ATTR_INT(p, \"alloc\")) { p_use = p; }\n// Reallocate\nvoid *mem = xrealloc(p_use, new_size);\n// Many xrealloc implementations never return NULL (abort instead); bail defensively if NULL\nif (!mem) { FUZZ_BAIL(); }\n// The old pointer must not be used after successful reallocation; we only return the new one.\nFUZZ_SET_ATTR_INT(mem, \"alloc\", 1);\nFUZZ_SET_ATTR_INT(mem, \"size\", (int)new_size);"
+    },
+    {
+      "name": "uppercase",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Produce a writable, null-terminated buffer from a fuzz string\nstd::string s = FUZZ_PARAM_STR();\n// Guarantee a mutable, null-terminated C string buffer\nstd::vector<char> buf(s.begin(), s.end());\nbuf.push_back('\\0');\n// Precondition: non-NULL, writable, NUL-terminated string\nchar *cstr = buf.data();\nif (!cstr) { FUZZ_BAIL(); }\n// Invoke target; transformation is in-place\nchar *ret = uppercase(cstr);\n// Property: function should return the same pointer passed in\nif (ret != cstr) { FUZZ_BAIL(); }\n// No outputs; temporary buffer will be discarded"
+    },
+    {
+      "name": "lowercase",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Produce a writable, null-terminated buffer from a fuzz string\nstd::string s = FUZZ_PARAM_STR();\n// Guarantee a mutable, null-terminated C string buffer\nstd::vector<char> buf(s.begin(), s.end());\nbuf.push_back('\\0');\n// Precondition: non-NULL, writable, NUL-terminated string\nchar *cstr = buf.data();\nif (!cstr) { FUZZ_BAIL(); }\n// Invoke target; transformation is in-place\nchar *ret = lowercase(cstr);\n// Property: function should return the same pointer passed in\nif (ret != cstr) { FUZZ_BAIL(); }\n// No outputs; temporary buffer will be discarded"
+    },
+    {
+      "name": "endswith",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate two NUL-terminated strings\nstd::string s = FUZZ_PARAM_STR();\nstd::string suf = FUZZ_PARAM_STR();\nconst char *str = s.c_str();\nconst char *suffix = suf.c_str();\nif (!str || !suffix) { FUZZ_BAIL(); }\n// Invoke target\nvolatile bool r = endswith(str, suffix);\n(void)r; // result is not asserted due to unspecified empty-suffix rules"
+    },
+    {
+      "name": "get_sig_name",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Pick a signal number. Favor common range but allow broader values.\nint sig = (int)(*FUZZ_PARAM(unsigned int) % 256u); // 0..255\n// Prepare a bounded writable buffer (len >= 1)\nsize_t len = (size_t)((*FUZZ_PARAM(unsigned int) % 64u) + 1u);\nstd::vector<char> buf(len, '\\0');\nif (buf.data() == nullptr) { FUZZ_BAIL(); }\n// Call target\nint ret = get_sig_name(sig, buf.data(), len);\n(void)ret;\n// Do not assert content/termination strictly since behavior for invalid sig/short len is unspecified"
+    },
+    {
+      "name": "get_sig",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a candidate signal name. Could be valid (e.g., \"SIGHUP\") or malformed.\nstd::string name = FUZZ_PARAM_STR();\nconst char *sig_name = name.c_str();\nif (!sig_name) { FUZZ_BAIL(); }\n// Call target\nint sig = get_sig(sig_name);\n(void)sig;"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "open_uri",
+      "reason": "Opening URIs triggers external applications and side effects that are not safe or deterministic under the fuzzer model."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "xmalloc",
+      "data_types": []
+    },
+    {
+      "name": "xrealloc",
+      "data_types": []
+    },
+    {
+      "name": "get_sig_name",
+      "data_types": []
+    },
+    {
+      "name": "uppercase",
+      "data_types": [
+        "null-terminated string"
+      ]
+    },
+    {
+      "name": "lowercase",
+      "data_types": [
+        "null-terminated string"
+      ]
+    },
+    {
+      "name": "endswith",
+      "data_types": [
+        "null-terminated string"
+      ]
+    },
+    {
+      "name": "get_sig",
+      "data_types": [
+        "signal name string",
+        "null-terminated string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "null-terminated string",
+      "description": "A C-style string buffer terminated by a NUL byte ('\\0'). May contain arbitrary bytes except the terminating NUL at the end. Used by functions expecting const char* or char* and operating on the string content."
+    },
+    {
+      "data_type": "signal name string",
+      "description": "A string representing a POSIX signal name, typically of the form \"SIG\" followed by an uppercase identifier (e.g., \"SIGHUP\", \"SIGINT\", \"SIGTERM\"). Input may also be malformed or nonstandard; parsers may accept or reject variants depending on implementation."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "null-terminated string",
+      "generator": "import random\nimport os\nimport string\nfrom typing import List\n\n# This generator focuses on producing interesting, valid C NUL-terminated strings\n# that exercise:\n# - uppercase/lowercase in-place ASCII transformations\n# - endswith comparisons with various edge cases (empty suffix, full-match, partial, case differences)\n# - get_sig with both valid and invalid signal names in varying cases\n#\n# The fuzzing harness requests strings via FUZZ_PARAM_STR (std::string) which will\n# be NUL-terminated by the stub. We must return a single bytes buffer that the fuzzing\n# framework will split to feed those calls. Without a specified framing protocol from\n# the harness, we generate a single buffer containing multiple NUL-terminated segments\n# so that different calls can draw meaningful substrings from it. Each segment is a\n# well-formed C string (no embedded NULs) and the overall blob remains under 4096 bytes.\n#\n# Strategy:\n# - Build a corpus of interesting strings for case conversion\n# - Build suffix pairs (string and suffix) encoded as consecutive NUL-terminated strings\n# - Build a corpus of signal names including valid POSIX names and variants\n# - Add random-length mixed strings to increase coverage\n# - Concatenate segments separated by single NUL bytes; end with an extra NUL for safety\n#\n# The fuzzer framework's FUZZ_PARAM_STR typically consumes arbitrary bytes up to a NUL,\n# so providing many NUL-separated strings increases the chance of useful inputs.\n\nPOSIX_SIGNALS = [\n    \"SIGHUP\", \"SIGINT\", \"SIGQUIT\", \"SIGILL\", \"SIGTRAP\", \"SIGABRT\", \"SIGBUS\", \"SIGFPE\",\n    \"SIGKILL\", \"SIGUSR1\", \"SIGSEGV\", \"SIGUSR2\", \"SIGPIPE\", \"SIGALRM\", \"SIGTERM\",\n    \"SIGCHLD\", \"SIGCONT\", \"SIGSTOP\", \"SIGTSTP\", \"SIGTTIN\", \"SIGTTOU\", \"SIGURG\",\n    \"SIGXCPU\", \"SIGXFSZ\", \"SIGVTALRM\", \"SIGPROF\", \"SIGWINCH\", \"SIGIO\", \"SIGPWR\",\n    \"SIGSYS\"\n]\n\n# Common URI schemes for open_uri (not used in target fuzzers but still valid strings)\nURI_SAMPLES = [\n    \"http://example.com/\",\n    \"https://example.com/path?x=1#frag\",\n    \"file:///etc/hosts\",\n    \"mailto:user@example.com\",\n    \"ftp://ftp.example.com/pub/\",\n    \"data:text/plain,Hello%20World\",\n]\n\nCASE_STRINGS = [\n    \"\",  # empty string\n    \"a\", \"Z\", \"0\", \"9\",\n    \"abc\", \"XYZ\", \"AbC123\",\n    \"hello world\", \"TeSt-Ing_123\", \"snake_case\", \"kebab-case\", \"PascalCase\", \"camelCase\",\n    \"MiXeD caSe WiTh SpAcEs\",\n    \"éàçñ\",  # non-ASCII to test pass-through/unspecified behavior\n    \"ASCII-only!@#$%^&*()_+[]{};:'\\\",.<>/?\\\\|`~\",\n    \"endwithsuffix\", \"endsWithSuffix\",\n]\n\nSUFFIX_PAIRS = [\n    (\"hello\", \"\"),\n    (\"\", \"\"),\n    (\"\", \"nonempty\"),\n    (\"foobar\", \"bar\"),\n    (\"foobar\", \"baz\"),\n    (\"CaseTest\", \"test\"),  # case mismatch\n    (\"CaseTest\", \"Test\"),\n    (\"aaaaa\", \"aaa\"),\n    (\"short\", \"longsuffix\"),\n    (\"exact\", \"exact\"),\n]\n\nMIX_CHARS = string.ascii_letters + string.digits + \" _-./:+@[]{}()!,?%#<>|^$*~\"  # no NULs\n\n\ndef _rand_str(rng: random.Random, min_len: int, max_len: int, alphabet: str = MIX_CHARS) -> str:\n    n = rng.randint(min_len, max_len)\n    return \"\".join(rng.choice(alphabet) for _ in range(n))\n\n\ndef _valid_signal_variants(sig: str) -> List[str]:\n    # Generate case and prefix variants for get_sig\n    base = sig\n    variants = [\n        base,\n        base.lower(),\n        base.capitalize(),\n        base.replace(\"SIG\", \"sig\"),\n        base[3:],  # without SIG\n        base[3:].lower(),\n        \"SIG\" + base[3:].lower(),\n        \"SIG\" + base[3:],\n    ]\n    return list(dict.fromkeys(variants))\n\n\ndef _make_sig_corpus(rng: random.Random) -> List[str]:\n    out: List[str] = []\n    # Include canonical names and variants\n    for s in POSIX_SIGNALS:\n        out.extend(_valid_signal_variants(s))\n    # Add numeric-like and malformed names\n    out.extend([\n        \"SIG0\", \"SIG1\", \"SIG2\", \"SIG9\", \"SIG15\",\n        \"SIG\", \"SIGXYZ\", \"SIGSEGV2\", \"SIGINTERRUPT\",\n        \"HUP\", \"INT\", \"TERM\",\n    ])\n    # Sprinkle random strings that look like signals\n    for _ in range(20):\n        name = \"SIG\" + _rand_str(rng, 1, 8, string.ascii_uppercase)\n        out.append(name)\n    rng.shuffle(out)\n    return out\n\n\ndef _encode_c_str(s: str) -> bytes:\n    # Encode to UTF-8 but ensure no embedded NULs; replace NULs if any\n    b = s.encode('utf-8', errors='replace')\n    if b\"\\x00\" in b:\n        b = b.replace(b\"\\x00\", b\"?\")\n    return b + b\"\\x00\"\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    parts: List[bytes] = []\n\n    # 1) Case transformation strings\n    # Mix curated and random strings\n    case_list = CASE_STRINGS[:]\n    # Add random ASCII strings with mixed cases\n    for _ in range(rng.randint(5, 15)):\n        s = _rand_str(rng, 0, rng.randint(1, 64))\n        # Inject some alternating case patterns\n        if s:\n            alt = ''.join(ch.upper() if i % 2 else ch.lower() for i, ch in enumerate(s))\n            case_list.append(alt)\n        case_list.append(s)\n    # Add strings with long runs\n    case_list.append(\"a\" * 256)\n    case_list.append(\"Z\" * 256)\n    case_list.append(\"Az\" * 128)\n\n    rng.shuffle(case_list)\n    for s in case_list[:rng.randint(10, 40)]:\n        parts.append(_encode_c_str(s))\n\n    # 2) endswith pairs: encode as str\\0suffix\\0 to pack contiguous candidates\n    # Provide many pairs, including randoms designed to match and not match\n    pair_count = rng.randint(8, 24)\n    pool = SUFFIX_PAIRS[:]\n    for _ in range(pair_count):\n        # Generate random pair sometimes matching\n        base = _rand_str(rng, 0, rng.randint(0, 64))\n        if rng.random() < 0.6:\n            # choose a suffix from base\n            cut = rng.randint(0, len(base))\n            suf = base[cut:]\n        else:\n            # unrelated suffix\n            suf = _rand_str(rng, 0, rng.randint(0, 32))\n        pool.append((base, suf))\n    rng.shuffle(pool)\n\n    for s, suf in pool[:pair_count]:\n        parts.append(_encode_c_str(s))\n        parts.append(_encode_c_str(suf))\n\n    # 3) get_sig corpus\n    sigs = _make_sig_corpus(rng)\n    # Also include some URIs and random strings to mix into name space\n    extras = URI_SAMPLES[:]\n    for _ in range(10):\n        extras.append(_rand_str(rng, 1, 20))\n    rng.shuffle(extras)\n\n    sig_take = min(len(sigs), rng.randint(20, 80))\n    for s in sigs[:sig_take]:\n        parts.append(_encode_c_str(s))\n    for s in extras[:rng.randint(3, 12)]:\n        parts.append(_encode_c_str(s))\n\n    # Ensure total size <= 4096 bytes\n    blob = b\"\".join(parts)\n    if len(blob) > 4096:\n        # Truncate at last NUL before limit to keep final segment valid\n        cut = blob.rfind(b\"\\x00\", 0, 4096)\n        if cut == -1:\n            blob = blob[:4096-1] + b\"\\x00\"\n        else:\n            blob = blob[:cut+1]\n\n    # End with an extra NUL for safety\n    if not blob.endswith(b\"\\x00\"):\n        blob += b\"\\x00\"\n    return blob\n"
+    },
+    {
+      "data_type": "signal name string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for POSIX-like signal name strings for get_sig()\n# The goal is to return valid and interesting names that exercise case,\n# aliases, numbers, unknowns, and edge cases while remaining mostly valid strings.\n\n# Curated common POSIX signal names (portable core and common extensions)\n_COMMON_SIGS: List[str] = [\n    # POSIX-required\n    \"SIGHUP\", \"SIGINT\", \"SIGQUIT\", \"SIGILL\", \"SIGABRT\", \"SIGFPE\", \"SIGKILL\",\n    \"SIGSEGV\", \"SIGPIPE\", \"SIGALRM\", \"SIGTERM\", \"SIGUSR1\", \"SIGUSR2\",\n    \"SIGCHLD\", \"SIGCONT\", \"SIGSTOP\", \"SIGTSTP\", \"SIGTTIN\", \"SIGTTOU\",\n    \"SIGBUS\", \"SIGPOLL\", \"SIGPROF\", \"SIGSYS\", \"SIGTRAP\", \"SIGURG\",\n    \"SIGVTALRM\", \"SIGXCPU\", \"SIGXFSZ\",\n    # Very common but not universal\n    \"SIGWINCH\", \"SIGIO\", \"SIGEMT\", \"SIGINFO\",\n]\n\n# Possible nonstandard variants that implementations might accept\n_VARIANTS: List[str] = [\n    \"HUP\", \"INT\", \"TERM\",  # without SIG prefix\n    \"sigint\", \"sigterm\", \"SigAbrt\",  # mixed/other case\n    \"SIGRTMIN\", \"SIGRTMAX\",  # realtime markers\n]\n\n# Strings that are valid C strings but probably unknown\n_UNKNOWN_TOKENS: List[str] = [\n    \"SIGFOO\", \"SIGBAR\", \"SIGUNKNOWN\", \"SIG_\", \"SIG\", \"SIG0\", \"SIG-1\",\n]\n\n# Numeric accepts: some get_sig implementations also accept numbers as strings\n_NUMERIC_TOKENS: List[str] = [\n    \"0\", \"1\", \"2\", \"9\", \"11\", \"15\", \"19\", \"64\"  # common/edge numbers\n]\n\ndef _rand_ident(rng: random.Random, min_len: int = 1, max_len: int = 12, upper: bool = True) -> str:\n    letters = string.ascii_uppercase if upper else string.ascii_letters\n    return ''.join(rng.choice(letters) for _ in range(rng.randint(min_len, max_len)))\n\ndef _case_variants(rng: random.Random, s: str) -> str:\n    mode = rng.randint(0, 4)\n    if mode == 0:\n        return s\n    if mode == 1:\n        return s.lower()\n    if mode == 2:\n        return s.upper()\n    if mode == 3:\n        # Random mixed case\n        return ''.join(c.upper() if rng.random() < 0.5 else c.lower() for c in s)\n    # Capitalize tail only\n    if s.startswith('SIG') and len(s) > 3:\n        tail = s[3:]\n        return 'SIG' + ''.join(c.upper() if rng.random() < 0.6 else c.lower() for c in tail)\n    return s\n\ndef _build_real_time(rng: random.Random) -> str:\n    # Construct forms like SIGRTMIN+N, SIGRTMAX-N, SIGRTMIN\n    base = rng.choice([\"SIGRTMIN\", \"SIGRTMAX\"])\n    op = rng.choice([\"\", \"+\", \"-\"])\n    if op == \"\":\n        return base\n    # choose a small integer offset; keep within typical Linux range 0..31\n    n = rng.randint(0, 31)\n    return f\"{base}{op}{n}\"\n\ndef _build_known_like(rng: random.Random) -> str:\n    # Choose a known or variant, optionally tweak case\n    choice_pool = _COMMON_SIGS + _VARIANTS\n    s = rng.choice(choice_pool)\n    # Occasionally append whitespace or surrounding spaces that many parsers trim\n    if rng.random() < 0.15:\n        s = (\" \" * rng.randint(0, 2)) + s + (\" \" * rng.randint(0, 2))\n    # Occasionally add trailing NUL-equivalent representation is not possible here; keep as plain string\n    s = _case_variants(rng, s)\n    # Optionally add a newline or tab that some parsers may trim\n    if rng.random() < 0.08:\n        s += rng.choice([\"\\n\", \"\\t\"])\n    return s\n\ndef _build_unknown_like(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        s = \"SIG\" + _rand_ident(rng, 1, 10, upper=True)\n    else:\n        s = rng.choice(_UNKNOWN_TOKENS)\n    return _case_variants(rng, s)\n\ndef _build_numeric(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return rng.choice(_NUMERIC_TOKENS)\n    # build a random small integer as string; bias to typical signal ranges\n    if rng.random() < 0.8:\n        return str(rng.randint(1, 31))\n    return str(rng.randint(32, 127))\n\ndef _build_edge(rng: random.Random) -> str:\n    # Edge but still valid as C string: empty, spaces, or only SIG\n    choice = rng.randint(0, 5)\n    if choice == 0:\n        return \"\"  # empty string\n    if choice == 1:\n        return \"SIG\"  # prefix only\n    if choice == 2:\n        return \" sigint \"  # lower + spaces\n    if choice == 3:\n        return \"\\tSIGTERM\\n\"  # with whitespace around\n    if choice == 4:\n        return \"S\\u0130GINT\"  # dotted I to test ASCII sensitivity, still valid UTF-8\n    return \"SİG\"  # non-ASCII variant\n\ndef _assemble_pool(rng: random.Random) -> List[str]:\n    items: List[str] = []\n    # Ensure a mix of categories\n    items.append(_build_known_like(rng))\n    items.append(_build_unknown_like(rng))\n    items.append(_build_real_time(rng))\n    items.append(_build_numeric(rng))\n    items.append(_build_edge(rng))\n\n    # Add a few more random entries from categories\n    for _ in range(rng.randint(2, 6)):\n        which = rng.random()\n        if which < 0.4:\n            items.append(_build_known_like(rng))\n        elif which < 0.7:\n            items.append(_build_unknown_like(rng))\n        elif which < 0.9:\n            items.append(_build_real_time(rng))\n        else:\n            items.append(_build_numeric(rng))\n    return items\n\ndef _choose_and_pack(rng: random.Random, candidates: List[str]) -> bytes:\n    # Choose one candidate and encode to bytes. Prefer UTF-8, as most C++ fuzzers treat FUZZ_PARAM_STR as raw bytes.\n    s = rng.choice(candidates)\n    b = s.encode('utf-8', errors='strict')\n    # Ensure we do not exceed the max size and avoid embedded NULs since typical C strings end at NUL\n    if len(b) > 4096:\n        b = b[:4096]\n    return b\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    candidates = _assemble_pool(rng)\n    return _choose_and_pack(rng, candidates)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 933,
+            "output_tokens": 72,
+            "total_tokens": 1005
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 511,
+            "output_tokens": 40,
+            "total_tokens": 551
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 973,
+            "output_tokens": 1728,
+            "total_tokens": 2701
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4939,
+            "output_tokens": 2843,
+            "total_tokens": 7782
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2809,
+            "output_tokens": 206,
+            "total_tokens": 3015
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 190.23765468597412,
+    "scan_objects": 2.179562568664551,
+    "validate_objects": 0.1727585792541504,
+    "scan_functions": 33.95720076560974,
+    "synthesis": 53.27326011657715,
+    "fill": 0,
+    "classify": 4.291214227676392,
+    "build_generators": 96.36300277709961
+  }
+}

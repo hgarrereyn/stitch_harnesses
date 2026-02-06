@@ -1,0 +1,140 @@
+{
+  "objects": [
+    {
+      "ptr_type": "TFT_eSPI *",
+      "aliases": [
+        "LGFX *"
+      ],
+      "definition": "using TFT_eSPI = LGFX;",
+      "description": "Alias type for LGFX that makes LovyanGFX behave like TFT_eSPI. This is a type alias, not a new class; all construction, destruction, and behavior are those of LGFX from LovyanGFX.hpp.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "TFT_eSprite *",
+      "aliases": [
+        "LGFX_Sprite *"
+      ],
+      "definition": "class TFT_eSprite : public LGFX_Sprite {\npublic:\n  TFT_eSprite() : LGFX_Sprite() { _psram = true; }\n  TFT_eSprite(LovyanGFX* parent) : LGFX_Sprite(parent) { _psram = true; }\n\n  void* frameBuffer(uint8_t) { return getBuffer(); }\n};",
+      "description": "Wrapper class derived from LGFX_Sprite providing TFT_eSPI-compatible naming. Constructors enable PSRAM usage by setting the protected _psram flag to true and optionally accept a LovyanGFX parent. Adds frameBuffer(uint8_t) method that returns the internal buffer via getBuffer(). Lifecycle and most behavior are inherited from LGFX_Sprite (defined externally).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "TFT_eSprite::frameBuffer",
+      "signature": "void* TFT_eSprite::frameBuffer(uint8_t)",
+      "description": "Returns a raw pointer to the sprite’s internal pixel buffer. This provides compatibility with the TFT_eSPI API; the uint8_t parameter is accepted for signature compatibility but is not used. Typical usage is to obtain the buffer after the sprite’s storage has been allocated (e.g., via createSprite) so you can directly read or write pixel data.",
+      "requirements": [
+        "This must be called on a valid TFT_eSprite instance whose pixel buffer has been allocated (e.g., after calling createSprite); otherwise the returned pointer may be nullptr.",
+        "Callers must check the returned pointer for nullptr before dereferencing.",
+        "The uint8_t argument is ignored; any value is accepted.",
+        "The returned pointer is owned by the sprite; callers must not free it.",
+        "The pointer may become invalid if the sprite is destroyed or its buffer is reallocated (e.g., due to size/depth changes); avoid retaining it across such operations."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "TFT_eSprite::frameBuffer",
+      "inputs": [
+        {
+          "name": "sprite",
+          "type": "TFT_eSprite *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sprite",
+          "type": "TFT_eSprite *"
+        }
+      ],
+      "code": "// Preconditions enforcement:\n// - sprite must be a valid TFT_eSprite* provided by the fuzzer runtime.\n// - The frame buffer may or may not be allocated; if the buffer was allocated by a prior\n//   operation (e.g., createSprite), attribute \"buffer_allocated\" should be set to 1.\n// - We must not dereference or free the returned buffer pointer.\n\n// The uint8_t parameter is ignored by the API; any value is accepted.\nuint8_t ignored = static_cast<uint8_t>(*FUZZ_PARAM(unsigned int) & 0xFF);\n\n// Call the target function.\nvoid *buf = sprite->frameBuffer(ignored);\n\n// If we believe the buffer was allocated previously, it should not be null.\nint was_alloc = FUZZ_GET_ATTR_INT(sprite, \"buffer_allocated\");\nif (was_alloc) {\n    FUZZ_ASSERT(buf != nullptr, \"frameBuffer() returned nullptr despite prior allocation\");\n}\n\n// If we observe a non-null buffer now, mark it as allocated for downstream stubs.\nif (buf != nullptr) {\n    FUZZ_SET_ATTR_INT(sprite, \"buffer_allocated\", 1);\n}\n\n// Outputs:\n// - Return the sprite object to the pool (persistent object). We do not return the raw buffer\n//   pointer as an output, as ownership remains with the sprite and callers must not free it.\n\n// Validation summary:\n// - Ensures uint8_t arg provided and ignored as per API.\n// - Asserts non-null only when prior state indicates allocation; otherwise accepts nullptr and\n//   records allocation state opportunistically."
+    },
+    {
+      "name": "TFT_eSprite *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "sprite",
+          "type": "TFT_eSprite *"
+        }
+      ],
+      "code": "// Construct a TFT_eSprite instance. This class derives from LGFX_Sprite and can manage\n// its own pixel buffer using createSprite().\nTFT_eSprite *sprite = new TFT_eSprite();\n\n// Optionally set a color depth before allocation to exercise different paths while\n// controlling memory usage (< 2048 bytes per call).\n// Choose among 8, 16, or 24 bits per pixel and then size the sprite so that\n// width * height * bpp <= 2048.\nunsigned int depth_sel = *FUZZ_PARAM(unsigned int);\nint bpp;\nswitch (depth_sel % 3) {\n  case 0: bpp = 1; sprite->setColorDepth(8);  break;  // 8bpp\n  case 1: bpp = 2; sprite->setColorDepth(16); break;  // 16bpp\n  default: bpp = 3; sprite->setColorDepth(24); break; // 24bpp\n}\n\n// Compute safe dimensions based on bpp. Keep area within 2048 bytes total.\n// Ensure minimum dimension of 1.\nsize_t area_max = (size_t)2048 / (size_t)bpp;\nif (area_max == 0) { area_max = 1; }\n\n// Pick width within [1, min(64, area_max)]\nsize_t w_cap = area_max < 64 ? area_max : 64;\nif (w_cap == 0) { w_cap = 1; }\nunsigned int rw = *FUZZ_PARAM(unsigned int);\nint w = (int)(rw % w_cap) + 1;\n\n// Given width, pick height within [1, max(1, area_max / w)]\nsize_t h_cap = area_max / (size_t)w;\nif (h_cap == 0) { h_cap = 1; }\nunsigned int rh = *FUZZ_PARAM(unsigned int);\nint h = (int)(rh % h_cap) + 1;\n\n// With 50% probability, allocate a pixel buffer via createSprite().\n// If allocation fails (nullptr), we retain the sprite without the buffer and\n// do not set the allocation attribute.\nbool do_alloc = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nif (do_alloc) {\n  void *buf = sprite->createSprite(w, h);  // Owned by sprite; do not free.\n  if (buf != nullptr) {\n    FUZZ_SET_ATTR_INT(sprite, \"buffer_allocated\", 1);\n    FUZZ_SET_ATTR_INT(sprite, \"width\", w);\n    FUZZ_SET_ATTR_INT(sprite, \"height\", h);\n    FUZZ_SET_ATTR_INT(sprite, \"bpp\", bpp);\n  }\n}\n\n// Output the constructed sprite to the object pool for downstream use.\n// We never delete here; runtime takes ownership.\n\n// Validation summary:\n// - Ensures sprite is always constructed and returned.\n// - If a buffer is allocated, marks buffer_allocated=1 and records size/depth.\n// - Memory cap enforced: width*height*bpp <= 2048 to keep fuzzing fast."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "TFT_eSprite::frameBuffer",
+      "data_types": []
+    },
+    {
+      "name": "TFT_eSprite *",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4797,
+            "output_tokens": 656,
+            "total_tokens": 5453
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3109,
+            "output_tokens": 68,
+            "total_tokens": 3177
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4837,
+            "output_tokens": 1808,
+            "total_tokens": 6645
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4151,
+            "output_tokens": 1831,
+            "total_tokens": 5982
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3248,
+            "output_tokens": 2351,
+            "total_tokens": 5599
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 170.0917489528656,
+    "scan_objects": 44.848748207092285,
+    "validate_objects": 1.2279362678527832,
+    "scan_functions": 0,
+    "synthesis": 68.94156622886658,
+    "fill": 55.01614594459534,
+    "classify": 0.05657052993774414,
+    "build_generators": 0.00006890296936035156
+  }
+}

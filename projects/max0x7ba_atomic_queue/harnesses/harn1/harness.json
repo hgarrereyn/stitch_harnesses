@@ -1,0 +1,964 @@
+{
+  "objects": [
+    {
+      "ptr_type": "int *",
+      "aliases": [
+        "atomic_queue::CACHE_LINE_SIZE"
+      ],
+      "definition": "namespace atomic_queue {\nconstexpr int CACHE_LINE_SIZE = 64; // or 128/256 depending on arch in conditional branches\n}\n// Note: Within this header, CACHE_LINE_SIZE is a namespace-scope constexpr int whose value\n// is selected per-architecture by preprocessor conditionals. Representative definition shown above.",
+      "description": "Namespace-scope constexpr integer constant indicating the assumed size of an L1 cache line for the target architecture. Used for alignment and padding decisions in lock-free data structures. Value is selected per-architecture: typically 64, but 128 on powerpc64 and 256 on s390x per the header’s branches.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "std::memory_order *",
+      "aliases": [
+        "atomic_queue::A",
+        "atomic_queue::R",
+        "atomic_queue::X",
+        "atomic_queue::C",
+        "atomic_queue::AR"
+      ],
+      "definition": "namespace atomic_queue {\nauto constexpr A = std::memory_order_acquire;\nauto constexpr R = std::memory_order_release;\nauto constexpr X = std::memory_order_relaxed;\nauto constexpr C = std::memory_order_seq_cst;\nauto constexpr AR = std::memory_order_acq_rel;\n} // namespace atomic_queue",
+      "description": "Namespace-scope constexpr aliases for common std::memory_order values to shorten code at call sites: A (acquire), R (release), X (relaxed), C (seq_cst), AR (acq_rel). They are constants of type std::memory_order.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "atomic_queue::Barrier *",
+      "aliases": [],
+      "definition": "namespace atomic_queue {\n\nclass Barrier {\n    std::atomic<unsigned> counter_ = {};\n\npublic:\n    void wait() noexcept {\n        counter_.fetch_add(1, std::memory_order_acquire);\n        while(counter_.load(std::memory_order_relaxed))\n            spin_loop_pause();\n    }\n\n    void release(unsigned expected_counter) noexcept {\n        while(expected_counter != counter_.load(std::memory_order_relaxed))\n            spin_loop_pause();\n        counter_.store(0, std::memory_order_release);\n    }\n};\n\n} // namespace atomic_queue",
+      "description": "A lightweight barrier/synchronization primitive in namespace atomic_queue. Internally maintains an atomic unsigned counter. Threads call wait() to announce arrival and spin until the counter becomes zero; a coordinating thread calls release(expected_counter) to wait until the counter reaches the expected value and then resets it to zero, releasing the waiting threads. Likely intended for short spinning with spin_loop_pause() hints. No ownership semantics beyond regular automatic or dynamic storage; no copying/moving is defined (implicitly generated). Note: exact semantics and required expected_counter usage are inferred from the implementation; detailed usage protocol is not documented here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "atomic_queue::Spinlock *",
+      "aliases": [],
+      "definition": "class Spinlock {\n    pthread_spinlock_t s_;\n\npublic:\n    using scoped_lock = std::lock_guard<Spinlock>;\n\n    Spinlock() noexcept {\n        if(ATOMIC_QUEUE_UNLIKELY(::pthread_spin_init(&s_, 0)))\n            std::abort();\n    }\n\n    Spinlock(Spinlock const&) = delete;\n    Spinlock& operator=(Spinlock const&) = delete;\n\n    ~Spinlock() noexcept {\n        ::pthread_spin_destroy(&s_);\n    }\n\n    void lock() noexcept {\n        if(ATOMIC_QUEUE_UNLIKELY(::pthread_spin_lock(&s_)))\n            std::abort();\n    }\n\n    void unlock() noexcept {\n        if(ATOMIC_QUEUE_UNLIKELY(::pthread_spin_unlock(&s_)))\n            std::abort();\n    }\n};",
+      "description": "A thin RAII-friendly wrapper over POSIX pthread spin locks. Non-copyable. Provides lock/unlock and a scoped_lock alias to std::lock_guard<Spinlock>. Constructor initializes pthread_spinlock_t and aborts on failure; destructor destroys it.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "atomic_queue::TicketSpinlock *",
+      "aliases": [],
+      "definition": "class TicketSpinlock {\n    alignas(CACHE_LINE_SIZE) std::atomic<unsigned> ticket_{0};\n    alignas(CACHE_LINE_SIZE) std::atomic<unsigned> next_{0};\n\npublic:\n    class LockGuard {\n        TicketSpinlock* const m_;\n        unsigned const ticket_;\n    public:\n        LockGuard(TicketSpinlock& m) noexcept\n            : m_(&m)\n            , ticket_(m.lock())\n        {}\n\n        LockGuard(LockGuard const&) = delete;\n        LockGuard& operator=(LockGuard const&) = delete;\n\n        ~LockGuard() noexcept {\n            m_->unlock(ticket_);\n        }\n    };\n\n    using scoped_lock = LockGuard;\n\n    TicketSpinlock() noexcept = default;\n    TicketSpinlock(TicketSpinlock const&) = delete;\n    TicketSpinlock& operator=(TicketSpinlock const&) = delete;\n\n    ATOMIC_QUEUE_NOINLINE unsigned lock() noexcept {\n        auto ticket = ticket_.fetch_add(1, std::memory_order_relaxed);\n        for(;;) {\n            auto position = ticket - next_.load(std::memory_order_acquire);\n            if(ATOMIC_QUEUE_LIKELY(!position))\n                break;\n            do\n                spin_loop_pause();\n            while(--position);\n        }\n        return ticket;\n    }\n\n    void unlock() noexcept {\n        unlock(next_.load(std::memory_order_relaxed) + 1);\n    }\n\n    void unlock(unsigned ticket) noexcept {\n        next_.store(ticket + 1, std::memory_order_release);\n    }\n};",
+      "description": "A fair ticket-based spinlock that uses two cache-line-aligned atomics (ticket_ and next_) to provide FIFO acquisition. Provides nested LockGuard for RAII and exposes it as scoped_lock. Non-copyable. lock() returns the acquired ticket number; unlock() can be called with or without that ticket.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "atomic_queue::TicketSpinlock::LockGuard *",
+      "aliases": [
+        "atomic_queue::TicketSpinlock::scoped_lock"
+      ],
+      "definition": "class LockGuard {\n        TicketSpinlock* const m_;\n        unsigned const ticket_;\n    public:\n        LockGuard(TicketSpinlock& m) noexcept\n            : m_(&m)\n            , ticket_(m.lock())\n        {}\n\n        LockGuard(LockGuard const&) = delete;\n        LockGuard& operator=(LockGuard const&) = delete;\n\n        ~LockGuard() noexcept {\n            m_->unlock(ticket_);\n        }\n    };",
+      "description": "RAII helper for TicketSpinlock. Acquires a ticket on construction and releases it on destruction using the stored ticket number. Non-copyable.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "atomic_queue::TicketSpinlock"
+      ]
+    },
+    {
+      "ptr_type": "atomic_queue::UnfairSpinlock *",
+      "aliases": [],
+      "definition": "class UnfairSpinlock {\n    std::atomic<unsigned> lock_{0};\n\npublic:\n    using scoped_lock = std::lock_guard<UnfairSpinlock>;\n\n    UnfairSpinlock(UnfairSpinlock const&) = delete;\n    UnfairSpinlock& operator=(UnfairSpinlock const&) = delete;\n\n    void lock() noexcept {\n        for(;;) {\n            if(!lock_.load(std::memory_order_relaxed) && !lock_.exchange(1, std::memory_order_acquire))\n                return;\n            spin_loop_pause();\n        }\n    }\n\n    void unlock() noexcept {\n        lock_.store(0, std::memory_order_release);\n    }\n};",
+      "description": "A simple test-and-set spinlock with no fairness guarantees. Uses an atomic<unsigned> flag and pause-based spinning. Non-copyable. Provides lock/unlock and a scoped_lock alias to std::lock_guard<UnfairSpinlock>.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "atomic_queue::spin_loop_pause",
+      "signature": "static inline void spin_loop_pause() noexcept",
+      "description": "Architecture-specific hint to pause/yield during a busy-wait (spin) loop. On x86 it issues _mm_pause; on ARM/AArch64 it emits yield (or equivalent); on other supported architectures it emits a suitable pause/nop sequence, and may be a no-op on unknown targets. Intended to be called inside tight polling loops to reduce power consumption and contention and improve SMT fairness. No return value and guaranteed not to throw.",
+      "requirements": [
+        "No preconditions; may be called from any thread.",
+        "Has effect dependent on the target architecture; may be a no-op on some platforms.",
+        "Intended usage is inside busy-wait loops; calling outside a spin loop has no functional effect beyond a small delay."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::Barrier::wait",
+      "signature": "void atomic_queue::Barrier::wait() noexcept",
+      "description": "Increments the barrier’s internal counter, then busy-waits until the counter becomes 0. Intended for threads that must wait until a coordinating thread calls release with an expected counter equal to the number of wait calls since the last release. Non-throwing and uses spinning (no blocking OS wait). Memory ordering: fetch_add uses acquire; the spinning loop uses relaxed loads; release uses a release store to 0.",
+      "requirements": [
+        "Must be paired with a matching call to atomic_queue::Barrier::release on the same Barrier instance; otherwise callers will spin indefinitely.",
+        "All participating threads must agree on the expected number of waiters for a given barrier phase; the releaser must pass that exact count to release, matching the number of wait() calls since the last release, or deadlock/spin will occur.",
+        "Do not destroy the Barrier object while any thread is inside wait() or release().",
+        "This is a spin-wait; callers should ensure conditions that avoid unacceptable CPU burn (e.g., use when the wait is expected to be short or on dedicated threads).",
+        "Thread-safety: Multiple threads may call wait() concurrently on the same Barrier instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::Barrier::release",
+      "signature": "void atomic_queue::Barrier::release(unsigned expected_counter) noexcept",
+      "description": "Blocks (spins) until the internal counter equals expected_counter, then atomically sets the counter to 0 with release semantics, unblocking threads waiting in wait(). Used by a coordinating thread after the required number of threads have called wait() for the current barrier phase.",
+      "requirements": [
+        "expected_counter must equal the number of calls to wait() since the previous successful release() on the same Barrier; otherwise release() may spin indefinitely and waiters may never proceed.",
+        "May be called by a different thread than the waiters, but must operate on the same Barrier instance.",
+        "Do not destroy the Barrier object while release() is spinning or while other threads are in wait().",
+        "Non-throwing and spin-based; callers should ensure it is acceptable to busy-wait until the expected count is reached.",
+        "expected_counter is an unsigned value; passing 0 is allowed but only meaningful if no threads have called wait() since the last release."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::Spinlock::Spinlock",
+      "signature": "atomic_queue::Spinlock::Spinlock() noexcept",
+      "description": "Constructs a Spinlock wrapper around a pthread spin lock. Initializes the underlying pthread_spinlock_t; on initialization failure the process aborts. Use to protect short critical sections with busy-wait locking.",
+      "requirements": [
+        "Must be called to create a Spinlock object before calling lock()/unlock().",
+        "Construction is non-throwing; on initialization failure the program aborts (no recovery path).",
+        "No explicit attributes required from callers beyond normal object lifetime management."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::Spinlock::~Spinlock",
+      "signature": "atomic_queue::Spinlock::~Spinlock() noexcept",
+      "description": "Destroys the Spinlock and releases its underlying pthread spin lock resources. Calls pthread_spin_destroy; on failure the process aborts.",
+      "requirements": [
+        "The spin lock must not be held by any thread at destruction time (destroying a locked pthread spin lock is undefined).",
+        "Destruction is non-throwing; on destruction failure the program aborts."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::Spinlock::lock",
+      "signature": "void atomic_queue::Spinlock::lock() noexcept",
+      "description": "Acquires the spin lock, blocking (busy-waiting) until it becomes available. On pthread_spin_lock failure, aborts the process.",
+      "requirements": [
+        "The Spinlock object must have been successfully constructed and not yet destroyed.",
+        "Must be paired with a matching unlock() by the same thread to avoid deadlock and resource leaks.",
+        "May be called concurrently by multiple threads on the same Spinlock; re-entrancy by the same thread is not supported (would deadlock)."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::Spinlock::unlock",
+      "signature": "void atomic_queue::Spinlock::unlock() noexcept",
+      "description": "Releases the spin lock previously acquired by lock(). On pthread_spin_unlock failure, aborts the process.",
+      "requirements": [
+        "Must be called by the thread that currently holds the lock acquired via lock().",
+        "The Spinlock must be in the locked state by the calling thread; unlocking an unlocked or foreign-owned lock is undefined.",
+        "Must be paired with a prior successful lock()."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::LockGuard::LockGuard",
+      "signature": "atomic_queue::TicketSpinlock::LockGuard::LockGuard(atomic_queue::TicketSpinlock& m) noexcept",
+      "description": "RAII guard for TicketSpinlock. Acquires the lock on construction using TicketSpinlock::lock() and stores the acquired ticket; the corresponding unlock(ticket) is invoked on destruction.",
+      "requirements": [
+        "The referenced TicketSpinlock must outlive the LockGuard instance.",
+        "Construction is non-throwing; it will busy-wait until the lock can be acquired.",
+        "Do not manually call unlock() on the TicketSpinlock for the same critical section while the LockGuard is active; the guard will release it on destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::LockGuard::~LockGuard",
+      "signature": "atomic_queue::TicketSpinlock::LockGuard::~LockGuard() noexcept",
+      "description": "Releases the TicketSpinlock held by this guard by calling unlock(ticket) with the ticket acquired at construction.",
+      "requirements": [
+        "The associated TicketSpinlock must still be valid at destruction time.",
+        "Destruction must occur once per guard; do not attempt to transfer or duplicate ownership (copy/move is disabled)."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::TicketSpinlock",
+      "signature": "atomic_queue::TicketSpinlock::TicketSpinlock() noexcept",
+      "description": "Default constructor for a ticket-based spin lock. Initializes internal atomics (ticket_ and next_) to zero, establishing an unlocked state.",
+      "requirements": [
+        "Object must be constructed before any lock/unlock operations.",
+        "Non-copyable; do not attempt to copy or assign."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::lock",
+      "signature": "unsigned atomic_queue::TicketSpinlock::lock() noexcept",
+      "description": "Acquires the ticket spin lock using a fair ticketing scheme. Returns the caller’s ticket value and busy-waits until next_ reaches this ticket, then enters the critical section.",
+      "requirements": [
+        "The TicketSpinlock must be valid and constructed.",
+        "Caller must eventually release the lock, either by calling unlock() or unlock(ticket) with the returned ticket.",
+        "Not re-entrant: the same thread calling lock() again without unlocking will deadlock."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::unlock",
+      "signature": "void atomic_queue::TicketSpinlock::unlock() noexcept",
+      "description": "Releases the ticket spin lock owned by the caller by advancing next_ based on the current next_ value. Convenience wrapper that reads the current next_ and forwards to unlock(next_ + 1).",
+      "requirements": [
+        "Must only be called to release a lock previously acquired by lock() for the current critical section.",
+        "The TicketSpinlock must be valid and constructed."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::unlock",
+      "signature": "void atomic_queue::TicketSpinlock::unlock(unsigned ticket) noexcept",
+      "description": "Releases the ticket spin lock corresponding to the provided ticket by setting next_ to ticket + 1 with release semantics. Intended to be used with the exact ticket returned by lock().",
+      "requirements": [
+        "ticket must be the exact value returned by the preceding call to lock() for the critical section being ended.",
+        "The TicketSpinlock must be valid and constructed.",
+        "Do not pass arbitrary or stale ticket values; doing so can corrupt lock state or break mutual exclusion."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock::lock",
+      "signature": "void atomic_queue::UnfairSpinlock::lock() noexcept",
+      "description": "Acquires a simple, potentially unfair spin lock using an atomic exchange. Busy-waits until the lock becomes available.",
+      "requirements": [
+        "The UnfairSpinlock must be valid and not destroyed.",
+        "Must be paired with a matching unlock() by the same thread.",
+        "Not re-entrant: locking twice from the same thread without unlocking will deadlock."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock::unlock",
+      "signature": "void atomic_queue::UnfairSpinlock::unlock() noexcept",
+      "description": "Releases the unfair spin lock by storing 0 with release semantics.",
+      "requirements": [
+        "Must be called by the thread that currently holds the lock acquired via lock().",
+        "The UnfairSpinlock must be in the locked state by the calling thread; unlocking an unlocked or foreign-owned lock is undefined."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::try_push",
+      "signature": "template<class T, class Mutex, unsigned SIZE, bool MINIMIZE_CONTENTION, class U>\nbool atomic_queue::AtomicQueueMutexT<T, Mutex, SIZE, MINIMIZE_CONTENTION>::try_push(U&& element) noexcept",
+      "description": "Attempts to enqueue one element into the bounded queue. Acquires the internal mutex, checks capacity, and if not full assigns the provided value into the next slot and advances the head. Returns true on success, false if the queue is full. Intended for concurrent producers/consumers; the method handles its own locking. Note: the function is declared noexcept; if assigning/converting U into T throws, the program will call std::terminate.",
+      "requirements": [
+        "Template parameter SIZE must be greater than 0 (array q_[size_] requires a positive size).",
+        "Type T must be assignable from U&& (q_[...]=std::forward<U>(element) must be well-formed).",
+        "The assignment/conversion from U to T should not throw; if it throws, noexcept is violated and std::terminate will be called.",
+        "Queue instance must be a valid, live object when called.",
+        "May be called concurrently from multiple threads; internal mutex ensures mutual exclusion."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::try_pop",
+      "signature": "template<class T, class Mutex, unsigned SIZE, bool MINIMIZE_CONTENTION>\nbool atomic_queue::AtomicQueueMutexT<T, Mutex, SIZE, MINIMIZE_CONTENTION>::try_pop(T& element) noexcept",
+      "description": "Attempts to dequeue one element from the bounded queue. Acquires the internal mutex, checks if the queue is non-empty, moves the next value into the provided reference, advances the tail, and returns true. Returns false if the queue is empty and leaves element unmodified. Intended for concurrent producers/consumers; the method handles its own locking. Note: the function is noexcept; if T’s move-assignment throws, the program will call std::terminate.",
+      "requirements": [
+        "Template parameter SIZE must be greater than 0 (array q_[size_] requires a positive size).",
+        "Parameter element must be a valid lvalue reference to T ready to receive a value.",
+        "Type T must be move-assignable (element = std::move(q_[...]) must be well-formed).",
+        "The move-assignment into element should not throw; if it throws, noexcept is violated and std::terminate will be called.",
+        "Queue instance must be a valid, live object when called.",
+        "May be called concurrently from multiple threads; internal mutex ensures mutual exclusion."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::was_empty",
+      "signature": "template<class T, class Mutex, unsigned SIZE, bool MINIMIZE_CONTENTION>\nbool atomic_queue::AtomicQueueMutexT<T, Mutex, SIZE, MINIMIZE_CONTENTION>::was_empty() const noexcept",
+      "description": "Returns whether the queue was empty at the moment of the check, based on current head and tail counters. This method does not take the internal mutex and performs a simple check (static_cast<int>(head_ - tail_) <= 0). Intended primarily for observational or single-threaded checks; using it concurrently with push/pop without external synchronization can cause a data race and undefined behavior.",
+      "requirements": [
+        "May only be called without concurrent calls to try_push/try_pop on the same instance unless the caller externally synchronizes access; the method does not lock and reads non-atomic state.",
+        "Queue instance must be a valid, live object when called."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::was_full",
+      "signature": "template<class T, class Mutex, unsigned SIZE, bool MINIMIZE_CONTENTION>\nbool atomic_queue::AtomicQueueMutexT<T, Mutex, SIZE, MINIMIZE_CONTENTION>::was_full() const noexcept",
+      "description": "Returns whether the queue was full at the moment of the check, based on current head and tail counters compared to capacity (static_cast<int>(head_ - tail_) >= static_cast<int>(size_)). This method does not take the internal mutex; it is suitable for single-threaded status checks. Using it concurrently with push/pop without external synchronization can cause a data race and undefined behavior.",
+      "requirements": [
+        "May only be called without concurrent calls to try_push/try_pop on the same instance unless the caller externally synchronizes access; the method does not lock and reads non-atomic state.",
+        "Queue instance must be a valid, live object when called."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::details::round_up_to_power_of_2",
+      "signature": "constexpr std::uint32_t atomic_queue::details::round_up_to_power_of_2(std::uint32_t a) noexcept",
+      "description": "Returns a rounded-up power-of-two value based on a 32-bit unsigned input. Uses a branchless bit-spreading trick to compute the next power of two greater than or equal to a. If a is already a power of two, it returns a. If a is 0, the function returns 0 due to unsigned wraparound in the algorithm.",
+      "requirements": [
+        "Argument a is a 32-bit unsigned integer.",
+        "For a == 0, the function returns 0 (this is the implemented behavior)."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::try_push",
+      "signature": "template<class Derived> template<class T> ATOMIC_QUEUE_INLINE bool atomic_queue::AtomicQueueCommon<Derived>::try_push(T&& element) noexcept",
+      "description": "Non-blocking push attempt. Reserves a slot by advancing the head atomically (with SPSC or MPMC path) only if the queue was not full, and then delegates the actual element placement to Derived::do_push. Returns true on success, false if the queue appears full at the time of attempt.",
+      "requirements": [
+        "Must be called on a properly constructed queue object.",
+        "The element must be convertible/assignable to the derived queue’s value_type (Derived::do_push expects a compatible type).",
+        "Thread-safety: designed for concurrent use per the queue’s SPSC or MPMC mode; no external synchronization is required by the caller.",
+        "On false return, the element was not enqueued and the caller may retry."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::try_pop",
+      "signature": "template<class Derived> template<class T> ATOMIC_QUEUE_INLINE bool atomic_queue::AtomicQueueCommon<Derived>::try_pop(T& element) noexcept",
+      "description": "Non-blocking pop attempt. Reserves a slot by advancing the tail atomically (with SPSC or MPMC path) only if the queue was not empty, then fetches the element via Derived::do_pop and stores it into element. Returns true on success, false if the queue appears empty at the time of attempt.",
+      "requirements": [
+        "Must be called on a properly constructed queue object.",
+        "The output parameter element must be an lvalue reference to a type compatible with the derived queue’s value_type.",
+        "Thread-safety: designed for concurrent use per the queue’s SPSC or MPMC mode; no external synchronization is required by the caller.",
+        "On false return, no element is written to element and the caller may retry."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::push",
+      "signature": "template<class Derived> template<class T> ATOMIC_QUEUE_INLINE void atomic_queue::AtomicQueueCommon<Derived>::push(T&& element) noexcept",
+      "description": "Blocking push that always reserves a slot (advances head) and then enqueues the element via Derived::do_push. In MPMC mode, uses fetch_add for FIFO/total ordering semantics as configured. This call does not report fullness; it is expected that Derived::do_push will spin as needed until a slot is available.",
+      "requirements": [
+        "Must be called on a properly constructed queue object.",
+        "The element must be convertible/assignable to the derived queue’s value_type.",
+        "May spin internally until space becomes available; caller should avoid calling in contexts where spinning is unacceptable."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::pop",
+      "signature": "template<class Derived> ATOMIC_QUEUE_INLINE auto atomic_queue::AtomicQueueCommon<Derived>::pop() noexcept",
+      "description": "Blocking pop that always reserves a slot (advances tail) and then dequeues via Derived::do_pop, returning the value. In MPMC mode, uses fetch_add for FIFO/total ordering semantics as configured. This call may spin internally until an element becomes available.",
+      "requirements": [
+        "Must be called on a properly constructed queue object.",
+        "Return type is the derived queue’s value_type (inferred from Derived::do_pop).",
+        "May spin internally until an element is available; caller should avoid calling in contexts where spinning is unacceptable."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::was_empty",
+      "signature": "template<class Derived> ATOMIC_QUEUE_INLINE bool atomic_queue::AtomicQueueCommon<Derived>::was_empty() const noexcept",
+      "description": "Returns whether the queue was observed empty at the instant of atomically reading head and tail. This is a snapshot and can be stale immediately after return in concurrent scenarios.",
+      "requirements": [
+        "Callable on a const-qualified queue instance.",
+        "Return is a best-effort instantaneous observation; caller must not assume it remains true after return under concurrency."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::was_full",
+      "signature": "template<class Derived> ATOMIC_QUEUE_INLINE bool atomic_queue::AtomicQueueCommon<Derived>::was_full() const noexcept",
+      "description": "Returns whether the queue was observed full at the instant of atomically reading head and tail relative to capacity(). Snapshot semantics only; can change immediately after return.",
+      "requirements": [
+        "Callable on a const-qualified queue instance.",
+        "Return is a best-effort instantaneous observation; caller must not assume it remains true after return under concurrency."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::was_size",
+      "signature": "template<class Derived> ATOMIC_QUEUE_INLINE unsigned atomic_queue::AtomicQueueCommon<Derived>::was_size() const noexcept",
+      "description": "Returns the observed number of elements in the queue from a single snapshot of head and tail. If underflow is observed (due to concurrent pops), clamps to 0. Snapshot semantics only.",
+      "requirements": [
+        "Callable on a const-qualified queue instance.",
+        "The value reflects an instantaneous observation and may be stale immediately after return."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::capacity",
+      "signature": "template<class Derived> ATOMIC_QUEUE_INLINE unsigned atomic_queue::AtomicQueueCommon<Derived>::capacity() const noexcept",
+      "description": "Returns the fixed capacity (size_) of the derived queue implementation.",
+      "requirements": [
+        "Callable on a const-qualified queue instance.",
+        "Derived must expose a member size_ (fulfilled by provided implementations)."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueue<T,SIZE,NIL,MINIMIZE_CONTENTION,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueue",
+      "signature": "template<class T, unsigned SIZE, T NIL, bool MINIMIZE_CONTENTION, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE atomic_queue::AtomicQueue<T, SIZE, NIL, MINIMIZE_CONTENTION, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::AtomicQueue() noexcept",
+      "description": "Default constructor for a fixed-size, array-backed queue of atomic<T> elements. Initializes all slots to the NIL sentinel value and checks that std::atomic<T> is lock-free.",
+      "requirements": [
+        "T must be usable with std::atomic and be lock-free on the target platform (asserted).",
+        "NIL must be a valid sentinel value distinct from any in-flight element.",
+        "Constructs an empty queue of capacity size_ (rounded per template parameters)."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueue2<T,SIZE,MINIMIZE_CONTENTION,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueue2",
+      "signature": "template<class T, unsigned SIZE, bool MINIMIZE_CONTENTION, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE atomic_queue::AtomicQueue2<T, SIZE, MINIMIZE_CONTENTION, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::AtomicQueue2() noexcept = default",
+      "description": "Default constructor for a fixed-size queue storing T with separate per-slot state bytes. Elements and states are value-initialized; no atomic<T> requirement for T.",
+      "requirements": [
+        "T must be default-initializable (elements_ are value-initialized).",
+        "Constructs an empty queue of capacity size_ (rounded per template parameters)."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB<T,A,NIL,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueueB",
+      "signature": "template<class T, class A, T NIL, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> atomic_queue::AtomicQueueB<T, A, NIL, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::AtomicQueueB(unsigned size, A const& allocator = A{})",
+      "description": "Constructs a dynamically sized queue of atomic<T> elements using a rebound allocator for std::atomic<T>. Capacity is rounded up to a power of two and to a minimum derived from cache-line shuffling. All slots are initialized to NIL.",
+      "requirements": [
+        "T must be usable with std::atomic and be lock-free on the target platform (asserted).",
+        "size must be > 0; effective capacity is rounded to at least 1 << (SHUFFLE_BITS*2).",
+        "allocator must be usable to allocate std::atomic<T> storage (rebind of A).",
+        "NIL must be a valid sentinel distinct from any in-flight element."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB<T,A,NIL,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::get_allocator",
+      "signature": "template<class T, class A, T NIL, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE A atomic_queue::AtomicQueueB<T, A, NIL, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::get_allocator() const noexcept",
+      "description": "Returns a copy of the allocator associated with this queue (implicitly convertible from the rebound allocator held by the object).",
+      "requirements": [
+        "Queue must have been constructed; callable on const instances."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB<T,A,NIL,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::swap",
+      "signature": "template<class T, class A, T NIL, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE void atomic_queue::AtomicQueueB<T, A, NIL, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::swap(atomic_queue::AtomicQueueB<T, A, NIL, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>& b) noexcept",
+      "description": "Member swap. Exchanges allocators (rebounds), base-class atomic indices, capacity, and storage pointers with b.",
+      "requirements": [
+        "b must be another AtomicQueueB of the same template instantiation.",
+        "Safe to call at any time, but not thread-safe with concurrent operations on either queue."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::swap",
+      "signature": "template<class T, class A, T NIL, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE friend void atomic_queue::swap(atomic_queue::AtomicQueueB<T, A, NIL, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>& a, atomic_queue::AtomicQueueB<T, A, NIL, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>& b) noexcept",
+      "description": "Non-member swap overload for AtomicQueueB. Delegates to a.swap(b).",
+      "requirements": [
+        "a and b must be AtomicQueueB objects of identical template instantiation.",
+        "Not thread-safe if other threads operate on a or b during swap."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::swap",
+      "signature": "template<class T, class A, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE friend void atomic_queue::swap(atomic_queue::AtomicQueueB2<T, A, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>& a, atomic_queue::AtomicQueueB2<T, A, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>& b) noexcept",
+      "description": "Non-member swap overload for AtomicQueueB2. Delegates to a.swap(b).",
+      "requirements": [
+        "a and b must be AtomicQueueB2 objects of identical template instantiation.",
+        "Not thread-safe if other threads operate on a or b during swap."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB2<T,A,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueueB2",
+      "signature": "template<class T, class A, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> atomic_queue::AtomicQueueB2<T, A, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::AtomicQueueB2(unsigned size, A const& allocator = A{})",
+      "description": "Constructs a dynamically sized queue storing T with separate per-slot atomic state bytes, using allocator A rebound to raw storage. Capacity is rounded up to a power of two and to a minimum derived from cache-line shuffling. State bytes are initialized to EMPTY; elements are default-constructed via the allocator.",
+      "requirements": [
+        "T must be default-constructible (constructed with no arguments).",
+        "size must be > 0; effective capacity is rounded to at least 1 << (SHUFFLE_BITS*2).",
+        "allocator must be suitable for allocating raw storage for both state bytes and T (rebound of A)."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB2<T,A,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::get_allocator",
+      "signature": "template<class T, class A, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE A atomic_queue::AtomicQueueB2<T, A, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::get_allocator() const noexcept",
+      "description": "Returns a copy of the allocator associated with this queue (implicitly convertible from the rebound storage allocator).",
+      "requirements": [
+        "Queue must have been constructed; callable on const instances."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB2<T,A,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::swap",
+      "signature": "template<class T, class A, bool MAXIMIZE_THROUGHPUT, bool TOTAL_ORDER, bool SPSC> ATOMIC_QUEUE_INLINE void atomic_queue::AtomicQueueB2<T, A, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>::swap(atomic_queue::AtomicQueueB2<T, A, MAXIMIZE_THROUGHPUT, TOTAL_ORDER, SPSC>& b) noexcept",
+      "description": "Member swap. Exchanges storage allocator state, base-class atomic indices, capacity, and pointers to states_ and elements_ with b.",
+      "requirements": [
+        "b must be another AtomicQueueB2 of the same template instantiation.",
+        "Not thread-safe with concurrent operations on either queue."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::RetryDecorator<Queue>::push",
+      "signature": "template<class Queue> ATOMIC_QUEUE_INLINE void atomic_queue::RetryDecorator<Queue>::push(typename Queue::value_type element) noexcept",
+      "description": "Retrying push wrapper. Repeatedly calls this->try_push(element) and spin-waits until it succeeds. Intended to provide a blocking push behavior over a try_* API.",
+      "requirements": [
+        "Queue must provide try_push with a compatible value_type.",
+        "May spin indefinitely until space becomes available; avoid use where spinning is unacceptable."
+      ],
+      "error": null
+    },
+    {
+      "name": "atomic_queue::RetryDecorator<Queue>::pop",
+      "signature": "template<class Queue> ATOMIC_QUEUE_INLINE typename Queue::value_type atomic_queue::RetryDecorator<Queue>::pop() noexcept",
+      "description": "Retrying pop wrapper. Repeatedly calls this->try_pop(element) and spin-waits until it succeeds, then returns the popped element. Provides a blocking pop behavior over a try_* API.",
+      "requirements": [
+        "Queue must provide try_pop that writes into a value_type lvalue reference.",
+        "May spin indefinitely until an element becomes available; avoid use where spinning is unacceptable."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "atomic_queue::spin_loop_pause",
+      "inputs": [],
+      "outputs": [],
+      "code": "// atomic_queue::spin_loop_pause has no inputs and no preconditions.\n// Exercise intended usage by calling it multiple times within a bounded busy-wait style loop.\n// Keep iterations small to avoid long spins and maintain fuzzer throughput.\nunsigned int iterations = (unsigned int)(*FUZZ_PARAM(unsigned int) % 256u) + 1u; // [1, 256]\nfor (unsigned int i = 0; i < iterations; ++i) {\n    // Hint the CPU that we are in a spin loop. This may be a no-op on some platforms.\n    atomic_queue::spin_loop_pause();\n}\n\n// Validation:\n// - No preconditions and no return value; simply ensure the call completes without hanging.\n// - Bounded loop prevents prolonged spinning; no persistent objects to manage."
+    },
+    {
+      "name": "atomic_queue::Barrier::release",
+      "inputs": [
+        {
+          "name": "barrier",
+          "type": "atomic_queue::Barrier *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "barrier",
+          "type": "atomic_queue::Barrier *"
+        }
+      ],
+      "code": "// We must only call release(expected_counter) with a value that matches the\n// number of prior wait() calls since the last release on the same Barrier.\n// In this single-threaded fuzzing context, we cannot actually run waiters.\n// We therefore track an attribute \"pending_waiters\" on the Barrier to model\n// how many waiters have been staged by other stubs (0 if none/unset).\n// If the fuzzed expected value does not match, we bail to avoid indefinite spin.\n\n// Determine a candidate expected counter from fuzzed data but keep it small to\n// avoid overflow and to improve coverage of boundary cases.\nunsigned expected = (unsigned)(*FUZZ_PARAM(unsigned int) % 4);\n\n// Retrieve tracked pending_waiters (0 if not set by any prior stub).\nunsigned pending = (unsigned)FUZZ_GET_ATTR_INT(barrier, \"pending_waiters\");\n\n// Enforce the API requirement: expected must equal the number of waiters;\n// otherwise release() will spin indefinitely. Bail if it does not match.\nif (expected != pending) { FUZZ_BAIL(); }\n\n// Invoke the target function. With correct expected, this should not spin long\n// and will store 0 to the internal counter with release semantics.\nbarrier->release(expected);\n\n// After a successful release, all waiters for this phase have been released,\n// so the modeled pending_waiters becomes 0 for the next phase.\nFUZZ_SET_ATTR_INT(barrier, \"pending_waiters\", 0);\n"
+    },
+    {
+      "name": "atomic_queue::Spinlock::Spinlock",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "spin",
+          "type": "atomic_queue::Spinlock *"
+        }
+      ],
+      "code": "// Construct a new Spinlock object. Constructor aborts on failure; no recovery path.\nauto *spin = new atomic_queue::Spinlock();\n// Track runtime state for safe subsequent lock/unlock/destruction usage.\nFUZZ_SET_ATTR_INT(spin, \"locked\", 0);\nFUZZ_SET_ATTR_INT(spin, \"alive\", 1);\n// Validation: outputs a live, unlocked Spinlock ready for use."
+    },
+    {
+      "name": "atomic_queue::Spinlock::~Spinlock",
+      "inputs": [
+        {
+          "name": "spin",
+          "type": "atomic_queue::Spinlock *"
+        }
+      ],
+      "outputs": [],
+      "code": "// The Spinlock must not be held at destruction.\nint locked = FUZZ_GET_ATTR_INT(spin, \"locked\");\nif (locked) { FUZZ_BAIL(); }\n// Mark as not alive to prevent further use by downstream stubs.\nFUZZ_SET_ATTR_INT(spin, \"alive\", 0);\n// Invoke destructor via delete (non-throwing; may abort internally on error).\ndelete spin;\n// Validation: only destroys an unlocked Spinlock and does not return it."
+    },
+    {
+      "name": "atomic_queue::Spinlock::lock",
+      "inputs": [
+        {
+          "name": "spin",
+          "type": "atomic_queue::Spinlock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "spin",
+          "type": "atomic_queue::Spinlock *"
+        }
+      ],
+      "code": "// Ensure object is alive and not already locked by this thread.\nif (!FUZZ_GET_ATTR_INT(spin, \"alive\")) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(spin, \"locked\")) { FUZZ_BAIL(); }\n// Acquire the spin lock (busy-wait). Aborts on pthread failure.\nspin->lock();\nFUZZ_SET_ATTR_INT(spin, \"locked\", 1);\n// Validation: maintains locked state; returns the same object for continued use."
+    },
+    {
+      "name": "atomic_queue::Spinlock::unlock",
+      "inputs": [
+        {
+          "name": "spin",
+          "type": "atomic_queue::Spinlock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "spin",
+          "type": "atomic_queue::Spinlock *"
+        }
+      ],
+      "code": "// Must be called by the thread that holds the lock.\nif (!FUZZ_GET_ATTR_INT(spin, \"alive\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(spin, \"locked\")) { FUZZ_BAIL(); }\n// Release the spin lock (non-throwing; may abort on pthread failure).\nspin->unlock();\nFUZZ_SET_ATTR_INT(spin, \"locked\", 0);\n// Validation: only unlocks when locked; returns the same object for further use."
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::LockGuard::LockGuard",
+      "inputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::TicketSpinlock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::TicketSpinlock *"
+        },
+        {
+          "name": "guard",
+          "type": "atomic_queue::TicketSpinlock::LockGuard *"
+        }
+      ],
+      "code": "// The referenced TicketSpinlock must outlive the guard and not be re-locked by the same thread.\nif (!FUZZ_GET_ATTR_INT(m, \"alive\")) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(m, \"locked\")) { FUZZ_BAIL(); }\n// Construct the RAII guard, which acquires the lock in its constructor.\nauto *guard = new atomic_queue::TicketSpinlock::LockGuard(*m);\n// Track relationships and state for proper destruction and unlock.\nFUZZ_SET_ATTR_PTR(guard, \"parent\", m);\nFUZZ_SET_ATTR_INT(m, \"locked\", 1);\n// Validation: returns both the still-live mutex and the active guard; prevents re-entrancy."
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::LockGuard::~LockGuard",
+      "inputs": [
+        {
+          "name": "guard",
+          "type": "atomic_queue::TicketSpinlock::LockGuard *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Retrieve the associated TicketSpinlock before deletion.\nauto *parent = (atomic_queue::TicketSpinlock*)FUZZ_GET_ATTR_PTR(guard, \"parent\");\nif (!parent) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(parent, \"alive\")) { FUZZ_BAIL(); }\n// Deleting the guard will call unlock(ticket) internally.\ndelete guard;\n// Update parent state to reflect that the lock has been released.\nFUZZ_SET_ATTR_INT(parent, \"locked\", 0);\n// Validation: ensures parent exists and is alive; guard is not returned (single destruction)."
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::TicketSpinlock",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::TicketSpinlock *"
+        }
+      ],
+      "code": "// Default-construct a ticket spinlock (unlocked state).\nauto *m = new atomic_queue::TicketSpinlock();\n// Track state for re-entrancy and lifetime management.\nFUZZ_SET_ATTR_INT(m, \"locked\", 0);\nFUZZ_SET_ATTR_INT(m, \"alive\", 1);\nFUZZ_SET_ATTR_INT(m, \"ticket\", 0);\n// Validation: provides a live, unlocked TicketSpinlock."
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::lock",
+      "inputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::TicketSpinlock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::TicketSpinlock *"
+        }
+      ],
+      "code": "// The lock must be valid and not currently held by this thread.\nif (!FUZZ_GET_ATTR_INT(m, \"alive\")) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(m, \"locked\")) { FUZZ_BAIL(); }\n// Acquire the ticket lock; store the returned ticket for potential unlock(ticket).\nunsigned t = m->lock();\nFUZZ_SET_ATTR_INT(m, \"locked\", 1);\nFUZZ_SET_ATTR_INT(m, \"ticket\", (int)t);\n// Validation: captures the ticket and marks as locked; returns the same object."
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::unlock",
+      "inputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::TicketSpinlock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::TicketSpinlock *"
+        }
+      ],
+      "code": "// Must only be used to release a previously acquired lock.\nif (!FUZZ_GET_ATTR_INT(m, \"alive\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(m, \"locked\")) { FUZZ_BAIL(); }\n// Choose between the two overloads to exercise both paths when possible.\nunsigned mode = (*FUZZ_PARAM(unsigned int)) & 1u;\nif (mode == 0) {\n    // Use the convenience unlock() overload.\n    m->unlock();\n} else {\n    // Use the precise unlock(ticket) overload with the exact stored ticket.\n    unsigned t = (unsigned)FUZZ_GET_ATTR_INT(m, \"ticket\");\n    m->unlock(t);\n}\n// Clear locked state and ticket.\nFUZZ_SET_ATTR_INT(m, \"locked\", 0);\nFUZZ_SET_ATTR_INT(m, \"ticket\", 0);\n// Validation: only unlocks when locked; returns the same object for continued use."
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock::lock",
+      "inputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::UnfairSpinlock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::UnfairSpinlock *"
+        }
+      ],
+      "code": "// Ensure the object is not considered destroyed; runtime provides a valid instance.\n// Track state locally with attributes to prevent re-entrancy deadlock.\nif (FUZZ_GET_ATTR_INT(m, \"locked\")) { FUZZ_BAIL(); }\n// Acquire the unfair spin lock (busy-wait).\nm->lock();\nFUZZ_SET_ATTR_INT(m, \"locked\", 1);\n// Validation: prevents re-entrant lock; returns the same object."
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock::unlock",
+      "inputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::UnfairSpinlock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::UnfairSpinlock *"
+        }
+      ],
+      "code": "// Must be called by the owning thread and only when locked.\nif (!FUZZ_GET_ATTR_INT(m, \"locked\")) { FUZZ_BAIL(); }\n// Release the unfair spin lock.\nm->unlock();\nFUZZ_SET_ATTR_INT(m, \"locked\", 0);\n// Validation: only unlocks when previously locked; returns the same object."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::try_push",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate a concrete queue type with a default-constructible mutex\nusing Q = atomic_queue::AtomicQueueMutexT<int, atomic_queue::Spinlock, 8, false>;\nQ q; // local, valid, single-threaded in this harness\n\n// Pre-fill the queue with up to capacity elements to exercise both full and not-full paths\nunsigned desired_prefill = *FUZZ_PARAM(unsigned int) % 12; // may exceed capacity to attempt \"full\" state\nunsigned actual_prefill = 0;\nint fill_value = *FUZZ_PARAM(int);\nfor (unsigned i = 0; i < desired_prefill; ++i) {\n    if (!q.try_push(fill_value)) {\n        break; // queue is full\n    }\n    ++actual_prefill;\n}\n\n// Target call: attempt to push another value\nint element = *FUZZ_PARAM(int);\nbool pushed = q.try_push(element);\n\n// In single-threaded context, push succeeds iff queue was not already full\nFUZZ_ASSERT(pushed == (actual_prefill < 8), \"try_push result must reflect full/not-full state deterministically\");\n\n// Validation summary: constructs a concrete queue, drives it to known occupancy, and asserts try_push outcome matches capacity."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::try_pop",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate a concrete queue type with a default-constructible mutex\nusing Q = atomic_queue::AtomicQueueMutexT<int, atomic_queue::Spinlock, 8, false>;\nQ q;\n\n// Optionally pre-fill the queue to cover both empty and non-empty cases\nunsigned desired_prefill = *FUZZ_PARAM(unsigned int) % 12; // may exceed capacity\nunsigned actual_prefill = 0;\nint fill_value = *FUZZ_PARAM(int);\nfor (unsigned i = 0; i < desired_prefill; ++i) {\n    if (!q.try_push(fill_value)) {\n        break; // reached full capacity\n    }\n    ++actual_prefill;\n}\n\n// Target call: try to pop one element\nint out = 0; // valid lvalue reference target\nbool popped = q.try_pop(out);\n\n// In single-threaded context, pop succeeds iff the queue was non-empty right before the call\nFUZZ_ASSERT(popped == (actual_prefill > 0), \"try_pop result must reflect empty/non-empty state deterministically\");\n\n// If popped, we at least exercised move-assign into an int (no-throw by construction)\n// Validation summary: prepares a known occupancy, then checks try_pop matches emptiness and uses a valid lvalue."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::was_empty",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate a concrete queue type with a default-constructible mutex\nusing Q = atomic_queue::AtomicQueueMutexT<int, atomic_queue::Spinlock, 8, false>;\nQ q;\n\n// Single-threaded setup: push a bounded number of items to control emptiness\nunsigned desired_prefill = *FUZZ_PARAM(unsigned int) % 12;\nunsigned actual_prefill = 0;\nint fill_value = *FUZZ_PARAM(int);\nfor (unsigned i = 0; i < desired_prefill; ++i) {\n    if (!q.try_push(fill_value)) {\n        break;\n    }\n    ++actual_prefill;\n}\n\n// Target call: observational check without internal locking\nbool empty_flag = q.was_empty();\n\n// Validate against our known single-threaded state (no concurrent access in this harness)\nFUZZ_ASSERT(empty_flag == (actual_prefill == 0), \"was_empty must agree with tracked size in single-threaded context\");\n\n// Validation summary: drives queue to a known size, then asserts was_empty matches that state."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::was_full",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate a concrete queue type with a default-constructible mutex\nusing Q = atomic_queue::AtomicQueueMutexT<int, atomic_queue::Spinlock, 8, false>;\nQ q;\n\n// Single-threaded setup: push items possibly beyond capacity to try reaching full\nunsigned desired_prefill = *FUZZ_PARAM(unsigned int) % 16; // allow attempts > capacity\nunsigned actual_prefill = 0;\nint fill_value = *FUZZ_PARAM(int);\nfor (unsigned i = 0; i < desired_prefill; ++i) {\n    if (!q.try_push(fill_value)) {\n        break; // full reached\n    }\n    ++actual_prefill;\n}\n\n// Target call: was_full without locking\nbool full_flag = q.was_full();\n\n// Validate: full iff actual_prefill reached capacity (8) in single-threaded context\nFUZZ_ASSERT(full_flag == (actual_prefill >= 8), \"was_full must reflect capacity in single-threaded context\");\n\n// Validation summary: fills queue up to capacity boundary and asserts was_full matches the boundary condition."
+    },
+    {
+      "name": "atomic_queue::details::round_up_to_power_of_2",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random 32-bit input value.\nstd::uint32_t a = *FUZZ_PARAM(std::uint32_t);\n\n// Call the target function under test.\nauto r = atomic_queue::details::round_up_to_power_of_2(a);\n\n// Requirements and properties enforcement:\n// - Argument a is a 32-bit unsigned integer (satisfied by construction).\n// - For a == 0, the function returns 0 (documented behavior).\nif(a == 0) {\n    FUZZ_ASSERT(r == 0, \"round_up_to_power_of_2: expected 0 for input 0\");\n}\n\n// For non-zero results, validate fundamental power-of-two properties.\n// Note: For very large a (e.g., > 0x80000000), some implementations may overflow to 0;\n// therefore we only assert properties when r != 0.\nif(r != 0) {\n    // r must be a power of two: r & (r - 1) == 0\n    FUZZ_ASSERT((r & (r - 1)) == 0, \"round_up_to_power_of_2: result is not a power of two\");\n    // r must be >= a when r != 0\n    FUZZ_ASSERT(r >= a, \"round_up_to_power_of_2: result is less than input for non-zero result\");\n}\n\n// Validation summary: This stub exercises the function with a random uint32_t and asserts\n// documented behavior for a==0 and sanity properties for non-zero results without assuming\n// overflow semantics when the next power of two is not representable."
+    },
+    {
+      "name": "atomic_queue::Barrier *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "barrier",
+          "type": "atomic_queue::Barrier *"
+        }
+      ],
+      "code": "// Construct a Barrier instance (counter_ value-initialized to 0).\nauto *barrier = new atomic_queue::Barrier();\n\n// Track lifetime and coordination metadata for other stubs (e.g., release()).\n// pending_waiters models how many wait() calls have occurred since last release.\n// We initialize it to 0 so release(0) is immediately valid and non-spinning in this harness.\nFUZZ_SET_ATTR_INT(barrier, \"alive\", 1);\nFUZZ_SET_ATTR_INT(barrier, \"pending_waiters\", 0);\n\n// Validation: outputs a live Barrier with zero counter semantics modeled by pending_waiters=0."
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "m",
+          "type": "atomic_queue::UnfairSpinlock *"
+        }
+      ],
+      "code": "// The UnfairSpinlock type in this build has no accessible default constructor.\n// To provide a usable instance for downstream lock/unlock stubs, we allocate\n// raw storage and zero-initialize it to match the class invariant (lock_ == 0).\n// Note: This emulates the intended default-initialized state (unlocked).\n// We avoid invoking any constructor since none is available.\n\nvoid *buf = std::malloc(sizeof(atomic_queue::UnfairSpinlock));\nif (!buf) { FUZZ_BAIL(); }\nstd::memset(buf, 0, sizeof(atomic_queue::UnfairSpinlock));\n\nauto *m = reinterpret_cast<atomic_queue::UnfairSpinlock*>(buf);\n\n// Track state for re-entrancy and lifetime modeling used by lock/unlock stubs.\nFUZZ_SET_ATTR_INT(m, \"locked\", 0);\nFUZZ_SET_ATTR_INT(m, \"alive\", 1);\nFUZZ_SET_ATTR_INT(m, \"synthetic_init\", 1);\n\n// Validation: provides an unlocked, live UnfairSpinlock-compatible object.\n// Downstream stubs enforce correct lock/unlock pairing and will bail on misuse."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "atomic_queue::Barrier::wait",
+      "reason": "wait() spin-waits until another thread calls release(); in a single-threaded fuzzer harness it will deadlock and cannot be safely exercised."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::try_push",
+      "reason": "Cannot be instantiated without a concrete Derived queue type and an object instance, which are not provided in the object pool."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::try_pop",
+      "reason": "Requires a concrete Derived queue type and an instance plus a compatible element lvalue, none of which are available from the provided objects."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::push",
+      "reason": "Template member needs a concrete Derived queue type and instance to call push, which are not available."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::pop",
+      "reason": "Template member needs a concrete Derived queue type and instance to call pop, which are not available."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::was_empty",
+      "reason": "Requires a concrete Derived queue instance to invoke the const member, which is not present in the object pool."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::was_full",
+      "reason": "Requires a concrete Derived queue instance to invoke the const member, which is not present in the object pool."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::was_size",
+      "reason": "Requires a concrete Derived queue instance to invoke the const member, which is not present in the object pool."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueCommon::capacity",
+      "reason": "Requires a concrete Derived queue instance to invoke the const member, which is not present in the object pool."
+    },
+    {
+      "name": "atomic_queue::AtomicQueue<T,SIZE,NIL,MINIMIZE_CONTENTION,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueue",
+      "reason": "Cannot select template parameters or construct an instance because no matching queue object type exists in the provided objects."
+    },
+    {
+      "name": "atomic_queue::AtomicQueue2<T,SIZE,MINIMIZE_CONTENTION,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueue2",
+      "reason": "Cannot choose template parameters or create an instance since no corresponding queue object type is available."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB<T,A,NIL,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueueB",
+      "reason": "Requires concrete template parameters (T, A, NIL, flags) and produces a queue type not present in the object pool."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB<T,A,NIL,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::get_allocator",
+      "reason": "Member call needs a constructed AtomicQueueB instance of a specific template instantiation, which is unavailable."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB<T,A,NIL,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::swap",
+      "reason": "Both parameters must be AtomicQueueB of the same template instantiation, but such objects are not provided."
+    },
+    {
+      "name": "atomic_queue::swap",
+      "reason": "Non-member swap requires two AtomicQueueB or AtomicQueueB2 objects of identical template instantiation, which are not available."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB2<T,A,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::AtomicQueueB2",
+      "reason": "Cannot select template parameters or create an instance since no corresponding queue object type exists in the pool."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB2<T,A,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::get_allocator",
+      "reason": "Requires a constructed AtomicQueueB2 instance of a specific template instantiation, which is not available."
+    },
+    {
+      "name": "atomic_queue::AtomicQueueB2<T,A,MAXIMIZE_THROUGHPUT,TOTAL_ORDER,SPSC>::swap",
+      "reason": "Both parameters must be AtomicQueueB2 of the same template instantiation, but such objects are not provided."
+    },
+    {
+      "name": "atomic_queue::RetryDecorator<Queue>::push",
+      "reason": "Needs a concrete Queue type and a constructed object with try_push support, which are not available."
+    },
+    {
+      "name": "atomic_queue::RetryDecorator<Queue>::pop",
+      "reason": "Needs a concrete Queue type and a constructed object with try_pop support, which are not available."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "atomic_queue::spin_loop_pause",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::Barrier::release",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::Spinlock::Spinlock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::Spinlock::~Spinlock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::Spinlock::lock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::Spinlock::unlock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::LockGuard::LockGuard",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::LockGuard::~LockGuard",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::TicketSpinlock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::lock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::TicketSpinlock::unlock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock::lock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock::unlock",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::try_push",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::try_pop",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::was_empty",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::AtomicQueueMutexT::was_full",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::details::round_up_to_power_of_2",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::Barrier *",
+      "data_types": []
+    },
+    {
+      "name": "atomic_queue::UnfairSpinlock *",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12419,
+            "output_tokens": 6438,
+            "total_tokens": 18857
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10309,
+            "output_tokens": 612,
+            "total_tokens": 10921
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 13031,
+            "output_tokens": 11896,
+            "total_tokens": 24927
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 43157,
+            "output_tokens": 15889,
+            "total_tokens": 59046
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 46173,
+            "output_tokens": 7246,
+            "total_tokens": 53419
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 392.8661389350891,
+    "scan_objects": 43.076895236968994,
+    "validate_objects": 2.1669270992279053,
+    "scan_functions": 0,
+    "synthesis": 179.15020990371704,
+    "fill": 168.41598987579346,
+    "classify": 0.055149078369140625,
+    "build_generators": 0.00009369850158691406
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "objects": [
+    {
+      "ptr_type": "unsigned int *",
+      "aliases": [
+        "fnv1a32val"
+      ],
+      "definition": "constexpr unsigned int fnv1a32val = 0x811c9dc5u;",
+      "description": "Compile-time constant for FNV-1a 32-bit offset basis value. Typedefs are not used; this is a plain constant of type unsigned int. No custom data type is defined here; alias lists the constant identifier only to indicate its presence.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "unsigned long long *",
+      "aliases": [
+        "fnv1a32prime"
+      ],
+      "definition": "constexpr unsigned long long fnv1a32prime = 0x1000193ull;",
+      "description": "Compile-time constant for FNV-1a 32-bit prime. Not a custom data type; provided here for completeness of exposed constants.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "constexprHash",
+      "signature": "inline constexpr unsigned int constexprHash(const char* const str, const unsigned int value = fnv1a32val) noexcept",
+      "description": "Computes a 32-bit FNV-1a hash over a null-terminated C-string. Implemented recursively and marked constexpr so it can be evaluated at compile time when provided with compile-time-known inputs (e.g., string literals). The optional 'value' parameter is the initial hash state (seed) and defaults to the standard FNV-1a 32-bit offset basis (fnv1a32val). Suitable for both compile-time and runtime hashing of ASCII/byte data stored in a C-string; hashing stops at the first null terminator.",
+      "requirements": [
+        "str must be a valid, non-null pointer to a null-terminated C-string.",
+        "The memory referenced by str must be readable up to and including the first null terminator.",
+        "If evaluated in a constant expression context, the arguments must be usable in constexpr evaluation (e.g., str should refer to storage with static storage duration such as a string literal, and value must be a constant expression).",
+        "If a custom initial value is supplied via 'value', it represents the starting hash state (seed); using fnv1a32val is the standard FNV-1a configuration.",
+        "The function is noexcept and will not throw exceptions."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "constexprHash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random C-string payload; FUZZ_PARAM_STR() returns a std::string\n// which provides a valid, non-null, null-terminated buffer via c_str().\nstd::string s = FUZZ_PARAM_STR();\nconst char *cstr = s.c_str();\n\n// Property: determinism with the same input and seed (default seed).\nunsigned int h1 = constexprHash(cstr);\nunsigned int h2 = constexprHash(cstr);\nFUZZ_ASSERT(h1 == h2, \"Hash must be deterministic for identical input with default seed\");\n\n// Property: explicit default seed equals implicit default seed.\nunsigned int h_default_explicit = constexprHash(cstr, fnv1a32val);\nFUZZ_ASSERT(h1 == h_default_explicit, \"Explicit default seed must match implicit default\");\n\n// Exercise custom seed path using a fuzzed seed.\nunsigned int custom_seed = *FUZZ_PARAM(unsigned int);\nunsigned int h_custom = constexprHash(cstr, custom_seed);\n(void)h_custom; // Value is not asserted (custom_seed may equal default or differ), but path is exercised.\n\n// Validation summary:\n// - Ensures non-null, null-terminated input via std::string::c_str().\n// - Asserts determinism and default-seed equivalence; exercises custom-seed code path."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "constexprHash",
+      "data_types": [
+        "C string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "C string",
+      "description": "A null-terminated byte string (char*) representing arbitrary byte/ASCII data ending with a '\\0'. The buffer must be readable up to and including the first null terminator. It may contain any bytes except the terminating zero, and is typically obtained from std::string::c_str() or similar sources."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "C string",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# This generator targets inputs consumed as C strings (null-terminated char*).\n# It returns a bytes object that will be used by FUZZ_PARAM_STR / FUZZ_PARAM_FILENAME.\n# The fuzzer stub hashes the full c-string up to the first null byte. We therefore\n# avoid embedding NULs in the payload (other than the implicit terminator that\n# infrastructure appends) so the whole buffer is exercised.\n# We craft diverse, valid strings to explore different code paths and hashing\n# behaviors, including varying lengths, character classes, and repetitions.\n\nASCII_PRINTABLE = [\n    *(ord(c) for c in \"abcdefghijklmnopqrstuvwxyz\"),\n    *(ord(c) for c in \"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"),\n    *(ord(c) for c in \"0123456789\"),\n    *(ord(c) for c in \" _-.:,;!@#$%^&*()[]{}<>?/|~`+=\"),\n]\n\nCOMMON_WORDS = [\n    \"hello\", \"world\", \"test\", \"fnv\", \"hash\", \"constexpr\", \"seed\",\n    \"deterministic\", \"default\", \"custom\", \"prime\", \"offset\", \"basis\",\n    \"alpha\", \"beta\", \"gamma\", \"delta\", \"epsilon\", \"unicode\", \"ascii\",\n]\n\n# Some crafted patterns known to exercise hashing differences\nPATTERNS = [\n    \"a\",  # single char\n    \"b\",\n    \"abc\",\n    \"abcd\",\n    \"Hello, World!\",\n    \"A\" * 7,\n    \"A\" * 8,\n    \"A\" * 16,\n    \"A\" * 31,\n    \"A\" * 32,\n    \"A\" * 33,\n    \"0\" * 64,\n    \"1\" * 65,\n    \"The quick brown fox jumps over the lazy dog\",\n    \"The quick brown fox jumps over the lazy dog.\",\n    \"Lorem ipsum dolor sit amet, consectetur adipiscing elit\",\n]\n\n# Some edge-like strings without NUL, valid for C string usage\nEDGE_STRINGS = [\n    \"\",  # empty string (still valid, c_str is \"\\0\")\n    \"\\n\",  # newline only\n    \"\\r\\n\",  # CRLF\n    \"\\t\\tTabbed\",\n    \"\\x7f\",  # DEL control char (non-NUL)\n    \"\\x01\\x02\\x03BinaryButNotNull\",\n]\n\ndef _rand_printable_bytes(rng: random.Random, length: int) -> bytes:\n    return bytes(rng.choice(ASCII_PRINTABLE) for _ in range(length))\n\ndef _mix_segments(rng: random.Random) -> str:\n    segs: List[str] = []\n    # Choose 3-8 segments mixed from words, patterns and random printable runs\n    for _ in range(rng.randint(3, 8)):\n        choice = rng.random()\n        if choice < 0.35:\n            segs.append(rng.choice(COMMON_WORDS))\n        elif choice < 0.7:\n            segs.append(rng.choice(PATTERNS))\n        else:\n            ln = rng.randint(1, 64)\n            segs.append(_rand_printable_bytes(rng, ln).decode('latin1'))\n        # Occasionally insert separators\n        if rng.random() < 0.6:\n            sep_len = rng.randint(1, 3)\n            sep_chars = ['/', '-', '_', '.', ':']\n            segs.append(''.join(rng.choice(sep_chars) for _ in range(sep_len)))\n    s = ''.join(segs)\n    # Trim to reasonable size to keep under 4096 including terminator\n    return s[:4000]\n\ndef _biased_lengths() -> List[int]:\n    # Include lengths that explore powers of two and boundary-ish sizes\n    return [0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 33, 63, 64, 65, 127, 128, 255, 256, 511, 512, 1023]\n\ndef _make_length_targeted(rng: random.Random) -> str:\n    target = rng.choice(_biased_lengths())\n    # Build a deterministic-looking prefix and random suffix to reach target\n    base_choices = [\n        \"A\", \"B\", \"0\", \"1\", \"x\", \"y\", \"z\", \"Q\", \"~\", \"*\",\n        \"TheQuickBrownFox\", \"ConstexprHash\", \"FNV1a\", \"Seed\",\n    ]\n    if target == 0:\n        return \"\"\n    s = []\n    while sum(len(part) for part in s) < target:\n        remaining = target - sum(len(part) for part in s)\n        token = rng.choice(base_choices)\n        if len(token) > remaining:\n            token = token[:remaining]\n        s.append(token)\n    return ''.join(s)\n\ndef _make_filename_like(rng: random.Random) -> str:\n    # Build a path-like string to also exercise FUZZ_PARAM_FILENAME if used elsewhere\n    roots = [\"/\", \"./\", \"../\", \"C:/\", \"D:/\", \"//server/share/\"]\n    exts = [\".txt\", \".bin\", \".dat\", \".cfg\", \".json\", \".xml\", \".log\"]\n    parts = []\n    parts.append(rng.choice(roots))\n    n = rng.randint(1, 5)\n    for _ in range(n):\n        name = _rand_printable_bytes(rng, rng.randint(1, 12)).decode('latin1')\n        # sanitize to avoid embedded NULs and path terminators beyond common ones\n        name = ''.join(ch if ch not in \"\\0\\n\\r\" else '_' for ch in name)\n        parts.append(name.strip())\n        if rng.random() < 0.7:\n            parts.append('/')\n    leaf = rng.choice(COMMON_WORDS) + rng.choice(exts)\n    parts.append(leaf)\n    s = ''.join(parts)\n    return s[:4000]\n\ndef _choose_strategy(rng: random.Random) -> str:\n    strategies = [\n        lambda: rng.choice(PATTERNS),\n        lambda: rng.choice(EDGE_STRINGS),\n        lambda: _mix_segments(rng),\n        lambda: _make_length_targeted(rng),\n        lambda: _make_filename_like(rng),\n        lambda: _rand_printable_bytes(rng, rng.randint(1, 1024)).decode('latin1'),\n    ]\n    s = rng.choice(strategies)()\n    # Ensure no embedded NULs; hashing stops at first NUL.\n    s = s.replace('\\x00', '')\n    # Bound size\n    return s[:4000]\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Sometimes choose multiple concatenated variants to broaden coverage\n    parts: List[str] = []\n    count = 1 if rng.random() < 0.6 else rng.randint(2, 4)\n    for _ in range(count):\n        parts.append(_choose_strategy(rng))\n        # Insert delimiters to vary byte patterns\n        if rng.random() < 0.7:\n            parts.append(rng.choice([\":\", \",\", \";\", \"|\", \"/\", \"-\", \"_\", \"+\"]))\n    s = ''.join(parts)\n    s = s[:4095]  # ensure under limit; infra adds NUL separately if needed\n    # Ensure it is valid bytes without NULs. Use latin1 to keep bytes 1:1.\n    data = s.encode('latin1', errors='ignore')\n    # Strip any accidental NUL (shouldn't occur with latin1 + no '\\x00')\n    data = data.replace(b\"\\x00\", b\"\")\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 812,
+            "output_tokens": 443,
+            "total_tokens": 1255
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 390,
+            "output_tokens": 18,
+            "total_tokens": 408
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 823,
+            "output_tokens": 744,
+            "total_tokens": 1567
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4119,
+            "output_tokens": 1608,
+            "total_tokens": 5727
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1785,
+            "output_tokens": 105,
+            "total_tokens": 1890
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 122.54470777511597,
+    "scan_objects": 9.107517957687378,
+    "validate_objects": 0.19247078895568848,
+    "scan_functions": 14.24022388458252,
+    "synthesis": 44.5604681968689,
+    "fill": 0,
+    "classify": 4.389280796051025,
+    "build_generators": 50.05422115325928
+  }
+}

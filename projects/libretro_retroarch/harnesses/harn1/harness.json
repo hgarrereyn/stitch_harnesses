@@ -1,0 +1,356 @@
+{
+  "objects": [
+    {
+      "ptr_type": "audio_chunk_t *",
+      "aliases": [],
+      "definition": "typedef struct\n{\n   double ratio;\n   void *buf;\n   int16_t *upsample_buf;\n   float *float_buf;\n   float *float_resample_buf;\n   int16_t *resample_buf;\n   const retro_resampler_t *resampler;\n   void *resampler_data;\n   rwav_t *rwav;\n   ssize_t len;\n   size_t resample_len;\n   int sample_rate;\n   bool resample;\n} audio_chunk_t;",
+      "description": "Opaque-ish audio buffer container used by the audio mixing utilities. Holds raw WAV data (rwav), resampling state (retro_resampler_t plus working buffers), and metadata such as length, sample rate, and resample flags. Used with audio_mix_* functions to load WAV files, resample, and access samples.",
+      "direct_api_constructors": [
+        "audio_mix_load_wav_file"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "audio_mix_volume",
+      "signature": "void audio_mix_volume(float *dst, const float *src, float vol, size_t samples);",
+      "description": "Scales an array of floating-point audio samples by a linear gain and writes the result to an output buffer. This is the generic API provided by the header via a macro alias: it maps to either audio_mix_volume_SSE2 or audio_mix_volume_C depending on build configuration. Use it to apply a per-buffer volume (gain) to src and write the scaled samples to dst for samples elements.",
+      "requirements": [
+        "dst must point to a writable buffer containing at least `samples` floats.",
+        "src must point to a readable buffer containing at least `samples` floats.",
+        "samples specifies the number of individual float samples to process (not frames).",
+        "The function performs a simple gain operation; no error reporting is provided (void return).",
+        "Behavior regarding in-place operation (dst == src) is not documented; prefer non-overlapping buffers unless verified safe.",
+        "The effective implementation is selected at compile time via a macro (#define audio_mix_volume ...)."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_volume_SSE2",
+      "signature": "void audio_mix_volume_SSE2(float *out, const float *in, float vol, size_t samples);",
+      "description": "Scales an array of floating-point audio samples by a volume factor using an SSE2-optimized implementation, writing results to the output buffer.",
+      "requirements": [
+        "Only available when compiled with SSE2 support (function is declared under #if defined(__SSE2__)).",
+        "out must point to a buffer capable of holding at least 'samples' float elements.",
+        "in must point to a buffer containing at least 'samples' float elements.",
+        "If out and in alias, behavior is unspecified by this header (overlap safety unknown).",
+        "samples is the number of samples to process; must be representable as size_t (non-negative)."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_volume_C",
+      "signature": "void audio_mix_volume_C(float *dst, const float *src, float vol, size_t samples);",
+      "description": "Scales an array of floating-point audio samples by a volume factor using a generic C implementation, writing results to the destination buffer.",
+      "requirements": [
+        "dst must point to a buffer capable of holding at least 'samples' float elements.",
+        "src must point to a buffer containing at least 'samples' float elements.",
+        "If dst and src alias, behavior is unspecified by this header (overlap safety unknown).",
+        "samples is the number of samples to process; must be representable as size_t (non-negative)."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_free_chunk",
+      "signature": "void audio_mix_free_chunk(audio_chunk_t *chunk);",
+      "description": "Releases resources associated with an audio_chunk_t previously obtained (e.g., via audio_mix_load_wav_file). After this call, the chunk and any internal buffers must not be used.",
+      "requirements": [
+        "chunk must be either NULL or a valid pointer to an audio_chunk_t allocated/initialized by this API.",
+        "Calling this function on the same chunk more than once results in undefined behavior (do not double free).",
+        "After freeing, the caller must not access the chunk or its internal buffers."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_load_wav_file",
+      "signature": "audio_chunk_t *audio_mix_load_wav_file(const char *path, int sample_rate, const char *resampler_ident, enum resampler_quality quality);",
+      "description": "Loads a WAV file into an audio_chunk_t, optionally preparing it for resampling to a desired output sample rate using the specified resampler and quality settings.",
+      "requirements": [
+        "path must point to a valid, readable WAV file path.",
+        "sample_rate is the desired output sample rate; must be a positive integer (inferred).",
+        "resampler_ident should be a valid identifier for an available resampler (as defined by the linked resampler implementation; inferred).",
+        "quality must be a valid enum resampler_quality value.",
+        "The caller should check the return value for NULL to detect load/resample failures (inferred).",
+        "The returned chunk must be freed with audio_mix_free_chunk when no longer needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_get_chunk_num_samples",
+      "signature": "size_t audio_mix_get_chunk_num_samples(audio_chunk_t *chunk);",
+      "description": "Returns the number of samples contained in the audio chunk. Exact interpretation (per-channel vs. total interleaved samples) is not specified in this header.",
+      "requirements": [
+        "chunk must be a valid, initialized audio_chunk_t pointer.",
+        "If the chunk was resampled, the count reflects the prepared output rate (inferred from surrounding API)."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_get_chunk_sample",
+      "signature": "int16_t audio_mix_get_chunk_sample(audio_chunk_t *chunk, unsigned channel, size_t sample);",
+      "description": "Gets a single signed 16-bit sample from the audio chunk at the given channel and sample index. If needed, the sample is resampled to the desired output rate.",
+      "requirements": [
+        "chunk must be a valid, initialized audio_chunk_t pointer.",
+        "channel selects the channel: 0 = left, 1 = right (as documented).",
+        "sample is the sample index and must be within the available range for the chunk.",
+        "Behavior for out-of-range indices is unspecified by this header; callers should clamp or validate indices."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_get_chunk_samples",
+      "signature": "int16_t *audio_mix_get_chunk_samples(audio_chunk_t *chunk);",
+      "description": "Returns a pointer to the chunk’s signed 16-bit sample buffer. The exact layout (e.g., interleaved channels) is not specified in this header.",
+      "requirements": [
+        "chunk must be a valid, initialized audio_chunk_t pointer.",
+        "The returned pointer becomes invalid after audio_mix_free_chunk is called.",
+        "Do not write through the returned pointer unless the implementation explicitly documents it as mutable (writability unspecified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "audio_mix_get_chunk_num_channels",
+      "signature": "int audio_mix_get_chunk_num_channels(audio_chunk_t *chunk);",
+      "description": "Returns the number of audio channels contained in the chunk (e.g., 1 for mono, 2 for stereo).",
+      "requirements": [
+        "chunk must be a valid, initialized audio_chunk_t pointer."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "audio_mix_free_chunk",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce: chunk must be a valid, live object created by this API and not yet freed\nint already_freed = FUZZ_GET_ATTR_INT(chunk, \"freed\");\nif (already_freed) { FUZZ_BAIL(); }\n// Mark as freed before calling to prevent double-free in case of re-entrancy\nFUZZ_SET_ATTR_INT(chunk, \"freed\", 1);\n// Free resources; after this call, the chunk is invalid and must not be returned to pool\naudio_mix_free_chunk(chunk);\n// Do not output chunk; ownership relinquished and object is dead"
+    },
+    {
+      "name": "audio_mix_load_wav_file",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "code": "// Prepare parameters\nconst char *path = FUZZ_PARAM_FILENAME();\nint sample_rate = (int)(*FUZZ_PARAM(unsigned int) % 192001u);\nif (sample_rate < 8000) sample_rate = 8000; // enforce positive, reasonable rate\n// resampler identifier: sometimes empty (let implementation choose default), sometimes fuzzed\nstd::string ident_str = FUZZ_PARAM_STR();\nconst char *resampler_ident = (ident_str.size() % 2 == 0) ? \"\" : ident_str.c_str();\n// Choose a fuzzed enum value; the implementation should validate it\nenum resampler_quality quality = (enum resampler_quality)(*FUZZ_PARAM(unsigned int) & 0x3);\n// Invoke loader\naudio_chunk_t *chunk = audio_mix_load_wav_file(path, sample_rate, resampler_ident, quality);\nif (!chunk) { FUZZ_BAIL(); }\n// Track lifetime and metadata for downstream stubs\nFUZZ_SET_ATTR_INT(chunk, \"freed\", 0);\nFUZZ_SET_ATTR_STR(chunk, \"path\", path);\nFUZZ_SET_ATTR_INT(chunk, \"sr\", sample_rate);\n// Provide chunk as an output for reuse"
+    },
+    {
+      "name": "audio_mix_get_chunk_num_samples",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "code": "// Validate chunk is live\nif (FUZZ_GET_ATTR_INT(chunk, \"freed\")) { FUZZ_BAIL(); }\n// Call target; result used for validation paths elsewhere\nsize_t n = audio_mix_get_chunk_num_samples(chunk);\n// Property: if the implementation provides a chunk, sample count should be non-negative by type; accept zero as valid\n(void)n;\n// Return chunk to pool for continued use"
+    },
+    {
+      "name": "audio_mix_get_chunk_sample",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "code": "// Validate chunk is live\nif (FUZZ_GET_ATTR_INT(chunk, \"freed\")) { FUZZ_BAIL(); }\n// Determine valid bounds via API helpers to avoid out-of-range access\nsize_t total = audio_mix_get_chunk_num_samples(chunk);\nif (total == 0) { FUZZ_BAIL(); }\nint chans = audio_mix_get_chunk_num_channels(chunk);\nunsigned channel = (chans > 1) ? ((unsigned)(*FUZZ_PARAM(unsigned int) & 1u)) : 0u;\nsize_t index = (size_t)(*FUZZ_PARAM(unsigned int) % total);\n// Call target with validated indices\nint16_t s = audio_mix_get_chunk_sample(chunk, channel, index);\n(void)s;\n// Return chunk for continued use"
+    },
+    {
+      "name": "audio_mix_get_chunk_samples",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "code": "// Validate chunk is live\nif (FUZZ_GET_ATTR_INT(chunk, \"freed\")) { FUZZ_BAIL(); }\n// Get pointer; do not write through it\nint16_t *ptr = audio_mix_get_chunk_samples(chunk);\n// Optionally touch a bounded number of elements to exercise read paths without assumptions\nsize_t n = audio_mix_get_chunk_num_samples(chunk);\nsize_t to_read = n < 8 ? n : 8;\nfor (size_t i = 0; i < to_read && ptr; ++i) { volatile int16_t v = ptr[i]; (void)v; }\n// Return chunk to pool"
+    },
+    {
+      "name": "audio_mix_get_chunk_num_channels",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "audio_chunk_t *"
+        }
+      ],
+      "code": "// Validate chunk is live\nif (FUZZ_GET_ATTR_INT(chunk, \"freed\")) { FUZZ_BAIL(); }\nint chans = audio_mix_get_chunk_num_channels(chunk);\n// Property: channel count should be positive\nFUZZ_ASSERT(chans >= 1, \"audio chunk has invalid channel count\");\n(void)chans;\n// Return chunk to pool"
+    },
+    {
+      "name": "audio_mix_volume",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a bounded number of samples using byte data expanded to floats\nconst size_t kMax = 512;\nstd::string bytes = FUZZ_PARAM_STR();\nsize_t max_by_data = bytes.size() / sizeof(float);\nif (max_by_data == 0) { FUZZ_BAIL(); }\n// Choose a positive sample count within both the data-derived cap and kMax\nsize_t want = ((size_t)*FUZZ_PARAM(unsigned int) % kMax) + 1;\nsize_t samples = want <= max_by_data ? want : max_by_data;\n// Ensure non-overlapping readable src and writable dst buffers\nstd::vector<float> src(samples);\nstd::vector<float> dst(samples);\n// Populate src from fuzzed bytes to avoid FUZZ_PARAM-in-loop limitations\nmemcpy(src.data(), bytes.data(), samples * sizeof(float));\n// Fuzz a volume factor; allow any float (including subnormal/NaN/Inf) to exercise edge cases\nfloat vol = *FUZZ_PARAM(float);\n// Call target with valid buffers and element count\naudio_mix_volume(dst.data(), src.data(), vol, samples);\n// Optional light sanity touches: read a couple of outputs to ensure they are written\nvolatile float touch = 0.0f;\nif (samples > 0) { touch += dst[0]; if (samples > 1) touch += dst[samples - 1]; }\n(void)touch;\n// Validation: dst/src are sized for `samples`, non-overlapping, and samples > 0; no persistent outputs"
+    },
+    {
+      "name": "audio_mix_volume_C",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a bounded number of samples using byte data expanded to floats\nconst size_t kMax = 512;\nstd::string bytes = FUZZ_PARAM_STR();\nsize_t max_by_data = bytes.size() / sizeof(float);\nif (max_by_data == 0) { FUZZ_BAIL(); }\n// Choose a positive sample count within both the data-derived cap and kMax\nsize_t want = ((size_t)*FUZZ_PARAM(unsigned int) % kMax) + 1;\nsize_t samples = want <= max_by_data ? want : max_by_data;\n// Ensure non-overlapping readable src and writable dst buffers\nstd::vector<float> src(samples);\nstd::vector<float> dst(samples);\n// Populate src from fuzzed bytes to avoid FUZZ_PARAM-in-loop limitations\nmemcpy(src.data(), bytes.data(), samples * sizeof(float));\n// Fuzz a volume factor\nfloat vol = *FUZZ_PARAM(float);\n// Call target with valid buffers and element count\naudio_mix_volume_C(dst.data(), src.data(), vol, samples);\n// Optional light sanity touches: read a couple of outputs to ensure they are written\nvolatile float touch = 0.0f;\nif (samples > 0) { touch += dst[0]; if (samples > 1) touch += dst[samples - 1]; }\n(void)touch;\n// Validation: dst/src are sized for `samples`, non-overlapping, and samples > 0; no persistent outputs"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "audio_mix_volume_SSE2",
+      "reason": "This symbol is conditionally available only when compiled with SSE2 support, which cannot be guaranteed in the generic fuzzer build without preprocessor conditioning."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "audio_mix_free_chunk",
+      "data_types": []
+    },
+    {
+      "name": "audio_mix_get_chunk_num_samples",
+      "data_types": []
+    },
+    {
+      "name": "audio_mix_get_chunk_sample",
+      "data_types": []
+    },
+    {
+      "name": "audio_mix_get_chunk_samples",
+      "data_types": []
+    },
+    {
+      "name": "audio_mix_get_chunk_num_channels",
+      "data_types": []
+    },
+    {
+      "name": "audio_mix_load_wav_file",
+      "data_types": [
+        "WAV file path",
+        "identifier string"
+      ]
+    },
+    {
+      "name": "audio_mix_volume",
+      "data_types": [
+        "raw float bytes"
+      ]
+    },
+    {
+      "name": "audio_mix_volume_C",
+      "data_types": [
+        "raw float bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "WAV file path",
+      "description": "A filename pointing to a file containing WAV-encoded audio data. The file should contain valid RIFF/WAVE format bytes so that a WAV loader can parse headers and PCM (or other supported) chunks."
+    },
+    {
+      "data_type": "identifier string",
+      "description": "A general ASCII/UTF-8 string used as an identifier or key to select an implementation (e.g., a resampler name). May be empty, short, or arbitrary content."
+    },
+    {
+      "data_type": "raw float bytes",
+      "description": "Arbitrary byte sequence interpreted directly as a sequence of 32-bit IEEE-754 floats when copied into a float buffer. No encoding or structure is required; length should be a multiple of 4 bytes to yield whole float samples, but trailing bytes are ignored by sizing logic."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "WAV file path",
+      "generator": "import io\nimport random\nimport struct\nfrom typing import List, Tuple\n\n# This generator produces a valid RIFF/WAVE file as bytes.\n# Goals:\n# - Always syntactically valid WAV container (RIFF/WAVE)\n# - Vary PCM format: PCM (format=1) or IEEE float (format=3)\n# - Vary channels: 1 or 2 (occasionally 3/4)\n# - Vary sample rates: 8000..192000 (aligned with fuzzer stub clamping)\n# - Vary bits per sample: 8/16/24/32 for PCM, 32/64 for IEEE float\n# - Include optional fmt extension for non-PCM or for extensible\n# - Include optional data-aligned padding and extra chunks (JUNK, LIST)\n# - Keep under 4096 bytes total\n\n# Helper functions\n\ndef _rand_bool(r: random.Random, p: float = 0.5) -> bool:\n    return r.random() < p\n\n\ndef _choose(r: random.Random, seq):\n    return seq[r.randrange(len(seq))]\n\n\ndef _pack(fmt: str, *vals) -> bytes:\n    return struct.pack('<' + fmt, *vals)\n\n\ndef _make_chunks(r: random.Random, fmt_chunk: bytes, data_chunk: bytes, extra_chunks: List[Tuple[str, bytes]]) -> bytes:\n    # Assemble RIFF with optional extra chunks before/after data\n    body = bytearray()\n\n    # Optionally insert a JUNK chunk at start\n    if _rand_bool(r, 0.3):\n        junk_len = r.randrange(0, 32)\n        junk_payload = bytes(r.getrandbits(8) for _ in range(junk_len))\n        # Chunks are padded to even size\n        if junk_len % 2:\n            junk_payload += b'\\x00'\n        body += b'JUNK' + _pack('I', len(junk_payload)) + junk_payload\n\n    # Add fmt chunk\n    body += b'fmt ' + _pack('I', len(fmt_chunk)) + fmt_chunk\n    if len(fmt_chunk) % 2:\n        body += b'\\x00'\n\n    # Optionally an INFO/LIST chunk\n    if _rand_bool(r, 0.25):\n        info_txt = _choose(r, [b'Title', b'Artist', b'Album', b'Comment']) + b'\\x00'\n        # Minimal LIST/INFO with an INAM or IART subchunk\n        fourcc = _choose(r, [b'INAM', b'IART', b'ICMT'])\n        sub = fourcc + _pack('I', len(info_txt)) + info_txt\n        if len(sub) % 2:\n            sub += b'\\x00'\n        list_payload = b'INFO' + sub\n        body += b'LIST' + _pack('I', len(list_payload)) + list_payload\n        if len(list_payload) % 2:\n            body += b'\\x00'\n\n    # Optional extra chunks provided by caller\n    for cc, payload in extra_chunks:\n        cc_bytes = cc.encode('ascii')[:4].ljust(4, b' ')\n        pl = payload\n        body += cc_bytes + _pack('I', len(pl)) + pl\n        if len(pl) % 2:\n            body += b'\\x00'\n\n    # Add data chunk\n    body += b'data' + _pack('I', len(data_chunk)) + data_chunk\n    if len(data_chunk) % 2:\n        body += b'\\x00'\n\n    # Build RIFF header\n    riff_size = 4 + len(body)  # includes 'WAVE' + chunks\n    header = b'RIFF' + _pack('I', riff_size) + b'WAVE'\n    return header + body\n\n\ndef _pcm_sample_bytes(bits_per_sample: int) -> int:\n    return (bits_per_sample + 7) // 8\n\n\ndef _gen_pcm_samples(r: random.Random, channels: int, frames: int, bits_per_sample: int) -> bytes:\n    bps = _pcm_sample_bytes(bits_per_sample)\n    out = bytearray()\n    # Generate interleaved samples L,R,L,R...\n    for _ in range(frames):\n        for _ch in range(channels):\n            if bits_per_sample == 8:\n                # Unsigned 8-bit PCM per WAV spec\n                val = r.randrange(0, 256)\n                out.append(val)\n            elif bits_per_sample == 16:\n                val = r.randint(-32768, 32767)\n                out += _pack('h', val)\n            elif bits_per_sample == 24:\n                # 24-bit signed little-endian\n                val = r.randint(-8388608, 8388607)\n                # pack manually\n                if val < 0:\n                    val += 1 << 24\n                out += bytes((val & 0xFF, (val >> 8) & 0xFF, (val >> 16) & 0xFF))\n            elif bits_per_sample == 32:\n                val = r.randint(-2147483648, 2147483647)\n                out += _pack('i', val)\n            else:\n                # Fallback: zeroes\n                out += b'\\x00' * bps\n    return bytes(out)\n\n\ndef _gen_ieee_float_samples(r: random.Random, channels: int, frames: int, bits_per_sample: int) -> bytes:\n    out = bytearray()\n    for _ in range(frames):\n        for _ch in range(channels):\n            if bits_per_sample == 32:\n                # typical audio range -1..1 with some extremes\n                f = _choose(r, [r.uniform(-1.0, 1.0), r.uniform(-8.0, 8.0), 0.0, 1.0, -1.0])\n                out += _pack('f', f)\n            elif bits_per_sample == 64:\n                f = _choose(r, [r.uniform(-1.0, 1.0), r.uniform(-16.0, 16.0), 0.0])\n                out += _pack('d', f)\n            else:\n                out += b'\\x00' * (bits_per_sample // 8)\n    return bytes(out)\n\n\ndef _build_fmt_chunk_pcm(sample_rate: int, channels: int, bits_per_sample: int) -> Tuple[bytes, int]:\n    # WAVEFORMATPCMEX not required for basic PCM. Use fmt chunk size 16.\n    block_align = channels * _pcm_sample_bytes(bits_per_sample)\n    byte_rate = sample_rate * block_align\n    fmt = _pack('HHIIHH', 1, channels, sample_rate, byte_rate, block_align, bits_per_sample)\n    return fmt, 1  # format tag 1\n\n\ndef _build_fmt_chunk_ieee(sample_rate: int, channels: int, bits_per_sample: int) -> Tuple[bytes, int]:\n    # IEEE float (format tag 3) uses PCM-like base fmt size 16 as well\n    block_align = channels * (bits_per_sample // 8)\n    byte_rate = sample_rate * block_align\n    fmt = _pack('HHIIHH', 3, channels, sample_rate, byte_rate, block_align, bits_per_sample)\n    return fmt, 3\n\n\ndef _maybe_fact_chunk(r: random.Random, num_samples_per_ch: int) -> Tuple[str, bytes]:\n    # fact chunk is recommended for non-PCM formats; harmless otherwise\n    # dwSampleLength = number of samples per channel\n    return 'fact', _pack('I', num_samples_per_ch)\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Choose encoding family\n    is_float = _rand_bool(r, 0.35)\n\n    # Channels: prioritize mono/stereo; sometimes 3/4\n    channels = _choose(r, [1, 2] + ([3, 4] if _rand_bool(r, 0.2) else []))\n\n    # Sample rate aligned with stub constraints 8000..192000\n    sample_rate = r.randrange(8000, 192001)\n\n    # Bits per sample\n    if is_float:\n        bits = _choose(r, [32, 64])\n    else:\n        bits = _choose(r, [8, 16, 24, 32])\n\n    # Frame count: keep file small yet meaningful; vary by rate/channel\n    # Target < 4096 bytes total. Compute a rough upper bound for frames.\n    bytes_per_frame = channels * (bits // 8 if not (not is_float and bits == 24) else 3)\n    max_data_bytes = 3000  # leave room for headers/chunks\n    max_frames = max(1, max_data_bytes // max(1, bytes_per_frame))\n    frames = r.randint(16, max(16, min(8192, max_frames)))\n\n    # Build fmt chunk\n    if is_float:\n        fmt_chunk, w_format = _build_fmt_chunk_ieee(sample_rate, channels, bits)\n    else:\n        fmt_chunk, w_format = _build_fmt_chunk_pcm(sample_rate, channels, bits)\n\n    # Build data chunk\n    if is_float:\n        data = _gen_ieee_float_samples(r, channels, frames, bits)\n    else:\n        data = _gen_pcm_samples(r, channels, frames, bits)\n\n    # Optional extra chunks\n    extras: List[Tuple[str, bytes]] = []\n\n    # Add a fact chunk for float or occasionally for PCM as well\n    if is_float or _rand_bool(r, 0.15):\n        extras.append(_maybe_fact_chunk(r, frames))\n\n    # Occasionally add a cue point chunk (minimal, valid but simple)\n    if _rand_bool(r, 0.15):\n        num_cue = r.randint(1, 3)\n        payload = bytearray()\n        payload += _pack('I', num_cue)\n        for i in range(num_cue):\n            cue_id = i + 1\n            position = r.randrange(frames)\n            payload += _pack('I', cue_id)        # cue point ID\n            payload += _pack('I', position)      # position\n            payload += b'data'                    # data chunk ID\n            payload += _pack('I', 0)             # chunk start\n            payload += _pack('I', 0)             # block start\n            payload += _pack('I', position * (channels * (bits // 8 if bits != 24 else 3)))  # sample offset\n        extras.append(('cue ', bytes(payload)))\n\n    wav_bytes = _make_chunks(r, fmt_chunk, data, extras)\n\n    # Safety: ensure size <= 4096\n    return wav_bytes[:4096]\n"
+    },
+    {
+      "data_type": "identifier string",
+      "generator": "import random\nimport struct\nimport math\nfrom typing import List\n\n# This generator focuses on producing valid WAV files, since the fuzzer stub\n# passes FUZZ_PARAM_FILENAME to audio_mix_load_wav_file, which expects a path\n# to a readable WAV file containing PCM16 or float data. Most loaders accept\n# standard RIFF/WAVE with fmt/data chunks; many also accept additional chunks.\n# We synthesize self-contained WAV bytes that a harness can map to a file.\n#\n# Goals:\n# - Produce valid RIFF/WAVE with little-endian fields.\n# - Vary format: PCM (16-bit), PCM (8-bit), PCM (24-bit), PCM (32-bit), IEEE float (32-bit),\n#   mono/stereo, small/large sample counts, various sample rates.\n# - Include optional chunks (LIST/INFO, JUNK, fact for non-PCM) to exercise parser.\n# - Keep under 4096 bytes.\n# - Deterministic variability with seed.\n#\n# The returned bytes are intended to be used by the fuzz harness as the file\n# content behind FUZZ_PARAM_FILENAME.\n\n\ndef _le32(x: int) -> bytes:\n    return struct.pack('<I', x & 0xFFFFFFFF)\n\n\ndef _le16(x: int) -> bytes:\n    return struct.pack('<H', x & 0xFFFF)\n\n\ndef _pcm_sine(num_samples: int, channels: int, bits_per_sample: int, amplitude: float, freq: float, sr: int) -> bytes:\n    # Generate interleaved PCM samples\n    data = bytearray()\n    two_pi = 2.0 * math.pi\n    for n in range(num_samples):\n        t = n / max(1, sr)\n        sample = math.sin(two_pi * freq * t) * amplitude\n        for ch in range(channels):\n            if bits_per_sample == 8:\n                # Unsigned 8-bit PCM: 0..255, 128 is silence\n                v = int(round((sample * 0.5 + 0.5) * 255.0))\n                v = max(0, min(255, v))\n                data.append(v)\n            elif bits_per_sample == 16:\n                v = int(round(sample * 32767.0))\n                v = max(-32768, min(32767, v))\n                data += struct.pack('<h', v)\n            elif bits_per_sample == 24:\n                v = int(round(sample * 8388607.0))\n                v = max(-8388608, min(8388607, v))\n                # little-endian 24-bit\n                v &= 0xFFFFFF if v >= 0 else (1 << 24) + v\n                data += bytes((v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF))\n            elif bits_per_sample == 32:\n                v = int(round(sample * 2147483647.0))\n                v = max(-2147483648, min(2147483647, v))\n                data += struct.pack('<i', v)\n            else:\n                # Fallback to 16-bit\n                v = int(round(sample * 32767.0))\n                v = max(-32768, min(32767, v))\n                data += struct.pack('<h', v)\n    return bytes(data)\n\n\ndef _float_sine(num_samples: int, channels: int, amplitude: float, freq: float, sr: int) -> bytes:\n    data = bytearray()\n    two_pi = 2.0 * math.pi\n    for n in range(num_samples):\n        t = n / max(1, sr)\n        sample = math.sin(two_pi * freq * t) * amplitude\n        for ch in range(channels):\n            data += struct.pack('<f', float(sample))\n    return bytes(data)\n\n\ndef _make_fact_chunk(num_samples: int, channels: int) -> bytes:\n    # For non-PCM, fact chunk holds sample length (per channel total samples for some tools; we'll use total frames)\n    # We'll store total decoded sample frames\n    fact_data = _le32(num_samples)\n    return b'fact' + _le32(len(fact_data)) + fact_data\n\n\ndef _pad_even(b: bytes) -> bytes:\n    return b if (len(b) % 2 == 0) else b + b'\\x00'\n\n\ndef _make_info_list(rng: random.Random) -> bytes:\n    # Create a minimal LIST/INFO with one or two tags to exercise parser\n    tags = []\n    if rng.random() < 0.7:\n        icmt = b'ICMT' + _le32(8) + _pad_even(b'gen by fz')\n        tags.append(icmt)\n    if rng.random() < 0.5:\n        inam_txt = rng.choice([b'test', b'sine', b'tone', b'audiomix', b'stereo'])\n        inam = b'INAM' + _le32(len(inam_txt)) + _pad_even(inam_txt)\n        tags.append(inam)\n    payload = b''.join(tags)\n    if not payload:\n        return b''\n    return b'LIST' + _le32(len(b'INFO') + len(payload)) + b'INFO' + payload\n\n\ndef _make_junk(rng: random.Random) -> bytes:\n    if rng.random() < 0.6:\n        n = rng.randint(2, 24)\n        return b'JUNK' + _le32(n) + _pad_even(rng.randbytes(n))\n    return b''\n\n\ndef _build_wav(rng: random.Random) -> bytes:\n    # Choose format\n    fmt_choice = rng.choice([\n        ('PCM', 8, False),\n        ('PCM', 16, False),\n        ('PCM', 24, False),\n        ('PCM', 32, False),\n        ('FLOAT', 32, True),\n    ])\n    is_float = fmt_choice[2]\n    bits = fmt_choice[1]\n    audio_format = 3 if is_float else 1  # 3 = IEEE float, 1 = PCM\n\n    channels = rng.choice([1, 2])\n    # Choose sample rate within typical range 8k..192k\n    sr = rng.choice([8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000])\n    # Keep data small; target up to ~0.2s but bounded by 4096 bytes total\n    bytes_per_sample = bits // 8\n    frame_size = channels * bytes_per_sample\n    max_frames_by_size = max(1, (3600 // max(1, frame_size)))  # keep tiny for safety; we will recalc below\n    # Choose a small frame count to stay under 4k after headers\n    frames = rng.randint(16, min(2048, max_frames_by_size))\n\n    # Tone parameters\n    base_freqs = [220.0, 440.0, 880.0, 1760.0, 123.47, 261.63]\n    freq = rng.choice(base_freqs)\n    amp = rng.uniform(0.2, 0.95)\n\n    if is_float:\n        data = _float_sine(frames, channels, amp, freq, sr)\n    else:\n        data = _pcm_sine(frames, channels, bits, amp, freq, sr)\n\n    # fmt chunk\n    block_align = channels * bytes_per_sample\n    byte_rate = sr * block_align\n\n    fmt_extra = b''\n    # For extensible or extra params we skip; keep canonical minimal PCM/float\n\n    fmt_chunk = b'fmt ' + _le32(16) + _le16(audio_format) + _le16(channels) + _le32(sr) + _le32(byte_rate) + _le16(block_align) + _le16(bits)\n\n    # Optional chunks\n    pre_junk = _make_junk(rng)\n    info_list = _make_info_list(rng)\n    post_junk = _make_junk(rng)\n\n    # fact chunk only for non-PCM (float)\n    fact_chunk = _make_fact_chunk(frames, channels) if is_float else b''\n\n    data_chunk = b'data' + _le32(len(data)) + _pad_even(data)\n\n    # Assemble RIFF\n    riff_payload = b'WAVE' + fmt_chunk + pre_junk + fact_chunk + info_list + post_junk + data_chunk\n    riff_size = len(riff_payload)\n    header = b'RIFF' + _le32(riff_size) + riff_payload\n\n    # Ensure size <= 4096; if too big, trim frames and rebuild data chunk\n    if len(header) > 4096:\n        # Recompute frames to fit within budget\n        budget = 4096 - (len(header) - len(data)) - (8 + (len(data) % 2))\n        max_frames = max(1, budget // frame_size)\n        frames = min(frames, max_frames)\n        if is_float:\n            data = _float_sine(frames, channels, amp, freq, sr)\n        else:\n            data = _pcm_sine(frames, channels, bits, amp, freq, sr)\n        data_chunk = b'data' + _le32(len(data)) + _pad_even(data)\n        riff_payload = b'WAVE' + fmt_chunk + pre_junk + fact_chunk + info_list + post_junk + data_chunk\n        header = b'RIFF' + _le32(len(riff_payload)) + riff_payload\n\n    return header\n\n\ndef _maybe_cue_chunks(rng: random.Random, wav_bytes: bytes) -> bytes:\n    # Optionally inject a CUE chunk and associated LIST/adtl labels to exercise parsers\n    if rng.random() < 0.3:\n        num_cues = rng.randint(1, 3)\n        entries = bytearray()\n        for i in range(num_cues):\n            cue_id = i + 1\n            position = rng.randint(0, 100)\n            # RIFF cue structure: ID, position, data chunk ID, chunk start, block start, sample offset\n            entries += _le32(cue_id)\n            entries += _le32(position)\n            entries += b'data'  # chunk ID\n            entries += _le32(0)  # chunk start\n            entries += _le32(0)  # block start\n            entries += _le32(position)\n        cue_chunk = b'cue ' + _le32(4 + len(entries)) + _le32(num_cues) + entries\n        # Rewrap as RIFF with appended chunk if it fits\n        if len(wav_bytes) + len(cue_chunk) + 2 < 4096:\n            # Insert before data chunk if possible; simplest is append\n            # Update RIFF size\n            if wav_bytes[0:4] == b'RIFF':\n                riff_size = struct.unpack('<I', wav_bytes[4:8])[0]\n                new_riff_size = riff_size + len(cue_chunk)\n                wav_bytes = wav_bytes[:4] + _le32(new_riff_size) + wav_bytes[8:] + cue_chunk\n    return wav_bytes\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    wav = _build_wav(rng)\n    wav = _maybe_cue_chunks(rng, wav)\n    # As an additional small variation, sometimes prepend a small RF64 JUNK to still be valid RIFF\n    # but many loaders ignore unknown chunks; we keep standard RIFF/WAVE magic at start.\n    return wav\n"
+    },
+    {
+      "data_type": "raw float bytes",
+      "generator": "import os\nimport struct\nimport random\nfrom typing import List\n\n# Generator for raw float bytes interpreted by the target as 32-bit IEEE-754 floats.\n# The fuzz stubs read FUZZ_PARAM_STR() and treat it as a byte blob, then memcpy into\n# a float buffer. They also compute max_by_data = len(bytes) / sizeof(float) and bail if 0.\n# Therefore, we must return at least 4 bytes. Providing multiples of 4 increases the\n# number of samples that can be processed (up to 512 by the stub).\n#\n# Strategy:\n# - Produce between 4 and 2048 bytes, rounded to a multiple of 4.\n# - Compose bytes from a mix of interesting float patterns to exercise gain scaling:\n#   * 0.0, -0.0, 1.0, -1.0\n#   * Small/subnormal-ish values\n#   * Large magnitudes, infinities, NaNs (quiet/signaling bit patterns)\n#   * Denorm boundary values, epsilon, alternating signs\n#   * Random normal floats within [-2.0, 2.0] and wider ranges\n# - Randomize order and proportions to keep variability while remaining valid.\n# - Ensure resulting size <= 4096 bytes.\n\n_INTERESTING_FLOATS = [\n    0.0,\n    -0.0,\n    1.0,\n    -1.0,\n    0.5,\n    -0.5,\n    2.0,\n    -2.0,\n    1.0e-8,\n    -1.0e-8,\n    1.17549435e-38,  # ~min positive normal float32\n    -1.17549435e-38,\n    1.40129846e-45,  # ~min positive subnormal float32\n    -1.40129846e-45,\n    3.4028235e+38,   # ~max float32\n    -3.4028235e+38,\n]\n\n# Raw bit patterns for special values (float32)\n_SPECIAL_BITS = [\n    0x7f800000,  # +inf\n    0xff800000,  # -inf\n    0x7fc00000,  # quiet NaN\n    0x7fa00001,  # signaling-ish NaN pattern\n    0xffc00000,  # negative quiet NaN\n    0x00000001,  # smallest subnormal\n    0x80000001,  # negative smallest subnormal\n    0x007fffff,  # largest subnormal\n    0x807fffff,  # negative largest subnormal\n]\n\ndef _f32_to_bytes(v: float) -> bytes:\n    return struct.pack('<f', float(v))\n\ndef _u32_to_bytes(u: int) -> bytes:\n    return struct.pack('<I', u & 0xffffffff)\n\ndef _rand_float32(rng: random.Random, wide: bool) -> float:\n    if wide:\n        # Wider dynamic range including potential extremes, but avoid overflow in Python float conversion\n        # Generate via random bits to guarantee representable float32, then unpack\n        bits = rng.getrandbits(32)\n        return struct.unpack('<f', struct.pack('<I', bits))[0]\n    else:\n        # Target common audio ranges\n        return rng.uniform(-2.5, 2.5)\n\ndef _build_sequence(rng: random.Random, count: int) -> List[bytes]:\n    out: List[bytes] = []\n    # Ensure coverage of some anchors first\n    anchors = list(_INTERESTING_FLOATS)\n    rng.shuffle(anchors)\n    for v in anchors[: min(len(anchors), max(1, count // 16))]:\n        out.append(_f32_to_bytes(v))\n    # Add some special bit patterns\n    specials = list(_SPECIAL_BITS)\n    rng.shuffle(specials)\n    for u in specials[: min(len(specials), max(1, count // 20))]:\n        out.append(_u32_to_bytes(u))\n    # Fill the rest with randoms mixing wide and narrow\n    while len(out) < count:\n        mode = rng.random()\n        if mode < 0.1:\n            # exact integers and small rationals\n            choices = [0.0, -0.0, 0.25, -0.25, 0.75, -0.75, 1.0, -1.0, 3.0, -3.0]\n            out.append(_f32_to_bytes(rng.choice(choices)))\n        elif mode < 0.4:\n            out.append(_f32_to_bytes(_rand_float32(rng, wide=False)))\n        elif mode < 0.85:\n            # Random float32 via random bits (wide coverage)\n            bits = rng.getrandbits(32)\n            out.append(_u32_to_bytes(bits))\n        else:\n            # Repeat previous value or add tiny deltas to create gradients\n            if out:\n                if rng.random() < 0.5:\n                    out.append(out[-1])\n                else:\n                    # Small delta around the last numeric value if it's a float pack\n                    last = struct.unpack('<I', out[-1])[0]\n                    delta = rng.randint(-5, 5)\n                    out.append(_u32_to_bytes((last + delta) & 0xffffffff))\n            else:\n                out.append(_f32_to_bytes(0.0))\n    rng.shuffle(out)\n    return out\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Decide number of float samples: at least 1 (4 bytes), up to 1024 to stay <=4096 bytes\n    # Bias toward a variety but keep sometimes small sizes\n    if rng.random() < 0.2:\n        n_samples = rng.randint(1, 8)\n    elif rng.random() < 0.7:\n        n_samples = rng.randint(16, 256)\n    else:\n        n_samples = rng.randint(257, 1024)\n    seq = _build_sequence(rng, n_samples)\n    data = b''.join(seq)\n    # Ensure size bound (should naturally be n_samples*4)\n    if len(data) > 4096:\n        data = data[:4096 - (4096 % 4)]  # keep multiple of 4\n        if len(data) == 0:\n            data = _f32_to_bytes(0.0)\n    # Guarantee at least one sample (stub bails if size/4 == 0)\n    if len(data) < 4:\n        data = _f32_to_bytes(0.0)\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2485,
+            "output_tokens": 223,
+            "total_tokens": 2708
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2063,
+            "output_tokens": 69,
+            "total_tokens": 2132
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5052,
+            "output_tokens": 4045,
+            "total_tokens": 9097
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12520,
+            "output_tokens": 5023,
+            "total_tokens": 17543
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3589,
+            "output_tokens": 235,
+            "total_tokens": 3824
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 245.3610634803772,
+    "scan_objects": 4.952778577804565,
+    "validate_objects": 0.2053236961364746,
+    "scan_functions": 70.7004930973053,
+    "synthesis": 107.85714936256409,
+    "fill": 0,
+    "classify": 8.152754545211792,
+    "build_generators": 53.49194693565369
+  }
+}

@@ -1,0 +1,1691 @@
+{
+  "objects": [
+    {
+      "ptr_type": "guessword *",
+      "aliases": [],
+      "definition": "struct guessword {\n  char* word;\n  bool allow;\n  char* orig;\n  guessword()\n    : word(nullptr)\n    , allow(false)\n    , orig(nullptr)\n  {\n  }\n};",
+      "description": "Small POD-like struct used to hold a candidate guessed word during suggestions: the guessed word text (word), whether it is allowed/valid (allow), and an optional pointer to the original text (orig). Default constructor initializes pointers to nullptr and allow to false. Memory ownership/lifetime of the char* fields is not defined here and should be managed by the caller.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "mapentry *",
+      "aliases": [],
+      "definition": "typedef std::vector<std::string> mapentry;",
+      "description": "Type alias for a vector of std::string entries, likely representing a mapping entry list. Behaves exactly like std::vector<std::string>.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "flagentry *",
+      "aliases": [],
+      "definition": "typedef std::vector<FLAG> flagentry;",
+      "description": "Type alias for a vector of FLAG values (FLAG is an unsigned short defined by a macro in this header). Behaves like std::vector<unsigned short>.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "patentry *",
+      "aliases": [],
+      "definition": "struct patentry {\n  std::string pattern;\n  std::string pattern2;\n  std::string pattern3;\n  FLAG cond;\n  FLAG cond2;\n  patentry()\n    : cond(FLAG_NULL)\n    , cond2(FLAG_NULL) {\n  }\n};",
+      "description": "Container for up to three pattern strings with two associated FLAG condition values (cond and cond2). Default initializes condition flags to FLAG_NULL. String fields default-construct to empty. Ownership of strings is internal; FLAG is an unsigned short via macro.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "w_char *",
+      "aliases": [],
+      "definition": "#ifndef GCC\nstruct w_char {\n#else\nstruct __attribute__((packed)) w_char {\n#endif\n  unsigned char l;\n  unsigned char h;\n\n  operator unsigned short() const\n  {\n#if defined(__i386__) || defined(_M_IX86) || defined(_M_X64)\n    //use little-endian optimized version\n#if __cplusplus >= 202002L\n    return std::bit_cast<unsigned short>(*this);\n#else\n    unsigned short u;\n    memcpy(&u, this, sizeof(unsigned short));\n    return u;\n#endif\n\n#else\n    return ((unsigned short)h << 8) | (unsigned short)l;\n#endif\n  }\n\n  friend bool operator<(const w_char a, const w_char b) {\n    return (unsigned short)a < (unsigned short)b;\n  }\n\n  friend bool operator==(const w_char a, const w_char b) {\n    return (unsigned short)a == (unsigned short)b;\n  }\n\n  friend bool operator!=(const w_char a, const w_char b) {\n    return !(a == b);\n  }\n};",
+      "description": "Packed two-byte character value used by Hunspell to store a 16-bit code unit. Fields l and h hold low and high bytes. Provides implicit conversion to unsigned short and comparison operators. On x86/x64 little-endian, conversion may use std::bit_cast or memcpy; otherwise constructs the value from h:l. Be mindful of packing and endianness when interfacing with raw memory.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "replentry *",
+      "aliases": [],
+      "definition": "// two character arrays\nstruct replentry {\n  std::string pattern;\n  std::string outstrings[4]; // med, ini, fin, isol\n};",
+      "description": "Replacement entry holding a pattern and up to four output strings corresponding to medial, initial, final, and isolated forms (likely for script-specific shaping). Owns its std::string members; default compiler-generated constructors/destructor manage memory.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Hunhandle *",
+      "aliases": [],
+      "definition": "typedef struct Hunhandle Hunhandle;",
+      "description": "Opaque handle type for a Hunspell instance. This is a forward-declared struct used as a handle in the C API; its contents are intentionally hidden from users of this header.",
+      "direct_api_constructors": [
+        "Hunspell_create",
+        "Hunspell_create_key"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "HunspellImpl *",
+      "aliases": [],
+      "definition": "class HunspellImpl;",
+      "description": "Forward declaration of the internal implementation class used by Hunspell (pimpl idiom). No definition is provided in this header; it is an incomplete type used only via pointer for encapsulation.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Hunspell *"
+      ]
+    },
+    {
+      "ptr_type": "Hunspell *",
+      "aliases": [],
+      "definition": "class LIBHUNSPELL_DLL_EXPORTED Hunspell {\n private:\n  HunspellImpl* m_Impl;\n\n public:\n  /* Hunspell(aff, dic) - constructor of Hunspell class\n   * input: path of affix file and dictionary file\n   *\n   * In WIN32 environment, use UTF-8 encoded paths started with the long path\n   * prefix \\\\\\\\?\\\\ to handle system-independent character encoding and very\n   * long path names (without the long path prefix Hunspell will use fopen()\n   * with system-dependent character encoding instead of _wfopen()).\n   */\n  Hunspell(const char* affpath, const char* dpath, const char* key = NULL);\n  Hunspell(const Hunspell&) = delete;\n  Hunspell& operator=(const Hunspell&) = delete;\n  ~Hunspell();\n\n  /* load extra dictionaries (only dic files) */\n  int add_dic(const char* dpath, const char* key = NULL);\n\n  /* spell(word) - spellcheck word\n   * output: false = bad word, true = good word\n   *\n   * plus output:\n   *   info: information bit array, fields:\n   *     SPELL_COMPOUND  = a compound word\n   *     SPELL_FORBIDDEN = an explicit forbidden word\n   *   root: root (stem), when input is a word with affix(es)\n   */\n  bool spell(const std::string& word, int* info = NULL, std::string* root = NULL);\n  H_DEPRECATED int spell(const char* word, int* info = NULL, char** root = NULL);\n\n  /* suggest(suggestions, word) - search suggestions\n   * input: pointer to an array of strings pointer and the (bad) word\n   *   array of strings pointer (here *slst) may not be initialized\n   * output: number of suggestions in string array, and suggestions in\n   *   a newly allocated array of strings (*slts will be NULL when number\n   *   of suggestion equals 0.)\n   */\n  std::vector<std::string> suggest(const std::string& word);\n  H_DEPRECATED int suggest(char*** slst, const char* word);\n\n  /* Suggest words from suffix rules\n   * suffix_suggest(suggestions, root_word)\n   * input: pointer to an array of strings pointer and the  word\n   *   array of strings pointer (here *slst) may not be initialized\n   * output: number of suggestions in string array, and suggestions in\n   *   a newly allocated array of strings (*slts will be NULL when number\n   *   of suggestion equals 0.)\n   */\n  std::vector<std::string> suffix_suggest(const std::string& root_word);\n  H_DEPRECATED int suffix_suggest(char*** slst, const char* root_word);\n\n  /* deallocate suggestion lists */\n  H_DEPRECATED void free_list(char*** slst, int n);\n\n  const std::string& get_dict_encoding() const;\n  char* get_dic_encoding();\n\n  /* morphological functions */\n\n  /* analyze(result, word) - morphological analysis of the word */\n  std::vector<std::string> analyze(const std::string& word);\n  H_DEPRECATED int analyze(char*** slst, const char* word);\n\n  /* stem(word) - stemmer function */\n  std::vector<std::string> stem(const std::string& word);\n  H_DEPRECATED int stem(char*** slst, const char* word);\n\n  /* stem(analysis, n) - get stems from a morph. analysis\n   * example:\n   * char ** result, result2;\n   * int n1 = analyze(&result, \"words\");\n   * int n2 = stem(&result2, result, n1);\n   */\n  std::vector<std::string> stem(const std::vector<std::string>& morph);\n  H_DEPRECATED int stem(char*** slst, char** morph, int n);\n\n  /* generate(result, word, word2) - morphological generation by example(s) */\n  std::vector<std::string> generate(const std::string& word, const std::string& word2);\n  H_DEPRECATED int generate(char*** slst, const char* word, const char* word2);\n\n  /* generate(result, word, desc, n) - generation by morph. description(s)\n   * example:\n   * char ** result;\n   * char * affix = \"is:plural\"; // description depends from dictionaries, too\n   * int n = generate(&result, \"word\", &affix, 1);\n   * for (int i = 0; i < n; i++) printf(\"%s\\n\", result[i]);\n   */\n  std::vector<std::string> generate(const std::string& word, const std::vector<std::string>& pl);\n  H_DEPRECATED int generate(char*** slst, const char* word, char** desc, int n);\n\n  /* functions for run-time modification of the dictionary */\n\n  /* add word to the run-time dictionary */\n\n  int add(const std::string& word);\n\n  int add_with_flags(const std::string& word, const std::string& flags, const std::string& desc = NULL);\n\n  /* add word to the run-time dictionary with affix flags of\n   * the example (a dictionary word): Hunspell will recognize\n   * affixed forms of the new word, too.\n   */\n\n  int add_with_affix(const std::string& word, const std::string& example);\n\n  /* remove word from the run-time dictionary */\n\n  int remove(const std::string& word);\n\n  /* other */\n\n  /* get extra word characters definied in affix file for tokenization */\n  const char* get_wordchars() const;\n  const std::string& get_wordchars_cpp() const;\n  const std::vector<w_char>& get_wordchars_utf16() const;\n\n  const struct cs_info* get_csconv() const;\n  \n  const char* get_version() const;\n  const std::string& get_version_cpp() const;\n\n  int get_langnum() const;\n\n  /* need for putdic */\n  bool input_conv(const std::string& word, std::string& dest);\n  H_DEPRECATED int input_conv(const char* word, char* dest, size_t destsize);\n};",
+      "description": "Public C++ API class for Hunspell providing spell checking, suggestion, stemming, morphological analysis/generation, and runtime dictionary modification. It uses a pimpl (HunspellImpl) for implementation hiding. Constructor loads affix and dictionary files; instances are non-copyable and manage internal resources. Some legacy C-style APIs are marked deprecated.",
+      "direct_api_constructors": [
+        "Hunspell(const char* affpath, const char* dpath, const char* key = NULL)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "cs_info *",
+      "aliases": [
+        "struct cs_info *"
+      ],
+      "definition": "",
+      "description": "cs_info is referenced as a struct in get_csconv() return type, but its definition is not present in this header. It is an incomplete, externally-defined type representing character set conversion info. Details unknown in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "HUNSPELL_WARNING",
+      "signature": "static inline void HUNSPELL_WARNING(FILE*, const char*, ...)",
+      "description": "Conditional warning/logging shim. In this header as provided (without HUNSPELL_WARNING_ON), HUNSPELL_WARNING is a no-op inline function that accepts a FILE* stream, a printf-style format string, and variadic arguments but performs no output. If HUNSPELL_WARNING_ON is defined at compile time, HUNSPELL_WARNING becomes a macro alias to fprintf, and thus can be used to emit formatted warnings to the given stream. Use it like fprintf when warning output is desired; otherwise it compiles out without side effects.",
+      "requirements": [
+        "When compiled with HUNSPELL_WARNING_ON (macro-alias to fprintf): arguments must satisfy fprintf requirements: the FILE* must be a valid stream, the format string must be non-null and correctly describe the provided variadic arguments.",
+        "When compiled without HUNSPELL_WARNING_ON (inline no-op): arguments are ignored; behavior produces no output. Other behavioral constraints are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "guessword::guessword",
+      "signature": "guessword::guessword()",
+      "description": "Default constructor for guessword. Initializes members word and orig to nullptr and allow to false. Used to create an empty guessword instance that the caller can populate with a candidate word (word), an associated flag (allow), and an original string pointer (orig).",
+      "requirements": [
+        "After construction, word == nullptr and orig == nullptr; callers must set these to valid pointers before dereferencing or use.",
+        "Ownership and lifetime management of memory pointed to by word and orig are not specified here and are caller-defined/unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "patentry::patentry",
+      "signature": "patentry::patentry()",
+      "description": "Default constructor for patentry. Initializes cond and cond2 to FLAG_NULL; string members pattern, pattern2, and pattern3 are default-constructed empty strings. Intended to hold one or more pattern strings and associated condition flags.",
+      "requirements": [
+        "After construction, pattern, pattern2, and pattern3 are empty; cond and cond2 are FLAG_NULL. Caller should assign appropriate values before use.",
+        "No additional constraints are specified in this header; other behavioral details are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "w_char::operator unsigned short",
+      "signature": "unsigned short w_char::operator unsigned short() const",
+      "description": "Converts a w_char instance to its 16-bit unsigned integer representation. On x86/x64 it uses a bit-level reinterpretation (C++20 std::bit_cast or memcpy fallback); on other platforms it composes the value from the high and low bytes. Use this to obtain the underlying UTF-16/code unit value carried by w_char.",
+      "requirements": [
+        "The w_char object must be valid and initialized before conversion.",
+        "Behavior depends on platform endianness handling in the implementation, but the function itself is safe for all supported targets in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator<",
+      "signature": "bool operator<(const w_char a, const w_char b)",
+      "description": "Compares two w_char values by their 16-bit unsigned integer value (after converting each via w_char::operator unsigned short). Returns true if a is numerically less than b. Use for strict weak ordering of w_char values (e.g., sorting).",
+      "requirements": [
+        "Both inputs must be valid and initialized w_char values."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator==",
+      "signature": "bool operator==(const w_char a, const w_char b)",
+      "description": "Checks equality of two w_char values by comparing their 16-bit unsigned integer representations. Returns true if both represent the same code unit value.",
+      "requirements": [
+        "Both inputs must be valid and initialized w_char values."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator!=",
+      "signature": "bool operator!=(const w_char a, const w_char b)",
+      "description": "Checks inequality of two w_char values. Implemented as the logical negation of operator==.",
+      "requirements": [
+        "Both inputs must be valid and initialized w_char values."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_create",
+      "signature": "Hunhandle* Hunspell_create(const char* affpath, const char* dpath);",
+      "description": "Create and initialize a Hunspell handle using the specified affix (.aff) file and dictionary (.dic) file. Use the returned handle with other Hunspell_* APIs and destroy it with Hunspell_destroy when finished.",
+      "requirements": [
+        "affpath must point to a readable Hunspell .aff file.",
+        "dpath must point to a readable Hunspell .dic file.",
+        "affpath and dpath must be non-null valid C strings.",
+        "The returned Hunhandle* must be released with Hunspell_destroy.",
+        "Inputs should use the filesystem encoding expected by the runtime/OS.",
+        "Thread-safety and reentrancy are unknown; if used across threads, guard externally."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_create_key",
+      "signature": "Hunhandle* Hunspell_create_key(const char* affpath, const char* dpath, const char* key);",
+      "description": "Create and initialize a Hunspell handle using the specified affix and dictionary files, with an additional key parameter (typically for encrypted dictionaries). Use the returned handle with other Hunspell_* APIs and destroy it with Hunspell_destroy.",
+      "requirements": [
+        "affpath must point to a readable Hunspell .aff file.",
+        "dpath must point to a readable Hunspell .dic file.",
+        "key must be a valid C string appropriate for the dictionary (exact format is unknown).",
+        "affpath, dpath, and key must be non-null.",
+        "The returned Hunhandle* must be released with Hunspell_destroy.",
+        "Thread-safety and reentrancy are unknown; if used across threads, guard externally."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_destroy",
+      "signature": "void Hunspell_destroy(Hunhandle* pHunspell);",
+      "description": "Destroy and free all resources associated with a Hunspell handle created by Hunspell_create or Hunspell_create_key.",
+      "requirements": [
+        "pHunspell must be a handle previously returned by Hunspell_create or Hunspell_create_key.",
+        "Call exactly once per created handle; after destruction, pHunspell must not be used.",
+        "If there are outstanding suggestion/result lists allocated via this handle, free them first with Hunspell_free_list to avoid leaks."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_add_dic",
+      "signature": "int Hunspell_add_dic(Hunhandle* pHunspell, const char* dpath);",
+      "description": "Load an additional dictionary (.dic) file into an existing Hunspell handle. Returns 0 if more slots remain, 1 if the additional dictionary slots are now full.",
+      "requirements": [
+        "pHunspell must be a valid handle from Hunspell_create/Hunspell_create_key.",
+        "dpath must point to a readable .dic file (only dic files are accepted).",
+        "dpath must be a non-null valid C string.",
+        "May be called multiple times until slots are full (exact slot count unknown).",
+        "Return value must be checked to determine if more dictionaries can be added."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_spell",
+      "signature": "int Hunspell_spell(Hunhandle* pHunspell, const char* word);",
+      "description": "Check whether a word is spelled correctly according to the loaded dictionaries. Returns 0 for a misspelled word, non-zero for a correctly spelled word.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "word must be a non-null, NUL-terminated C string.",
+        "word should be encoded in the dictionary’s encoding (see Hunspell_get_dic_encoding).",
+        "Return value must be checked: 0 = bad word; non-zero = good word."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_get_dic_encoding",
+      "signature": "char* Hunspell_get_dic_encoding(Hunhandle* pHunspell);",
+      "description": "Retrieve the dictionary encoding name for the given Hunspell handle (e.g., ISO-8859-1, UTF-8). Use this to encode inputs/interpret outputs appropriately.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "Return pointer ownership is unknown; treat as library-owned string and do not free unless documentation elsewhere states otherwise."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_suggest",
+      "signature": "int Hunspell_suggest(Hunhandle* pHunspell, char*** slst, const char* word);",
+      "description": "Generate spelling suggestions for a (typically misspelled) word. On success, returns the number of suggestions and sets *slst to a newly allocated array of C strings (or NULL if the count is 0). Use Hunspell_free_list to free the returned list.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to an uninitialized char** variable; *slst need not be initialized.",
+        "word must be a non-null C string, preferably in the dictionary’s encoding.",
+        "The caller must free the returned list with Hunspell_free_list(pHunspell, slst, n) using the exact count n returned.",
+        "If the function returns 0, *slst will be set to NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_suffix_suggest",
+      "signature": "int Hunspell_suffix_suggest(Hunhandle* pHunspell, char*** slst, const char* word);",
+      "description": "Suggest words derived via suffix rules for the given word. Returns the number of suggestions and sets *slst to a newly allocated array (or NULL if 0). Free the results with Hunspell_free_list.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to an uninitialized char** variable; *slst need not be initialized.",
+        "word must be a non-null C string, in the dictionary’s encoding.",
+        "The caller must free the returned list with Hunspell_free_list using the count returned.",
+        "If the function returns 0, *slst will be set to NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_analyze",
+      "signature": "int Hunspell_analyze(Hunhandle* pHunspell, char*** slst, const char* word);",
+      "description": "Perform morphological analysis of the given word. Returns the number of analysis strings and sets *slst to a newly allocated array of C strings describing analyses (or NULL if 0). Free with Hunspell_free_list.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to an uninitialized char** variable; *slst need not be initialized.",
+        "word must be a non-null C string in the dictionary’s encoding.",
+        "The caller must free the returned list with Hunspell_free_list using the count returned.",
+        "If the function returns 0, *slst will be set to NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_stem",
+      "signature": "int Hunspell_stem(Hunhandle* pHunspell, char*** slst, const char* word);",
+      "description": "Return stems for the given word. Returns the number of stems and sets *slst to a newly allocated array of stem strings (or NULL if 0). Free with Hunspell_free_list.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to an uninitialized char** variable; *slst need not be initialized.",
+        "word must be a non-null C string in the dictionary’s encoding.",
+        "The caller must free the returned list with Hunspell_free_list using the count returned.",
+        "If the function returns 0, *slst will be set to NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_stem2",
+      "signature": "int Hunspell_stem2(Hunhandle* pHunspell, char*** slst, char** desc, int n);",
+      "description": "Extract stems from an existing morphological analysis. Provide an array of analysis description strings (desc) and its length (n); returns the number of stems and sets *slst to a newly allocated array (or NULL if 0). Free with Hunspell_free_list.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to an uninitialized char** variable; *slst need not be initialized.",
+        "desc must be a non-null pointer to an array of n C string pointers representing analyses (e.g., from Hunspell_analyze).",
+        "n must be >= 0 and must match the number of elements in desc.",
+        "The caller must free the returned list with Hunspell_free_list using the count returned.",
+        "If the function returns 0, *slst will be set to NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_generate",
+      "signature": "int Hunspell_generate(Hunhandle* pHunspell, char*** slst, const char* word, const char* word2);",
+      "description": "Generate word forms by analogy using two example words. Returns the number of generated forms and sets *slst to a newly allocated array (or NULL if 0). Free with Hunspell_free_list.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to an uninitialized char** variable; *slst need not be initialized.",
+        "word and word2 must be non-null C strings in the dictionary’s encoding.",
+        "The caller must free the returned list with Hunspell_free_list using the count returned.",
+        "If the function returns 0, *slst will be set to NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_generate2",
+      "signature": "int Hunspell_generate2(Hunhandle* pHunspell, char*** slst, const char* word, char** desc, int n);",
+      "description": "Generate word forms based on one base word and an array of morphological description strings. Returns the number of generated forms and sets *slst to a newly allocated array (or NULL if 0). Free with Hunspell_free_list.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to an uninitialized char** variable; *slst need not be initialized.",
+        "word must be a non-null C string in the dictionary’s encoding.",
+        "desc must be a non-null pointer to an array of n C string pointers (morphological descriptions).",
+        "n must be >= 0 and must match the number of elements in desc.",
+        "The caller must free the returned list with Hunspell_free_list using the count returned.",
+        "If the function returns 0, *slst will be set to NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_add",
+      "signature": "int Hunspell_add(Hunhandle* pHunspell, const char* word);",
+      "description": "Add a word to the run-time (in-memory) dictionary. This affects spell checking for the lifetime of the handle.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "word must be a non-null C string in the dictionary’s encoding.",
+        "The effect is limited to the runtime; persistence to disk is not implied.",
+        "Return value conventions are not documented here; treat non-zero/zero semantics as unknown and check project documentation if needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_add_with_flags",
+      "signature": "int Hunspell_add_with_flags(Hunhandle* pHunspell, const char* word, const char* flags, const char* desc);",
+      "description": "Add a word to the run-time dictionary with explicit affix flags and an optional description. Intended to control how affixed forms of the new word are recognized. Specific flag/description formats are dictionary-dependent and not documented here.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "word must be a non-null C string in the dictionary’s encoding.",
+        "flags must be a non-null C string; exact contents/format are unknown and dictionary-dependent.",
+        "desc must be a non-null C string; exact contents/format are unknown and dictionary-dependent.",
+        "Return value semantics are not documented here; verify via project documentation."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_add_with_affix",
+      "signature": "int Hunspell_add_with_affix(Hunhandle* pHunspell, const char* word, const char* example);",
+      "description": "Add a word to the run-time dictionary using the affix flags of an example dictionary word so affixed forms of the new word are recognized.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "word must be a non-null C string in the dictionary’s encoding.",
+        "example must be a non-null C string corresponding to an existing dictionary word whose affix flags will be copied.",
+        "Return value semantics are not documented here; verify via project documentation."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_remove",
+      "signature": "int Hunspell_remove(Hunhandle* pHunspell, const char* word);",
+      "description": "Remove a word from the run-time dictionary.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "word must be a non-null C string in the dictionary’s encoding.",
+        "The effect is limited to the runtime; persistence to disk is not implied.",
+        "Return value semantics are not documented here; verify via project documentation."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell_free_list",
+      "signature": "void Hunspell_free_list(Hunhandle* pHunspell, char*** slst, int n);",
+      "description": "Free a suggestion/result list previously returned by functions like Hunspell_suggest, Hunspell_suffix_suggest, Hunspell_analyze, Hunspell_stem, Hunspell_stem2, Hunspell_generate, or Hunspell_generate2.",
+      "requirements": [
+        "pHunspell must be a valid handle.",
+        "slst must be a non-null pointer to the same char** variable that received results; *slst should point to the allocated array (or be NULL if n == 0).",
+        "n must be the exact count previously returned by the producing function.",
+        "Only use this to free memory allocated by the Hunspell API; do not pass arbitrary arrays.",
+        "After freeing, *slst should not be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::Hunspell",
+      "signature": "Hunspell::Hunspell(const char* affpath, const char* dpath, const char* key = NULL)",
+      "description": "Constructs a Hunspell object by loading the specified affix (.aff) and dictionary (.dic) files. On Windows, UTF-8 encoded paths beginning with the long-path prefix \\\\?\\ are recommended to support system-independent encoding and long paths; otherwise fopen() with system-dependent encoding may be used. The optional key is for dictionaries that require one (details unspecified here).",
+      "requirements": [
+        "affpath must be a valid, non-null pointer to a path to an affix file",
+        ".aff and .dic files referenced by affpath and dpath must exist and be readable",
+        "dpath must be a valid, non-null pointer to a dictionary file path",
+        "On WIN32, use UTF-8 encoded paths with the \\\\?\\ long path prefix to ensure long-path and encoding support",
+        "If a key is required by the dictionary, pass it via the key parameter (format/semantics unknown)"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::~Hunspell",
+      "signature": "Hunspell::~Hunspell()",
+      "description": "Destroys the Hunspell object, releasing any resources associated with loaded dictionaries and runtime-added entries.",
+      "requirements": [
+        "Do not use the Hunspell instance after the destructor has run"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::add_dic",
+      "signature": "int Hunspell::add_dic(const char* dpath, const char* key = NULL)",
+      "description": "Loads an additional dictionary (.dic) at runtime. Only dictionary files are accepted (no affix file). The optional key may be required for some dictionaries (unspecified). Return value semantics are not documented here.",
+      "requirements": [
+        "dpath must be a valid, non-null path to a .dic file",
+        "The file at dpath must exist and be readable",
+        "If the dictionary requires a key, provide it via key (format/semantics unknown)",
+        "May only be called after a Hunspell instance has been constructed"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::spell",
+      "signature": "bool Hunspell::spell(const std::string& word, int* info = NULL, std::string* root = NULL)",
+      "description": "Checks whether word is spelled correctly. Returns true for a good word, false for a bad word. Optionally returns an info bitfield (e.g., SPELL_COMPOUND, SPELL_FORBIDDEN) and the root (stem) if the input is an affixed form.",
+      "requirements": [
+        "word may be any string in the dictionary’s encoding/expected input",
+        "info may be NULL; if non-null, it must point to writable int storage for flags",
+        "root may be NULL; if non-null, it must point to a std::string to receive the root/stem"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::suggest",
+      "signature": "std::vector<std::string> Hunspell::suggest(const std::string& word)",
+      "description": "Generates suggestion candidates for the (misspelled) word and returns them as a vector of strings. Returns an empty vector if no suggestions are found.",
+      "requirements": [
+        "word should be the query string to suggest corrections for"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::suffix_suggest",
+      "signature": "std::vector<std::string> Hunspell::suffix_suggest(const std::string& root_word)",
+      "description": "Generates suggestions based on suffix rules using the given root_word as the base. Returns a vector of suggestion strings.",
+      "requirements": [
+        "root_word should be a base/root form for which suffix-based suggestions are desired"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::free_list",
+      "signature": "void Hunspell::free_list(char*** slst, int n)",
+      "description": "Frees a suggestion/result list previously allocated by deprecated C-style APIs such as suggest, suffix_suggest, analyze, stem, or generate. The count n must match the number returned by the allocating function.",
+      "requirements": [
+        "slst must be non-null and must refer to a list previously allocated by a Hunspell C-style API",
+        "n must be exactly the number of elements returned by the allocating API",
+        "Do not use this to free results returned as std::vector<std::string>",
+        "After freeing, do not reuse the freed pointers"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_dict_encoding",
+      "signature": "const std::string& Hunspell::get_dict_encoding() const",
+      "description": "Returns the dictionary’s encoding name as a C++ string reference.",
+      "requirements": [
+        "The returned reference remains valid as long as the Hunspell instance is alive; do not store it beyond the lifetime of the object"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_dic_encoding",
+      "signature": "char* Hunspell::get_dic_encoding()",
+      "description": "Returns the dictionary’s encoding name via a C-style char*. Exact ownership and mutability of the returned pointer are not documented here (use the C++ variant for clarity).",
+      "requirements": [
+        "Caller must treat the returned pointer according to library conventions; ownership/mutability are unknown from this header",
+        "Prefer Hunspell::get_dict_encoding() for safe usage"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::analyze",
+      "signature": "std::vector<std::string> Hunspell::analyze(const std::string& word)",
+      "description": "Performs morphological analysis of the word and returns analysis strings describing morphological properties, as defined by the dictionary’s rules.",
+      "requirements": [
+        "word should be in the expected input encoding"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::stem",
+      "signature": "std::vector<std::string> Hunspell::stem(const std::string& word)",
+      "description": "Returns stem(s) of the given word using the dictionary’s stemming rules.",
+      "requirements": [
+        "word should be in the expected input encoding"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::generate",
+      "signature": "std::vector<std::string> Hunspell::generate(const std::string& word, const std::string& word2)",
+      "description": "Generates word forms for word by analogy with word2 (generation by example).",
+      "requirements": [
+        "word and word2 should be valid input words in the dictionary’s expected encoding"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::add",
+      "signature": "int Hunspell::add(const std::string& word)",
+      "description": "Adds word to the runtime dictionary (in-memory).",
+      "requirements": [
+        "word should be in the expected input encoding and represent a valid dictionary entry (exact validation rules unspecified)"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::add_with_flags",
+      "signature": "int Hunspell::add_with_flags(const std::string& word, const std::string& flags, const std::string& desc = NULL)",
+      "description": "Adds word to the runtime dictionary with explicit affix flags, and optional morphological description. This allows the engine to recognize related affixed forms.",
+      "requirements": [
+        "flags must be valid for the dictionary’s affix system (format unspecified)",
+        "If provided, desc must follow the dictionary’s expected morphological description format",
+        "word should be in the expected input encoding"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::add_with_affix",
+      "signature": "int Hunspell::add_with_affix(const std::string& word, const std::string& example)",
+      "description": "Adds word to the runtime dictionary using the affix flags of example (an existing dictionary word), enabling recognition of affixed forms of the new word.",
+      "requirements": [
+        "example should be a valid dictionary word whose affix flags will be copied",
+        "word should be in the expected input encoding"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::remove",
+      "signature": "int Hunspell::remove(const std::string& word)",
+      "description": "Removes word from the runtime dictionary (if present).",
+      "requirements": [
+        "word should be in the expected input encoding"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_wordchars",
+      "signature": "const char* Hunspell::get_wordchars() const",
+      "description": "Returns extra word characters defined in the affix file that are used for tokenization, as a C-style string.",
+      "requirements": [
+        "The returned pointer remains valid as long as the Hunspell instance remains alive (ownership/mutability not documented)"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_wordchars_cpp",
+      "signature": "const std::string& Hunspell::get_wordchars_cpp() const",
+      "description": "Returns extra word characters defined in the affix file for tokenization, as a C++ string reference.",
+      "requirements": [
+        "The returned reference remains valid as long as the Hunspell instance is alive"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_wordchars_utf16",
+      "signature": "const std::vector<w_char>& Hunspell::get_wordchars_utf16() const",
+      "description": "Returns extra word characters for tokenization as UTF-16 code units (w_char), suitable for Unicode-aware tokenization.",
+      "requirements": [
+        "The returned reference remains valid as long as the Hunspell instance is alive"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_csconv",
+      "signature": "const struct cs_info* Hunspell::get_csconv() const",
+      "description": "Returns a pointer to character set conversion info used internally by Hunspell. Specific structure semantics are not documented here.",
+      "requirements": [
+        "The returned pointer is for inspection by advanced users; contents and lifetime are tied to the Hunspell instance (exact details unspecified)"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_version",
+      "signature": "const char* Hunspell::get_version() const",
+      "description": "Returns the Hunspell version string as a C-style string.",
+      "requirements": [
+        "The returned pointer remains valid as long as the Hunspell instance (or library state providing it) remains valid (precise ownership unspecified)"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_version_cpp",
+      "signature": "const std::string& Hunspell::get_version_cpp() const",
+      "description": "Returns the Hunspell version string as a C++ string reference.",
+      "requirements": [
+        "The returned reference remains valid as long as the Hunspell instance is alive"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::get_langnum",
+      "signature": "int Hunspell::get_langnum() const",
+      "description": "Returns an integer related to language configuration (exact meaning is not specified in this header; possibly the language number or count of languages).",
+      "requirements": [
+        "None beyond having a constructed Hunspell instance; exact interpretation of the return value is unknown"
+      ],
+      "error": null
+    },
+    {
+      "name": "Hunspell::input_conv",
+      "signature": "bool Hunspell::input_conv(const std::string& word, std::string& dest)",
+      "description": "Converts input word according to the dictionary’s input conversion rules (noted as needed for putdic) and writes the result into dest. Returns true on success, false otherwise.",
+      "requirements": [
+        "word should be in the expected source encoding for input conversion",
+        "dest is an output string and will be assigned by the function"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "HUNSPELL_WARNING",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise HUNSPELL_WARNING in both no-op and fprintf-macro modes safely.\n// Requirements enforced:\n// - Use a valid FILE* (stdout/stderr).\n// - Provide a non-null format string matching the provided variadic args.\n// - Keep output bounded and arguments well-formed.\nFILE* stream = ((*FUZZ_PARAM(unsigned int)) & 1) ? stderr : stdout;\nstd::string msg = FUZZ_PARAM_STR();\nunsigned int u = *FUZZ_PARAM(unsigned int);\nint which = (int)(u % 3);\n// Select among a few safe format shapes to cover different variadic paths.\nif (which == 0) {\n  // Single string\n  const char* fmt = \"%s\"; // non-null, expects 1 const char*\n  HUNSPELL_WARNING(stream, fmt, msg.c_str());\n} else if (which == 1) {\n  // String + int (decimal)\n  const char* fmt = \"%s %d\"; // expects const char*, int\n  int n = (int)(u % 1000000); // constrain magnitude\n  HUNSPELL_WARNING(stream, fmt, msg.c_str(), n);\n} else {\n  // String + hex number\n  const char* fmt = \"%s 0x%08x\"; // expects const char*, unsigned int\n  HUNSPELL_WARNING(stream, fmt, msg.c_str(), u);\n}\n// Validation: Uses a guaranteed-valid FILE* and non-null format strings aligned with argument types; safe under both no-op and fprintf macro modes."
+    },
+    {
+      "name": "guessword::guessword",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "gw",
+          "type": "guessword *"
+        }
+      ],
+      "code": "// Construct a fresh guessword and verify postconditions.\n// The default ctor must set word/orig to nullptr and allow to false.\nguessword* gw = new guessword();\nFUZZ_ASSERT(gw != nullptr, \"allocation failed for guessword\");\nFUZZ_ASSERT(gw->word == nullptr, \"guessword::word must be nullptr after default construction\");\nFUZZ_ASSERT(gw->orig == nullptr, \"guessword::orig must be nullptr after default construction\");\nFUZZ_ASSERT(gw->allow == false, \"guessword::allow must be false after default construction\");\n// Track construction state for downstream stubs (if any)\nFUZZ_SET_ATTR_INT(gw, \"constructed\", 1);\n// Validation: Object created via default ctor; invariants asserted and pointer returned to pool for reuse."
+    },
+    {
+      "name": "patentry::patentry",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "pe",
+          "type": "patentry *"
+        }
+      ],
+      "code": "// Construct a fresh patentry and verify string postconditions.\n// cond/cond2 are initialized to FLAG_NULL in the ctor (cannot assert its concrete value here),\n// but we can still assert the strings are empty as specified.\npatentry* pe = new patentry();\nFUZZ_ASSERT(pe != nullptr, \"allocation failed for patentry\");\nFUZZ_ASSERT(pe->pattern.empty(), \"patentry::pattern must be empty after default construction\");\nFUZZ_ASSERT(pe->pattern2.empty(), \"patentry::pattern2 must be empty after default construction\");\nFUZZ_ASSERT(pe->pattern3.empty(), \"patentry::pattern3 must be empty after default construction\");\n// Optional: record initial flag state values for downstream checks without assuming FLAG_NULL value.\nFUZZ_SET_ATTR_INT(pe, \"cond_init\", (int)pe->cond);\nFUZZ_SET_ATTR_INT(pe, \"cond2_init\", (int)pe->cond2);\nFUZZ_SET_ATTR_INT(pe, \"constructed\", 1);\n// Validation: patentry constructed and its string fields verified empty; flags captured for traceability and pointer returned for reuse."
+    },
+    {
+      "name": "w_char::operator unsigned short",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create and initialize a valid w_char instance with random bytes\nw_char wc;\nwc.l = *FUZZ_PARAM(unsigned char);\nwc.h = *FUZZ_PARAM(unsigned char);\n\n// Invoke the target conversion operator\nunsigned short v = (unsigned short)wc;\n\n// Property: the numeric value must equal (h << 8) | l on all platforms\nunsigned short expected = (unsigned short)(((unsigned short)wc.h << 8) | (unsigned short)wc.l);\nFUZZ_ASSERT(v == expected, \"w_char conversion must match composed 16-bit value\");\n\n// Validation: stub initializes w_char fully before use and asserts correct conversion semantics. No persistent outputs."
+    },
+    {
+      "name": "operator<",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Initialize two valid w_char values\nw_char a; a.l = *FUZZ_PARAM(unsigned char); a.h = *FUZZ_PARAM(unsigned char);\nw_char b; b.l = *FUZZ_PARAM(unsigned char); b.h = *FUZZ_PARAM(unsigned char);\n\n// Call the target operator explicitly\nbool ab = operator<(a, b);\n\n// Properties for strict weak ordering (no reliance on other operators):\n// 1) Irreflexivity: a < a must be false\nFUZZ_ASSERT(!operator<(a, a), \"operator< must be irreflexive\");\n// 2) Asymmetry: if a < b then !(b < a)\nbool ba = operator<(b, a);\nFUZZ_ASSERT(!(ab && ba), \"operator< must be asymmetric\");\n\n// Validation: stub constructs initialized operands and exercises operator< with basic ordering properties. No persistent outputs."
+    },
+    {
+      "name": "operator==",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Initialize two valid w_char values\nw_char a; a.l = *FUZZ_PARAM(unsigned char); a.h = *FUZZ_PARAM(unsigned char);\nw_char b; b.l = *FUZZ_PARAM(unsigned char); b.h = *FUZZ_PARAM(unsigned char);\n\n// Call the target operator explicitly\nbool eq_ab = operator==(a, b);\n\n// Properties for equality: reflexivity and symmetry\nFUZZ_ASSERT(operator==(a, a), \"operator== must be reflexive\");\nbool eq_ba = operator==(b, a);\nFUZZ_ASSERT(eq_ab == eq_ba, \"operator== must be symmetric\");\n\n// Validation: stub initializes inputs and asserts core equality properties. No persistent outputs."
+    },
+    {
+      "name": "operator!=",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Initialize two valid w_char values\nw_char a; a.l = *FUZZ_PARAM(unsigned char); a.h = *FUZZ_PARAM(unsigned char);\nw_char b; b.l = *FUZZ_PARAM(unsigned char); b.h = *FUZZ_PARAM(unsigned char);\n\n// Call the target operator explicitly\nbool ne_ab = operator!=(a, b);\n\n// Properties for inequality: irreflexivity and complement of equality\nFUZZ_ASSERT(!operator!=(a, a), \"operator!= must be false for identical operands\");\n// Consistency with equality\nbool eq_ab = operator==(a, b);\nFUZZ_ASSERT(ne_ab == !eq_ab, \"operator!= must be the logical negation of operator==\");\n\n// Validation: stub initializes inputs and checks operator!= consistency and irreflexivity. No persistent outputs."
+    },
+    {
+      "name": "Hunspell_create",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "// Generate filenames for affix and dic; these point to existing temp files with random data.\nconst char *affpath = FUZZ_PARAM_FILENAME();\nconst char *dpath  = FUZZ_PARAM_FILENAME();\n\n// Attempt to create a handle. This may fail if files are not valid Hunspell dicts.\nHunhandle *pHunspell = Hunspell_create(affpath, dpath);\nif (!pHunspell) { FUZZ_BAIL(); }\n\n// Track liveness and initial state for downstream API calls.\nFUZZ_SET_ATTR_INT(pHunspell, \"alive\", 1);\nFUZZ_SET_ATTR_INT(pHunspell, \"dict_slots_full\", 0);\n// Persist input paths to aid debugging and potential re-use decisions.\nFUZZ_SET_ATTR_STR(pHunspell, \"affpath\", affpath);\nFUZZ_SET_ATTR_STR(pHunspell, \"dpath\", dpath);\n\n// Provide the live handle as output."
+    },
+    {
+      "name": "Hunspell_create_key",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "const char *affpath = FUZZ_PARAM_FILENAME();\nconst char *dpath  = FUZZ_PARAM_FILENAME();\n// Key must be a valid C string (content format is dictionary-dependent)\nstd::string key_s = FUZZ_PARAM_STR();\n// Ensure non-empty key to increase chances of exercising key-handling paths\nif (key_s.empty()) { key_s = \"a\"; }\nconst char *key = key_s.c_str();\n\nHunhandle *pHunspell = Hunspell_create_key(affpath, dpath, key);\nif (!pHunspell) { FUZZ_BAIL(); }\n\nFUZZ_SET_ATTR_INT(pHunspell, \"alive\", 1);\nFUZZ_SET_ATTR_INT(pHunspell, \"dict_slots_full\", 0);\nFUZZ_SET_ATTR_STR(pHunspell, \"affpath\", affpath);\nFUZZ_SET_ATTR_STR(pHunspell, \"dpath\", dpath);\nFUZZ_SET_ATTR_STR(pHunspell, \"key\", key);\n\n// Provide the live handle as output."
+    },
+    {
+      "name": "Hunspell_destroy",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Ensure the handle is a live one created by Hunspell_create/_key.\nint alive = FUZZ_GET_ATTR_INT(pHunspell, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n\nHunspell_destroy(pHunspell);\n\n// Mark as dead to prevent reuse in later stubs.\nFUZZ_SET_ATTR_INT(pHunspell, \"alive\", 0);\n// Do not return the handle; runtime should drop it."
+    },
+    {
+      "name": "Hunspell_add_dic",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "int alive = FUZZ_GET_ATTR_INT(pHunspell, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n\nconst char *dpath = FUZZ_PARAM_FILENAME();\nint full = FUZZ_GET_ATTR_INT(pHunspell, \"dict_slots_full\");\n\nint rv = Hunspell_add_dic(pHunspell, dpath);\n// API: 0 if more slots remain, 1 if slots are now full. Other values may indicate errors.\nif (rv == 1) {\n  FUZZ_SET_ATTR_INT(pHunspell, \"dict_slots_full\", 1);\n} else if (rv == 0) {\n  FUZZ_SET_ATTR_INT(pHunspell, \"dict_slots_full\", 0);\n}\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_spell",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nstd::string w = FUZZ_PARAM_STR();\nif (w.empty()) { w = \"a\"; }\nint ok = Hunspell_spell(pHunspell, w.c_str());\n// Property: return value is 0 (bad) or non-zero (good). We only assert that it is an int; no further invariant.\n(void)ok;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_get_dic_encoding",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nchar *enc = Hunspell_get_dic_encoding(pHunspell);\n// Library-owned string; do not free. Track for potential downstream use.\nif (enc) { FUZZ_SET_ATTR_STR(pHunspell, \"encoding\", enc); }\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_suggest",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nchar **list = nullptr; // uninitialized per API contract\nstd::string w = FUZZ_PARAM_STR();\nif (w.empty()) { w = \"x\"; }\nint n = Hunspell_suggest(pHunspell, &list, w.c_str());\n\n// Validate producer contract: if n == 0 then list must be NULL; if n > 0 list must be non-NULL\nFUZZ_ASSERT((n == 0 && list == nullptr) || (n > 0 && list != nullptr), \"Hunspell_suggest contract for (n, list)\");\n\n// Free via API to avoid leaks\nHunspell_free_list(pHunspell, &list, n);\n// list is freed; ensure pointer is not used further\nlist = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_suffix_suggest",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nchar **list = nullptr;\nstd::string w = FUZZ_PARAM_STR();\nif (w.empty()) { w = \"y\"; }\nint n = Hunspell_suffix_suggest(pHunspell, &list, w.c_str());\nFUZZ_ASSERT((n == 0 && list == nullptr) || (n > 0 && list != nullptr), \"Hunspell_suffix_suggest contract for (n, list)\");\nHunspell_free_list(pHunspell, &list, n);\nlist = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_analyze",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nchar **list = nullptr;\nstd::string w = FUZZ_PARAM_STR();\nif (w.empty()) { w = \"word\"; }\nint n = Hunspell_analyze(pHunspell, &list, w.c_str());\nFUZZ_ASSERT((n == 0 && list == nullptr) || (n > 0 && list != nullptr), \"Hunspell_analyze contract for (n, list)\");\nHunspell_free_list(pHunspell, &list, n);\nlist = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_stem",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nchar **list = nullptr;\nstd::string w = FUZZ_PARAM_STR();\nif (w.empty()) { w = \"root\"; }\nint n = Hunspell_stem(pHunspell, &list, w.c_str());\nFUZZ_ASSERT((n == 0 && list == nullptr) || (n > 0 && list != nullptr), \"Hunspell_stem contract for (n, list)\");\nHunspell_free_list(pHunspell, &list, n);\nlist = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_stem2",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\n// Prepare desc via a prior analyze() so memory/layout matches API expectations.\nchar **analysis = nullptr;\nstd::string w = FUZZ_PARAM_STR();\nif (w.empty()) { w = \"morph\"; }\nint an = Hunspell_analyze(pHunspell, &analysis, w.c_str());\nFUZZ_ASSERT((an == 0 && analysis == nullptr) || (an > 0 && analysis != nullptr), \"analyze contract before stem2\");\n\nchar **stems = nullptr;\nint nstems = Hunspell_stem2(pHunspell, &stems, analysis, an);\nFUZZ_ASSERT((nstems == 0 && stems == nullptr) || (nstems > 0 && stems != nullptr), \"Hunspell_stem2 contract for (n, list)\");\n\n// Free produced stems\nHunspell_free_list(pHunspell, &stems, nstems);\nstems = nullptr;\n// Free the analysis array we created\nHunspell_free_list(pHunspell, &analysis, an);\nanalysis = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_generate",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nchar **list = nullptr;\nstd::string w1 = FUZZ_PARAM_STR(); if (w1.empty()) { w1 = \"alpha\"; }\nstd::string w2 = FUZZ_PARAM_STR(); if (w2.empty()) { w2 = \"beta\"; }\nint n = Hunspell_generate(pHunspell, &list, w1.c_str(), w2.c_str());\nFUZZ_ASSERT((n == 0 && list == nullptr) || (n > 0 && list != nullptr), \"Hunspell_generate contract for (n, list)\");\nHunspell_free_list(pHunspell, &list, n);\nlist = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_generate2",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\n// Build a description array. Use analyze() as producer to meet API expectations.\nchar **desc = nullptr;\nstd::string base = FUZZ_PARAM_STR(); if (base.empty()) { base = \"gamma\"; }\n// Create descriptions by analyzing the base word; this yields desc with count ndesc\nint ndesc = Hunspell_analyze(pHunspell, &desc, base.c_str());\nFUZZ_ASSERT((ndesc == 0 && desc == nullptr) || (ndesc > 0 && desc != nullptr), \"analyze contract before generate2\");\n\nchar **list = nullptr;\n// Another base word for generation\nstd::string w = FUZZ_PARAM_STR(); if (w.empty()) { w = \"delta\"; }\nint n = Hunspell_generate2(pHunspell, &list, w.c_str(), desc, ndesc);\nFUZZ_ASSERT((n == 0 && list == nullptr) || (n > 0 && list != nullptr), \"Hunspell_generate2 contract for (n, list)\");\n\nHunspell_free_list(pHunspell, &list, n);\nlist = nullptr;\nHunspell_free_list(pHunspell, &desc, ndesc);\ndesc = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_add",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nstd::string w = FUZZ_PARAM_STR();\nif (w.empty()) { w = \"newword\"; }\nint rv = Hunspell_add(pHunspell, w.c_str());\n(void)rv; // Return semantics not strictly defined here\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_add_with_flags",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nstd::string w = FUZZ_PARAM_STR(); if (w.empty()) { w = \"wf\"; }\nstd::string flags_s = FUZZ_PARAM_STR(); if (flags_s.empty()) { flags_s = \"A\"; }\nstd::string desc_s  = FUZZ_PARAM_STR(); if (desc_s.empty()) { desc_s = \"d\"; }\nint rv = Hunspell_add_with_flags(pHunspell, w.c_str(), flags_s.c_str(), desc_s.c_str());\n(void)rv;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_add_with_affix",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nstd::string w = FUZZ_PARAM_STR(); if (w.empty()) { w = \"wa\"; }\nstd::string ex = FUZZ_PARAM_STR(); if (ex.empty()) { ex = \"example\"; }\nint rv = Hunspell_add_with_affix(pHunspell, w.c_str(), ex.c_str());\n(void)rv;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_remove",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nstd::string w = FUZZ_PARAM_STR(); if (w.empty()) { w = \"rm\"; }\nint rv = Hunspell_remove(pHunspell, w.c_str());\n(void)rv;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell_free_list",
+      "inputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pHunspell",
+          "type": "Hunhandle *"
+        }
+      ],
+      "code": "// To meaningfully call free_list, first produce a list using a producer API.\nif (!FUZZ_GET_ATTR_INT(pHunspell, \"alive\")) { FUZZ_BAIL(); }\n\nchar **list = nullptr;\nstd::string w = FUZZ_PARAM_STR(); if (w.empty()) { w = \"free\"; }\nint n = Hunspell_suggest(pHunspell, &list, w.c_str());\nFUZZ_ASSERT((n == 0 && list == nullptr) || (n > 0 && list != nullptr), \"producer contract before free_list\");\n\nHunspell_free_list(pHunspell, &list, n);\n// After freeing, list should not be used; ensure it can be reset or ignored\nlist = nullptr;\n// Keep handle alive as output."
+    },
+    {
+      "name": "Hunspell::Hunspell",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Create a Hunspell instance using existing, readable files provided by the fuzzer.\n// FUZZ_PARAM_FILENAME() guarantees the file exists and contains random data, which is sufficient\n// to satisfy the constructor's file-existence/readability requirements.\nconst char *affpath = FUZZ_PARAM_FILENAME();\nconst char *dpath  = FUZZ_PARAM_FILENAME();\n// Optionally provide a key (or nullptr). If provided, it must be a valid C-string.\nunsigned int key_choice = *FUZZ_PARAM(unsigned int);\nstd::string key_str = FUZZ_PARAM_STR();\nconst char *key = (key_choice & 1) ? key_str.c_str() : (const char*)NULL;\n// Construct the object. If construction fails internally, it may throw or set up an unusable instance;\n// we rely on library behavior. The files exist and are readable, meeting the documented constraints.\nHunspell *hunspell = new Hunspell(affpath, dpath, key);\n// Persist the object for subsequent stubs\nFUZZ_SET_ATTR_INT(hunspell, \"alive\", 1);\n"
+    },
+    {
+      "name": "Hunspell::~Hunspell",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Destroy the Hunspell instance. After this, it must not be used further.\n// We mark it as no longer alive and do not return it to the pool.\nFUZZ_SET_ATTR_INT(hunspell, \"alive\", 0);\ndelete hunspell;\n"
+    },
+    {
+      "name": "Hunspell::add_dic",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Ensure the object is alive before use.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\n// dpath must point to a readable .dic file. We use an existing fuzzer-provided file.\nconst char *dpath = FUZZ_PARAM_FILENAME();\n// Optional key: sometimes null, sometimes a valid string.\nunsigned int key_choice = *FUZZ_PARAM(unsigned int);\nstd::string key_str = FUZZ_PARAM_STR();\nconst char *key = (key_choice & 1) ? key_str.c_str() : (const char*)NULL;\n(void)hunspell->add_dic(dpath, key);\n// Return the still-live object to the pool."
+    },
+    {
+      "name": "Hunspell::spell",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Spellcheck a fuzzed word; optionally request info flags and root output.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word = FUZZ_PARAM_STR();\nunsigned int mode = *FUZZ_PARAM(unsigned int);\nint info_storage = 0;\nstd::string root_storage;\nint *info_ptr = (mode & 1) ? &info_storage : (int*)NULL;\nstd::string *root_ptr = (mode & 2) ? &root_storage : (std::string*)NULL;\n(bool)hunspell->spell(word, info_ptr, root_ptr);\n// If non-null pointers were passed, they pointed to valid writable storage (enforced above).\n// Return the live object."
+    },
+    {
+      "name": "Hunspell::suggest",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Generate suggestions for a fuzzed word.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word = FUZZ_PARAM_STR();\nstd::vector<std::string> suggestions = hunspell->suggest(word);\n// Exercise the returned data lightly to ensure it is materialized.\nif (!suggestions.empty()) {\n    volatile size_t sz = suggestions[0].size();\n    (void)sz;\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::suffix_suggest",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Generate suffix-based suggestions from a fuzzed root word.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string root_word = FUZZ_PARAM_STR();\nstd::vector<std::string> suggestions = hunspell->suffix_suggest(root_word);\nif (!suggestions.empty()) {\n    volatile size_t sz = suggestions.back().size();\n    (void)sz;\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::get_dict_encoding",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Access dictionary encoding as a C++ string reference; do not store beyond lifetime.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nconst std::string &enc = hunspell->get_dict_encoding();\nvolatile size_t len = enc.size();\n(void)len;\n// Return the object to keep it alive for the reference duration outside this stub is not required\n// because we don't expose 'enc' as an output; it's confined within this stub."
+    },
+    {
+      "name": "Hunspell::get_dic_encoding",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Access dictionary encoding as a C string; ownership/mutability unspecified.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nchar *enc = hunspell->get_dic_encoding();\n// Do not dereference if null; if non-null, avoid writing or freeing.\nif (enc) {\n    // Touch a bounded number of bytes to avoid overread if not null-terminated (defensive).\n    // We only read up to 16 bytes or until a null terminator.\n    volatile unsigned int acc = 0;\n    for (int i = 0; i < 16 && enc[i]; ++i) acc += (unsigned char)enc[i];\n    (void)acc;\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::analyze",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Morphological analysis of a fuzzed word.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word = FUZZ_PARAM_STR();\nstd::vector<std::string> res = hunspell->analyze(word);\nif (!res.empty()) {\n    volatile size_t sz = res[0].size();\n    (void)sz;\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::stem",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Stemming a fuzzed word.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word = FUZZ_PARAM_STR();\nstd::vector<std::string> stems = hunspell->stem(word);\nif (!stems.empty()) {\n    volatile size_t sz = stems[0].size();\n    (void)sz;\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::generate",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Generation by example: produce forms of word analogous to word2.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word  = FUZZ_PARAM_STR();\nstd::string word2 = FUZZ_PARAM_STR();\nstd::vector<std::string> out = hunspell->generate(word, word2);\nif (!out.empty()) {\n    volatile size_t sz = out.back().size();\n    (void)sz;\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::add",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Add a word to the runtime dictionary.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word = FUZZ_PARAM_STR();\n(void)hunspell->add(word);\n// Return the object."
+    },
+    {
+      "name": "Hunspell::add_with_flags",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Add a word with explicit flags and an optional morphological description.\n// Note: The header's default 'desc = NULL' is unsafe in C++; always pass a valid std::string.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word  = FUZZ_PARAM_STR();\nstd::string flags = FUZZ_PARAM_STR();\n// Randomly choose empty or fuzzed description, but never pass a null pointer.\nunsigned int choose = *FUZZ_PARAM(unsigned int);\nstd::string desc = (choose & 1) ? std::string() : FUZZ_PARAM_STR();\n(void)hunspell->add_with_flags(word, flags, desc);\n// Return the object."
+    },
+    {
+      "name": "Hunspell::add_with_affix",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Add a word using affix flags copied from an example word.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word    = FUZZ_PARAM_STR();\nstd::string example = FUZZ_PARAM_STR();\n(void)hunspell->add_with_affix(word, example);\n// Return the object."
+    },
+    {
+      "name": "Hunspell::remove",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Remove a word from the runtime dictionary.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word = FUZZ_PARAM_STR();\n(void)hunspell->remove(word);\n// Return the object."
+    },
+    {
+      "name": "Hunspell::get_wordchars",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Access extra word characters as a C string; do not free or modify.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nconst char *wc = hunspell->get_wordchars();\nif (wc) {\n    // Read a bounded prefix defensively.\n    volatile unsigned int acc = 0;\n    for (int i = 0; i < 16 && wc[i]; ++i) acc += (unsigned char)wc[i];\n    (void)acc;\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::get_wordchars_cpp",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Access extra word characters as a C++ string reference.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nconst std::string &wc = hunspell->get_wordchars_cpp();\nvolatile size_t len = wc.size();\n(void)len;\n// Return the object."
+    },
+    {
+      "name": "Hunspell::get_wordchars_utf16",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Access UTF-16 word characters as a vector reference.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nconst std::vector<w_char> &u16 = hunspell->get_wordchars_utf16();\nvolatile size_t count = u16.size();\nif (count) {\n    volatile unsigned short first = (unsigned short)u16[0];\n    (void)first;\n}\n(void)count;\n// Return the object."
+    },
+    {
+      "name": "Hunspell::get_csconv",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Retrieve charset conversion info pointer; opaque and tied to hunspell lifetime.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nconst cs_info *ci = hunspell->get_csconv();\n// We do not dereference the opaque pointer; just touch it for non-nullness.\nif (ci) {\n    FUZZ_SET_ATTR_INT(hunspell, \"has_csconv\", 1);\n} else {\n    FUZZ_SET_ATTR_INT(hunspell, \"has_csconv\", 0);\n}\n// Return the object."
+    },
+    {
+      "name": "Hunspell::get_version",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Retrieve Hunspell version as a C string; do not free or modify the returned pointer.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nconst char *ver = hunspell->get_version();\n// Safely touch a bounded prefix to avoid overruns if not null-terminated.\nif (ver) {\n    volatile unsigned int acc = 0;\n    for (int i = 0; i < 32 && ver[i]; ++i) acc += (unsigned char)ver[i];\n    (void)acc;\n}\n// Validation: respects lifetime (hunspell kept alive) and avoids ownership/mutation issues. Returning hunspell preserves object state."
+    },
+    {
+      "name": "Hunspell::get_version_cpp",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Retrieve Hunspell version as a C++ string reference; valid while the instance is alive.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nconst std::string &ver = hunspell->get_version_cpp();\nvolatile size_t len = ver.size();\n(void)len;\n// Validation: Only reads the reference within stub scope and keeps hunspell alive; safe usage of returned ref."
+    },
+    {
+      "name": "Hunspell::get_langnum",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Query language-related number; semantics unspecified but requires a live instance.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nint v = hunspell->get_langnum();\n// Lightly use the value to ensure it is computed.\nvolatile int sink = v;\n(void)sink;\n// Validation: Enforces alive precondition and treats return value opaquely; no undefined behavior."
+    },
+    {
+      "name": "Hunspell::input_conv",
+      "inputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hunspell",
+          "type": "Hunspell *"
+        }
+      ],
+      "code": "// Convert input according to dictionary rules; dest is provided as writable std::string.\nif (FUZZ_GET_ATTR_INT(hunspell, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string word = FUZZ_PARAM_STR();\nstd::string dest;\nbool ok = hunspell->input_conv(word, dest);\n// Touch outputs regardless of success to exercise code paths.\nvolatile size_t out_len = dest.size();\nvolatile int ok_i = ok ? 1 : 0;\n(void)out_len; (void)ok_i;\n// Validation: Provides valid writable storage for dest and accepts both success/failure without asserting; object remains alive."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "Hunspell::free_list",
+      "reason": "Requires freeing lists allocated by deprecated C-style APIs not targeted here; without allocating such lists in this harness, valid invocation cannot be ensured."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "guessword::guessword",
+      "data_types": []
+    },
+    {
+      "name": "patentry::patentry",
+      "data_types": []
+    },
+    {
+      "name": "w_char::operator unsigned short",
+      "data_types": []
+    },
+    {
+      "name": "operator<",
+      "data_types": []
+    },
+    {
+      "name": "operator==",
+      "data_types": []
+    },
+    {
+      "name": "operator!=",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell_destroy",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell_get_dic_encoding",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::~Hunspell",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_dict_encoding",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_dic_encoding",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_wordchars",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_wordchars_cpp",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_wordchars_utf16",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_csconv",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_version",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_version_cpp",
+      "data_types": []
+    },
+    {
+      "name": "Hunspell::get_langnum",
+      "data_types": []
+    },
+    {
+      "name": "HUNSPELL_WARNING",
+      "data_types": [
+        "generic text string"
+      ]
+    },
+    {
+      "name": "Hunspell_create",
+      "data_types": [
+        "affix file",
+        "dictionary file"
+      ]
+    },
+    {
+      "name": "Hunspell_create_key",
+      "data_types": [
+        "affix file",
+        "dictionary file",
+        "generic text string"
+      ]
+    },
+    {
+      "name": "Hunspell_add_dic",
+      "data_types": [
+        "dictionary file"
+      ]
+    },
+    {
+      "name": "Hunspell_spell",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_suggest",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_suffix_suggest",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_analyze",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_stem",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_stem2",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_generate",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_generate2",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_add",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_add_with_flags",
+      "data_types": [
+        "word string",
+        "affix flags string",
+        "morphological description string"
+      ]
+    },
+    {
+      "name": "Hunspell_add_with_affix",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_remove",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell_free_list",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::Hunspell",
+      "data_types": [
+        "affix file",
+        "dictionary file",
+        "generic text string"
+      ]
+    },
+    {
+      "name": "Hunspell::add_dic",
+      "data_types": [
+        "dictionary file",
+        "generic text string"
+      ]
+    },
+    {
+      "name": "Hunspell::spell",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::suggest",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::suffix_suggest",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::analyze",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::stem",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::generate",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::add",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::add_with_flags",
+      "data_types": [
+        "word string",
+        "affix flags string",
+        "morphological description string"
+      ]
+    },
+    {
+      "name": "Hunspell::add_with_affix",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::remove",
+      "data_types": [
+        "word string"
+      ]
+    },
+    {
+      "name": "Hunspell::input_conv",
+      "data_types": [
+        "word string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "affix file",
+      "description": "A Hunspell .aff file containing affix rules, encodings, and configuration for a dictionary. It is a text file with key-value directives and rule tables."
+    },
+    {
+      "data_type": "dictionary file",
+      "description": "A Hunspell .dic file containing dictionary entries with optional flags. Typically a text file where each line is a word optionally followed by flag markers."
+    },
+    {
+      "data_type": "word string",
+      "description": "An input word to be checked, analyzed, stemmed, or used as a base for suggestions/generation. Should be encoded according to the dictionary’s encoding (often UTF-8). May be any arbitrary text string."
+    },
+    {
+      "data_type": "affix flags string",
+      "description": "A string encoding affix flags for Hunspell dictionaries. The exact format depends on the dictionary’s FLAG setting (e.g., ASCII letters, UTF-8 strings, long flags). Used to control affix behavior for a word."
+    },
+    {
+      "data_type": "morphological description string",
+      "description": "A string describing morphological features per Hunspell dictionary conventions (e.g., key:value pairs like is:plural). Used by analyze/generate functions to specify or interpret morphology."
+    },
+    {
+      "data_type": "generic text string",
+      "description": "A free-form text string with no specific required format, used for messages or keys where the content is not validated by format parsers."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "affix file",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for a minimal yet valid Hunspell .aff file. The fuzzer provides two filenames:\n# - affpath: should point to a valid-looking .aff text\n# - dpath: points to random data, but handle creation typically requires a coherent pair.\n# Our task is only to provide a buffer for FUZZ_PARAM_FILENAME/FUZZ_PARAM_STR initial data.\n# We will emit a plausible .aff file content that Hunspell can parse, covering a range of\n# features: SET/FLAG/TRY/WORDCHARS/COMPOUNDMIN/AF/AM/ICONV/OCONV/REP/KEEPCASE/NEEDAFFIX\n# and some affix rules (PFX/SFX), plus MAP. Keep size under 4 KiB.\n# The content is deterministic with seed but varies to explore paths.\n\nENCODINGS = [\n    \"UTF-8\",\n    \"ISO8859-1\",\n    \"ISO8859-2\",\n    \"KOI8-R\",\n    \"CP1252\",\n]\n\nFLAG_STYLES = [\"UTF-8\", \"long\", \"num\", \"ascii\"]  # ascii ~ char\n# Hunspell recognizes FLAG long|num|utf-8|compound (varies by version). We'll stick to common ones.\n\nTRY_SETS = [\n    \"etaoinshrdlucmfwypvbgkqjxz\",\n    \"abcdefghijklmnopqrstuvwxyz'\",\n    \"abcdefghijklmnopqrstuvwxyz-\",\n]\n\nWORDCHARS_SETS = [\n    \"'\",\n    \"-\",\n    \"'’-\",\n    \"0123456789'\",\n]\n\n# Some simple ICONV/OCONV pairs to exercise conversion tables\nICONV_PAIRS = [\n    (\"\\u2019\", \"'\"),  # right single quote to ASCII\n    (\"\\u00E9\", \"e\"),  # e-acute to e\n]\n\nOCONV_PAIRS = [\n    (\"ss\", \"ß\"),\n    (\"ae\", \"ä\"),\n]\n\n# Replacement table examples\nREP_PAIRS = [\n    (\"teh\", \"the\"),\n    (\"recieve\", \"receive\"),\n    (\"adress\", \"address\"),\n]\n\n# MAP groups: characters considered equivalent for suggestions\nMAP_GROUPS = [\n    \"oöôóò\",\n    \"aäâáà\",\n    \"eéèêë\",\n]\n\n\ndef choose(rng: random.Random, arr: List[str]):\n    return rng.choice(arr)\n\n\ndef emit_header(rng: random.Random):\n    enc = choose(rng, ENCODINGS)\n    # Favor common flag styles; avoid exotic ones for compatibility.\n    flag = choose(rng, [\"long\", \"num\"]) if enc != \"UTF-8\" else choose(rng, [\"UTF-8\", \"long\", \"num\"]) \n    tryset = choose(rng, TRY_SETS)\n    wordchars = choose(rng, WORDCHARS_SETS)\n    lines = []\n    lines.append(f\"SET {enc}\")\n    lines.append(f\"FLAG {flag}\")\n    lines.append(f\"TRY {tryset}\")\n    lines.append(f\"WORDCHARS {wordchars}\")\n    # Some common dictionary knobs\n    lines.append(f\"COMPOUNDMIN {rng.randint(2, 5)}\")\n    lines.append(f\"CHECKCOMPOUNDCASE {rng.randint(0,1)}\")\n    lines.append(f\"KEEPCASE\")\n    lines.append(f\"NEEDAFFIX X\")  # Define a needaffix flag used by some entries\n    return lines\n\n\ndef emit_conv_tables(rng: random.Random):\n    lines = []\n    # ICONV\n    ic = rng.randint(1, len(ICONV_PAIRS))\n    lines.append(f\"ICONV {ic}\")\n    for i in range(ic):\n        a, b = ICONV_PAIRS[i]\n        lines.append(f\"ICONV {a} {b}\")\n    # OCONV\n    oc = rng.randint(1, len(OCONV_PAIRS))\n    lines.append(f\"OCONV {oc}\")\n    for i in range(oc):\n        a, b = OCONV_PAIRS[i]\n        lines.append(f\"OCONV {a} {b}\")\n    return lines\n\n\ndef emit_rep_table(rng: random.Random):\n    n = rng.randint(1, len(REP_PAIRS))\n    lines = [f\"REP {n}\"]\n    for i in range(n):\n        a, b = REP_PAIRS[i]\n        lines.append(f\"REP {a} {b}\")\n    return lines\n\n\ndef emit_map_table(rng: random.Random):\n    n = rng.randint(1, len(MAP_GROUPS))\n    lines = [f\"MAP {n}\"]\n    for i in range(n):\n        grp = MAP_GROUPS[i]\n        lines.append(f\"MAP {grp}\")\n    return lines\n\n\ndef emit_affix_block(rng: random.Random, kind: str):\n    # Emit a minimal PFX/SFX rule set.\n    # Format:\n    # KIND <flag> Y/N <count>\n    # KIND <flag> <cond> <strip> <add> <morph>\n    lines = []\n    # Choose a flag symbol depending on FLAG style; we will use simple letters/numbers.\n    # Use A and B for prefixes, X and Y for suffixes to avoid overlap.\n    if kind == 'PFX':\n        flag = 'A'\n        count = 2\n        lines.append(f\"PFX {flag} Y {count}\")\n        # Rule 1: add re- at beginning when word starts with vowel\n        lines.append(\"PFX A 0 re .\")\n        # Rule 2: strip 'un' then add 'in' for alternative negative form\n        lines.append(\"PFX A un in .\")\n    else:\n        flag = 'B'\n        count = 3\n        lines.append(f\"SFX {flag} Y {count}\")\n        # plural: add s if ends with consonant\n        lines.append(\"SFX B 0 s [^aeiouy].*\")\n        # past tense: add ed if ends with non-e\n        lines.append(\"SFX B 0 ed [^e].*\")\n        # comparative: add er for adjectives\n        lines.append(\"SFX B 0 er .*\")\n    return lines\n\n\ndef emit_af_am_blocks(rng: random.Random):\n    # AF: affix flag groups; AM: morphological data classes\n    lines = []\n    # Define two AF groups referencing our A/B flags\n    lines.append(\"AF 2\")\n    lines.append(\"AF A\")\n    lines.append(\"AF B\")\n    # AM: basic POS tags to exercise morph parser\n    lines.append(\"AM 3\")\n    lines.append(\"AM pos:NOUN\")\n    lines.append(\"AM pos:VERB\")\n    lines.append(\"AM pos:ADJ\")\n    return lines\n\n\ndef emit_try_extra(rng: random.Random):\n    # Extra knobs touching suggestion/generation\n    lines = []\n    lines.append(f\"MAXDIFF {rng.randint(1, 5)}\")\n    lines.append(f\"CHECKNUM {rng.randint(0,1)}\")\n    return lines\n\n\ndef build_aff(seed: int) -> str:\n    rng = random.Random(seed)\n    parts = []\n    parts.extend(emit_header(rng))\n    parts.extend(emit_conv_tables(rng))\n    parts.extend(emit_rep_table(rng))\n    parts.extend(emit_map_table(rng))\n    parts.extend(emit_af_am_blocks(rng))\n    parts.extend(emit_try_extra(rng))\n    parts.extend(emit_affix_block(rng, 'PFX'))\n    parts.extend(emit_affix_block(rng, 'SFX'))\n    text = \"\\n\".join(parts) + \"\\n\"\n    # Ensure size limit\n    if len(text.encode('utf-8')) > 4096:\n        text = text[:4000]\n    return text\n\n\ndef generate(seed: int) -> bytes:\n    # Produce a valid .aff file content as bytes, encoded in UTF-8.\n    # The fuzzing harness will place this into a temp file for FUZZ_PARAM_FILENAME.\n    aff_text = build_aff(seed)\n    return aff_text.encode('utf-8')\n"
+    },
+    {
+      "data_type": "dictionary file",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Hunspell .dic basics (generic, dictionary-agnostic):\n# - First non-empty line is usually an integer count of entries that follow (affects some implementations).\n# - Each following line is a word, optionally followed by flags after a separator (e.g., / or \\t with key-value morphs).\n# - Words may include Unicode; but plain ASCII is widely accepted.\n# - Flags format varies (UTF-8, long, numeric, etc.). We will generate several plausible styles while\n#   keeping the file valid text and self-consistent with the count.\n# - For encrypted dictionaries, content may be ignored by loader unless accompanied by correct key.\n#   We still produce syntactically reasonable plaintext entries.\n#\n# Goals for fuzzer inputs:\n# - Small, valid-looking .dic files of varying sizes.\n# - Include variety of word forms: ASCII, mixed case, apostrophes, hyphens, diacritics.\n# - Include optional flags using common separators and styles to exercise parsing paths.\n# - Keep size under 4096 bytes.\n\nMAX_BYTES = 4096\n\nASCII_LETTERS = string.ascii_lowercase\nASCII_UPPER = string.ascii_uppercase\nASCII_ALPHA = ASCII_LETTERS + ASCII_UPPER\nALNUM = ASCII_ALPHA + string.digits\n\n# Some common diacritics to simulate UTF-8 words (encoded directly in source as UTF-8)\nDIACRITICS = [\n    \"á\", \"é\", \"í\", \"ó\", \"ú\", \"ñ\", \"ü\", \"ç\", \"ő\", \"ű\", \"ā\", \"ē\", \"ī\", \"ō\", \"ū\",\n    \"ß\", \"ø\", \"å\", \"ä\", \"ö\", \"œ\"\n]\n\n# Common flag styles used by various aff formats:\n#  - slash + letters: word/AB\n#  - slash + mixed: word/abC\n#  - tab-separated morph fields: word\\tpos:noun\\tfoo:bar\n#  - numeric flags (sometimes): word/123\n#  - long flags comma-separated (when FLAG long): word/flag1,flag2\nFLAG_LETTERS = list(string.ascii_letters)\nMORPH_KEYS = [\n    \"pos\", \"tense\", \"case\", \"num\", \"deriv\", \"dial\", \"field\", \"phon\", \"alt\"\n]\nMORPH_VALS = [\n    \"noun\", \"verb\", \"adj\", \"adv\", \"sg\", \"pl\", \"past\", \"pres\", \"dat\", \"gen\", \"fml\", \"colloq\"\n]\n\ndef rand_word(rng: random.Random) -> str:\n    # Mix of styles: plain, hyphenated, apostrophe, with diacritics, camel case.\n    style = rng.choice([\"plain\", \"hyphen\", \"apos\", \"diac\", \"camel\", \"caps\"])\n    base_len = rng.randint(2, 12)\n    def base_ascii(n: int) -> str:\n        return ''.join(rng.choice(ASCII_LETTERS) for _ in range(n))\n    if style == \"plain\":\n        return base_ascii(base_len)\n    if style == \"hyphen\":\n        left = base_ascii(rng.randint(2, max(2, base_len-1)))\n        right = base_ascii(rng.randint(2, 8))\n        return f\"{left}-{right}\"\n    if style == \"apos\":\n        left = base_ascii(rng.randint(2, max(2, base_len-1)))\n        right = base_ascii(rng.randint(1, 5))\n        return f\"{left}'{right}\"\n    if style == \"diac\":\n        pieces = []\n        for _ in range(base_len):\n            if rng.random() < 0.25:\n                pieces.append(rng.choice(DIACRITICS))\n            else:\n                pieces.append(rng.choice(ASCII_LETTERS))\n        return ''.join(pieces)\n    if style == \"camel\":\n        word = base_ascii(base_len)\n        idx = rng.randint(1, base_len-1)\n        return word[:idx] + word[idx:].capitalize()\n    if style == \"caps\":\n        return ''.join(rng.choice(ASCII_UPPER) for _ in range(base_len))\n    return base_ascii(base_len)\n\ndef rand_flags(rng: random.Random) -> str:\n    mode = rng.choice([\"slash_letters\", \"slash_mix\", \"numeric\", \"longflags\", \"morph\", \"none\"])  # include none, occasionally\n    if mode == \"none\":\n        return \"\"\n    if mode == \"slash_letters\":\n        k = rng.randint(1, 4)\n        flags = ''.join(rng.choice(FLAG_LETTERS[:26]) for _ in range(k))\n        return \"/\" + flags\n    if mode == \"slash_mix\":\n        k = rng.randint(2, 6)\n        flags = ''.join(rng.choice(FLAG_LETTERS) for _ in range(k))\n        return \"/\" + flags\n    if mode == \"numeric\":\n        num = rng.randint(1, 9999)\n        return f\"/{num}\"\n    if mode == \"longflags\":\n        parts = [\"flag\" + str(rng.randint(1, 50)) for _ in range(rng.randint(1, 4))]\n        return \"/\" + \",\".join(parts)\n    if mode == \"morph\":\n        # Produce one or more tab-separated key:val fields\n        n = rng.randint(1, 4)\n        fields = []\n        used_keys = set()\n        for _ in range(n):\n            key = rng.choice(MORPH_KEYS)\n            if key in used_keys:\n                continue\n            used_keys.add(key)\n            val = rng.choice(MORPH_VALS)\n            fields.append(f\"{key}:{val}\")\n        return \"\\t\" + \"\\t\".join(fields) if fields else \"\"\n    return \"\"\n\ndef make_dic_lines(rng: random.Random, n: int) -> List[str]:\n    lines: List[str] = []\n    for _ in range(n):\n        w = rand_word(rng)\n        f = rand_flags(rng)\n        lines.append(w + f)\n    return lines\n\ndef choose_entry_count(rng: random.Random) -> int:\n    # Skew towards small but include some medium sizes\n    choices = [1, 2, 3, 5, 8, 10, 16, 20, 32]\n    weights = [12, 10, 8, 6, 5, 4, 3, 2, 1]\n    return rng.choices(choices, weights=weights, k=1)[0]\n\ndef maybe_header_count(rng: random.Random, count: int) -> str:\n    # Most .dic begin with the count as the first line; include this often\n    if rng.random() < 0.85:\n        return str(count)\n    # Occasionally omit to exercise tolerant parsers\n    return \"\"\n\ndef build_dic(rng: random.Random) -> bytes:\n    # Generate entries, then ensure size bound\n    count = choose_entry_count(rng)\n    lines = make_dic_lines(rng, count)\n\n    header = maybe_header_count(rng, count)\n    out_lines: List[str] = []\n    if header:\n        out_lines.append(header)\n    out_lines.extend(lines)\n\n    data = (\"\\n\".join(out_lines) + \"\\n\").encode(\"utf-8\")\n\n    # Ensure max size; if too big, reduce entries\n    if len(data) > MAX_BYTES:\n        # Trim lines conservatively\n        # Keep header if present, then truncate entry list\n        start_idx = 1 if header else 0\n        kept: List[str] = out_lines[:start_idx]\n        for line in out_lines[start_idx:]:\n            candidate = (\"\\n\".join(kept + [line]) + \"\\n\").encode(\"utf-8\")\n            if len(candidate) > MAX_BYTES:\n                break\n            kept.append(line)\n        data = (\"\\n\".join(kept) + \"\\n\").encode(\"utf-8\")\n    return data\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Occasionally craft special cases to trigger branches:\n    special = rng.random()\n    if special < 0.10:\n        # Minimal dictionary with explicit count and simple entries\n        lines = [\n            \"3\",\n            \"a\",\n            \"I\",\n            \"co-operate/AB\"\n        ]\n        return (\"\\n\".join(lines) + \"\\n\").encode(\"utf-8\")\n    elif special < 0.18:\n        # Morphology-heavy entries\n        lines = [\n            \"5\",\n            \"run\\tpos:verb\\ttense:pres\",\n            \"ran\\tpos:verb\\ttense:past\",\n            \"runner\\tpos:noun\\tnum:sg\",\n            \"runners\\tpos:noun\\tnum:pl\",\n            \"running/ING\\tpos:verb\"\n        ]\n        return (\"\\n\".join(lines) + \"\\n\").encode(\"utf-8\")\n    elif special < 0.24:\n        # Diacritics rich entries\n        lines = [\n            \"4\",\n            \"café\",\n            \"fiancée\",\n            \"straße\",\n            \"jalapeño/AB\"\n        ]\n        return (\"\\n\".join(lines) + \"\\n\").encode(\"utf-8\")\n    elif special < 0.30:\n        # Long flags style\n        lines = [\n            \"4\",\n            \"color/flag1,flag2\",\n            \"colours/flag3\",\n            \"colorize/flag2,flag4\",\n            \"re-color/flag5\"\n        ]\n        return (\"\\n\".join(lines) + \"\\n\").encode(\"utf-8\")\n\n    return build_dic(rng)\n"
+    },
+    {
+      "data_type": "word string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for Hunspell word strings. We want valid, interesting words across\n# typical Hunspell dictionaries. Many builds default to UTF-8; we include\n# ASCII words, mixed-case, hyphenated, apostrophized forms, numerics, and\n# some common accented UTF-8 sequences that appear in dictionaries.\n# The fuzzer stubs consume FUZZ_PARAM_STR multiple times per test case; we\n# will serialize several candidate strings separated by newlines so the\n# harness can slice them as needed.\n\nASCII_LETTERS = string.ascii_letters\nASCII_LOWER = string.ascii_lowercase\nASCII_UPPER = string.ascii_uppercase\nDIGITS = string.digits\nPUNCT_SIMPLE = \"-'\"  # common within words for Hunspell tokenization\nPUNCT_EXTRA = \"._/\"  # sometimes seen in technical terms\n\n# Some common diacritics as UTF-8 (NFC):\nUNICODE_WORDS = [\n    \"café\", \"résumé\", \"naïve\", \"façade\", \"über\", \"coöperate\", \"piñata\",\n    \"jalapeño\", \"São\", \"Łódź\", \"français\", \"niño\", \"smörgåsbord\", \"élève\",\n    \"ångström\", \"München\", \"crème\", \"fiancée\", \"déjà\", \"mañana\",\n]\n\n# Typical affix-affected forms for English-like dictionaries:\nAFFIX_BASES = [\n    \"run\", \"walk\", \"try\", \"carry\", \"study\", \"happy\", \"city\", \"box\",\n    \"match\", \"fix\", \"go\", \"do\", \"play\", \"work\", \"taste\", \"beauty\",\n]\nSUFFIXES = [\"s\", \"es\", \"ed\", \"ing\", \"er\", \"est\", \"ly\", \"ness\", \"ment\"]\nPREFIXES = [\"un\", \"re\", \"pre\", \"non\", \"anti\", \"post\"]\n\n# Hyphenated and apostrophe patterns\nCOMPOUND_PARTS = [\n    \"state\", \"of\", \"the\", \"art\", \"mother\", \"in\", \"law\", \"well\", \"known\",\n    \"part\", \"time\", \"long\", \"term\", \"first\", \"class\"\n]\nAPOSTROPHE_TAILS = [\"s\", \"re\", \"ve\", \"ll\", \"d\", \"m\"]\n\n# Morph description-like snippets sometimes used with generate2/add_with_flags.\n# While exact formats are dictionary dependent, providing plausible tokens is useful.\nMORPH_SNIPPETS = [\n    \"is:plural\", \"po:noun\", \"po:verb\", \"tense:past\", \"case:gen\", \"der:adj\",\n    \"num:sg\", \"num:pl\", \"pos:3rd\", \"comp\", \"sup\"\n]\n\nMAX_TOTAL = 4096\n\n\ndef _rand_word_ascii(rnd: random.Random) -> str:\n    # Diverse ASCII words: lower, upper, mixed, digits within, punctuation\n    styles = [\n        lambda: ''.join(rnd.choice(ASCII_LOWER) for _ in range(rnd.randint(1, 12))),\n        lambda: ''.join(rnd.choice(ASCII_UPPER) for _ in range(rnd.randint(1, 12))),\n        lambda: ''.join(rnd.choice(ASCII_LETTERS) for _ in range(rnd.randint(1, 16))),\n        lambda: ''.join(rnd.choice(ASCII_LOWER + DIGITS) for _ in range(rnd.randint(1, 14))),\n        lambda: ''.join(rnd.choice(ASCII_LETTERS + DIGITS) for _ in range(rnd.randint(1, 14))),\n    ]\n    w = rnd.choice(styles)()\n    # Occasionally insert simple punctuation inside to mimic words\n    if rnd.random() < 0.3 and len(w) > 2:\n        pos = rnd.randint(1, len(w) - 2)\n        w = w[:pos] + rnd.choice(PUNCT_SIMPLE) + w[pos:]\n    if rnd.random() < 0.15 and len(w) > 3:\n        pos = rnd.randint(1, len(w) - 2)\n        w = w[:pos] + rnd.choice(PUNCT_EXTRA) + w[pos:]\n    return w\n\n\ndef _rand_unicode_word(rnd: random.Random) -> str:\n    return rnd.choice(UNICODE_WORDS)\n\n\ndef _rand_affixed(rnd: random.Random) -> str:\n    base = rnd.choice(AFFIX_BASES)\n    # Y-change or doubling rules can be exercised by forming typical variants\n    # Occasionally apply prefix\n    if rnd.random() < 0.5:\n        base = rnd.choice(PREFIXES) + base\n    # Suffix chain: 1-2 suffixes\n    suf_chain: List[str] = []\n    for _ in range(rnd.randint(1, 2)):\n        suf_chain.append(rnd.choice(SUFFIXES))\n    return base + ''.join(suf_chain)\n\n\ndef _rand_compound(rnd: random.Random) -> str:\n    n = rnd.randint(2, 4)\n    parts = [rnd.choice(COMPOUND_PARTS) for _ in range(n)]\n    s = '-'.join(parts)\n    if rnd.random() < 0.4:\n        s += \"'\" + rnd.choice(APOSTROPHE_TAILS)\n    return s\n\n\ndef _rand_numeric_word(rnd: random.Random) -> str:\n    # Words with numbers; also \"version-like\"\n    patterns = [\n        lambda: f\"{rnd.randint(0,9999)}\",\n        lambda: f\"v{rnd.randint(0,10)}.{rnd.randint(0,20)}\",\n        lambda: f\"RFC{rnd.randint(100,9000)}\",\n        lambda: f\"ISO{rnd.randint(100,9999)}-{rnd.randint(1,20)}\",\n    ]\n    return rnd.choice(patterns)()\n\n\ndef _rand_apostrophe(rnd: random.Random) -> str:\n    stem = ''.join(rnd.choice(ASCII_LOWER) for _ in range(rnd.randint(2, 8)))\n    return stem + \"'\" + rnd.choice(APOSTROPHE_TAILS)\n\n\ndef _rand_morph_desc(rnd: random.Random) -> str:\n    # Join a few morph snippets with commas or spaces to look plausible.\n    k = rnd.randint(1, 3)\n    sep = ',' if rnd.random() < 0.5 else ' '\n    return sep.join(rnd.sample(MORPH_SNIPPETS, k))\n\n\ndef _catalog(rnd: random.Random) -> List[str]:\n    # Build a pool of strings to satisfy multiple FUZZ_PARAM_STR consumers in a run.\n    items: List[str] = []\n    # Ensure some non-empty default fallbacks the stubs use\n    items.extend([\"a\", \"x\", \"y\", \"word\", \"root\", \"morph\", \"alpha\", \"beta\", \"gamma\", \"delta\", \"newword\", \"wf\", \"example\", \"rm\", \"free\"]) \n\n    # Add a mix of generated words\n    gens = [\n        _rand_word_ascii,\n        _rand_unicode_word,\n        _rand_affixed,\n        _rand_compound,\n        _rand_numeric_word,\n        _rand_apostrophe,\n    ]\n    for _ in range(rnd.randint(12, 24)):\n        items.append(rnd.choice(gens)(rnd))\n\n    # Also include some plausible flags/desc strings for add_with_flags\n    items.append(''.join(rnd.choice(string.ascii_uppercase) for _ in range(rnd.randint(1, 4))))\n    items.append(_rand_morph_desc(rnd))\n\n    # Deduplicate while preserving order\n    seen = set()\n    out: List[str] = []\n    for s in items:\n        if s not in seen:\n            seen.add(s)\n            out.append(s)\n    return out\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Build a newline-separated corpus of candidate strings.\n    strs = _catalog(rnd)\n\n    # To help APIs expecting multiple FUZZ_PARAM_STR calls, provide more entries\n    # by lightly expanding the set with case variants and suffix tweaks, but keep valid.\n    expanded: List[str] = []\n    for s in strs:\n        expanded.append(s)\n        if s.isalpha():\n            if rnd.random() < 0.4:\n                expanded.append(s.capitalize())\n            if rnd.random() < 0.3:\n                expanded.append(s.upper())\n        if len(s) <= 10 and s.isalpha() and rnd.random() < 0.3:\n            expanded.append(s + 's')\n    # Truncate to keep within size budget when joined\n    joined = '\\n'.join(expanded)\n    b = joined.encode('utf-8')\n    if len(b) > MAX_TOTAL:\n        # Trim to limit. Ensure we do not cut mid-UTF-8 by backing up to a newline boundary if possible.\n        cut = MAX_TOTAL\n        nl = b.rfind(b'\\n', 0, cut)\n        if nl != -1 and nl > 0:\n            cut = nl\n        b = b[:cut]\n    return b\n"
+    },
+    {
+      "data_type": "affix flags string",
+      "generator": "import random\nimport struct\nimport itertools\n\n# Generator for Hunspell \"affix flags string\" use-cases in add_with_flags APIs.\n# We want valid-looking tuples of (word, flags, desc) concatenated into one buffer\n# that fuzzer splits via FUZZ_PARAM_STR calls. Since the harness calls FUZZ_PARAM_STR\n# three times (word, flags, desc), common fuzzing frameworks split the initial buffer\n# on NULs or newlines. We'll produce a single bytes buffer with three NUL-separated\n# UTF-8 strings: word\\0flags\\0desc. This keeps inputs valid and distinct.\n#\n# Objectives:\n# - word: typical dictionary words, mixed case, diacritics, hyphenation, apostrophes.\n# - flags: cover common FLAG modes: ASCII single-letter sets, numeric IDs, UTF-8 long flags.\n# - desc: plausible morphological descriptions seen in hunspell dicts (e.g., is:plural, po:verb).\n#\n# Size limit: under 4096 bytes.\n\nASCII_WORDS = [\n    \"test\", \"testing\", \"color\", \"colour\", \"analyze\", \"analyse\",\n    \"resume\", \"cafe\", \"naive\", \"cooperate\", \"reenter\", \"e-mail\",\n    \"email\", \"foo\", \"bar\", \"baz\", \"qux\", \"mother-in-law\",\n    \"O'Connor\", \"don't\", \"it's\", \"they're\", \"child\", \"children\",\n]\n\nUNICODE_WORDS = [\n    \"café\", \"naïve\", \"façade\", \"élève\", \"niño\", \"über\", \"straße\",\n    \"résumé\", \"coöperate\", \"São\", \"İstanbul\", \"Łódź\", \"Αθήνα\",\n    \"Москва\", \"東京\", \"مكتبة\", \"हिन्दी\", \"ไทย\", \"한국어\",\n]\n\n# Flag formats to exercise:\n# - Classic single-letter flags (e.g., \"A\", \"AB\", \"XyZ\").\n# - Comma-separated numeric flags for NUM flag type (e.g., \"12,34,256\").\n# - Long flags (UTF-8 strings) space-separated.\n# - Mixed case and duplicates.\nFLAG_LETTER_SETS = [\n    \"A\", \"AB\", \"ABC\", \"XZ\", \"a\", \"ab\", \"AbC\", \"AEIOU\", \"RSTLNE\",\n]\n\nFLAG_NUMERIC_SETS = [\n    \"1\", \"12,34\", \"5,6,7\", \"10,200,4095\", \"1024,2048\", \"255,256,257\",\n]\n\nFLAG_LONG_SETS = [\n    \"PLURAL\", \"VERB PAST\", \"GERUND\", \"NOUN MASC\", \"FEM\", \"DIMINUTIVE\",\n    \"COMPARATIVE SUPERLATIVE\", \"PREFIXABLE SUFFIXABLE\",\n]\n\n# Morphological description patterns often contain key:value pairs separated by spaces.\nDESC_TEMPLATES = [\n    \"is:plural\",\n    \"po:noun\",\n    \"po:verb tense:past\",\n    \"po:adj degree:comp\",\n    \"is:proper is:forbidden\",\n    \"morph:root=%s\",  # will substitute a base form\n    \"deriv:suffix=ness po:noun\",\n    \"deriv:prefix=re po:verb\",\n    \"lang:en\",\n]\n\n# Some base roots for descriptions\nROOTS = [\n    \"test\", \"color\", \"analyse\", \"resume\", \"cafe\", \"run\", \"big\",\n]\n\n# Helper to assemble flags according to a chosen style\n\ndef make_flags(rng: random.Random) -> str:\n    style = rng.choice([\"letters\", \"numeric\", \"long\", \"letters\", \"numeric\"])  # bias to common\n    if style == \"letters\":\n        base = rng.choice(FLAG_LETTER_SETS)\n        # Occasionally shuffle and deduplicate\n        chars = list(base)\n        rng.shuffle(chars)\n        # allow repeats sometimes\n        if rng.random() < 0.3:\n            chars = chars + chars[: rng.randint(0, max(0, len(chars) - 1))]\n        return \"\".join(chars)\n    elif style == \"numeric\":\n        base = rng.choice(FLAG_NUMERIC_SETS)\n        # maybe append one value in range [1,4095]\n        if rng.random() < 0.4:\n            extra = str(rng.randint(1, 4095))\n            return base + \",\" + extra\n        return base\n    else:  # long\n        base = rng.choice(FLAG_LONG_SETS)\n        # maybe add another token\n        if rng.random() < 0.5:\n            base += \" \" + rng.choice(FLAG_LONG_SETS).split(\" \")[0]\n        return base\n\n# Helper to assemble a plausible word\n\ndef make_word(rng: random.Random) -> str:\n    choice = rng.random()\n    if choice < 0.55:\n        w = rng.choice(ASCII_WORDS)\n    elif choice < 0.9:\n        w = rng.choice(UNICODE_WORDS)\n    else:\n        # Construct hyphenated or apostrophe variant\n        left = rng.choice(ASCII_WORDS + UNICODE_WORDS)\n        right = rng.choice(ASCII_WORDS + UNICODE_WORDS)\n        sep = rng.choice([\"-\", \"'\", \"’\"])\n        w = left + sep + right\n    # Case variations\n    mode = rng.randint(0, 3)\n    if mode == 1:\n        w = w.capitalize()\n    elif mode == 2:\n        w = w.upper()\n    elif mode == 3:\n        # Title-like for hyphenated\n        w = \"-\".join([p.capitalize() for p in w.split(\"-\")])\n    return w\n\n# Helper for morphological description\n\ndef make_desc(rng: random.Random, base_word: str) -> str:\n    tmpl = rng.choice(DESC_TEMPLATES)\n    if \"%s\" in tmpl:\n        root = rng.choice(ROOTS + [base_word.lower()])\n        desc = tmpl % root\n    else:\n        desc = tmpl\n    # Randomly add another kv pair\n    if rng.random() < 0.4:\n        extra = rng.choice([\n            \"tense:pres\", \"tense:past\", \"num:sg\", \"num:pl\", \"case:gen\",\n            \"degree:super\", \"is:forbidden\", \"is:keepcase\",\n        ])\n        desc = desc + \" \" + extra\n    return desc\n\n# Assemble into NUL-separated strings; this aligns well with common FUZZ_PARAM_STR conventions.\n\ndef assemble_buffer(word: str, flags: str, desc: str) -> bytes:\n    # Ensure non-empty strings per stub fallback logic so we keep our intended values.\n    if not word:\n        word = \"wf\"\n    if not flags:\n        flags = \"A\"\n    # The C stub for C API enforces non-empty desc via fallback; C++ stub may use empty.\n    # We keep desc possibly empty to exercise that path.\n    parts = [word, flags, desc]\n    # Join with NUL; terminate with NUL to help frameworks that read sequentially.\n    data = \"\\0\".join(parts) + \"\\0\"\n    b = data.encode(\"utf-8\")\n    # Cap to 4096 bytes; if exceeded, trim desc first\n    if len(b) > 4096:\n        # shorten desc\n        max_desc_bytes = max(0, 4096 - (len((word + \"\\0\" + flags + \"\\0\").encode(\"utf-8\")) + 1))\n        desc_bytes = desc.encode(\"utf-8\")[:max_desc_bytes]\n        b = (word + \"\\0\" + flags + \"\\0\").encode(\"utf-8\") + desc_bytes + b\"\\0\"\n        b = b[:4096]\n    return b\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    word = make_word(rng)\n    flags = make_flags(rng)\n    # Randomly pick empty desc to hit the C++ path where empty string is allowed\n    if rng.random() < 0.35:\n        desc = \"\"\n    else:\n        desc = make_desc(rng, word)\n    return assemble_buffer(word, flags, desc)\n"
+    },
+    {
+      "data_type": "morphological description string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator crafts valid-looking UTF-8 strings intended for Hunspell word,\n# flags, and morphological description parameters, packed into a single bytes\n# buffer. Fuzzer stubs will read FUZZ_PARAM_STR (and possibly an unsigned int)\n# from this buffer when exercising:\n#  - Hunspell_add_with_flags (C API)\n#  - Hunspell::add_with_flags (C++ API)\n# The stubs expect up to three strings (word, flags, desc), and in the C++ stub\n# an unsigned int selector precedes desc. We will encode a simple length-prefixed\n# sequence that typical fuzz harnesses accept: [count][entries...], where each\n# entry is [u16 length][data]. We also include an optional 4-byte selector after\n# the first two strings for the C++ stub.\n#\n# Strings generated aim to be valid per Hunspell expectations:\n#  - word: alphabetic ASCII and some Unicode letters, plus hyphen/apos; lengths vary.\n#  - flags: sequences typical for Hunspell aff flags: single letters, multi-letters,\n#           or long-form like KEY=VALUE lists; includes ASCII uppercase that many\n#           dictionaries use.\n#  - desc: morphological description strings like \"is:plural\", \"pos:noun\",\n#          \"tense:past\", possibly with multiple semicolon-separated fields.\n#\n# Total buffer limited to <= 4096 bytes.\n\nMAX_BUF = 4096\n\nASCII_LETTERS = string.ascii_letters\nWORD_PUNCT = \"-'\"\nUNICODE_LETTERS = [\n    \"á\", \"é\", \"í\", \"ó\", \"ú\", \"ñ\", \"ç\", \"å\", \"ø\", \"ä\", \"ö\", \"ü\", \"ß\",\n    \"ā\", \"ē\", \"ī\", \"ō\", \"ū\", \"ă\", \"ș\", \"ț\", \"œ\", \"Æ\", \"æ\"\n]\n\nMORPH_KEYS = [\n    \"is\", \"pos\", \"tense\", \"number\", \"case\", \"gender\", \"degree\", \"mood\",\n    \"person\", \"voice\", \"deriv\", \"class\", \"dialect\"\n]\nMORPH_VALS = {\n    \"is\": [\"plural\", \"past\", \"gerund\", \"comparative\", \"superlative\", \"proper\"],\n    \"pos\": [\"noun\", \"verb\", \"adj\", \"adv\", \"pron\", \"det\"],\n    \"tense\": [\"present\", \"past\", \"future\"],\n    \"number\": [\"sg\", \"pl\"],\n    \"case\": [\"nom\", \"acc\", \"gen\", \"dat\", \"abl\", \"loc\", \"ins\", \"voc\"],\n    \"gender\": [\"m\", \"f\", \"n\", \"c\"],\n    \"degree\": [\"pos\", \"comp\", \"sup\"],\n    \"mood\": [\"ind\", \"subj\", \"imp\"],\n    \"person\": [\"1\", \"2\", \"3\"],\n    \"voice\": [\"act\", \"pass\"],\n    \"deriv\": [\"agent\", \"dimin\", \"augment\", \"collect\"],\n    \"class\": [\"weak\", \"strong\", \"irreg\"],\n    \"dialect\": [\"us\", \"uk\", \"ca\", \"au\"]\n}\n\n# Flag styles typical in Hunspell dictionaries\nFLAG_STYLES = [\n    \"single\",      # single uppercase letter\n    \"multi\",       # short string of uppercase letters\n    \"num\",         # numeric flags as decimal, comma separated\n    \"keyvals\",     # KEY=VALUE;KEY=VALUE style\n    \"utf\",         # include some non-ASCII just to exercise paths\n]\n\n\ndef _rand_choice(rng: random.Random, seq: List[str]):\n    return seq[rng.randrange(len(seq))]\n\n\ndef gen_word(rng: random.Random) -> str:\n    # Generate a plausible word with letters, apostrophes, hyphens and some unicode.\n    parts = []\n    syllables = rng.randint(1, 4)\n    for s in range(syllables):\n        base_len = rng.randint(2, 6)\n        chunk = []\n        for _ in range(base_len):\n            if rng.random() < 0.12:\n                chunk.append(_rand_choice(rng, UNICODE_LETTERS))\n            else:\n                # Bias toward lowercase alpha\n                ch = rng.choice(string.ascii_lowercase)\n                chunk.append(ch)\n        parts.append(\"\".join(chunk))\n    word = \"-\".join(parts) if rng.random() < 0.2 else \"\".join(parts)\n    # Occasionally add an apostrophe suffix like English possessive\n    if rng.random() < 0.15:\n        word += \"'s\"\n    # Capitalize sometimes to simulate proper nouns\n    if rng.random() < 0.2 and word:\n        word = word[0].upper() + word[1:]\n    return word[:128] if len(word) > 128 else word\n\n\ndef gen_flags(rng: random.Random) -> str:\n    style = _rand_choice(rng, FLAG_STYLES)\n    if style == \"single\":\n        return rng.choice(string.ascii_uppercase)\n    if style == \"multi\":\n        n = rng.randint(2, 6)\n        return \"\".join(rng.choice(string.ascii_uppercase) for _ in range(n))\n    if style == \"num\":\n        n = rng.randint(1, 5)\n        nums = [str(rng.randint(1, 2048)) for _ in range(n)]\n        return \",\".join(nums)\n    if style == \"keyvals\":\n        n = rng.randint(1, 4)\n        kvs = []\n        for _ in range(n):\n            key = \"\".join(rng.choice(string.ascii_uppercase) for _ in range(rng.randint(1, 3)))\n            val = \"\".join(rng.choice(string.ascii_uppercase + string.digits) for _ in range(rng.randint(1, 4)))\n            kvs.append(f\"{key}={val}\")\n        return \";\".join(kvs)\n    # utf style\n    n = rng.randint(1, 4)\n    return \"\".join(rng.choice(string.ascii_uppercase) + _rand_choice(rng, UNICODE_LETTERS) for _ in range(n))\n\n\ndef gen_morph_desc(rng: random.Random) -> str:\n    # Create one or more key:value pairs separated by semicolons.\n    n = rng.randint(1, 5)\n    fields = []\n    for _ in range(n):\n        key = _rand_choice(rng, MORPH_KEYS)\n        vals = MORPH_VALS.get(key, [\"x\"])  # fallback safe\n        val = _rand_choice(rng, vals)\n        fields.append(f\"{key}:{val}\")\n    # Occasionally add an extra attribute with equals or plus forms seen in some dicts\n    if rng.random() < 0.2:\n        fields.append(f\"stem={gen_word(rng)}\")\n    if rng.random() < 0.15:\n        fields.append(\"infl:+irreg\")\n    desc = \";\".join(fields)\n    return desc[:256] if len(desc) > 256 else desc\n\n\ndef _u16(n: int) -> bytes:\n    return n.to_bytes(2, \"little\", signed=False)\n\n\ndef _u32(n: int) -> bytes:\n    return n.to_bytes(4, \"little\", signed=False)\n\n\ndef _pack_str(s: str) -> bytes:\n    b = s.encode(\"utf-8\", errors=\"strict\")\n    # length prefix u16; if exceeds, truncate to fit\n    if len(b) > 65535:\n        b = b[:65535]\n    return _u16(len(b)) + b\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build candidate fields\n    word = gen_word(rng)\n    # Ensure non-empty word for C stub fallback path avoidance\n    if not word:\n        word = \"wf\"\n\n    flags = gen_flags(rng)\n    if not flags:\n        flags = \"A\"\n\n    # For the C++ stub, an unsigned int is read to choose empty or fuzzed desc.\n    # We'll include a selector that toggles both possibilities across seeds.\n    selector = rng.getrandbits(32)\n\n    # Choose whether to provide empty or populated desc primarily via selector LSB\n    if selector & 1:\n        desc = \"\"\n    else:\n        desc = gen_morph_desc(rng)\n        if not desc:\n            desc = \"d\"\n\n    # Compose buffer as: count(=3) + word + flags + selector(u32) + desc\n    # Many harnesses read FUZZ_PARAM(unsigned int) directly from the raw stream,\n    # so we place the 4-byte selector right after the first two strings.\n    parts = []\n    parts.append(_u16(3))  # number of string entries logically available\n    parts.append(_pack_str(word))\n    parts.append(_pack_str(flags))\n    parts.append(_u32(selector))\n    parts.append(_pack_str(desc))\n\n    buf = b\"\".join(parts)\n    if len(buf) > MAX_BUF:\n        buf = buf[:MAX_BUF]\n    return buf\n"
+    },
+    {
+      "data_type": "generic text string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets a generic text string used as:\n# - fprintf-like message (potentially containing arbitrary bytes, but safer to keep printable + UTF-8)\n# - Hunspell encrypted-dictionary key (free-form, but interesting keys should include various classes)\n# - Generic paths are provided by FUZZ_PARAM_FILENAME separately, so we only provide string buffers here.\n#\n# Strategy:\n# - Produce a UTF-8-encoded text string with varied structure selected by seed-driven randomness.\n# - Include mixtures of:\n#   * ASCII printable words\n#   * Digits and hex-looking tokens\n#   * Punctuation and format-like sequences (\"%s\", \"%d\", \"%08x\") to exercise fprintf formatting when used as data\n#     (note: in the stubs, our string is used as a data argument, not as the format string, so this is safe)\n#   * Unicode from several blocks (Latin-1, Greek, Cyrillic, Arabic, Devanagari, emoji)\n#   * Edge cases: empty, very short, long but <= 4096 bytes, repeated patterns\n#   * Different line endings and null-like substrings (but avoid embedding NUL since callers use C strings)\n# - Ensure we never include embedded NUL (\"\\x00\") so C APIs see full buffer.\n# - Return the bytes of UTF-8 encoding, bounded to 4096 bytes.\n\nMAX_BYTES = 4096\n\n_ascii_words = [\n    \"hello\", \"world\", \"foo\", \"bar\", \"baz\", \"qux\", \"hunspell\", \"aff\", \"dic\",\n    \"spell\", \"suggest\", \"stem\", \"analyze\", \"generate\", \"add\", \"remove\", \"key\",\n]\n\n_formats = [\"%s\", \"%d\", \"%u\", \"%08x\", \"%#x\", \"%ld\", \"%zu\", \"%%\", \"%p\"]\n\n_hex_chunks = [\n    \"0x\", \"deadbeef\", \"cafebabe\", \"0x12345678\", \"BEEF\", \"DEAD\", \"FEED\", \"FACE\",\n]\n\n_punct = list(\"-_.:,;!?/@#&()+[]{}<>=*^|~$\")\n\n# Some representative Unicode ranges sampled sparsely\n_unicode_samples = (\n    [chr(c) for c in range(0x00A1, 0x00FF)] +  # Latin-1 Supplement (¡..ÿ)\n    [chr(c) for c in range(0x0370, 0x03A2)] +  # Greek\n    [chr(c) for c in range(0x0400, 0x0450)] +  # Cyrillic\n    [chr(c) for c in range(0x0600, 0x061B)] +  # Arabic subset\n    [chr(c) for c in range(0x0900, 0x0930)] +  # Devanagari subset\n    [\n        \"🙂\", \"😀\", \"😅\", \"👍\", \"✅\", \"✍\", \"🔤\", \"🧪\", \"📚\", \"📝\",\n        \"é\", \"ü\", \"ß\", \"ñ\", \"ø\", \"å\"\n    ]\n)\n\n_line_endings = [\"\\n\", \"\\r\\n\", \"\\r\"]\n\ndef _rand_word(r: random.Random) -> str:\n    choice = r.randint(0, 5)\n    if choice == 0:\n        return r.choice(_ascii_words)\n    if choice == 1:\n        return ''.join(r.choices(string.ascii_letters, k=r.randint(1, 12)))\n    if choice == 2:\n        return ''.join(r.choices(string.ascii_lowercase + string.digits, k=r.randint(2, 16)))\n    if choice == 3:\n        return r.choice(_hex_chunks)\n    if choice == 4:\n        # Mix ASCII and Unicode\n        core = ''.join(r.choices(string.ascii_letters, k=r.randint(1, 6)))\n        uni = ''.join(r.choices(_unicode_samples, k=r.randint(1, 4)))\n        return core + uni\n    # format-like token as plain text\n    return r.choice(_formats)\n\ndef _build_key_like(r: random.Random) -> str:\n    # Construct an interesting key-shaped string: segments separated by delimiters\n    segs: List[str] = []\n    n = r.randint(2, 6)\n    for _ in range(n):\n        base = ''.join(r.choices(string.ascii_letters + string.digits, k=r.randint(2, 10)))\n        # optionally append a tiny unicode or hex\n        if r.random() < 0.4:\n            base += r.choice([r.choice(_unicode_samples), r.choice(_hex_chunks)])\n        segs.append(base)\n    delim = r.choice(['-', ':', '.', '/', '_', '+'])\n    s = delim.join(segs)\n    # Optional prefix/suffix markers often used in keys\n    if r.random() < 0.3:\n        s = \"KEY{\" + s + \"}\"\n    if r.random() < 0.3:\n        s += \"=\" + ''.join(r.choices(string.ascii_letters + string.digits, k=r.randint(4, 12)))\n    return s\n\ndef _build_message_like(r: random.Random) -> str:\n    # Natural-looking sentence with mixed tokens and occasional line breaks\n    parts: List[str] = []\n    words = r.randint(4, 40)\n    for i in range(words):\n        w = _rand_word(r)\n        parts.append(w)\n        if r.random() < 0.15:\n            parts.append(r.choice(_line_endings))\n        elif r.random() < 0.25:\n            parts.append(r.choice(_punct))\n        else:\n            parts.append(' ')\n    s = ''.join(parts).strip()\n    # Add a trailing numeric to hit %d code path contentually\n    if r.random() < 0.6:\n        s += \" \" + str(r.randint(-10**6, 10**6))\n    # Add a hex-looking tail\n    if r.random() < 0.5:\n        s += \" 0x\" + format(r.getrandbits(32), \"08x\")\n    return s\n\ndef _build_unicode_heavy(r: random.Random) -> str:\n    # Mostly Unicode with some ASCII glue\n    chunks = []\n    for _ in range(r.randint(5, 30)):\n        if r.random() < 0.7:\n            chunks.append(''.join(r.choices(_unicode_samples, k=r.randint(1, 5))))\n        else:\n            chunks.append(''.join(r.choices(string.ascii_letters, k=r.randint(1, 5))))\n        if r.random() < 0.2:\n            chunks.append(r.choice(_line_endings))\n        elif r.random() < 0.3:\n            chunks.append(' ')\n    return ''.join(chunks).strip()\n\ndef _build_repeated_pattern(r: random.Random) -> str:\n    base = _build_key_like(r) if r.random() < 0.5 else _build_message_like(r)\n    repeat = r.randint(2, 20)\n    sep = r.choice(['\\n', ' ', ',', ';'])\n    s = sep.join([base for _ in range(repeat)])\n    return s\n\ndef _ensure_no_nul(s: str) -> str:\n    # Replace any accidental NULs (shouldn't occur) just in case\n    return s.replace('\\x00', '\\uFFFD')\n\ndef _bounded_utf8(s: str) -> bytes:\n    b = s.encode('utf-8', errors='strict')\n    if len(b) <= MAX_BYTES:\n        return b\n    # Truncate safely on code point boundary by stepping back if needed\n    b = b[:MAX_BYTES]\n    # Remove possible split trailing continuation bytes\n    while b and (b[-1] & 0xC0) == 0x80:\n        b = b[:-1]\n    return b\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Decide profile\n    profile = r.randint(0, 6)\n    if profile == 0:\n        s = \"\"  # empty string edge case\n    elif profile == 1:\n        s = _build_key_like(r)\n    elif profile == 2:\n        s = _build_message_like(r)\n    elif profile == 3:\n        s = _build_unicode_heavy(r)\n    elif profile == 4:\n        s = _build_repeated_pattern(r)\n    elif profile == 5:\n        # Short token: good for C API boundaries\n        length = r.randint(1, 32)\n        alphabet = string.ascii_letters + string.digits + ''.join(_punct)\n        s = ''.join(r.choices(alphabet, k=length))\n    else:\n        # Long message close to limit\n        s = _build_message_like(r)\n        # pad with unicode and numbers to approach the limit\n        while True:\n            extra = _build_unicode_heavy(r)\n            s_try = s + \"\\n\" + extra\n            if len(s_try.encode('utf-8')) > MAX_BYTES:\n                break\n            s = s_try\n\n    s = _ensure_no_nul(s)\n    return _bounded_utf8(s)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9415,
+            "output_tokens": 2971,
+            "total_tokens": 12386
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7305,
+            "output_tokens": 350,
+            "total_tokens": 7655
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9776,
+            "output_tokens": 12149,
+            "total_tokens": 21925
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 44632,
+            "output_tokens": 16221,
+            "total_tokens": 60853
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 27025,
+            "output_tokens": 795,
+            "total_tokens": 27820
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 315.3771462440491,
+    "scan_objects": 24.56707787513733,
+    "validate_objects": 2.054582118988037,
+    "scan_functions": 0,
+    "synthesis": 209.65916085243225,
+    "fill": 0,
+    "classify": 13.177672863006592,
+    "build_generators": 65.91724133491516
+  }
+}

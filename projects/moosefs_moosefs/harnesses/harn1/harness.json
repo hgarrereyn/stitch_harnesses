@@ -1,0 +1,1302 @@
+{
+  "objects": [
+    {
+      "ptr_type": "mfscfg *",
+      "aliases": [],
+      "definition": "typedef struct _mfscfg {\n\tchar *masterhost;\n\tchar *masterport;\n\tchar *masterbind;\n\tchar *masterpassword;\n\tchar *mastermd5pass;\n\tchar *mountpoint;\n\tchar *masterpath;\n\tchar *preferedlabels;\n\tint read_cache_mb;\n\tint write_cache_mb;\n\tint io_try_cnt;\n\tint io_timeout;\n\tint min_log_entry;\n\tint readahead_leng;\n\tint readahead_trigger;\n\tint error_on_lost_chunk;\n\tint error_on_no_space;\n\tint sugid_clear_mode;\n\tint mkdir_copy_sgid;\n\tdouble lcache_retention;\n\tchar *logident;\n\tint logdaemon;\n\tint logminlevel;\n\tint logelevateto;\n\tuint16_t master_min_version_maj;\n\tuint16_t master_min_version_mid;\n} mfscfg;",
+      "description": "Configuration structure for the MooseFS I/O client layer. Holds master server connection parameters, mountpoint, cache sizes, logging, readahead settings, error behaviors, and minimal acceptable master version. Used with mfs_set_defaults and mfs_init to configure and initialize the library.",
+      "direct_api_constructors": [
+        "mfs_set_defaults",
+        "mfs_init"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "mfsaclid *",
+      "aliases": [],
+      "definition": "typedef struct _mfsaclid {\n\tuint32_t id;\n\tuint16_t perm;\n} mfsaclid;",
+      "description": "An ACL entry identifying a user or group by numeric id with associated permission bits. Used inside mfsacl.namedacls.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "mfsacl"
+      ]
+    },
+    {
+      "ptr_type": "mfsacl *",
+      "aliases": [],
+      "definition": "typedef struct _mfsacl {\n\tuint16_t userperm;\t// 0xFFFF means empty - use standard user perm\n\tuint16_t groupperm;\t// 0xFFFF means empty - use standard group perm\n\tuint16_t otherperm;\t// 0xFFFF means empty - use standard other perm\n\tuint16_t maskperm;\t// 0xFFFF means no mask\n\tuint16_t nuserscnt;\n\tuint16_t ngroupscnt;\n\tmfsaclid namedacls[1];\t// 0..nuserscnt-1 - users / nuserscnt..nuserscnt+ngroupscnt-1 - groups\n} mfsacl;",
+      "description": "Access Control List structure for files. Contains base perms (user, group, other), optional mask, counts of named user/group ACL entries, and a flexible array of mfsaclid entries (declared as size 1 but intended for variable sizing).",
+      "direct_api_constructors": [
+        "mfs_acl_alloc"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "mfs_mknod",
+      "signature": "int mfs_mknod(const char *path, mode_t mode, dev_t dev);",
+      "description": "Create a filesystem node (regular file, device, or named pipe) at the given path in the MooseFS-mounted namespace. Mirrors POSIX mknod behavior.",
+      "requirements": [
+        "path must point to a NUL-terminated path string within the mounted MooseFS namespace",
+        "If creating a device node, mode must specify the file type (e.g., S_IFCHR/S_IFBLK) and dev encodes the device numbers",
+        "Caller should check the integer return value for success (0) or error (-1) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_unlink",
+      "signature": "int mfs_unlink(const char *path);",
+      "description": "Remove (unlink) a name from the filesystem; deletes the file when its link count reaches zero. POSIX-like semantics.",
+      "requirements": [
+        "path must be a valid NUL-terminated path",
+        "Target should not be a directory; use mfs_rmdir for directories",
+        "Caller must check return value (0 on success, -1 on error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_mkdir",
+      "signature": "int mfs_mkdir(const char *path, mode_t mode);",
+      "description": "Create a new directory at path with the given permissions. POSIX-like mkdir.",
+      "requirements": [
+        "path must be a valid NUL-terminated path",
+        "mode specifies permission bits; umask may modify the final mode",
+        "Caller must check return value (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_rename",
+      "signature": "int mfs_rename(const char *src, const char *dst);",
+      "description": "Rename or move a file or directory from src to dst atomically within the filesystem. Mirrors POSIX rename.",
+      "requirements": [
+        "src and dst must be valid NUL-terminated paths",
+        "Renames across different MooseFS mount points may not be allowed",
+        "Caller must check return value (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_link",
+      "signature": "int mfs_link(const char *src, const char *dst);",
+      "description": "Create a new hard link at dst to the existing file at src. POSIX-like link.",
+      "requirements": [
+        "src and dst must be valid paths",
+        "Target must be a regular file supported for hard-linking in MooseFS",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_symlink",
+      "signature": "int mfs_symlink(const char *path1, const char *path2);",
+      "description": "Create a symbolic link path2 that points to path1. POSIX-like symlink.",
+      "requirements": [
+        "path1 is the link target string; path2 is the symlink to create",
+        "Both parameters must be valid NUL-terminated strings",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_readlink",
+      "signature": "ssize_t mfs_readlink(const char *path, char *buf, size_t bufsize);",
+      "description": "Read the contents of a symbolic link at path into buf (not NUL-terminated). Returns number of bytes placed in buf. POSIX-like readlink.",
+      "requirements": [
+        "path must be a valid symlink path",
+        "buf must point to a writable buffer of at least bufsize bytes",
+        "bufsize must be greater than 0 to read any data",
+        "Caller must use return value to know actual bytes written; no NUL terminator is appended"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_rmdir",
+      "signature": "int mfs_rmdir(const char *path);",
+      "description": "Remove an existing empty directory at path. POSIX-like rmdir.",
+      "requirements": [
+        "path must be a valid directory path",
+        "Directory must be empty",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_chmod",
+      "signature": "int mfs_chmod(const char *path, mode_t mode);",
+      "description": "Change permissions of the file or directory at path to mode. POSIX-like chmod.",
+      "requirements": [
+        "path must be valid",
+        "mode is a set of permission bits",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fchmod",
+      "signature": "int mfs_fchmod(int fildes, mode_t mode);",
+      "description": "Change permissions of an open file referred to by descriptor fildes. POSIX-like fchmod.",
+      "requirements": [
+        "fildes must be a valid open file descriptor from mfs_open",
+        "mode is a set of permission bits",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_chown",
+      "signature": "int mfs_chown(const char *path, uid_t owner, gid_t group);",
+      "description": "Change owner and group of the file at path. POSIX-like chown.",
+      "requirements": [
+        "path must be valid",
+        "owner and/or group may be set to (uid_t)-1/(gid_t)-1 to leave unchanged (typical POSIX pattern)",
+        "Requires appropriate privileges",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fchown",
+      "signature": "int mfs_fchown(int fildes, uid_t owner, gid_t group);",
+      "description": "Change owner and group of an open file via descriptor. POSIX-like fchown.",
+      "requirements": [
+        "fildes must be a valid open descriptor",
+        "owner/group typically may be set to (uid_t)-1/(gid_t)-1 to leave unchanged",
+        "Requires appropriate privileges",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_truncate",
+      "signature": "int mfs_truncate(const char *path, off_t size);",
+      "description": "Truncate or extend the file at path to exactly size bytes. POSIX-like truncate.",
+      "requirements": [
+        "path must be valid",
+        "size must be non-negative",
+        "If extending, new bytes are typically zero-filled",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_ftruncate",
+      "signature": "int mfs_ftruncate(int fildes, off_t size);",
+      "description": "Truncate or extend the open file referenced by fildes to size bytes. POSIX-like ftruncate.",
+      "requirements": [
+        "fildes must be a valid open descriptor with write permission when shrinking/expanding (per POSIX patterns)",
+        "size must be non-negative",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_utimes",
+      "signature": "int mfs_utimes(const char *path, const struct timeval times[2]);",
+      "description": "Set access and modification times of the file at path using timeval resolution. POSIX-like utimes.",
+      "requirements": [
+        "path must be valid",
+        "times must be NULL or point to an array of two struct timeval entries [atime, mtime]",
+        "Caller must check return value (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_futimes",
+      "signature": "int mfs_futimes(int fildes, const struct timeval times[2]);",
+      "description": "Set access and modification times on an open file descriptor with timeval precision. POSIX-like futimes.",
+      "requirements": [
+        "fildes must be a valid open descriptor",
+        "times must be NULL or point to two struct timeval entries [atime, mtime]",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_futimens",
+      "signature": "int mfs_futimens(int fildes, const struct timespec times[2]);",
+      "description": "Set file timestamps on an open descriptor with nanosecond precision. Supports UTIME_NOW and UTIME_OMIT as defined in the header. POSIX-like futimens.",
+      "requirements": [
+        "fildes must be a valid open descriptor",
+        "times must point to an array of two struct timespec entries [atime, mtime], or be non-NULL per usage; special constants UTIME_NOW/UTIME_OMIT may be used in tv_nsec",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_lseek",
+      "signature": "off_t mfs_lseek(int fildes, off_t offset, int whence);",
+      "description": "Reposition the file offset of the open file descriptor. POSIX-like lseek.",
+      "requirements": [
+        "fildes must be a valid open descriptor supporting seeking",
+        "whence should be one of SEEK_SET, SEEK_CUR, SEEK_END (POSIX)",
+        "Return value is new offset or -1 on error; caller must handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_statvfs",
+      "signature": "int mfs_statvfs(const char *path, struct statvfs *buf);",
+      "description": "Retrieve filesystem statistics for the filesystem containing path. POSIX-like statvfs.",
+      "requirements": [
+        "path must be valid",
+        "buf must point to a writable struct statvfs",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fstatvfs",
+      "signature": "int mfs_fstatvfs(int fildes, struct statvfs *buf);",
+      "description": "Retrieve filesystem statistics for the filesystem of the open descriptor. POSIX-like fstatvfs.",
+      "requirements": [
+        "fildes must be a valid descriptor",
+        "buf must be a writable pointer to struct statvfs",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_stat",
+      "signature": "int mfs_stat(const char *path, struct stat *buf);",
+      "description": "Get file status information for path. POSIX-like stat.",
+      "requirements": [
+        "path must be valid",
+        "buf must point to a writable struct stat",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fstat",
+      "signature": "int mfs_fstat(int fildes, struct stat *buf);",
+      "description": "Get file status information for an open descriptor. POSIX-like fstat.",
+      "requirements": [
+        "fildes must be valid",
+        "buf must point to a writable struct stat",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_open",
+      "signature": "int mfs_open(const char *path,int oflag,...);",
+      "description": "Open a file at path with specified flags, optionally creating it with a mode when O_CREAT is set. POSIX-like open.",
+      "requirements": [
+        "path must be valid",
+        "oflag is a bitmask of open flags (e.g., O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC) per POSIX patterns",
+        "If O_CREAT is specified, a third argument of type mode_t must be provided",
+        "Returns a non-negative file descriptor on success or -1 on error; caller must handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_read",
+      "signature": "ssize_t mfs_read(int fildes,void *buf,size_t nbyte);",
+      "description": "Read up to nbyte bytes from the open file descriptor into buf. POSIX-like read.",
+      "requirements": [
+        "fildes must be a valid open descriptor",
+        "buf must point to a writable memory region of at least nbyte bytes",
+        "nbyte may be zero; return value is number of bytes read or -1 on error"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_pread",
+      "signature": "ssize_t mfs_pread(int fildes,void *buf,size_t nbyte,off_t offset);",
+      "description": "Read from the open file descriptor at the given offset without changing the file position. POSIX-like pread.",
+      "requirements": [
+        "fildes must be a valid open descriptor supporting random access",
+        "buf must point to a writable buffer of at least nbyte bytes",
+        "offset must be non-negative",
+        "Return value is bytes read or -1 on error"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_write",
+      "signature": "ssize_t mfs_write(int fildes,const void *buf,size_t nbyte);",
+      "description": "Write up to nbyte bytes from buf to the open file descriptor at the current file position. POSIX-like write.",
+      "requirements": [
+        "fildes must be a valid open descriptor opened for writing",
+        "buf must point to at least nbyte bytes of readable memory",
+        "Return value is bytes written or -1 on error; partial writes are possible"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_pwrite",
+      "signature": "ssize_t mfs_pwrite(int fildes,const void *buf,size_t nbyte,off_t offset);",
+      "description": "Write nbyte bytes from buf to the file at the specified offset without changing the file position. POSIX-like pwrite.",
+      "requirements": [
+        "fildes must be valid and opened for writing",
+        "buf must be readable for at least nbyte bytes",
+        "offset must be non-negative",
+        "Return value is bytes written or -1 on error; partial writes possible"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fsync",
+      "signature": "int mfs_fsync(int fildes);",
+      "description": "Synchronize file data and metadata of the open descriptor to stable storage. POSIX-like fsync.",
+      "requirements": [
+        "fildes must be a valid open descriptor",
+        "Caller must check return value (0 success, -1 error)"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_close",
+      "signature": "int mfs_close(int fildes);",
+      "description": "Close an open file descriptor obtained from mfs_open. POSIX-like close.",
+      "requirements": [
+        "fildes must be a valid open descriptor; do not reuse after successful close",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_flock",
+      "signature": "int mfs_flock(int fildes, int op);",
+      "description": "Apply or remove an advisory lock on an open file descriptor. Mirrors POSIX/4.4BSD flock semantics.",
+      "requirements": [
+        "fildes must be a valid descriptor",
+        "op specifies lock operation (e.g., LOCK_SH, LOCK_EX, LOCK_UN; may include LOCK_NB)",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_lockf",
+      "signature": "int mfs_lockf(int fildes, int function, off_t size);",
+      "description": "Apply or test section locks on an open file using lockf-style API layered on fcntl locks. POSIX-like lockf.",
+      "requirements": [
+        "fildes must be valid",
+        "function indicates operation (e.g., F_LOCK, F_TLOCK, F_ULOCK, F_TEST per typical lockf)",
+        "size indicates number of bytes to lock relative to current offset; may be 0 to EOF (typical)",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fcntl_locks",
+      "signature": "int mfs_fcntl_locks(int fildes, int function, struct flock *fl);",
+      "description": "Perform record locking operations using fcntl-style locks via struct flock. POSIX-like fcntl locking subset.",
+      "requirements": [
+        "fildes must be valid",
+        "function should be a locking-related command (e.g., F_SETLK, F_SETLKW, F_GETLK)",
+        "fl must point to a valid struct flock for the operation and may be modified by the call",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_getxattr",
+      "signature": "ssize_t mfs_getxattr(const char *path, const char *name, void *value, size_t size);",
+      "description": "Get the value of the extended attribute name for the file at path, writing up to size bytes into value. POSIX-like getxattr.",
+      "requirements": [
+        "path and name must be valid NUL-terminated strings",
+        "value may be NULL to query size (return will be size needed)",
+        "If value is non-NULL, it must point to a buffer of at least size bytes",
+        "Returns number of bytes placed in value or required size; -1 on error"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fgetxattr",
+      "signature": "ssize_t mfs_fgetxattr(int fildes, const char *name, void *value, size_t size);",
+      "description": "Get extended attribute name for an open file descriptor. POSIX-like fgetxattr.",
+      "requirements": [
+        "fildes must be valid",
+        "name must be a valid attribute name",
+        "value may be NULL to obtain required size; else must have at least size bytes",
+        "Check return value (>=0 bytes, -1 error)"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_setxattr",
+      "signature": "int mfs_setxattr(const char *path, const char *name, const void *value, size_t size, int flags);",
+      "description": "Set extended attribute name on path to the given value of length size. Supports flags XATTR_CREATE and XATTR_REPLACE defined in the header. POSIX-like setxattr.",
+      "requirements": [
+        "path and name must be valid strings",
+        "value must point to at least size bytes of data (or may be NULL when size is 0)",
+        "flags may include XATTR_CREATE to create only, XATTR_REPLACE to replace only",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fsetxattr",
+      "signature": "int mfs_fsetxattr(int fildes, const char *name, const void *value, size_t size, int flags);",
+      "description": "Set extended attribute on an open file descriptor. POSIX-like fsetxattr.",
+      "requirements": [
+        "fildes must be valid",
+        "name must be valid",
+        "value must point to at least size bytes (or NULL when size is 0)",
+        "flags use XATTR_CREATE/XATTR_REPLACE semantics",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_listxattr",
+      "signature": "ssize_t mfs_listxattr(const char *path, char *list, size_t size);",
+      "description": "List extended attribute names associated with path. Writes a concatenation of NUL-terminated names into list. POSIX-like listxattr.",
+      "requirements": [
+        "path must be valid",
+        "list may be NULL to obtain required buffer size; else must have at least size bytes",
+        "Return value is number of bytes required/written; -1 on error"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_flistxattr",
+      "signature": "ssize_t mfs_flistxattr(int fildes, char *list, size_t size);",
+      "description": "List extended attribute names for an open file descriptor. POSIX-like flistxattr.",
+      "requirements": [
+        "fildes must be valid",
+        "list may be NULL to query size; else must provide at least size bytes",
+        "Return value is bytes written/required; -1 on error"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_removexattr",
+      "signature": "int mfs_removexattr(const char *path, const char *name);",
+      "description": "Remove the extended attribute name from the file at path. POSIX-like removexattr.",
+      "requirements": [
+        "path and name must be valid strings",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fremovexattr",
+      "signature": "int mfs_fremovexattr(int fildes, const char *name);",
+      "description": "Remove an extended attribute name from an open file descriptor. POSIX-like fremovexattr.",
+      "requirements": [
+        "fildes must be valid",
+        "name must be a valid attribute name",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_acl_alloc",
+      "signature": "mfsacl* mfs_acl_alloc(uint32_t namedaclscnt);",
+      "description": "Allocate an mfsacl structure with space for namedaclscnt named ACL entries (users and groups). Use mfs_acl_free to release. Purpose: prepare an ACL record for setfacl or local manipulation.",
+      "requirements": [
+        "namedaclscnt specifies the total number of named ACL IDs to allocate space for",
+        "Caller must free the returned pointer with mfs_acl_free when no longer needed",
+        "Returns NULL on allocation failure; caller must check for NULL before use"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_acl_free",
+      "signature": "void mfs_acl_free(mfsacl *aclrec);",
+      "description": "Free an mfsacl structure previously allocated by mfs_acl_alloc or returned by mfs_getfacl/mfs_fgetfacl.",
+      "requirements": [
+        "aclrec must be either NULL or a pointer obtained from mfs_acl_alloc/mfs_getfacl/mfs_fgetfacl",
+        "Do not use aclrec after freeing"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_getfacl",
+      "signature": "int mfs_getfacl(const char *path, uint8_t acltype, mfsacl **aclrec);",
+      "description": "Fetch an ACL of type acltype (ACL_TYPE_ACCESS or ACL_TYPE_DEFAULT) for path and return it via aclrec. Caller is responsible for freeing the returned ACL with mfs_acl_free.",
+      "requirements": [
+        "path must be valid",
+        "acltype should be ACL_TYPE_ACCESS or ACL_TYPE_DEFAULT as defined in the header",
+        "aclrec must be a non-NULL pointer to receive the allocated mfsacl*",
+        "On success, *aclrec points to an allocated ACL that the caller must free with mfs_acl_free",
+        "Return 0 on success, -1 on error; caller must handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fgetfacl",
+      "signature": "int mfs_fgetfacl(int filedes, uint8_t acltype, mfsacl **aclrec);",
+      "description": "Fetch an ACL of type acltype for an open file descriptor and return it via aclrec. Caller must free with mfs_acl_free.",
+      "requirements": [
+        "filedes must be a valid open descriptor",
+        "acltype should be ACL_TYPE_ACCESS or ACL_TYPE_DEFAULT",
+        "aclrec must be non-NULL; on success *aclrec must be freed with mfs_acl_free",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_setfacl",
+      "signature": "int mfs_setfacl(const char *path, uint8_t acltype, mfsacl *aclrec);",
+      "description": "Set the ACL of type acltype on path using the provided mfsacl structure. Intended to apply access/default ACLs.",
+      "requirements": [
+        "path must be valid",
+        "acltype should be ACL_TYPE_ACCESS or ACL_TYPE_DEFAULT",
+        "aclrec must point to a properly initialized mfsacl structure consistent with its counts (nuserscnt/ngroupscnt and namedacls length)",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_fsetfacl",
+      "signature": "int mfs_fsetfacl(int filedes, uint8_t acltype, mfsacl *aclrec);",
+      "description": "Set the ACL of type acltype on an open file descriptor using aclrec.",
+      "requirements": [
+        "filedes must be a valid open descriptor",
+        "acltype should be ACL_TYPE_ACCESS or ACL_TYPE_DEFAULT",
+        "aclrec must be a valid pointer to an initialized mfsacl",
+        "Check return (0 success, -1 error) and handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_set_defaults",
+      "signature": "void mfs_set_defaults(mfscfg *mcfg);",
+      "description": "Initialize an mfscfg structure with default client configuration values for MooseFS I/O. Use before customizing and calling mfs_init.",
+      "requirements": [
+        "mcfg must be a valid, writable pointer to an mfscfg structure",
+        "Caller must call this before mfs_init to ensure sane defaults unless filling mfscfg fully by other means"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_init",
+      "signature": "int mfs_init(mfscfg *mcfg,uint8_t stage);",
+      "description": "Initialize the MooseFS I/O subsystem according to the provided configuration. Staged initialization: 0 initializes everything, 1 connects to master only (pre-fork section), 2 initializes everything else (post-fork section).",
+      "requirements": [
+        "mcfg must point to a valid, initialized mfscfg (e.g., via mfs_set_defaults plus customizations)",
+        "stage must be 0, 1, or 2 as documented in the header comments",
+        "If using staged init, call with stage 1 before forking, and stage 2 after forking",
+        "Return 0 on success, -1 on error; caller must handle errno"
+      ],
+      "error": null
+    },
+    {
+      "name": "mfs_term",
+      "signature": "void mfs_term(void);",
+      "description": "Shut down and release resources used by the MooseFS I/O subsystem. Complements mfs_init.",
+      "requirements": [
+        "Should be called once when MooseFS I/O usage is complete",
+        "Do not call other mfs_* I/O functions after termination until reinitialized"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "mfs_mknod",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid path in the local test workspace (fuzzer provides an existing temp file path)\nconst char *path = FUZZ_PARAM_FILENAME();\n\n// Pick a mode: combine a file type with permission bits. Favor regular files to avoid special privileges.\nunsigned int pick = *FUZZ_PARAM(unsigned int) % 4; // {REG, FIFO, CHR, BLK}\nmode_t perms = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\nmode_t type = 0;\nif (pick == 0) { type = S_IFREG; }\nelse if (pick == 1) { type = S_IFIFO; }\nelse if (pick == 2) { type = S_IFCHR; }\nelse { type = S_IFBLK; }\nmode_t mode = (mode_t)(type | perms);\n\n// Device encoding for CHR/BLK; zero for others is fine.\ndev_t dev = 0;\nif (type == S_IFCHR || type == S_IFBLK) {\n    unsigned int majv = *FUZZ_PARAM(unsigned int) % 512;\n    unsigned int minv = *FUZZ_PARAM(unsigned int) % 4096;\n    dev = (dev_t)(((majv & 0xFFF) << 20) | (minv & 0xFFFFF));\n}\n\n// Invoke API; return value is allowed to be -1 on error per API.\n( void ) mfs_mknod(path, mode, dev);\n\n// Validation: Path is non-null NUL-terminated; mode/dev formed within reasonable ranges. Errors are permitted by API."
+    },
+    {
+      "name": "mfs_unlink",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\n( void ) mfs_unlink(path);\n// Validation: Path is a valid NUL-terminated string; function may legitimately fail; we don't assert success."
+    },
+    {
+      "name": "mfs_mkdir",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nmode_t mode = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\n( void ) mfs_mkdir(path, mode);\n// Validation: Path and mode are valid; API errors are allowed and not asserted."
+    },
+    {
+      "name": "mfs_rename",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate distinct source and destination paths.\nstd::string ssrc = std::string(FUZZ_PARAM_FILENAME());\nstd::string sdst = std::string(FUZZ_PARAM_FILENAME());\nif (sdst == ssrc) { sdst += \".dst\"; }\nconst char *src = ssrc.c_str();\nconst char *dst = sdst.c_str();\n( void ) mfs_rename(src, dst);\n// Validation: Both paths are valid NUL-terminated strings; cross-fs or non-existing cases are acceptable failures."
+    },
+    {
+      "name": "mfs_link",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Try to ensure src exists by creating it; failure is acceptable.\nstd::string ssrc = std::string(FUZZ_PARAM_FILENAME());\nint oflags = O_CREAT | O_RDWR;\nmode_t cmode = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\nint fd = mfs_open(ssrc.c_str(), oflags, cmode);\nif (fd >= 0) { (void)mfs_close(fd); }\n\n// Create a destination path and attempt hard link\nstd::string sdst = std::string(FUZZ_PARAM_FILENAME());\nif (sdst == ssrc) { sdst += \".lnk\"; }\n( void ) mfs_link(ssrc.c_str(), sdst.c_str());\n// Validation: src/dst are valid paths; if src didn't exist or fs disallows hardlinks, error is permitted."
+    },
+    {
+      "name": "mfs_symlink",
+      "inputs": [],
+      "outputs": [],
+      "code": "// path1 is target string (may or may not exist), path2 is symlink to create\nstd::string target = FUZZ_PARAM_STR();\nconst char *path1 = target.c_str();\nstd::string spath2 = std::string(FUZZ_PARAM_FILENAME());\n( void ) mfs_symlink(path1, spath2.c_str());\n// Validation: Both strings are valid; API may fail for various reasons which is acceptable."
+    },
+    {
+      "name": "mfs_readlink",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\n// Buffer must be writable and size > 0\nsize_t bufsize = (size_t)((*FUZZ_PARAM(unsigned int) % 512) + 1);\nstd::vector<char> buf(bufsize);\n( void ) mfs_readlink(path, buf.data(), bufsize);\n// Validation: Provided buffer and size are valid; function may fail if path is not a symlink."
+    },
+    {
+      "name": "mfs_rmdir",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\n( void ) mfs_rmdir(path);\n// Validation: Path is valid; function may fail if not a directory or not empty, which is acceptable."
+    },
+    {
+      "name": "mfs_chmod",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nmode_t mode = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\n( void ) mfs_chmod(path, mode);\n// Validation: Path/mode valid; permission errors are acceptable per API."
+    },
+    {
+      "name": "mfs_fchmod",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Obtain an fd by opening a file; ensure writable flags possible\nstd::string spath = std::string(FUZZ_PARAM_FILENAME());\nint flags_pick = *FUZZ_PARAM(unsigned int) % 3; // choose RDONLY/RDWR/WRONLY\nint base = (flags_pick==0?O_RDONLY:(flags_pick==1?O_RDWR:O_WRONLY));\nint oflags = base | O_CREAT;\nmode_t cmode = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\nint fd = mfs_open(spath.c_str(), oflags, cmode);\nif (fd < 0) {\n    // Can't proceed without a descriptor for fchmod; bail due to unmet precondition\n    FUZZ_BAIL();\n}\nmode_t newmode = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\n( void ) mfs_fchmod(fd, newmode);\n( void ) mfs_close(fd);\n// Validation: Ensures a valid fd was obtained; fchmod invoked; close performed to avoid leaks."
+    },
+    {
+      "name": "mfs_chown",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\n// Randomly choose to leave owner/group unchanged or set to random ids\nbool owner_unchanged = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool group_unchanged = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nuid_t owner = owner_unchanged ? (uid_t)-1 : (uid_t)(*FUZZ_PARAM(unsigned int));\ngid_t group = group_unchanged ? (gid_t)-1 : (gid_t)(*FUZZ_PARAM(unsigned int));\n( void ) mfs_chown(path, owner, group);\n// Validation: Inputs follow POSIX semantics; permission failures are acceptable."
+    },
+    {
+      "name": "mfs_fchown",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nbool owner_unchanged = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool group_unchanged = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nuid_t owner = owner_unchanged ? (uid_t)-1 : (uid_t)(*FUZZ_PARAM(unsigned int));\ngid_t group = group_unchanged ? (gid_t)-1 : (gid_t)(*FUZZ_PARAM(unsigned int));\n( void ) mfs_fchown(fd, owner, group);\n( void ) mfs_close(fd);\n// Validation: Ensures valid fd; fchown invoked with allowed -1 semantics; resource closed."
+    },
+    {
+      "name": "mfs_truncate",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\n// Size must be non-negative; select a moderate bound\noff_t size = (off_t)(*FUZZ_PARAM(unsigned int) % (1024*1024));\n( void ) mfs_truncate(path, size);\n// Validation: Non-negative size respected; API errors permitted."
+    },
+    {
+      "name": "mfs_ftruncate",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\noff_t size = (off_t)(*FUZZ_PARAM(unsigned int) % (1024*1024));\n( void ) mfs_ftruncate(fd, size);\n( void ) mfs_close(fd);\n// Validation: Valid fd ensured; non-negative size used; fd closed to avoid leaks."
+    },
+    {
+      "name": "mfs_utimes",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nbool use_null = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nif (use_null) {\n    ( void ) mfs_utimes(path, nullptr);\n} else {\n    struct timeval tv[2];\n    tv[0].tv_sec  = (time_t)(*FUZZ_PARAM(unsigned int));\n    tv[0].tv_usec = (suseconds_t)(*FUZZ_PARAM(unsigned int) % 1000000);\n    tv[1].tv_sec  = (time_t)(*FUZZ_PARAM(unsigned int));\n    tv[1].tv_usec = (suseconds_t)(*FUZZ_PARAM(unsigned int) % 1000000);\n    ( void ) mfs_utimes(path, tv);\n}\n// Validation: Either NULL or two valid timeval entries are passed per API."
+    },
+    {
+      "name": "mfs_futimes",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nbool use_null = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nif (use_null) {\n    ( void ) mfs_futimes(fd, nullptr);\n} else {\n    struct timeval tv[2];\n    tv[0].tv_sec  = (time_t)(*FUZZ_PARAM(unsigned int));\n    tv[0].tv_usec = (suseconds_t)(*FUZZ_PARAM(unsigned int) % 1000000);\n    tv[1].tv_sec  = (time_t)(*FUZZ_PARAM(unsigned int));\n    tv[1].tv_usec = (suseconds_t)(*FUZZ_PARAM(unsigned int) % 1000000);\n    ( void ) mfs_futimes(fd, tv);\n}\n( void ) mfs_close(fd);\n// Validation: Valid fd obtained; either NULL or properly filled timeval array passed; fd closed."
+    },
+    {
+      "name": "mfs_futimens",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nstruct timespec ts[2];\nts[0].tv_sec  = (time_t)(*FUZZ_PARAM(unsigned int));\nts[0].tv_nsec = (long)(*FUZZ_PARAM(unsigned int) % 1000000000UL);\nts[1].tv_sec  = (time_t)(*FUZZ_PARAM(unsigned int));\nts[1].tv_nsec = (long)(*FUZZ_PARAM(unsigned int) % 1000000000UL);\n( void ) mfs_futimens(fd, ts);\n( void ) mfs_close(fd);\n// Validation: Supplies two valid timespecs with 0<=nsec<1e9; fd lifetime managed."
+    },
+    {
+      "name": "mfs_lseek",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\n// Choose whence among standard options\nint pick = (int)(*FUZZ_PARAM(unsigned int) % 3);\nint whence = (pick==0?SEEK_SET:(pick==1?SEEK_CUR:SEEK_END));\noff_t offset = (off_t)(*FUZZ_PARAM(unsigned int));\n( void ) mfs_lseek(fd, offset, whence);\n( void ) mfs_close(fd);\n// Validation: Valid fd, whence restricted to POSIX set; offset non-negative; fd closed."
+    },
+    {
+      "name": "mfs_statvfs",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nstruct statvfs svfs;\n( void ) mfs_statvfs(path, &svfs);\n// Validation: Writable buffer supplied; errors allowed by API."
+    },
+    {
+      "name": "mfs_fstatvfs",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nstruct statvfs svfs;\n( void ) mfs_fstatvfs(fd, &svfs);\n( void ) mfs_close(fd);\n// Validation: Valid fd ensured; writable struct provided; fd closed afterwards."
+    },
+    {
+      "name": "mfs_stat",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nstruct stat sb;\n( void ) mfs_stat(path, &sb);\n// Validation: Writable struct stat provided and path is a valid C-string; API may fail legitimately (we do not assert)."
+    },
+    {
+      "name": "mfs_fstat",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nstruct stat sb;\n( void ) mfs_fstat(fd, &sb);\n( void ) mfs_close(fd);\n// Validation: Ensures valid fd and writable struct; fd closed to avoid leaks; errors allowed by API."
+    },
+    {
+      "name": "mfs_open",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\n// Build flags with a mix of common bits\nint rwpick = (int)(*FUZZ_PARAM(unsigned int) % 3); // 0=RDONLY,1=WRONLY,2=RDWR\nint base = (rwpick==0?O_RDONLY:(rwpick==1?O_WRONLY:O_RDWR));\nint extras = 0;\nif ((*FUZZ_PARAM(unsigned int) & 1) != 0) { extras |= O_CREAT; }\nif ((*FUZZ_PARAM(unsigned int) & 1) != 0) { extras |= O_TRUNC; }\nif ((*FUZZ_PARAM(unsigned int) & 1) != 0) { extras |= O_APPEND; }\nint oflags = base | extras;\nmode_t cmode = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\nint fd;\nif (oflags & O_CREAT) {\n    fd = mfs_open(spath.c_str(), oflags, cmode);\n} else {\n    fd = mfs_open(spath.c_str(), oflags);\n}\n// Close if opened to avoid leaking descriptors\nif (fd >= 0) { (void)mfs_close(fd); }\n// Validation: If O_CREAT set, we provided mode; otherwise used 2-arg form; return value may be -1 and is acceptable."
+    },
+    {
+      "name": "mfs_read",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Open for reading; create to ensure existence.\nstd::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nsize_t nbyte = (size_t)((*FUZZ_PARAM(unsigned int) % 1024) + 1);\nstd::vector<unsigned char> buf(nbyte);\n( void ) mfs_read(fd, buf.data(), nbyte);\n( void ) mfs_close(fd);\n// Validation: Read buffer is writable with size>0; fd lifetime handled; short read/error allowed by API."
+    },
+    {
+      "name": "mfs_pread",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nsize_t nbyte = (size_t)((*FUZZ_PARAM(unsigned int) % 1024) + 1);\nstd::vector<unsigned char> buf(nbyte);\noff_t offset = (off_t)(*FUZZ_PARAM(unsigned int)); // non-negative\n( void ) mfs_pread(fd, buf.data(), nbyte, offset);\n( void ) mfs_close(fd);\n// Validation: Buffer valid, offset non-negative; fd closed; errors permitted."
+    },
+    {
+      "name": "mfs_write",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Open with write capability (create if needed)\nstd::string spath = std::string(FUZZ_PARAM_FILENAME());\nint base = ((*FUZZ_PARAM(unsigned int) & 1) ? O_WRONLY : O_RDWR);\nint fd = mfs_open(spath.c_str(), base | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nsize_t nbyte = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\n// Allow zero-length writes occasionally\nstd::string payload = FUZZ_PARAM_STR();\nconst void *buf = payload.data();\nsize_t to_write = std::min(nbyte, payload.size());\n( void ) mfs_write(fd, buf, to_write);\n( void ) mfs_close(fd);\n// Validation: Descriptor opened for writing; buffer readable for to_write bytes; partial writes/errors allowed."
+    },
+    {
+      "name": "mfs_pwrite",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint base = ((*FUZZ_PARAM(unsigned int) & 1) ? O_WRONLY : O_RDWR);\nint fd = mfs_open(spath.c_str(), base | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nsize_t nbyte = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\nstd::string payload = FUZZ_PARAM_STR();\nconst void *buf = payload.data();\nsize_t to_write = std::min(nbyte, payload.size());\noff_t offset = (off_t)(*FUZZ_PARAM(unsigned int));\n( void ) mfs_pwrite(fd, buf, to_write, offset);\n( void ) mfs_close(fd);\n// Validation: Opened with write perms; non-negative offset; buffer valid; fd closed."
+    },
+    {
+      "name": "mfs_fsync",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\n( void ) mfs_fsync(fd);\n( void ) mfs_close(fd);\n// Validation: Valid descriptor ensured; fsync may fail; resources closed."
+    },
+    {
+      "name": "mfs_close",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Obtain an open descriptor, then close it\nstd::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\n( void ) mfs_close(fd);\n// Validation: We only close descriptors we opened; post-close reuse is avoided."
+    },
+    {
+      "name": "mfs_flock",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\n// Open read-write to allow both shared/exclusive as implementation permits\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nint which = (int)(*FUZZ_PARAM(unsigned int) % 3); // SH/EX/UN\nint op = (which==0?LOCK_SH:(which==1?LOCK_EX:LOCK_UN));\nif ((*FUZZ_PARAM(unsigned int) & 1) != 0) { op |= LOCK_NB; }\n( void ) mfs_flock(fd, op);\n( void ) mfs_close(fd);\n// Validation: Valid fd; op constrained to known flock ops; fd closed after use."
+    },
+    {
+      "name": "mfs_lockf",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nint pick = (int)(*FUZZ_PARAM(unsigned int) % 4); // F_LOCK, F_TLOCK, F_ULOCK, F_TEST\nint function = (pick==0?F_LOCK:(pick==1?F_TLOCK:(pick==2?F_ULOCK:F_TEST)));\noff_t size = (off_t)(*FUZZ_PARAM(unsigned int)); // 0 allowed to mean to EOF in typical semantics\n( void ) mfs_lockf(fd, function, size);\n( void ) mfs_close(fd);\n// Validation: Valid fd; function limited to lockf ops; size non-negative; fd closed."
+    },
+    {
+      "name": "mfs_fcntl_locks",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nint fpick = (int)(*FUZZ_PARAM(unsigned int) % 3); // F_SETLK/F_SETLKW/F_GETLK\nint function = (fpick==0?F_SETLK:(fpick==1?F_SETLKW:F_GETLK));\nstruct flock fl;\nint tpick = (int)(*FUZZ_PARAM(unsigned int) % 3); // RDLCK/WRLCK/UNLCK\nfl.l_type = (tpick==0?F_RDLCK:(tpick==1?F_WRLCK:F_UNLCK));\nfl.l_whence = (int)(*FUZZ_PARAM(unsigned int) % 3); // 0,1,2 typically SEEK_SET/CUR/END\nfl.l_start = (off_t)(*FUZZ_PARAM(unsigned int));\nfl.l_len = (off_t)(*FUZZ_PARAM(unsigned int)); // 0 may mean to EOF\nfl.l_pid = 0;\n( void ) mfs_fcntl_locks(fd, function, &fl);\n( void ) mfs_close(fd);\n// Validation: Supplies a valid struct flock with sane fields; fd closed; API may fail legitimately."
+    },
+    {
+      "name": "mfs_getxattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\n// Attribute name (simple string)\nstd::string sname = FUZZ_PARAM_STR();\nconst char *name = sname.c_str();\nbool query_only = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nif (query_only) {\n    ( void ) mfs_getxattr(path, name, nullptr, 0);\n} else {\n    size_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\n    std::vector<unsigned char> buf(size);\n    ( void ) mfs_getxattr(path, name, buf.data(), size);\n}\n// Validation: When value==NULL we query required size; else provide writable buffer; errors allowed."
+    },
+    {
+      "name": "mfs_fgetxattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nstd::string sname = FUZZ_PARAM_STR();\nconst char *name = sname.c_str();\nbool query_only = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nif (query_only) {\n    ( void ) mfs_fgetxattr(fd, name, nullptr, 0);\n} else {\n    size_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\n    std::vector<unsigned char> buf(size);\n    ( void ) mfs_fgetxattr(fd, name, buf.data(), size);\n}\n( void ) mfs_close(fd);\n// Validation: Valid fd; NULL or writable buffer semantics respected; fd closed."
+    },
+    {
+      "name": "mfs_setxattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nstd::string sname = FUZZ_PARAM_STR();\nconst char *name = sname.c_str();\nstd::string value = FUZZ_PARAM_STR();\nsize_t size = (size_t)std::min<size_t>(value.size(), 1024);\nint pick = (int)(*FUZZ_PARAM(unsigned int) % 3);\nint flags = (pick==0?0:(pick==1?1:2)); // approximate XATTR_CREATE/XATTR_REPLACE semantics\nconst void *valptr = size>0 ? (const void*)value.data() : (const void*)nullptr;\n( void ) mfs_setxattr(path, name, valptr, size, flags);\n// Validation: Path/name valid; for size==0 we allow NULL value; flags kept small; API may fail."
+    },
+    {
+      "name": "mfs_fsetxattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nstd::string sname = FUZZ_PARAM_STR();\nconst char *name = sname.c_str();\nstd::string value = FUZZ_PARAM_STR();\nsize_t size = (size_t)std::min<size_t>(value.size(), 1024);\nint pick = (int)(*FUZZ_PARAM(unsigned int) % 3);\nint flags = (pick==0?0:(pick==1?1:2));\nconst void *valptr = size>0 ? (const void*)value.data() : (const void*)nullptr;\n( void ) mfs_fsetxattr(fd, name, valptr, size, flags);\n( void ) mfs_close(fd);\n// Validation: Valid fd; buffer semantics respected; fd closed; errors allowed."
+    },
+    {
+      "name": "mfs_listxattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nbool query_only = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nif (query_only) {\n    ( void ) mfs_listxattr(path, nullptr, 0);\n} else {\n    size_t size = (size_t)((*FUZZ_PARAM(unsigned int) % 512) + 1);\n    std::vector<char> buf(size);\n    ( void ) mfs_listxattr(path, buf.data(), size);\n}\n// Validation: When list==NULL we query size; otherwise provide writable buffer; API may fail."
+    },
+    {
+      "name": "mfs_flistxattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nbool query_only = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nif (query_only) {\n    ( void ) mfs_flistxattr(fd, nullptr, 0);\n} else {\n    size_t size = (size_t)((*FUZZ_PARAM(unsigned int) % 512) + 1);\n    std::vector<char> buf(size);\n    ( void ) mfs_flistxattr(fd, buf.data(), size);\n}\n( void ) mfs_close(fd);\n// Validation: Valid fd; NULL or writable buffer cases handled; fd closed."
+    },
+    {
+      "name": "mfs_removexattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nstd::string sname = FUZZ_PARAM_STR();\nconst char *name = sname.c_str();\n( void ) mfs_removexattr(path, name);\n// Validation: Valid strings passed; operation may fail due to permissions or missing attribute, which is acceptable."
+    },
+    {
+      "name": "mfs_fremovexattr",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nstd::string sname = FUZZ_PARAM_STR();\nconst char *name = sname.c_str();\n( void ) mfs_fremovexattr(fd, name);\n( void ) mfs_close(fd);\n// Validation: Valid fd provided and closed; name string valid; API errors permitted."
+    },
+    {
+      "name": "mfs_acl_alloc",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "aclrec",
+          "type": "mfsacl *"
+        }
+      ],
+      "code": "// Allocate a reasonably small ACL record with space for named entries\nuint32_t namedcnt = (uint32_t)(*FUZZ_PARAM(unsigned int) % 8); // keep small to limit allocation size\nmfsacl *aclrec = mfs_acl_alloc(namedcnt);\nif (!aclrec) { FUZZ_BAIL(); }\n\n// Initialize base permissions and counts consistent with allocation\naclrec->userperm  = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\naclrec->groupperm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\naclrec->otherperm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\naclrec->maskperm  = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n// Split named entries into users and groups within bounds\nuint16_t nusers = (uint16_t)(namedcnt == 0 ? 0 : (*FUZZ_PARAM(unsigned int) % (namedcnt + 1)));\nuint16_t ngroups = (uint16_t)(namedcnt - nusers);\naclrec->nuserscnt = nusers;\naclrec->ngroupscnt = ngroups;\n// Fill named ACL entries\nfor (uint32_t i = 0; i < namedcnt; ++i) {\n    aclrec->namedacls[i].id   = (uint32_t)(*FUZZ_PARAM(unsigned int));\n    aclrec->namedacls[i].perm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n}\n\n// Track allocated capacity for later validation/filling in setfacl/fsetfacl\nFUZZ_SET_ATTR_INT(aclrec, \"namedcnt\", (int)namedcnt);\nFUZZ_SET_ATTR_INT(aclrec, \"from\", 1); // mark as created by alloc\n\n// Validation: Allocation must succeed; counts and named entries are consistent with namedcnt. Further API errors are allowed."
+    },
+    {
+      "name": "mfs_acl_free",
+      "inputs": [
+        {
+          "name": "aclrec",
+          "type": "mfsacl *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free an ACL previously allocated or returned by getfacl/fgetfacl\nmfs_acl_free(aclrec);\n// Validation: Postconditions are handled by API; we do not use aclrec after free and do not return it as an output."
+    },
+    {
+      "name": "mfs_getfacl",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare path and ACL type (0 or 1 to approximate ACCESS/DEFAULT)\nconst char *path = FUZZ_PARAM_FILENAME();\nuint8_t acltype = (uint8_t)(*FUZZ_PARAM(unsigned int) & 1);\n\n// Receiver pointer for returned ACL; free immediately to avoid leaks\nmfsacl *out = nullptr;\nint rc = mfs_getfacl(path, acltype, &out);\nif (rc == 0 && out != nullptr) {\n    // On success, out is allocated by the API and must be freed by the caller\n    mfs_acl_free(out);\n}\n// Validation: We pass a valid C-string path, a constrained acltype, and a non-null receiver. We free on success to avoid leaks; errors are allowed by API."
+    },
+    {
+      "name": "mfs_fgetfacl",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Open a file descriptor to query ACLs from\nstd::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDONLY | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\n\nuint8_t acltype = (uint8_t)(*FUZZ_PARAM(unsigned int) & 1);\nmfsacl *out = nullptr;\nint rc = mfs_fgetfacl(fd, acltype, &out);\nif (rc == 0 && out != nullptr) {\n    mfs_acl_free(out);\n}\n(void)mfs_close(fd);\n// Validation: Ensures a valid fd, constrained acltype, and frees any returned ACL; descriptor is closed; API errors are permitted."
+    },
+    {
+      "name": "mfs_setfacl",
+      "inputs": [
+        {
+          "name": "aclrec",
+          "type": "mfsacl *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "aclrec",
+          "type": "mfsacl *"
+        }
+      ],
+      "code": "// Enforce that aclrec points to an initialized structure. If it was produced by mfs_acl_alloc,\n// we have a tracked capacity and can (re)fill fields safely to increase coverage.\nint namedcnt = FUZZ_GET_ATTR_INT(aclrec, \"namedcnt\");\nif (namedcnt > 0) {\n    // Ensure counts are within capacity and consistent\n    uint16_t nusers = (uint16_t)(*FUZZ_PARAM(unsigned int) % (namedcnt + 1));\n    uint16_t ngroups = (uint16_t)(namedcnt - nusers);\n    aclrec->nuserscnt = nusers;\n    aclrec->ngroupscnt = ngroups;\n    // Refresh base perms and named entries\n    aclrec->userperm  = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    aclrec->groupperm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    aclrec->otherperm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    aclrec->maskperm  = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    for (int i = 0; i < namedcnt; ++i) {\n        aclrec->namedacls[i].id   = (uint32_t)(*FUZZ_PARAM(unsigned int));\n        aclrec->namedacls[i].perm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    }\n}\n\n// Generate a path and choose ACCESS/DEFAULT type\nconst char *path = FUZZ_PARAM_FILENAME();\nuint8_t acltype = (uint8_t)(*FUZZ_PARAM(unsigned int) & 1);\n(void)mfs_setfacl(path, acltype, aclrec);\n\n// Validation: If we know the allocated capacity (attribute present), we keep counts consistent and fill entries; otherwise we trust the provided aclrec. We do not free aclrec and return it so it remains in the pool."
+    },
+    {
+      "name": "mfs_fsetfacl",
+      "inputs": [
+        {
+          "name": "aclrec",
+          "type": "mfsacl *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "aclrec",
+          "type": "mfsacl *"
+        }
+      ],
+      "code": "// Optionally refresh fields if aclrec came from mfs_acl_alloc and we know capacity\nint namedcnt = FUZZ_GET_ATTR_INT(aclrec, \"namedcnt\");\nif (namedcnt > 0) {\n    uint16_t nusers = (uint16_t)(*FUZZ_PARAM(unsigned int) % (namedcnt + 1));\n    uint16_t ngroups = (uint16_t)(namedcnt - nusers);\n    aclrec->nuserscnt = nusers;\n    aclrec->ngroupscnt = ngroups;\n    aclrec->userperm  = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    aclrec->groupperm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    aclrec->otherperm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    aclrec->maskperm  = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    for (int i = 0; i < namedcnt; ++i) {\n        aclrec->namedacls[i].id   = (uint32_t)(*FUZZ_PARAM(unsigned int));\n        aclrec->namedacls[i].perm = (uint16_t)(*FUZZ_PARAM(unsigned int) & 0777);\n    }\n}\n\n// Open a descriptor to apply ACL to\nstd::string spath = std::string(FUZZ_PARAM_FILENAME());\nint fd = mfs_open(spath.c_str(), O_RDWR | O_CREAT, (mode_t)0666);\nif (fd < 0) { FUZZ_BAIL(); }\nuint8_t acltype = (uint8_t)(*FUZZ_PARAM(unsigned int) & 1);\n(void)mfs_fsetfacl(fd, acltype, aclrec);\n(void)mfs_close(fd);\n\n// Validation: Ensures a valid fd; when capacity is known we keep counts consistent and fill entries. We do not free aclrec and return it to the pool."
+    },
+    {
+      "name": "mfs_set_defaults",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mcfg",
+          "type": "mfscfg *"
+        }
+      ],
+      "code": "// Allocate a configuration object and initialize with library defaults\nmfscfg *mcfg = new mfscfg();\n// Clear to avoid stray pointers before defaults are applied\n*mcfg = mfscfg{};\nmfs_set_defaults(mcfg);\n// Track that defaults were applied for downstream validation\nFUZZ_SET_ATTR_INT(mcfg, \"defaults\", 1);\n\n// Optionally tweak a few fields to increase coverage but stay sane\nmcfg->read_cache_mb  = (int)(*FUZZ_PARAM(unsigned int) % 64);\nmcfg->write_cache_mb = (int)(*FUZZ_PARAM(unsigned int) % 64);\nmcfg->io_try_cnt     = (int)((*FUZZ_PARAM(unsigned int) % 5) + 1);\nmcfg->io_timeout     = (int)((*FUZZ_PARAM(unsigned int) % 10) + 1);\n\n// Validation: mcfg is a valid writable pointer; defaults are applied once and object is returned for reuse by mfs_init."
+    },
+    {
+      "name": "mfs_init",
+      "inputs": [
+        {
+          "name": "mcfg",
+          "type": "mfscfg *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mcfg",
+          "type": "mfscfg *"
+        }
+      ],
+      "code": "// Ensure configuration has defaults; if not, apply them defensively\nif (FUZZ_GET_ATTR_INT(mcfg, \"defaults\") == 0) {\n    mfs_set_defaults(mcfg);\n    FUZZ_SET_ATTR_INT(mcfg, \"defaults\", 1);\n}\n\n// Choose a valid stage: 0 (full), 1 (pre-fork), or 2 (post-fork)\nint spick = (int)(*FUZZ_PARAM(unsigned int) % 3);\nuint8_t stage = (uint8_t)(spick == 0 ? 0 : (spick == 1 ? 1 : 2));\n\n// Initialize; errors are permitted by API (we do not assert success)\nint rc = mfs_init(mcfg, stage);\n(void)rc;\n\n// Track last attempted stage to inform possible staged sequences\nFUZZ_SET_ATTR_INT_GLOBAL(\"mfs_last_stage\", (int)stage);\n// Don't free mcfg; return it so the pool retains ownership\n\n// Validation: Uses a default-initialized mfscfg and a stage constrained to {0,1,2}. Return value may be -1; we do not assume success."
+    },
+    {
+      "name": "mfs_term",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Terminate the MooseFS I/O subsystem; safe to call regardless of prior state per typical semantics\nmfs_term();\n// Validation: Simple shutdown call; no inputs/outputs to manage and no return value to assert."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "mfs_acl_alloc",
+      "data_types": []
+    },
+    {
+      "name": "mfs_acl_free",
+      "data_types": []
+    },
+    {
+      "name": "mfs_set_defaults",
+      "data_types": []
+    },
+    {
+      "name": "mfs_init",
+      "data_types": []
+    },
+    {
+      "name": "mfs_term",
+      "data_types": []
+    },
+    {
+      "name": "mfs_mknod",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_unlink",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_mkdir",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_rename",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_link",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_symlink",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_readlink",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_rmdir",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_chmod",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_fchmod",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_chown",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_fchown",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_truncate",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_ftruncate",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_utimes",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_futimes",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_futimens",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_lseek",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_statvfs",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_fstatvfs",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_stat",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_fstat",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_open",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_read",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_pread",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_write",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_pwrite",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_fsync",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_close",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_flock",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_lockf",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_fcntl_locks",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_getxattr",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_fgetxattr",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_setxattr",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_fsetxattr",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_listxattr",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_flistxattr",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_removexattr",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_fremovexattr",
+      "data_types": [
+        "filesystem path",
+        "generic string"
+      ]
+    },
+    {
+      "name": "mfs_getfacl",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_fgetfacl",
+      "data_types": []
+    },
+    {
+      "name": "mfs_setfacl",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "mfs_fsetfacl",
+      "data_types": []
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path",
+      "description": "A NUL-terminated path string referring to a file or directory within the test/mount namespace. May be absolute or relative, may or may not exist. Used wherever the API expects a pathname."
+    },
+    {
+      "data_type": "generic string",
+      "description": "An arbitrary NUL-terminated byte string without specific format requirements. May contain any bytes except embedded NUL; used as a symlink target text for creation functions."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator produces a single bytes buffer intended to be parsed by the fuzzing harness\n# as a filename (FUZZ_PARAM_FILENAME) or generic string (FUZZ_PARAM_STR) used as path-like inputs.\n#\n# Strategy:\n# - Construct a realistic path within a virtual workspace, including combinations of:\n#   - absolute or relative\n#   - nested directories with varying names\n#   - special names like \".\", \"..\", hidden files, long components, unicode\n#   - optional trailing slash, duplicate slashes\n#   - extensions and device-like names\n# - Keep result <= 4096 bytes\n# - Deterministic randomness via provided seed\n#\n# The output is a single bytes string; the fuzzer environment maps FUZZ_PARAM_FILENAME to\n# an on-disk temp path that contains this string content, but many harnesses accept arbitrary\n# NUL-terminated C-strings for paths, so we ensure no embedded NUL and proper UTF-8 encoding.\n\nSAFE_ASCII = string.ascii_letters + string.digits + \"-_.,@+#%=\"\n\nUNICODE_COMPONENTS = [\n    \"żółć\",\n    \"文件\",\n    \"файл\",\n    \"नाम\",\n    \"ファイル\",\n    \"ملف\",\n    \"Δεδομένα\",\n]\n\nSPECIAL_COMPONENTS = [\n    \".\",\n    \"..\",\n    \".hidden\",\n    \"-leadingdash\",\n    \"_underscore\",\n    \"spaced name\",\n    \"trailing.\",\n    \"con\",\n    \"nul\",\n    \"prn\",\n    \"aux\",\n    \"com1\",\n    \"lpt1\",\n]\n\nEXTENSIONS = [\"\", \".txt\", \".bin\", \".dat\", \".log\", \".sock\", \".fifo\", \".dev\", \".raw\", \".acl\"]\n\nDEVICE_LIKE = [\"tty0\", \"zero\", \"null\", \"random\", \"sda1\", \"loop0\", \"nvme0n1p1\"]\n\ndef rand_choice(rng: random.Random, items: List[str]) -> str:\n    return items[rng.randrange(len(items))]\n\ndef rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    n = rng.randint(min_len, max_len)\n    return ''.join(rng.choice(SAFE_ASCII) for _ in range(n))\n\ndef rand_component(rng: random.Random) -> str:\n    pick = rng.randint(0, 9)\n    if pick == 0:\n        # unicode heavy\n        base = rand_choice(rng, UNICODE_COMPONENTS)\n        tail = rand_ascii(rng, 0, 6)\n        return (base + tail).strip()\n    elif pick == 1:\n        return rand_choice(rng, SPECIAL_COMPONENTS)\n    elif pick == 2:\n        # long component\n        return rand_ascii(rng, 50, 120)\n    elif pick == 3:\n        # device-like\n        return rand_choice(rng, DEVICE_LIKE)\n    elif pick == 4:\n        # numeric-heavy\n        return str(rng.randint(0, 10**9))\n    elif pick == 5:\n        # date-like\n        return f\"{rng.randint(1970,2099)}-{rng.randint(1,12):02d}-{rng.randint(1,28):02d}\"\n    elif pick == 6:\n        # dotted segments\n        return rand_ascii(rng, 3, 8) + \".\" + rand_ascii(rng, 2, 4)\n    elif pick == 7:\n        # hidden long\n        return \".\" + rand_ascii(rng, 8, 32)\n    elif pick == 8:\n        return rand_ascii(rng, 1, 16)\n    else:\n        # mixed\n        return rand_ascii(rng, 1, 8) + rng.choice(['-', '_', '.', '@']) + rand_ascii(rng, 1, 8)\n\ndef assemble_path(rng: random.Random) -> str:\n    # Absolute or relative\n    absolute = rng.random() < 0.5\n    allow_dup_slashes = rng.random() < 0.2\n    components: List[str] = []\n\n    # Depth selection: include shallow to deep, ensuring valid and interesting\n    depth = rng.randint(1, 6)\n\n    for i in range(depth):\n        comp = rand_component(rng)\n        # Ensure no empty after stripping, replace with 'x'\n        if comp == \"\":\n            comp = \"x\"\n        # Avoid NUL and slashes inside component\n        comp = comp.replace(\"/\", \"-\")\n        components.append(comp)\n\n    # Decide on a filename or final directory component with optional extension\n    filename_like = rng.random() < 0.8\n    if filename_like:\n        base = components[-1]\n        # Occasionally pick a specific interesting leaf name\n        if rng.random() < 0.25:\n            base = rand_choice(rng, [\n                \"README\",\n                \"a\",\n                \"0\",\n                \".\" ,\n                \"..\",\n                \"link_target\",\n                \"symlink\",\n                \"hardlink_src\",\n                \"xattr.name\",\n                \"acl.record\",\n            ])\n        ext = rand_choice(rng, EXTENSIONS)\n        leaf = (base if base not in [\".\", \"..\"] else base + \"_dot\") + ext\n        components[-1] = leaf\n\n    # Optionally append a trailing slash (for directories)\n    trailing_slash = (not filename_like) or (rng.random() < 0.15)\n\n    sep = \"//\" if allow_dup_slashes else \"/\"\n    path = (\"/\" if absolute else \"\") + sep.join(components)\n    if trailing_slash and not path.endswith(\"/\"):\n        path += \"/\"\n\n    # Occasionally introduce ./ or ../ prefixes for relative paths\n    if not absolute and rng.random() < 0.4:\n        prefix = rand_choice(rng, [\"./\", \"../\", \"././\", \".././\"])\n        path = prefix + path\n\n    # Bound total length and sanitize\n    # Ensure not empty and no NULs\n    path = path[:4000]\n    if path == \"\":\n        path = \".\"\n    if \"\\x00\" in path:\n        path = path.replace(\"\\x00\", \"\") or \".\"\n\n    return path\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build multiple candidate paths and pick one that exercises variety across calls\n    # Some fuzzer stubs create, link, rename, use xattrs, ACLs, etc. We bias towards names\n    # that are valid but diverse.\n    candidates = []\n    num = rng.randint(3, 8)\n    for _ in range(num):\n        p = assemble_path(rng)\n        candidates.append(p)\n\n    # Choose one candidate with weighted preferences:\n    # - include dots, unicode, or device-like tokens\n    def score(p: str) -> int:\n        s = 0\n        if any(tok in p for tok in [\"/./\", \"/../\", \"//\"]):\n            s += 2\n        if any(u in p for u in UNICODE_COMPONENTS):\n            s += 2\n        if any(d in p for d in DEVICE_LIKE):\n            s += 1\n        if p.endswith('/'):\n            s += 1\n        if any(ext and p.endswith(ext) for ext in EXTENSIONS if ext):\n            s += 1\n        if \".hidden\" in p or \".\" in os.path.basename(p):\n            s += 1\n        return s\n\n    best = max(candidates, key=score)\n\n    # Encode as UTF-8 bytes without NUL terminator (harness treats as C-string and will add if needed)\n    data = best.encode('utf-8', errors='ignore')\n    # Guarantee the buffer isn't empty\n    if not data:\n        data = b\".\"\n    # Ensure size limit\n    return data[:4096]\n"
+    },
+    {
+      "data_type": "generic string",
+      "generator": "import os\nimport random\nimport struct\nimport string\nfrom typing import List, Tuple\n\n# This generator targets fuzz stubs that request:\n# - FUZZ_PARAM_FILENAME(): paths used for open/attr/symlink creation\n# - FUZZ_PARAM_STR(): generic strings for attribute names, values, symlink targets, and data payloads\n# - FUZZ_PARAM(unsigned int): general-purpose integers (flags, sizes, offsets)\n#\n# We will encode a small corpus of interesting, valid entries and pack them into a single\n# bytes buffer that the harness will slice from. The goal is to provide:\n# - Realistic and edge-case file paths (absolute, relative, nested, with dots, unicode)\n# - Attribute names (namespaced and plain)\n# - String payloads including text, binary-like, and size-varied content\n# - Integers with edge-case values (0, 1, powers of two, max 32-bit, large offsets)\n# The data must be valid (no embedded NULs inside strings; we will NUL-terminate each string).\n# Total size kept under 4096 bytes.\n\nMAX_TOTAL_SIZE = 4096\n\n# Helper to ensure no NUL in strings (FUZZ_PARAM_STR expects C-string without embedded NUL)\ndef _sanitize_no_nul(s: str) -> str:\n    return s.replace('\\x00', '')\n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    length = rng.randint(min_len, max_len)\n    alphabet = string.ascii_letters + string.digits + \" _-.,:+@#%[](){}!$^&=~\"\n    return ''.join(rng.choice(alphabet) for _ in range(length))\n\ndef _rand_bytes_printable(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    length = rng.randint(min_len, max_len)\n    # Allow a wide printable range, avoid NUL\n    alphabet = (string.printable.replace('\\x0b', '').replace('\\x0c', '')).encode('utf-8')\n    return bytes(rng.choice(alphabet) for _ in range(length))\n\ndef _pick(rng: random.Random, items: List[str]) -> str:\n    return items[rng.randrange(len(items))]\n\ndef _u32_edge_values() -> List[int]:\n    return [\n        0, 1, 2, 3,\n        7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256,\n        511, 512, 1023, 1024, 2047, 2048, 4095, 4096,\n        8191, 8192, 16384, 32768, 65535, 65536,\n        1048575, 1048576, 1<<20, 1<<24, (1<<31)-1, (1<<31), (1<<32)-1\n    ]\n\ndef _build_path_corpus(rng: random.Random) -> List[str]:\n    # Include absolute, relative, nested, special names, unicode; all without NULs\n    base_names = [\n        \"file\", \"data\", \"test\", \"a\", \"b\", \"c\", \"zero\", \"one\", \"attr\", \"⛄\", \"µfile\", \"名字\", \"スペース\",\n        \".hidden\", \"..dot\", \"dash-file\", \"under_score\", \"mix.123\", \"name.with.many.dots\"\n    ]\n    exts = [\"\", \".txt\", \".bin\", \".dat\", \".log\", \".conf\", \".xattr\"]\n    dirs = [\n        \".\", \"..\", \"/\", \"/tmp\", \"/var/tmp\", \"/mfs\", \"/mnt/mfs\", \"./sub\", \"subdir\", \"dir\",\n        \"deep/nested/dir\", \"/deep/nested/dir\", \"./a/b/c\"\n    ]\n    corpus = [\n        \"/\", \".\", \"..\",\n        \"/tmp/mfs_fuzz\", \"relative\", \"./relative\", \"../up\", \"./.hidden\",\n    ]\n    # Compose random paths\n    for _ in range(30):\n        d = _pick(rng, dirs)\n        n = _pick(rng, base_names) + _pick(rng, exts)\n        if d.endswith('/') or d in (\"/\",):\n            p = d + n if d != \"/\" else \"/\" + n\n        elif d in (\".\", \"..\"):\n            p = d + \"/\" + n\n        else:\n            p = d + \"/\" + n\n        # Occasionally add deeper component\n        if rng.random() < 0.3:\n            p += \"/\" + _pick(rng, base_names)\n        corpus.append(p)\n    # Add a few long-ish paths\n    long_components = [\"long\" + \"a\"*rng.randint(10, 40) for _ in range(3)]\n    corpus.append(\"/\" + \"/\".join(long_components))\n    return list(dict.fromkeys(_sanitize_no_nul(p) for p in corpus))\n\ndef _build_attr_name_corpus(rng: random.Random) -> List[str]:\n    # Common xattr namespaces and names; plus random names\n    names = [\n        \"user.comment\", \"user.desc\", \"user.checksum\", \"user.meta\", \"user.key\",\n        \"system.posix_acl_access\", \"system.posix_acl_default\",\n        \"trusted.mfs\", \"security.selinux\", \"user.😀\", \"user.名字\", \"user.a\", \"user.b\",\n    ]\n    for _ in range(20):\n        names.append(\"user.\" + _sanitize_no_nul(_rand_ascii(rng, 3, 16)))\n    return list(dict.fromkeys(names))\n\ndef _build_payload_corpus(rng: random.Random) -> List[bytes]:\n    payloads: List[bytes] = []\n    # Small, typical strings\n    small_texts = [\n        b\"hello\", b\"world\", b\"data\", b\"payload\", b\"value\", b\"attr\", b\"symlink-target\",\n        b\"quick brown fox\", b\"lorem ipsum\", b\"mfs fuzz\"\n    ]\n    payloads.extend(small_texts)\n    # Random printable of varied sizes\n    for size in [0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 512, 768, 1023]:\n        if size == 0:\n            payloads.append(b\"\")\n        else:\n            payloads.append(_rand_bytes_printable(rng, size, size))\n    # Some patterned bytes\n    payloads.append(bytes([i % 256 for i in range(100)]))\n    payloads.append(b\"A\" * 100)\n    payloads.append(b\"\\x01\\x02\\x03\\x04\" * 50)\n    return payloads\n\ndef _build_symlink_targets(paths: List[str], rng: random.Random) -> List[str]:\n    # symlink target can be any string; use mix of absolute, relative, and arbitrary text\n    targets = [\n        \"/does/not/exist\", \"../relative/target\", \"./same/dir\", \"/tmp/target\", \"target\", \"linkdest\",\n        \"..\", \".\", \"/\", \"../../up\", \"a/b/c\", \"nested/target\",\n    ]\n    # include some valid paths from our path corpus\n    targets.extend(paths[:10])\n    # add random ascii strings\n    for _ in range(10):\n        targets.append(_sanitize_no_nul(_rand_ascii(rng, 3, 24)))\n    return list(dict.fromkeys(targets))\n\ndef _pack_strings(strings: List[str]) -> bytes:\n    # Pack as: u32 count, then for each: u32 len (including NUL), bytes + NUL\n    out = bytearray()\n    out += struct.pack('<I', len(strings))\n    for s in strings:\n        b = s.encode('utf-8')\n        # ensure no embedded NUL; add terminator\n        b = b.replace(b'\\x00', b'')\n        out += struct.pack('<I', len(b) + 1)\n        out += b + b'\\x00'\n    return bytes(out)\n\ndef _pack_blobs(blobs: List[bytes]) -> bytes:\n    # Similar to strings but raw bytes, with length prefix (no enforced NUL)\n    out = bytearray()\n    out += struct.pack('<I', len(blobs))\n    for b in blobs:\n        out += struct.pack('<I', len(b))\n        out += b\n    return bytes(out)\n\ndef _pack_u32_list(values: List[int]) -> bytes:\n    out = bytearray()\n    out += struct.pack('<I', len(values))\n    for v in values:\n        out += struct.pack('<I', v & 0xFFFFFFFF)\n    return bytes(out)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build corpora\n    paths = _build_path_corpus(rng)\n    attr_names = _build_attr_name_corpus(rng)\n    payloads = _build_payload_corpus(rng)\n    symlink_targets = _build_symlink_targets(paths, rng)\n\n    # Build integers: sizes (0..1024), offsets, flags choices\n    u32_values = []\n    # Edge values\n    u32_values.extend(_u32_edge_values())\n    # Sizes primarily within 0..1024 for the fuzz stub usage\n    for _ in range(32):\n        u32_values.append(rng.randrange(0, 1025))\n    # Offsets including larger values\n    for _ in range(16):\n        shift = rng.choice([0, 10, 16, 20, 24, 28])\n        base = rng.randrange(0, 1 << (32 - shift))\n        u32_values.append((base << shift) & 0xFFFFFFFF)\n    # Flags-like small integers\n    u32_values.extend([0, 1, 2, 3, 4, 5, 6, 7])\n    # Deduplicate while keeping order\n    seen = set()\n    u32_values = [x for x in u32_values if (x not in seen and not seen.add(x))]\n\n    # Shuffle slices to vary per seed\n    rng.shuffle(paths)\n    rng.shuffle(attr_names)\n    rng.shuffle(symlink_targets)\n    rng.shuffle(payloads)\n    rng.shuffle(u32_values)\n\n    # Trim corpora to keep total size under limit\n    # Heuristic budgets\n    max_paths = 40\n    max_names = 40\n    max_targets = 30\n    max_payloads = 30\n    max_u32 = 128\n\n    paths = paths[:max_paths]\n    attr_names = attr_names[:max_names]\n    symlink_targets = symlink_targets[:max_targets]\n    payloads = payloads[:max_payloads]\n    u32_values = u32_values[:max_u32]\n\n    # Assemble final buffer with a simple header to help the harness parse sequentially:\n    # Layout:\n    #  magic \"MFSF\" (4)\n    #  section 1: filenames (strings)\n    #  section 2: generic strings (for names/values/targets combined)\n    #  section 3: payload blobs\n    #  section 4: u32 values\n    # For section 2 we will include both attr names and symlink targets and a few random extras\n\n    generic_strings: List[str] = []\n    generic_strings.extend(attr_names)\n    generic_strings.extend(symlink_targets)\n    # Add some additional generic strings for payload-as-string (used by setxattr value path)\n    for _ in range(10):\n        generic_strings.append(_sanitize_no_nul(_rand_ascii(rng, 0, 40)))\n    # Include some of the filenames also as possible strings\n    generic_strings.extend(paths[:10])\n\n    # Deduplicate generics preserving order\n    seen = set()\n    tmp = []\n    for s in generic_strings:\n        if s not in seen:\n            seen.add(s)\n            tmp.append(s)\n    generic_strings = tmp\n\n    # Now pack sections\n    parts = []\n    parts.append(b\"MFSF\")\n    parts.append(_pack_strings(paths))\n    parts.append(_pack_strings(generic_strings))\n    parts.append(_pack_blobs(payloads))\n    parts.append(_pack_u32_list(u32_values))\n\n    buf = b\"\".join(parts)\n\n    # Ensure size constraint\n    if len(buf) > MAX_TOTAL_SIZE:\n        # If too large, reduce lists further and repack\n        cut_ratio = MAX_TOTAL_SIZE / len(buf)\n        def cut(lst, ratio):\n            n = max(1, int(len(lst) * ratio))\n            return lst[:n]\n        paths_cut = cut(paths, cut_ratio)\n        generics_cut = cut(generic_strings, cut_ratio)\n        payloads_cut = cut(payloads, cut_ratio)\n        u32_cut = cut(u32_values, cut_ratio)\n        parts = []\n        parts.append(b\"MFSF\")\n        parts.append(_pack_strings(paths_cut))\n        parts.append(_pack_strings(generics_cut))\n        parts.append(_pack_blobs(payloads_cut))\n        parts.append(_pack_u32_list(u32_cut))\n        buf = b\"\".join(parts)\n\n    return buf\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2108,
+            "output_tokens": 641,
+            "total_tokens": 2749
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1686,
+            "output_tokens": 282,
+            "total_tokens": 1968
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2431,
+            "output_tokens": 5650,
+            "total_tokens": 8081
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 41059,
+            "output_tokens": 15073,
+            "total_tokens": 56132
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 30384,
+            "output_tokens": 816,
+            "total_tokens": 31200
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 501.6442663669586,
+    "scan_objects": 13.107937097549438,
+    "validate_objects": 0.20576167106628418,
+    "scan_functions": 96.42762684822083,
+    "synthesis": 305.2860450744629,
+    "fill": 0,
+    "classify": 16.33274507522583,
+    "build_generators": 70.2833411693573
+  }
+}

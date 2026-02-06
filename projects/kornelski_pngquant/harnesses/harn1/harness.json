@@ -1,0 +1,333 @@
+{
+  "objects": [
+    {
+      "ptr_type": "pngquant_error *",
+      "aliases": [],
+      "definition": "typedef enum {\n    SUCCESS = 0,\n    MISSING_ARGUMENT = 1,\n    READ_ERROR = 2,\n    INVALID_ARGUMENT = 4,\n    NOT_OVERWRITING_ERROR = 15,\n    CANT_WRITE_ERROR = 16,\n    OUT_OF_MEMORY_ERROR = 17,\n    WRONG_ARCHITECTURE = 18, // Missing SSE\n    PNG_OUT_OF_MEMORY_ERROR = 24,\n    LIBPNG_FATAL_ERROR = 25,\n    WRONG_INPUT_COLOR_TYPE = 26,\n    LIBPNG_INIT_ERROR = 35,\n    LCMS_FATAL_ERROR = 45,\n    TOO_LARGE_FILE = 98,\n    TOO_LOW_QUALITY = 99,\n} pngquant_error;",
+      "description": "Enumeration of error/status codes returned by the rwpng API for reading and writing PNG files. Values indicate various failure conditions or success.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "rwpng_rgba *",
+      "aliases": [],
+      "definition": "typedef struct rwpng_rgba {\n  unsigned char r,g,b,a;\n} rwpng_rgba;",
+      "description": "Packed 8-bit-per-channel RGBA color struct used for palettes or pixel data. Fields r, g, b, a are in that order.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "png8_image *"
+      ]
+    },
+    {
+      "ptr_type": "struct rwpng_chunk *",
+      "aliases": [],
+      "definition": "struct rwpng_chunk {\n    struct rwpng_chunk *next;\n    unsigned char *data;\n    size_t size;\n    unsigned char name[5];\n    unsigned char location;\n};",
+      "description": "Linked-list node representing an ancillary PNG chunk preserved when reading/writing. Holds chunk payload, size, 4-byte name plus NUL, and a location tag. Lifetime is managed by the owning image structs.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "png24_image *",
+        "png8_image *"
+      ]
+    },
+    {
+      "ptr_type": "rwpng_color_transform *",
+      "aliases": [],
+      "definition": "typedef enum {\n  RWPNG_NONE,\n  RWPNG_SRGB, // sRGB chunk\n  RWPNG_ICCP, // used ICC profile\n  RWPNG_ICCP_WARN_GRAY, // ignore and warn about GRAY ICC profile\n  RWPNG_GAMA_CHRM, // used gAMA and cHRM\n  RWPNG_GAMA_ONLY, // used gAMA only (i.e. not sRGB)\n  RWPNG_COCOA, // Colors handled by Cocoa reader\n} rwpng_color_transform;",
+      "description": "Enumeration describing how color space/metadata is handled for input/output PNGs (e.g., sRGB, ICC profile, gAMA/cHRM). Used to record or control color transforms.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "png24_image *",
+        "png8_image *"
+      ]
+    },
+    {
+      "ptr_type": "png24_image *",
+      "aliases": [],
+      "definition": "typedef struct {\n    jmp_buf jmpbuf;\n    uint32_t width;\n    uint32_t height;\n    size_t file_size;\n    double gamma;\n    unsigned char **row_pointers;\n    unsigned char *rgba_data;\n    struct rwpng_chunk *chunks;\n    rwpng_color_transform input_color;\n    rwpng_color_transform output_color;\n} png24_image;",
+      "description": "Container for 24/32-bit (RGBA) PNG image data as read/written by rwpng. Holds dimensions, file size, gamma, row pointers, contiguous RGBA buffer, preserved chunks list, and color transform metadata. jmpbuf is for error handling. Memory for buffers/chunks is owned by this struct and should be released with rwpng_free_image24.",
+      "direct_api_constructors": [
+        "rwpng_read_image24"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "png8_image *",
+      "aliases": [],
+      "definition": "typedef struct {\n    jmp_buf jmpbuf;\n    uint32_t width;\n    uint32_t height;\n    size_t maximum_file_size;\n    size_t metadata_size;\n    double gamma;\n    unsigned char **row_pointers;\n    unsigned char *indexed_data;\n    struct rwpng_chunk *chunks;\n    unsigned int num_palette;\n    rwpng_rgba palette[256];\n    rwpng_color_transform output_color;\n    char fast_compression;\n} png8_image;",
+      "description": "Container for 8-bit indexed PNG images. Holds dimensions, file size limits, gamma, row pointers, indexed pixel data, preserved chunks, palette (up to 256 RGBA entries), color transform, and a fast compression flag. jmpbuf is for error handling. Resources should be released with rwpng_free_image8.",
+      "direct_api_constructors": [
+        "rwpng_write_image8",
+        "rwpng_write_image24"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "rwpng_png_image *",
+      "aliases": [],
+      "definition": "typedef union {\n    jmp_buf jmpbuf;\n    png24_image png24;\n    png8_image png8;\n} rwpng_png_image;",
+      "description": "Union that can represent either a png24_image or png8_image and shares a jmp_buf for error handling. Useful for generic handling where the exact format varies.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "rwpng_version_info",
+      "signature": "void rwpng_version_info(FILE *fp);",
+      "description": "Writes library/version information to the provided FILE stream. Typical usage is to print version info to stdout or a log before processing images. Exact output format is unspecified.",
+      "requirements": [
+        "fp must be a valid, open FILE* suitable for writing (e.g., stdout, stderr, or a writable file).",
+        "The stream should be opened in a mode that allows writing text.",
+        "Thread-safety and reentrancy are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "rwpng_read_image24",
+      "signature": "pngquant_error rwpng_read_image24(FILE *infile, png24_image *mainprog_ptr, int strip, int verbose);",
+      "description": "Reads a PNG image from infile into a 24/32-bit image container (png24_image). On success, mainprog_ptr is populated with image dimensions, metadata, and pixel data (rgba_data/row_pointers). The strip parameter likely controls stripping of alpha or metadata; verbose likely increases logging. Returns a pngquant_error code indicating success or the reason of failure.",
+      "requirements": [
+        "infile must be a valid, open FILE* positioned at the beginning of a PNG stream and readable (binary mode recommended).",
+        "mainprog_ptr must be non-null and point to a png24_image struct that the function will initialize/populate.",
+        "Caller must check the return value; only SUCCESS (0) indicates success; any non-zero pngquant_error indicates failure.",
+        "On SUCCESS, the caller is responsible for releasing allocated resources with rwpng_free_image24(mainprog_ptr).",
+        "strip and verbose are treated as integer flags; valid values are not documented here; typical usage is 0 (off) or non-zero (on).",
+        "Behavior regarding pre-initialized fields of mainprog_ptr is unspecified; callers should not rely on existing contents being preserved."
+      ],
+      "error": null
+    },
+    {
+      "name": "rwpng_write_image8",
+      "signature": "pngquant_error rwpng_write_image8(FILE *outfile, png8_image *mainprog_ptr);",
+      "description": "Writes an indexed-color (8-bit) PNG image to outfile using the data and palette contained in png8_image. Returns a pngquant_error indicating success or the reason of failure. Intended for saving paletted images after quantization.",
+      "requirements": [
+        "outfile must be a valid, open FILE* suitable for binary writing and positioned at the desired start location.",
+        "mainprog_ptr must be non-null and contain a properly initialized png8_image describing the image to write (dimensions, pixel data, palette, and related fields).",
+        "Caller must check the return value; only SUCCESS (0) indicates success.",
+        "On success or failure, memory ownership of buffers inside mainprog_ptr remains with the caller; use rwpng_free_image8 when appropriate to free allocations made by the rwpng routines.",
+        "num_palette must correspond to the palette entries used; exact constraints are not documented here (typical PNG limit is 256).",
+        "Any optional limits (e.g., maximum_file_size) and flags (e.g., fast_compression) should be set by the caller as needed; exact semantics are not specified in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "rwpng_write_image24",
+      "signature": "pngquant_error rwpng_write_image24(FILE *outfile, const png24_image *mainprog_ptr);",
+      "description": "Writes a 24/32-bit PNG image to outfile using the pixel data and metadata provided in png24_image. Returns a pngquant_error status. Intended for saving full-color images (e.g., those read via rwpng_read_image24 or prepared by the caller).",
+      "requirements": [
+        "outfile must be a valid, open FILE* suitable for binary writing and positioned at the desired start location.",
+        "mainprog_ptr must be non-null and point to a const png24_image with properly initialized dimensions and pixel buffers.",
+        "Caller must check the return value; only SUCCESS (0) indicates success.",
+        "The function does not take ownership of mainprog_ptr or its buffers; freeing (if needed) remains the caller’s responsibility via rwpng_free_image24 when applicable."
+      ],
+      "error": null
+    },
+    {
+      "name": "rwpng_free_image24",
+      "signature": "void rwpng_free_image24(png24_image *);",
+      "description": "Releases memory and resources associated with a png24_image previously populated by rwpng routines. Use after a successful rwpng_read_image24 or after the caller is done with a png24_image created/filled for writing.",
+      "requirements": [
+        "Argument must be either NULL (no-op behavior unknown) or a pointer to a png24_image previously initialized/populated by rwpng functions.",
+        "After calling, any internal pointers (e.g., rgba_data, row_pointers, chunks) become invalid; do not access them.",
+        "Call exactly once per image allocation to avoid double-free; calling multiple times is unsafe unless explicitly documented (not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "rwpng_free_image8",
+      "signature": "void rwpng_free_image8(png8_image *);",
+      "description": "Releases memory and resources associated with a png8_image previously populated by rwpng routines. Use after writing or when discarding an image prepared for writing.",
+      "requirements": [
+        "Argument must be either NULL (no-op behavior unknown) or a pointer to a png8_image previously initialized/populated by rwpng functions.",
+        "After calling, any internal pointers (e.g., indexed_data, row_pointers, chunks, palette) become invalid; do not access them.",
+        "Call exactly once per image allocation to avoid double-free; calling multiple times is unsafe unless explicitly documented (not specified here)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "rwpng_version_info",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a writable temporary file path and open it for text output.\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *fp = fopen(path, \"w\");\nif (!fp) { FUZZ_BAIL(); }\n// Call the target: write version info to the file. We assume it only writes text.\nrwpng_version_info(fp);\n// Close stream to flush and release OS resources.\nfclose(fp);\n"
+    },
+    {
+      "name": "rwpng_read_image24",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "img24",
+          "type": "png24_image *"
+        }
+      ],
+      "code": "// Prepare a readable file: FUZZ_PARAM_FILENAME produces a file with random data.\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *infile = fopen(path, \"rb\");\nif (!infile) { FUZZ_BAIL(); }\n// Allocate a png24_image struct that rwpng will populate.\npng24_image *img24 = (png24_image*)malloc(sizeof(png24_image));\nif (!img24) { fclose(infile); FUZZ_BAIL(); }\n// Zero-initialize to ensure rwpng_free_image24 can safely free on success.\nmemset(img24, 0, sizeof(*img24));\n// strip/verbose flags: 0 or 1 to keep behavior simple and constrained.\nint strip = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nint verbose = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\n// Invoke the target read routine.\npngquant_error st = rwpng_read_image24(infile, img24, strip, verbose);\n// Close the input regardless of result.\nfclose(infile);\n// Enforce that this stub only outputs a valid, populated image object.\nif (st != SUCCESS) {\n    // Nothing should escape on failure; avoid leaking heap struct.\n    // Since the API may have allocated internal buffers only on success,\n    // we skip rwpng_free_image24 here and just drop the struct.\n    free(img24);\n    FUZZ_BAIL();\n}\n// Success: annotate attributes for downstream stubs (free/write).\nFUZZ_SET_ATTR_INT(img24, \"alive\", 1);\nFUZZ_SET_ATTR_INT(img24, \"width\", (int)img24->width);\nFUZZ_SET_ATTR_INT(img24, \"height\", (int)img24->height);\n"
+    },
+    {
+      "name": "rwpng_write_image8",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "img8",
+          "type": "png8_image *"
+        }
+      ],
+      "code": "// Open an output file for binary writing.\nconst char *outpath = FUZZ_PARAM_FILENAME();\nFILE *outfile = fopen(outpath, \"wb\");\nif (!outfile) { FUZZ_BAIL(); }\n// Create and initialize a small, valid png8_image for writing.\npng8_image *img8 = (png8_image*)malloc(sizeof(png8_image));\nif (!img8) { fclose(outfile); FUZZ_BAIL(); }\nmemset(img8, 0, sizeof(*img8));\n// Keep allocations bounded (<2048 bytes) and dimensions reasonable.\nunsigned int w = (unsigned int)(*FUZZ_PARAM(unsigned int) % 64u) + 1u;\nunsigned int h = (unsigned int)(*FUZZ_PARAM(unsigned int) % 64u) + 1u;\nimg8->width = w;\nimg8->height = h;\n// Gamma in a typical range [0.1, 4.0]\nimg8->gamma = ((double)((*FUZZ_PARAM(unsigned int) % 3900u) + 100u)) / 1000.0;\n// Compression flag and max file size metadata (unchecked by API here)\nimg8->fast_compression = (char)((*FUZZ_PARAM(unsigned int)) & 1u);\nimg8->maximum_file_size = (size_t)((*FUZZ_PARAM(unsigned int) % 2048u) + 1u);\n// Choose an output color transform from the enum range [0,6].\nimg8->output_color = (rwpng_color_transform)((int)(*FUZZ_PARAM(unsigned int) % 7u));\n// Allocate indexed pixel buffer and row pointers.\nsize_t pixels = (size_t)w * (size_t)h;\nimg8->indexed_data = (unsigned char*)malloc(pixels);\nimg8->row_pointers = (unsigned char**)malloc(sizeof(unsigned char*) * h);\nif (!img8->indexed_data || !img8->row_pointers) {\n    if (img8->row_pointers) free(img8->row_pointers);\n    if (img8->indexed_data) free(img8->indexed_data);\n    free(img8);\n    fclose(outfile);\n    FUZZ_BAIL();\n}\nfor (unsigned int y = 0; y < h; ++y) {\n    img8->row_pointers[y] = img8->indexed_data + (size_t)y * (size_t)w;\n}\n// Palette: at least 1 entry, up to 256.\nunsigned int nplte = (unsigned int)(*FUZZ_PARAM(unsigned int) % 256u) + 1u;\nimg8->num_palette = nplte;\n// Fill palette and pixel data from a random byte stream, cycling as needed.\nstd::string entropy = FUZZ_PARAM_STR();\nif (entropy.size() == 0) entropy = std::string(\"\\x00\", 1);\nsize_t ei = 0, elen = entropy.size();\n// Fill palette entries.\nfor (unsigned int i = 0; i < nplte; ++i) {\n    img8->palette[i].r = (unsigned char)entropy[ei]; ei = (ei + 1) % elen;\n    img8->palette[i].g = (unsigned char)entropy[ei]; ei = (ei + 1) % elen;\n    img8->palette[i].b = (unsigned char)entropy[ei]; ei = (ei + 1) % elen;\n    img8->palette[i].a = (unsigned char)entropy[ei]; ei = (ei + 1) % elen;\n}\n// Fill indexed pixels with palette indices.\nfor (size_t i = 0; i < pixels; ++i) {\n    img8->indexed_data[i] = (unsigned char)(entropy[ei] % nplte);\n    ei = (ei + 1) % elen;\n}\n// No ancillary chunks in this minimal harness.\nimg8->chunks = NULL;\n// Perform the write.\npngquant_error st = rwpng_write_image8(outfile, img8);\n// Close file regardless of result.\nfclose(outfile);\n// We accept both success/failure without bailing, but the object remains valid for reuse/free.\n// Mark attributes so free stub knows this object owns allocations.\nFUZZ_SET_ATTR_INT(img8, \"alive\", 1);\nFUZZ_SET_ATTR_INT(img8, \"width\", (int)img8->width);\nFUZZ_SET_ATTR_INT(img8, \"height\", (int)img8->height);\n"
+    },
+    {
+      "name": "rwpng_write_image24",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "img24",
+          "type": "png24_image *"
+        }
+      ],
+      "code": "// Open an output file for binary writing.\nconst char *outpath = FUZZ_PARAM_FILENAME();\nFILE *outfile = fopen(outpath, \"wb\");\nif (!outfile) { FUZZ_BAIL(); }\n// Create and initialize a small, valid png24_image for writing.\npng24_image *img24 = (png24_image*)malloc(sizeof(png24_image));\nif (!img24) { fclose(outfile); FUZZ_BAIL(); }\nmemset(img24, 0, sizeof(*img24));\n// Keep image reasonably small.\nunsigned int w = (unsigned int)(*FUZZ_PARAM(unsigned int) % 64u) + 1u;\nunsigned int h = (unsigned int)(*FUZZ_PARAM(unsigned int) % 64u) + 1u;\nimg24->width = w;\nimg24->height = h;\nimg24->gamma = ((double)((*FUZZ_PARAM(unsigned int) % 3900u) + 100u)) / 1000.0;\nimg24->input_color = (rwpng_color_transform)((int)(*FUZZ_PARAM(unsigned int) % 7u));\nimg24->output_color = (rwpng_color_transform)((int)(*FUZZ_PARAM(unsigned int) % 7u));\n// Allocate RGBA buffer and row pointers.\nsize_t rowbytes = (size_t)w * 4u;\nsize_t bufsize = rowbytes * (size_t)h;\nimg24->rgba_data = (unsigned char*)malloc(bufsize);\nimg24->row_pointers = (unsigned char**)malloc(sizeof(unsigned char*) * h);\nif (!img24->rgba_data || !img24->row_pointers) {\n    if (img24->row_pointers) free(img24->row_pointers);\n    if (img24->rgba_data) free(img24->rgba_data);\n    free(img24);\n    fclose(outfile);\n    FUZZ_BAIL();\n}\nfor (unsigned int y = 0; y < h; ++y) {\n    img24->row_pointers[y] = img24->rgba_data + (size_t)y * rowbytes;\n}\n// Fill pixel data from random bytes, cycling as needed.\nstd::string entropy = FUZZ_PARAM_STR();\nif (entropy.size() == 0) entropy = std::string(\"\\x00\", 1);\nsize_t ei = 0, elen = entropy.size();\nfor (size_t i = 0; i < bufsize; ++i) {\n    img24->rgba_data[i] = (unsigned char)entropy[ei];\n    ei = (ei + 1) % elen;\n}\nimg24->chunks = NULL;\n// Write the image using the const-qualified API.\npngquant_error st = rwpng_write_image24(outfile, (const png24_image*)img24);\n// Close file regardless of result.\nfclose(outfile);\n// As with 8-bit write, keep the object available regardless of status for later freeing.\nFUZZ_SET_ATTR_INT(img24, \"alive\", 1);\nFUZZ_SET_ATTR_INT(img24, \"width\", (int)img24->width);\nFUZZ_SET_ATTR_INT(img24, \"height\", (int)img24->height);\n"
+    },
+    {
+      "name": "rwpng_free_image24",
+      "inputs": [
+        {
+          "name": "img24",
+          "type": "png24_image *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Only free images that were previously marked alive by read/write stubs.\nint alive = FUZZ_GET_ATTR_INT(img24, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Invoke the target free routine which releases internal buffers.\nrwpng_free_image24(img24);\n// Mark as freed to prevent double-free in subsequent stubs.\nFUZZ_SET_ATTR_INT(img24, \"alive\", 0);\n"
+    },
+    {
+      "name": "rwpng_free_image8",
+      "inputs": [
+        {
+          "name": "img8",
+          "type": "png8_image *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Only free images that were previously marked alive by a write stub.\nint alive = FUZZ_GET_ATTR_INT(img8, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Invoke the target free routine which releases internal buffers.\nrwpng_free_image8(img8);\n// Mark as freed to prevent double-free in subsequent stubs.\nFUZZ_SET_ATTR_INT(img8, \"alive\", 0);\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "rwpng_free_image24",
+      "data_types": []
+    },
+    {
+      "name": "rwpng_free_image8",
+      "data_types": []
+    },
+    {
+      "name": "rwpng_version_info",
+      "data_types": [
+        "arbitrary binary file data"
+      ]
+    },
+    {
+      "name": "rwpng_read_image24",
+      "data_types": [
+        "PNG image data"
+      ]
+    },
+    {
+      "name": "rwpng_write_image8",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "rwpng_write_image24",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary file data",
+      "description": "Any sequence of bytes stored in a file. No structure or encoding is assumed; data may be empty or any length. Used when a function opens a FUZZ_PARAM_FILENAME and only writes to it (content is irrelevant) or when the filename itself is fuzz-provided but not the data format."
+    },
+    {
+      "data_type": "PNG image data",
+      "description": "Bytes representing a PNG file stream as defined by the PNG specification (signature, IHDR, IDAT, IEND, etc.). May include valid or invalid PNGs since fuzzing supplies arbitrary content; expected by functions that read PNGs from a file."
+    },
+    {
+      "data_type": "arbitrary byte string",
+      "description": "An in-memory buffer of arbitrary bytes produced by FUZZ_PARAM_STR, with no required encoding or structure. May be empty; consumers read bytes sequentially as raw entropy (e.g., to fill palettes or pixel buffers)."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary file data",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# Data type: arbitrary binary file data\n# Target stub opens a FUZZ_PARAM_FILENAME for writing and then writes version info to it.\n# The file contents provided by FUZZ_PARAM_FILENAME are irrelevant for correctness, but\n# some fuzzers may also exercise filename parsing (paths, special chars) or pre-existing\n# file contents if opened with different modes in other stubs. We'll generate a small,\n# arbitrary, but varied binary buffer that could serve as a file payload. Keep <= 4096 bytes.\n\n_MAGIC_TAGS: List[bytes] = [\n    b\"\\x89PNG\\r\\n\\x1a\\n\",           # PNG signature\n    b\"%PDF-1.7\\n\",                     # PDF header\n    b\"GIF89a\",                          # GIF header\n    b\"\\xff\\xd8\\xff\\xe0JFIF\\x00\",     # JPEG header\n    b\"PK\\x03\\x04\",                     # ZIP header\n    b\"\\x7fELF\",                         # ELF header\n    b\"BM\",                               # BMP header\n    b\"OggS\\x00\\x02\",                    # OGG header\n    b\"ID3\",                              # MP3 ID3\n]\n\n_TEXT_SNIPPETS: List[bytes] = [\n    b\"# This is a test file for fuzzing.\\n\",\n    b\"version=1.2.3\\n\",\n    b\"name=rwpng_fuzz\\n\",\n    b\"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\\n\",\n]\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_arbitrary_file(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide size profile: small, medium, or near limit.\n    profile = rng.choices([\"small\", \"medium\", \"large\"], weights=[5, 3, 1], k=1)[0]\n    if profile == \"small\":\n        target = rng.randint(0, 256)\n    elif profile == \"medium\":\n        target = rng.randint(257, 2048)\n    else:\n        target = rng.randint(2049, 4096)\n\n    parts: List[bytes] = []\n\n    # Optionally start with a known magic to simulate realistic files.\n    if rng.random() < 0.8:\n        parts.append(rng.choice(_MAGIC_TAGS))\n\n    # Insert some structured-looking fields.\n    if rng.random() < 0.6:\n        # Little-endian 32-bit length + random payload\n        payload_len = rng.randint(0, 64)\n        parts.append(b\"LEN\" + struct.pack(\"<I\", payload_len))\n        parts.append(_rand_bytes(rng, payload_len))\n\n    if rng.random() < 0.6:\n        # Key-value text area\n        kv_count = rng.randint(1, 5)\n        for _ in range(kv_count):\n            k = rng.choice([b\"alpha\", b\"beta\", b\"gamma\", b\"delta\", b\"path\", b\"mode\"]) \\\n                + b\"_\" + str(rng.randint(0, 999)).encode()\n            v = rng.choice(_TEXT_SNIPPETS).strip()\n            parts.append(k + b\"=\" + v + b\"\\n\")\n\n    if rng.random() < 0.5:\n        # Some zeros and 0xFF runs to simulate sparse/binary areas\n        parts.append(b\"\\x00\" * rng.randint(0, 64))\n        parts.append(b\"\\xff\" * rng.randint(0, 64))\n\n    # Random middle chunk\n    parts.append(_rand_bytes(rng, rng.randint(0, 512)))\n\n    # Optionally end with newline-terminated text\n    if rng.random() < 0.7:\n        parts.append(rng.choice(_TEXT_SNIPPETS))\n\n    data = b\"\".join(parts)\n\n    # Adjust to target size by trimming or padding with random bytes.\n    if len(data) > target:\n        data = data[:target]\n    elif len(data) < target:\n        data += _rand_bytes(rng, target - len(data))\n\n    # Ensure we never exceed 4096 bytes\n    return data[:4096]\n\n\ndef generate(seed: int) -> bytes:\n    \"\"\"Generate arbitrary binary file data (<=4096 bytes) based on a seed.\n\n    The target fuzzer stub writes to the provided filename, so contents are not\n    required to be valid; we still provide varied but benign content to be reused\n    by other stubs that may read files.\n    \"\"\"\n    return _make_arbitrary_file(seed)\n"
+    },
+    {
+      "data_type": "PNG image data",
+      "generator": "import random\nimport struct\nimport zlib\nfrom typing import List, Tuple\n\n# PNG builder to generate valid PNG images with variations to exercise rwpng_read_image24\n# Focus: valid PNG files with different color types/bit depths, interlace, ancillary chunks, gamma/sRGB/ICC hints,\n# small dimensions to keep under 4096 bytes.\n\nPNG_SIG = b\"\\x89PNG\\r\\n\\x1a\\n\"\n\n# Helpers\n\ndef _crc(chunk_type: bytes, data: bytes) -> int:\n    return zlib.crc32(chunk_type + data) & 0xffffffff\n\ndef _chunk(chunk_type: bytes, data: bytes) -> bytes:\n    return struct.pack(\">I\", len(data)) + chunk_type + data + struct.pack(\">I\", _crc(chunk_type, data))\n\n# Color type mapping for IHDR and encoder expectations\n# 0: Grayscale, 2: Truecolor, 3: Indexed, 4: Grayscale+Alpha, 6: Truecolor+Alpha\n\n\ndef _ihdr(width: int, height: int, bit_depth: int, color_type: int, interlace: int = 0) -> bytes:\n    # Compression method 0, filter method 0\n    data = struct.pack(\n        \">IIBBBBB\",\n        width,\n        height,\n        bit_depth,\n        color_type,\n        0,\n        0,\n        interlace,\n    )\n    return _chunk(b\"IHDR\", data)\n\n\ndef _plte(palette: List[Tuple[int, int, int]]) -> bytes:\n    data = bytes([c for rgb in palette for c in rgb])\n    return _chunk(b\"PLTE\", data)\n\n\ndef _trns_for_palette(alpha: List[int]) -> bytes:\n    return _chunk(b\"tRNS\", bytes(alpha))\n\n\ndef _srgb(intent: int) -> bytes:\n    return _chunk(b\"sRGB\", bytes([intent & 3]))\n\n\ndef _gama(gamma_scaled_100k: int) -> bytes:\n    return _chunk(b\"gAMA\", struct.pack(\">I\", gamma_scaled_100k))\n\n\ndef _chrm(white_x, white_y, red_x, red_y, green_x, green_y, blue_x, blue_y) -> bytes:\n    vals = [white_x, white_y, red_x, red_y, green_x, green_y, blue_x, blue_y]\n    data = b\"\".join(struct.pack(\">I\", int(v)) for v in vals)\n    return _chunk(b\"cHRM\", data)\n\n\ndef _iCCP(name: str, profile_bytes: bytes) -> bytes:\n    # name: 1-79 bytes, Latin-1, null-terminated\n    nm = name.encode(\"latin1\", errors=\"ignore\")[:79]\n    data = nm + b\"\\x00\" + b\"\\x00\" + zlib.compress(profile_bytes)\n    return _chunk(b\"iCCP\", data)\n\n\ndef _text(keyword: str, text: str) -> bytes:\n    kw = keyword.encode(\"latin1\", errors=\"ignore\")[:79]\n    return _chunk(b\"tEXt\", kw + b\"\\x00\" + text.encode(\"latin1\", errors=\"ignore\"))\n\n\ndef _idat_rows(filtered_rows: List[bytes]) -> bytes:\n    raw = b\"\".join(filtered_rows)\n    comp = zlib.compress(raw, level=6)\n    return _chunk(b\"IDAT\", comp)\n\n\ndef _iend() -> bytes:\n    return _chunk(b\"IEND\", b\"\")\n\n\ndef _make_rows(width: int, height: int, bpp: int, color_type: int, bit_depth: int) -> List[bytes]:\n    # bpp is bytes per pixel for 8-bit channels; for lower bit depths pack bits accordingly\n    rows = []\n    if color_type in (0, 3):\n        # Grayscale or indexed: bit depths may be 1,2,4,8\n        bits_per_sample = bit_depth\n        samples_per_byte = 8 // bits_per_sample\n        row_samples = width\n        row_bytes = (row_samples + samples_per_byte - 1) // samples_per_byte\n        for y in range(height):\n            # gradient/pattern\n            samples = [(x + y) % (1 << bits_per_sample) for x in range(row_samples)]\n            # pack bits MSB-first per PNG spec\n            b = bytearray(row_bytes)\n            idx = 0\n            for i, s in enumerate(samples):\n                pos = i % samples_per_byte\n                shift = (samples_per_byte - 1 - pos) * bits_per_sample\n                b[idx] |= (s & ((1 << bits_per_sample) - 1)) << shift\n                if pos == samples_per_byte - 1:\n                    idx += 1\n            # filter type 0 (None)\n            rows.append(b\"\\x00\" + bytes(b))\n        return rows\n    else:\n        # 8-bit per component paths (bit_depth 8)\n        for y in range(height):\n            row = bytearray(width * bpp)\n            for x in range(width):\n                if color_type == 2:  # RGB\n                    r = (x * 17 + y * 29) & 0xFF\n                    g = (x * 37 + y * 13) & 0xFF\n                    b = (x * 7 + y * 53) & 0xFF\n                    o = x * 3\n                    row[o:o+3] = bytes((r, g, b))\n                elif color_type == 4:  # Gray+Alpha\n                    g = (x * 23 + y * 11) & 0xFF\n                    a = (255 - ((x * 41 + y * 19) & 0xFF))\n                    o = x * 2\n                    row[o:o+2] = bytes((g, a))\n                elif color_type == 6:  # RGBA\n                    r = (x * 17 + y * 29) & 0xFF\n                    g = (x * 37 + y * 13) & 0xFF\n                    b = (x * 7 + y * 53) & 0xFF\n                    a = (255 - ((x * 41 + y * 19) & 0xFF))\n                    o = x * 4\n                    row[o:o+4] = bytes((r, g, b, a))\n            rows.append(b\"\\x00\" + bytes(row))  # filter None\n        return rows\n\n\ndef _bytes_per_pixel(color_type: int, bit_depth: int) -> int:\n    if bit_depth < 8:\n        # packed; return ceiling to compute row storage for 8-bit packing in our generator\n        if color_type in (0, 3):\n            return 1  # not used directly outside _make_rows\n        # other combinations with <8 not used here\n    if color_type == 0:\n        return 1\n    if color_type == 2:\n        return 3\n    if color_type == 3:\n        return 1\n    if color_type == 4:\n        return 2\n    if color_type == 6:\n        return 4\n    return 3\n\n\ndef _build_png(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Choose image characteristics\n    color_type = r.choice([6, 2, 3, 4, 0])  # prioritize RGBA/RGB/Indexed but include GA/Gray\n    if color_type in (0, 3):\n        bit_depth = r.choice([1, 2, 4, 8])\n    else:\n        bit_depth = 8\n\n    # small dimensions; vary to exercise row/stride and filters\n    width = r.choice([1, 2, 3, 4, 8, 16, 31, 32])\n    height = r.choice([1, 2, 3, 4, 8, 16, 31])\n\n    interlace = r.choice([0, 1])  # enable some interlaced cases\n\n    chunks = [PNG_SIG, _ihdr(width, height, bit_depth, color_type, interlace)]\n\n    # Add color management metadata variants\n    cm_choice = r.randrange(5)\n    if cm_choice == 0:\n        chunks.append(_srgb(r.randrange(4)))\n    elif cm_choice == 1:\n        # gAMA only\n        gamma_vals = [45455, 50000, 100000, 25000]  # ~2.2, 2.0, 1.0, 4.0\n        chunks.append(_gama(r.choice(gamma_vals)))\n    elif cm_choice == 2:\n        # gAMA + cHRM\n        chunks.append(_gama(45455))\n        # cHRM fixed-point scaled by 100000\n        chunks.append(_chrm(31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000))\n    elif cm_choice == 3:\n        # iCCP minimal profile payload (not a real ICC, but valid chunk structure)\n        prof = b\"dummy ICC profile\" * 4\n        chunks.append(_iCCP(\"Profile\", prof))\n\n    # Ancillary tEXt chunk\n    if r.random() < 0.5:\n        chunks.append(_text(\"Software\", \"pnggen-fuzz-seeded\"))\n\n    # Palette for indexed\n    palette = []\n    if color_type == 3:\n        palette_size = r.randrange(2, 256)\n        for i in range(palette_size):\n            palette.append(((i * 97) % 256, (i * 57) % 256, (i * 13) % 256))\n        chunks.append(_plte(palette))\n        # Optional transparency for a prefix of palette entries\n        if r.random() < 0.6:\n            alpha_len = r.randrange(1, min(16, palette_size))\n            alpha = [(i * 17) % 256 for i in range(alpha_len)]\n            chunks.append(_trns_for_palette(alpha))\n\n    # Build pixel rows\n    bpp = _bytes_per_pixel(color_type, bit_depth)\n    rows = _make_rows(width, height, bpp, color_type, bit_depth)\n\n    # Optionally add filter variety: add a few rows with Sub/Up filters for 8-bit depths\n    if bit_depth == 8 and color_type in (2, 4, 6) and len(rows) >= 2 and random.random() < 0.5:\n        # Change first row to Sub (1): simple left predictor affects decoding path\n        r0 = bytearray(rows[0])\n        r0[0] = 1\n        rows[0] = bytes(r0)\n        # Change second row to Up (2)\n        r1 = bytearray(rows[1])\n        r1[0] = 2\n        rows[1] = bytes(r1)\n\n    chunks.append(_idat_rows(rows))\n    chunks.append(_iend())\n\n    png = b\"\".join(chunks)\n\n    # Ensure under 4096 bytes: if too large, reduce size by adjusting compression level via recompress or shrink dims\n    if len(png) > 4096:\n        # fallback: rebuild with smaller dims, grayscale\n        small_width = 8\n        small_height = 8\n        ct = 6 if color_type != 3 else 3\n        bd = 8 if ct != 3 else 4\n        chunks2 = [PNG_SIG, _ihdr(small_width, small_height, bd, ct, 0)]\n        if ct == 3:\n            pal = [(i, i, i) for i in range(16)]\n            chunks2.append(_plte(pal))\n        rows2 = _make_rows(small_width, small_height, _bytes_per_pixel(ct, bd), ct, bd)\n        chunks2.append(_idat_rows(rows2))\n        chunks2.append(_iend())\n        png = b\"\".join(chunks2)\n\n    return png\n\n\ndef generate(seed: int) -> bytes:\n    \"\"\"\n    Generate a valid PNG image byte stream suitable for rwpng_read_image24 fuzzing.\n    The generator creates diverse, valid PNGs across color types, bit depths, interlace,\n    and metadata chunks to exercise different decoding paths. Output size <= 4096 bytes.\n    \"\"\"\n    return _build_png(seed)\n"
+    },
+    {
+      "data_type": "arbitrary byte string",
+      "generator": "import random\nimport struct\nimport zlib\n\n# This generator targets FUZZ_PARAM_STR usage in the rwpng_write_image8 and rwpng_write_image24 stubs.\n# The stubs consume the returned byte string cyclically to fill:\n# - png8 palette entries (r,g,b,a) and indexed pixel data (palette indices)\n# - png24 RGBA pixel data\n# Our strategy is to generate compact, structured entropy blocks that produce interesting images:\n# - Solid colors, full gradients, checkerboards, stripes\n# - Alpha ramps and opaque/transparent toggles\n# - Palettes with edge cases (all same color, grayscale ramp, fully transparent, alternating extremes)\n# - Short repeating sequences of various lengths to exercise modulo access\n# The output is a small byte string (<=4096 bytes) without external dependencies.\n\nMAX_SIZE = 4096\n\n\ndef _bytes_from_colors(colors):\n    # colors: list of (r,g,b,a) tuples 0..255\n    out = bytearray()\n    for r, g, b, a in colors:\n        out.extend((r & 0xFF, g & 0xFF, b & 0xFF, a & 0xFF))\n    return bytes(out)\n\n\ndef _make_palette_pattern(kind: str, seed: int) -> bytes:\n    rnd = random.Random(seed)\n    colors = []\n    if kind == \"solid\":\n        c = (rnd.randrange(256), rnd.randrange(256), rnd.randrange(256), rnd.randrange(256))\n        colors = [c] * rnd.randrange(1, 256)\n    elif kind == \"grayscale_ramp\":\n        n = rnd.randrange(2, 257)\n        for i in range(n):\n            v = int(255 * i / max(1, n - 1))\n            a = 255\n            colors.append((v, v, v, a))\n    elif kind == \"alpha_ramp\":\n        n = rnd.randrange(2, 257)\n        r = rnd.randrange(256)\n        g = rnd.randrange(256)\n        b = rnd.randrange(256)\n        for i in range(n):\n            a = int(255 * i / max(1, n - 1))\n            colors.append((r, g, b, a))\n    elif kind == \"alternating_extremes\":\n        n = rnd.randrange(2, 257)\n        c1 = (0, 0, 0, 0)\n        c2 = (255, 255, 255, 255)\n        for i in range(n):\n            colors.append(c1 if (i % 2 == 0) else c2)\n    elif kind == \"random_palette\":\n        n = rnd.randrange(1, 257)\n        for _ in range(n):\n            colors.append((rnd.randrange(256), rnd.randrange(256), rnd.randrange(256), rnd.randrange(256)))\n    elif kind == \"pastel_palette\":\n        n = rnd.randrange(4, 257)\n        base = (rnd.randrange(128, 256), rnd.randrange(128, 256), rnd.randrange(128, 256))\n        for i in range(n):\n            r = min(255, max(0, base[0] + rnd.randrange(-30, 31)))\n            g = min(255, max(0, base[1] + rnd.randrange(-30, 31)))\n            b = min(255, max(0, base[2] + rnd.randrange(-30, 31)))\n            a = 255\n            colors.append((r, g, b, a))\n    else:\n        # Fallback single black\n        colors = [(0, 0, 0, 255)]\n    return _bytes_from_colors(colors)\n\n\ndef _make_pixel_sequences(kind: str, seed: int, max_len: int = 1024) -> bytes:\n    rnd = random.Random(seed)\n    data = bytearray()\n    if kind == \"solid_index\":\n        idx = rnd.randrange(256)\n        data.extend([idx] * rnd.randrange(1, max_len))\n    elif kind == \"ramp\":\n        n = rnd.randrange(2, max_len)\n        for i in range(n):\n            data.append(i % 256)\n    elif kind == \"checker\":\n        n = rnd.randrange(2, max_len)\n        a = rnd.randrange(256)\n        b = rnd.randrange(256)\n        for i in range(n):\n            data.append(a if (i % 2 == 0) else b)\n    elif kind == \"stripes\":\n        n = rnd.randrange(2, max_len)\n        period = rnd.randrange(2, 33)\n        palette = [rnd.randrange(256) for _ in range(period)]\n        for i in range(n):\n            data.append(palette[i % period])\n    elif kind == \"random\":\n        n = rnd.randrange(1, max_len)\n        for _ in range(n):\n            data.append(rnd.randrange(256))\n    else:\n        data.append(0)\n    return bytes(data)\n\n\ndef _make_rgba_sequences(kind: str, seed: int, max_len: int = 2048) -> bytes:\n    rnd = random.Random(seed)\n    data = bytearray()\n    if kind == \"solid_rgba\":\n        rgba = [rnd.randrange(256) for _ in range(4)]\n        n = rnd.randrange(4, max_len // 4 * 4 + 1)\n        if n < 4:\n            n = 4\n        count = n // 4\n        for _ in range(count):\n            data.extend(rgba)\n    elif kind == \"gradient_rgba\":\n        npx = rnd.randrange(1, max_len // 4 + 1)\n        r0, g0, b0, a0 = [rnd.randrange(256) for _ in range(4)]\n        r1, g1, b1, a1 = [rnd.randrange(256) for _ in range(4)]\n        for i in range(npx):\n            t = i / max(1, npx - 1)\n            r = int(r0 + (r1 - r0) * t) & 0xFF\n            g = int(g0 + (g1 - g0) * t) & 0xFF\n            b = int(b0 + (b1 - b0) * t) & 0xFF\n            a = int(a0 + (a1 - a0) * t) & 0xFF\n            data.extend((r, g, b, a))\n    elif kind == \"alpha_toggle\":\n        npx = rnd.randrange(2, max_len // 4 + 1)\n        rgb = [rnd.randrange(256) for _ in range(3)]\n        for i in range(npx):\n            a = 255 if (i % 2 == 0) else 0\n            data.extend((rgb[0], rgb[1], rgb[2], a))\n    elif kind == \"random\":\n        n = rnd.randrange(4, max_len)\n        for _ in range(n):\n            data.append(rnd.randrange(256))\n    else:\n        data.extend((0, 0, 0, 255))\n    return bytes(data)\n\n\ndef _mix_blocks(blocks):\n    # Interleave different blocks to create richer entropy cycles\n    # while keeping size bounded.\n    out = bytearray()\n    for b in blocks:\n        if not b:\n            continue\n        out.extend(b)\n        if len(out) > MAX_SIZE:\n            return bytes(out[:MAX_SIZE])\n    return bytes(out[:MAX_SIZE])\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Decide on a theme that will synchronize palette and pixel data in interesting ways.\n    palette_kind = rnd.choice([\n        \"solid\",\n        \"grayscale_ramp\",\n        \"alpha_ramp\",\n        \"alternating_extremes\",\n        \"random_palette\",\n        \"pastel_palette\",\n    ])\n    pixel_kind = rnd.choice([\n        \"solid_index\",\n        \"ramp\",\n        \"checker\",\n        \"stripes\",\n        \"random\",\n    ])\n    rgba_kind = rnd.choice([\n        \"solid_rgba\",\n        \"gradient_rgba\",\n        \"alpha_toggle\",\n        \"random\",\n    ])\n\n    # Create blocks with separate sub-seeds to enhance variability while staying deterministic.\n    pal = _make_palette_pattern(palette_kind, seed ^ 0xA5A5_0001)\n    idx = _make_pixel_sequences(pixel_kind, seed ^ 0x5A5A_0002, max_len=1536)\n    rgba = _make_rgba_sequences(rgba_kind, seed ^ 0x33CC_0003, max_len=3072)\n\n    # Add small headers to encourage diverse short cycles encountered by modulo access.\n    # These headers are just entropy; the C++ harness treats the data as raw bytes.\n    header = bytearray()\n    # 8 bytes from seed, 4 bytes of sizes (capped), and a small marker string.\n    header.extend(struct.pack(\"<Q\", (seed & 0xFFFFFFFFFFFFFFFF)))\n    header.extend(struct.pack(\"<III\", len(pal) & 0xFFFFFFFF, len(idx) & 0xFFFFFFFF, len(rgba) & 0xFFFFFFFF))\n    marker = b\"PQEZ\"  # arbitrary marker\n    header.extend(marker)\n\n    # Optionally compress one block and include both raw and compressed to provide different byte distributions.\n    # Still valid as entropy bytes.\n    if rnd.random() < 0.5 and len(rgba) > 16:\n        try:\n            comp = zlib.compress(rgba, level=rnd.randrange(1, 10))\n            if len(comp) < len(rgba) and len(comp) < 1024:\n                rgba = comp\n        except Exception:\n            pass\n\n    # Interleave to keep within budget and yield variety for both palettes and pixels.\n    blocks = [bytes(header), pal, idx, rgba]\n    out = _mix_blocks(blocks)\n\n    # Ensure non-empty, as the harness replaces empty with \"\\x00\" and that reduces variety.\n    if not out:\n        out = b\"\\x00\"\n\n    # Cap size.\n    if len(out) > MAX_SIZE:\n        out = out[:MAX_SIZE]\n\n    return out\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1418,
+            "output_tokens": 1144,
+            "total_tokens": 2562
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 996,
+            "output_tokens": 56,
+            "total_tokens": 1052
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1472,
+            "output_tokens": 2123,
+            "total_tokens": 3595
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6084,
+            "output_tokens": 5959,
+            "total_tokens": 12043
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5935,
+            "output_tokens": 280,
+            "total_tokens": 6215
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 242.7419764995575,
+    "scan_objects": 16.173975229263306,
+    "validate_objects": 0.6306991577148438,
+    "scan_functions": 48.42731475830078,
+    "synthesis": 131.48905658721924,
+    "fill": 0,
+    "classify": 6.0091376304626465,
+    "build_generators": 40.0108528137207
+  }
+}

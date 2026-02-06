@@ -1,0 +1,171 @@
+{
+  "objects": [
+    {
+      "ptr_type": "regex_t *",
+      "aliases": [
+        "struct regex_t *",
+        "re_t"
+      ],
+      "definition": "typedef struct regex_t\n{\n    unsigned char  type;   /* CHAR, STAR, etc.                      */\n    union\n    {\n        unsigned char  ch;   /*      the character itself             */\n        unsigned char* ccl;  /*  OR  a pointer to characters in class */\n    } u;\n} regex_t;",
+      "description": "Node structure for a compiled mini-regular-expression. Each node encodes an opcode in 'type' (e.g., CHAR, STAR) and either a character ('u.ch') or a pointer to a character class buffer ('u.ccl'). Used as elements of a compiled pattern array managed by the caller.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "re_t *",
+      "aliases": [],
+      "definition": "typedef struct regex_t* re_t;",
+      "description": "Alias type for a pointer to regex_t, representing a compiled regex node or the head of a compiled pattern. Note: this is already a pointer typedef; most APIs take re_t directly, not re_t*.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "re_matchp",
+      "signature": "int re_matchp(re_t pattern, const char* text, size_t text_length, size_t max_match_length, size_t* matchlength);",
+      "description": "Find matches of a previously compiled regular expression within the given text buffer. Intended usage: compile a pattern with re_compile into a caller-provided regex buffer, then call re_matchp to attempt a match against a non–null-terminated text buffer of length text_length. On completion, matchlength is set to the length (in bytes) of the match; the exact semantics of which match is reported and the meaning of the return value are not documented here and remain unknown from this header. Note: '.' may or may not match newlines depending on RE_DOT_MATCHES_NEWLINE (defaults to 1 in this header).",
+      "requirements": [
+        "pattern must be a valid compiled regex object produced by re_compile that remains in scope for the duration of this call (inferred from API design).",
+        "text must be non-null and point to at least text_length bytes; it need not be null-terminated (explicit from parameterization by length).",
+        "matchlength must be a non-null pointer to writable memory to receive the match length (inferred from output parameter role).",
+        "max_match_length is an upper bound on the match length; precise behavior when this bound is smaller than a possible match is not documented in this header (unknown).",
+        "Behavior with respect to newline matching depends on RE_DOT_MATCHES_NEWLINE; callers should set/know this macro at compile time if they rely on a specific behavior (from header notes).",
+        "Return value semantics (success/failure codes, or position) are not documented here; callers must consult implementation or tests to interpret the int result (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "re_compile",
+      "signature": "int re_compile(const char* pattern, size_t pattern_length, re_t compiled_regex, unsigned char* regex_char_buffer);",
+      "description": "Compile a regular expression into caller-provided storage, enabling multiple patterns to be compiled without internal static buffers. Returns ERROR_SUCCESS (0) on success, else 1. Intended usage: allocate storage for an array of regex_t objects and a character-class buffer, then pass the pattern (not necessarily null-terminated) and its length to build a compiled form referenced by compiled_regex and regex_char_buffer for subsequent matching with re_matchp.",
+      "requirements": [
+        "pattern must be non-null and reference at least pattern_length bytes; it does not need to be null-terminated (explicit from parameterization by length).",
+        "compiled_regex must point to writable storage sufficient to hold the compiled regex objects; capacity should allow up to MAX_REGEXP_OBJECTS regex symbols (inferred from MAX_REGEXP_OBJECTS comment and in-place compilation design).",
+        "regex_char_buffer must point to writable storage sufficient for character class data; capacity should allow up to MAX_CHAR_CLASS_LEN bytes (inferred from MAX_CHAR_CLASS_LEN comment and in-place compilation design).",
+        "The lifetime of compiled_regex and regex_char_buffer must extend through all subsequent uses (e.g., re_matchp) that rely on the compiled pattern (inferred from API design).",
+        "Return value: 0 indicates success; nonzero (1) indicates failure; specific failure reasons are not documented here (explicit for success code, unknown for error taxonomy)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "re_matchp",
+      "inputs": [
+        {
+          "name": "pattern",
+          "type": "regex_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pattern",
+          "type": "regex_t *"
+        }
+      ],
+      "code": "// Preconditions: pattern must be a compiled regex produced by re_compile and must\n// retain a live character-class buffer. We enforce this via attributes.\nint compiled = FUZZ_GET_ATTR_INT(pattern, \"compiled\");\nvoid *charbuf_obj = FUZZ_GET_ATTR_PTR(pattern, \"charbuf\");\nif (!compiled || !charbuf_obj) { FUZZ_BAIL(); }\n// Prepare a non-null, non-NUL-terminated text buffer of known length.\nstd::string text = FUZZ_PARAM_STR();\nconst char *text_ptr = text.data();\nsize_t text_len = text.size();\n// Choose a max_match_length in [0, text_len + 16] to explore bound behaviors.\nunsigned int r = *FUZZ_PARAM(unsigned int);\nsize_t max_match_length = (size_t)(r % (text_len + 17));\n// Output parameter for match length; must be writable and non-null.\nsize_t out_match_len = 0;\n// Invoke the target function.\nint rv = re_matchp((re_t)pattern, text_ptr, text_len, max_match_length, &out_match_len);\n// Basic safety/property assertions: implementation should never claim a match longer\n// than the haystack. If it does, treat as property violation.\nFUZZ_ASSERT(out_match_len <= text_len, \"match length exceeds text length\");\n// Keep pattern alive by returning it as an output (no deallocation here).\n// Validation: Ensures compiled pattern and char buffer linkage via attributes; exercises\n// varying max_match_length and verifies match length sanity."
+    },
+    {
+      "name": "re_compile",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "pattern",
+          "type": "regex_t *"
+        },
+        {
+          "name": "regex_char_buffer",
+          "type": "void *"
+        }
+      ],
+      "code": "// Outputs must be defined and non-null on success; initialize to null until we succeed.\nregex_t *pattern = nullptr;\nvoid *regex_char_buffer = nullptr;\n\n// Generate a raw pattern buffer (not necessarily null-terminated) and its length.\nstd::string pat = FUZZ_PARAM_STR();\nconst char *pat_ptr = pat.data();\nsize_t pat_len = pat.size();\n\n// Size caller-provided storage for compiled regex nodes and char-class buffer.\n// Keep within fuzzer perf limits (<2048 bytes total across allocations).\n// Nodes capacity loosely tied to pattern length.\nsize_t node_cap = pat_len + 8; if (node_cap < 8) node_cap = 8; if (node_cap > 256) node_cap = 256;\n// Char-class buffer capacity allows growth for classes and escapes.\nsize_t cclass_cap = pat_len * 2 + 16; if (cclass_cap < 32) cclass_cap = 32; if (cclass_cap > 1536) cclass_cap = 1536;\n\n// Allocate caller-owned buffers used by the API.\nregex_t *nodes = new regex_t[node_cap];\nunsigned char *cclass = new unsigned char[cclass_cap];\n\n// Attempt compilation into the provided storage.\nint rc = re_compile(pat_ptr, pat_len, (re_t)nodes, cclass);\nif (rc != 0) {\n    // On failure, do not expose invalid outputs; clean up and bail.\n    delete[] nodes;\n    delete[] cclass;\n    FUZZ_BAIL();\n}\n\n// Success: transfer ownership of allocations to fuzzer runtime via outputs.\npattern = nodes;\nregex_char_buffer = (void*)cclass;\n\n// Tag attributes to enforce lifetime/linkage in downstream stubs (e.g., re_matchp).\nFUZZ_SET_ATTR_INT(pattern, \"compiled\", 1);\nFUZZ_SET_ATTR_PTR(pattern, \"charbuf\", regex_char_buffer);\nFUZZ_SET_ATTR_INT(pattern, \"node_capacity\", (int)node_cap);\nFUZZ_SET_ATTR_INT(regex_char_buffer, \"is_charbuf\", 1);\nFUZZ_SET_ATTR_INT(regex_char_buffer, \"charbuf_capacity\", (int)cclass_cap);\n\n// Validation: Outputs are non-null only on success; attributes link pattern->charbuf and\n// record capacities for later checks."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "re_matchp",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "re_compile",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary byte string",
+      "description": "A raw buffer of bytes of any value and length, not necessarily UTF-8 or ASCII and not null-terminated. Used when APIs take a pointer plus an explicit length and interpret the data as opaque text or binary. Suitable for regex patterns or text haystacks that may include embedded NULs."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary byte string",
+      "generator": "import random\nimport struct\nimport itertools\n\n# This generator produces valid, interesting inputs for the target fuzzers which\n# request arbitrary byte strings for both regex patterns (re_compile) and text\n# haystacks (re_matchp). It focuses on generating regex patterns the library is\n# likely to accept, including character classes, quantifiers, anchors, groups,\n# alternation, escapes, and mixed ASCII/binary. The output is a single bytes\n# buffer; the fuzzer harness will slice it as needed for FUZZ_PARAM_STR calls.\n\n# We assume an engine similar to many tiny-regex implementations supporting:\n# - Literals\n# - .  (any)\n# - ^ and $ anchors\n# - * + ? quantifiers (greedy)\n# - Character classes: [abc], ranges [a-z], negation [^...]\n# - Escapes for special chars\n# - Grouping (...) and alternation |\n# - Possibly repetition of classes and groups\n# We avoid malformed constructs to maximize successful compilations.\n\nMAX_OUTPUT = 4096\n\nLITERALS = [\n    b\"a\", b\"b\", b\"c\", b\"x\", b\"y\", b\"z\", b\"0\", b\"1\", b\"9\",\n    b\" \", b\"\\t\", b\"\\n\", b\"_\", b\"-\", b\"/\", b\"\\\\\", b\".\", b\"*\", b\"+\", b\"?\",\n]\n\nANCHORS = [b\"^\", b\"$\"]\nQUANTIFIERS = [b\"*\", b\"+\", b\"?\"]\nSPECIALS = [b\".\"]\n\n# Some binary chunks to mix into patterns/text safely (escaped where needed in patterns)\nBINARY_BYTES = [\n    bytes([0x00]), bytes([0x01]), bytes([0x7F]), bytes([0x80]), bytes([0xFF]),\n]\n\nSAFE_CLASS_ATOMS = [\n    b\"a\", b\"z\", b\"A\", b\"Z\", b\"0\", b\"9\", b\"_\", b\"-\", b\" \", b\"\\t\",\n]\n\nESCAPABLES = [b\"[\", b\"]\", b\"(\", b\")\", b\"|\", b\".\", b\"*\", b\"+\", b\"?\", b\"^\", b\"$\", b\"\\\\\"]\n\n\ndef _rand(rng, seq):\n    return seq[rng.randrange(len(seq))]\n\n\ndef escape_byte_for_pattern(b: bytes) -> bytes:\n    # Escape bytes that would otherwise break the pattern syntax\n    if b in ESCAPABLES:\n        return b\"\\\\\" + b\n    # Non-printables, keep as \\xNN style for robustness; but many tiny engines\n    # may not support \\xNN. To stay valid, we embed them inside a character class.\n    # This function is used for literal context; avoid emitting raw NUL here.\n    if len(b) == 1 and (b[0] < 0x20 or b[0] == 0x7F or b[0] >= 0x80):\n        # Use a safe placeholder '.' for literal context; binary will be added via classes\n        return b\".\"\n    return b\n\n\ndef make_char_class(rng: random.Random) -> bytes:\n    # Build a valid character class like [a-zA-Z0-9_], optionally negated\n    parts = []\n    # Maybe add ranges\n    if rng.random() < 0.7:\n        ranges = [\n            (b\"a\", b\"z\"),\n            (b\"A\", b\"Z\"),\n            (b\"0\", b\"9\"),\n        ]\n        rng.shuffle(ranges)\n        n = rng.randint(1, len(ranges))\n        for lo, hi in ranges[:n]:\n            parts.append(lo + b\"-\" + hi)\n    # Add a few single atoms\n    for _ in range(rng.randint(0, 3)):\n        parts.append(_rand(rng, SAFE_CLASS_ATOMS))\n    # Add safe binary via octal escapes or literal bytes inside class; since engine unknown,\n    # we'll include raw bytes that generally work in classes\n    for _ in range(rng.randint(0, 2)):\n        parts.append(_rand(rng, BINARY_BYTES))\n    body = b\"\".join(parts) or b\"a\"\n    if rng.random() < 0.2:\n        return b\"[^\" + body + b\"]\"\n    return b\"[\" + body + b\"]\"\n\n\ndef maybe_quantify(rng: random.Random, atom: bytes) -> bytes:\n    if rng.random() < 0.6:\n        return atom + _rand(rng, QUANTIFIERS)\n    return atom\n\n\ndef make_atom(rng: random.Random) -> bytes:\n    choice = rng.random()\n    if choice < 0.2:\n        return _rand(rng, SPECIALS)\n    elif choice < 0.5:\n        # literal possibly escaped\n        lit = _rand(rng, LITERALS + BINARY_BYTES)\n        return escape_byte_for_pattern(lit)\n    elif choice < 0.8:\n        return make_char_class(rng)\n    else:\n        # small group\n        inner = make_sequence(rng, max_atoms=rng.randint(1, 3))\n        return b\"(\" + inner + b\")\"\n\n\ndef make_sequence(rng: random.Random, max_atoms: int) -> bytes:\n    atoms = []\n    for _ in range(max_atoms):\n        atom = maybe_quantify(rng, make_atom(rng))\n        atoms.append(atom)\n    seq = b\"\".join(atoms)\n    # Optionally add anchors at ends in a valid placement\n    if rng.random() < 0.3 and (not seq.startswith(b\"^\")):\n        seq = b\"^\" + seq\n    if rng.random() < 0.3 and (not seq.endswith(b\"$\")):\n        seq = seq + b\"$\"\n    return seq\n\n\ndef make_alternation(rng: random.Random) -> bytes:\n    # Build patterns like (seq1|seq2|seq3)\n    branches = [make_sequence(rng, max_atoms=rng.randint(1, 4)) for _ in range(rng.randint(2, 4))]\n    # Ensure no empty branches\n    branches = [b or b\".\" for b in branches]\n    return b\"(\" + b\"|\".join(branches) + b\")\"\n\n\ndef make_pattern(rng: random.Random) -> bytes:\n    # Mix sequences and alternations\n    parts = []\n    n = rng.randint(1, 4)\n    for _ in range(n):\n        if rng.random() < 0.35:\n            parts.append(make_alternation(rng))\n        else:\n            parts.append(make_sequence(rng, max_atoms=rng.randint(1, 6)))\n    pat = b\"\".join(parts)\n    # Keep pattern within reasonable compiled size; trim if needed\n    return pat[:1024] if len(pat) > 1024 else pat\n\n\ndef random_word(rng: random.Random, length_range=(1, 16)) -> bytes:\n    length = rng.randint(*length_range)\n    alphabet = b\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ -\\t\\n\"\n    return bytes(rng.choice(alphabet) for _ in range(length))\n\n\ndef make_text_haystack(rng: random.Random, pattern: bytes) -> bytes:\n    # Create a text that likely matches the pattern.\n    # Heuristics: extract simple hints from pattern and synthesize a string accordingly.\n    out = bytearray()\n\n    def add_range(lo: int, hi: int):\n        out.append(rng.randint(lo, hi))\n\n    i = 0\n    while i < len(pattern) and len(out) < 1500:\n        ch = pattern[i:i+1]\n        nxt = pattern[i+1:i+2]\n        # Anchors don't emit content\n        if ch in (b\"^\", b\"$\"):\n            i += 1\n            continue\n        # Dot => any char\n        if ch == b\".\":\n            reps = 1\n            if nxt in (b\"*\", b\"+\", b\"?\"):\n                if nxt == b\"?\":\n                    reps = 0 if rng.random() < 0.5 else 1\n                elif nxt == b\"+\":\n                    reps = rng.randint(1, 5)\n                else:\n                    reps = rng.randint(0, 5)\n                i += 2\n            else:\n                i += 1\n            for _ in range(reps):\n                add_range(32, 126)\n            continue\n        # Character class\n        if ch == b\"[\":\n            # Find closing bracket\n            j = i + 1\n            neg = False\n            if j < len(pattern) and pattern[j:j+1] == b\"^\":\n                neg = True\n                j += 1\n            # naive parse to next ']'\n            while j < len(pattern) and pattern[j:j+1] != b\"]\":\n                j += 1\n            # Choose a likely member for positive, or a safe alnum for negated\n            if not neg:\n                # try to pick from simple ranges mentioned\n                body = pattern[i+1+(1 if neg else 0):j]\n                chosen = None\n                if b\"a-z\" in body:\n                    chosen = bytes([rng.randint(ord('a'), ord('z'))])\n                elif b\"A-Z\" in body:\n                    chosen = bytes([rng.randint(ord('A'), ord('Z'))])\n                elif b\"0-9\" in body:\n                    chosen = bytes([rng.randint(ord('0'), ord('9'))])\n                else:\n                    # fall back to alnum\n                    chosen = random_word(rng, (1, 1))\n                out += chosen\n            else:\n                # pick a non-alnum ASCII\n                out += b\"#\"\n            i = j + 1\n            # handle quantifier after class\n            if i < len(pattern) and pattern[i:i+1] in (b\"*\", b\"+\", b\"?\"):\n                q = pattern[i:i+1]\n                if q == b\"?\":\n                    # already emitted one if needed, optional\n                    pass\n                elif q == b\"+\":\n                    # emit a few more of the same category\n                    for _ in range(rng.randint(0, 4)):\n                        out += out[-1:]\n                else:\n                    # * -> optional extras\n                    for _ in range(rng.randint(0, 3)):\n                        out += out[-1:]\n                i += 1\n            continue\n        # Group: consume but synthesize simple content\n        if ch == b\"(\":\n            # Seek matching ')' naively (no nesting handling complexity; fine for our generator)\n            depth = 1\n            j = i + 1\n            while j < len(pattern) and depth > 0:\n                if pattern[j:j+1] == b\"(\":\n                    depth += 1\n                elif pattern[j:j+1] == b\")\":\n                    depth -= 1\n                j += 1\n            # Simple strategy: emit a word likely to match some group content\n            out += random_word(rng, (1, 6))\n            # handle quantifier\n            if j < len(pattern) and pattern[j:j+1] in (b\"*\", b\"+\", b\"?\"):\n                q = pattern[j:j+1]\n                if q == b\"+\":\n                    for _ in range(rng.randint(0, 3)):\n                        out += out[-1:]\n                elif q == b\"*\":\n                    for _ in range(rng.randint(0, 2)):\n                        out += out[-1:]\n                # '?' do nothing extra\n                j += 1\n            i = j\n            continue\n        # Escape sequence or literal\n        # Treat any backslash as escaping next char literally\n        if ch == b\"\\\\\" and i + 1 < len(pattern):\n            out += pattern[i+1:i+2]\n            i += 2\n            continue\n        # Quantifiers after literal handled by next iteration; emit literal\n        out += (ch if 32 <= ch[0] <= 126 else b\"a\")\n        # If next is quantifier, add repeats\n        if nxt in (b\"*\", b\"+\", b\"?\"):\n            if nxt == b\"+\":\n                out += ch * rng.randint(0, 4)\n            elif nxt == b\"*\":\n                out += ch * rng.randint(0, 3)\n            # '?' optional: no action\n            i += 2\n        else:\n            i += 1\n\n    # Optionally add prefix/suffix noise when not anchored\n    if not pattern.startswith(b\"^\") and rng.random() < 0.7:\n        out = bytearray(random_word(rng, (0, 8)) + out)\n    if not pattern.endswith(b\"$\") and rng.random() < 0.7:\n        out = bytearray(out + random_word(rng, (0, 8)))\n\n    return bytes(out[:2048])\n\n\ndef pack_for_fuzzer(pattern: bytes, text: bytes) -> bytes:\n    # Concatenate two len-prefixed blobs to satisfy multiple FUZZ_PARAM_STR consumers.\n    # The fuzzer will pull from the same input; using length-prefixing lets it split.\n    # Format: [u32 len_p][pattern][u32 len_t][text]\n    # The harness may not parse lengths, but typical fuzzers feed each FUZZ_PARAM_STR\n    # sequentially; this layout increases chance both substrings are non-empty and valid.\n    lp = struct.pack(\"<I\", len(pattern))\n    lt = struct.pack(\"<I\", len(text))\n    blob = lp + pattern + lt + text\n    return blob[:MAX_OUTPUT]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Create several candidate patterns and pick one to diversify outputs\n    candidates = [make_pattern(rng) for _ in range(3)]\n    pattern = _rand(rng, candidates)\n    # Ensure non-empty pattern to avoid trivial failures\n    if not pattern:\n        pattern = b\".\"\n    text = make_text_haystack(rng, pattern)\n    # Ensure non-empty text; max_match_length is chosen in stub from another param,\n    # but having some content is beneficial\n    if not text:\n        text = b\"sample\"\n    return pack_for_fuzzer(pattern, text)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1306,
+            "output_tokens": 309,
+            "total_tokens": 1615
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 884,
+            "output_tokens": 22,
+            "total_tokens": 906
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1322,
+            "output_tokens": 2167,
+            "total_tokens": 3489
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10991,
+            "output_tokens": 5160,
+            "total_tokens": 16151
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2938,
+            "output_tokens": 123,
+            "total_tokens": 3061
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 195.83228874206543,
+    "scan_objects": 5.592225551605225,
+    "validate_objects": 0.22701740264892578,
+    "scan_functions": 39.024035930633545,
+    "synthesis": 106.89528703689575,
+    "fill": 0,
+    "classify": 3.2935519218444824,
+    "build_generators": 40.79920983314514
+  }
+}

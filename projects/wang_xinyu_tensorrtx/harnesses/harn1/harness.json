@@ -1,0 +1,298 @@
+{
+  "objects": [
+    {
+      "ptr_type": "dirent *",
+      "aliases": [],
+      "definition": "struct dirent* p_file = nullptr;",
+      "description": "Pointer to a POSIX directory entry structure used while iterating directory contents. Note: dirent is declared in <dirent.h> and is not defined in this header; it is only referenced via a pointer variable here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "std::string *",
+      "aliases": [],
+      "definition": "",
+      "description": "C++ standard library string type used throughout the header for filenames and text processing. This type is from the standard library and not defined here; it is referenced but not defined. Included only for clarity; no custom string types are defined in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "std::unordered_map<int, std::string> *",
+      "aliases": [],
+      "definition": "",
+      "description": "C++ standard library unordered_map mapping int to std::string, used to store label indices to label names in read_labels. This template instantiation is used but not defined here; it is a standard container.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "std::vector<std::string> *",
+      "aliases": [],
+      "definition": "",
+      "description": "C++ standard library vector of std::string used to collect filenames in read_files_in_dir. This template instantiation is used but not defined here; it is a standard container.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "read_files_in_dir",
+      "signature": "static inline int read_files_in_dir(const char* p_dir_name, std::vector<std::string>& file_names)",
+      "description": "Reads the entries of a directory and appends each entry name (excluding '.' and '..') to the provided vector. Returns 0 on success, or -1 if the directory cannot be opened. Entry names are pushed as plain file/dir names (no parent path), order is as returned by readdir and not guaranteed.",
+      "requirements": [
+        "p_dir_name must be a valid, null-terminated C string path to a directory accessible to the process.",
+        "file_names must be a valid, modifiable std::vector<std::string> reference; its prior contents are preserved and new names are appended.",
+        "Function excludes '.' and '..' but otherwise does not filter by type; callers should handle files vs. directories if needed.",
+        "Not recursive; only lists the immediate entries of p_dir_name.",
+        "The function relies on opendir/readdir/closedir; ensure the environment provides POSIX directory APIs.",
+        "Check the return value: 0 indicates success, -1 indicates failure to open the directory."
+      ],
+      "error": null
+    },
+    {
+      "name": "trim_leading_whitespace",
+      "signature": "static inline std::string trim_leading_whitespace(const std::string& str)",
+      "description": "Returns a copy of the input string with leading and trailing space characters removed. Note: This implementation trims only the space character ' ' (not tabs or other Unicode whitespace). If the string contains only spaces, the original string is returned unchanged.",
+      "requirements": [
+        "str must be a valid std::string reference; it is not modified (function returns a new string).",
+        "Only space characters (' ') are trimmed; callers expecting other whitespace removal must handle that separately."
+      ],
+      "error": null
+    },
+    {
+      "name": "to_string_with_precision",
+      "signature": "static inline std::string to_string_with_precision(const float a_value, const int n = 2)",
+      "description": "Formats a floating-point value as a fixed-point decimal string with exactly n digits after the decimal point. Uses std::ostringstream with std::fixed and precision n, then returns the resulting string.",
+      "requirements": [
+        "a_value is any finite float; NaN/inf will be formatted per standard stream behavior.",
+        "n specifies the number of digits after the decimal point; provide a non-negative value to avoid surprising formatting results.",
+        "Output uses the current C++ locale and fixed formatting."
+      ],
+      "error": null
+    },
+    {
+      "name": "read_labels",
+      "signature": "static inline int read_labels(const std::string labels_filename, std::unordered_map<int, std::string>& labels_map)",
+      "description": "Reads a text file line by line and inserts each line into labels_map keyed by a sequential integer index starting at 0. Leading spaces in each line are removed via trim_leading_whitespace; trailing spaces are also removed due to that helper’s implementation. Returns 0 after processing; does not report file I/O errors explicitly.",
+      "requirements": [
+        "labels_filename should refer to a readable text file; if the file cannot be opened, no lines are inserted and the function still returns 0.",
+        "labels_map must be a valid, modifiable std::unordered_map<int,std::string> reference; it is not cleared before insertion. Pre-existing entries with keys 0..N may be overwritten.",
+        "Lines are read as-is (no CSV/JSON parsing). Only space characters (' ') are trimmed; tabs and other whitespace are preserved.",
+        "Indices start at 0 and increment by 1 for each line read. The function always returns 0; callers should not rely on the return value for error detection and should validate map contents or file accessibility separately."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "read_files_in_dir",
+      "inputs": [
+        {
+          "name": "file_names",
+          "type": "std::vector<std::string> *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "file_names",
+          "type": "std::vector<std::string> *"
+        }
+      ],
+      "code": "// Derive a guaranteed-accessible directory path from a fuzz-provided file path.\n// FUZZ_PARAM_FILENAME returns a valid file path (the containing directory exists),\n// so we take its parent directory to satisfy the function's directory requirement.\nconst char *any_file_path = FUZZ_PARAM_FILENAME();\nstd::string parent_dir = any_file_path;\n{\n    // Find the last path separator; if none, use current directory '.'\n    size_t slash = parent_dir.find_last_of('/') ;\n    if (slash == std::string::npos) {\n        parent_dir = \".\";\n    } else if (slash == 0) {\n        // Root directory case: '/...'; parent is '/'\n        parent_dir = \"/\";\n    } else {\n        parent_dir = parent_dir.substr(0, slash);\n    }\n}\n\n// Ensure file_names is a valid, modifiable vector; the runtime guarantees non-null.\n// We preserve existing contents and only append per API contract.\nint rc = read_files_in_dir(parent_dir.c_str(), *file_names);\n// If we somehow derived an inaccessible directory (should be rare), treat as a constraint failure.\nif (rc == -1) { FUZZ_BAIL(); }\n\n// file_names is returned as an output for persistence in the object pool."
+    },
+    {
+      "name": "trim_leading_whitespace",
+      "inputs": [
+        {
+          "name": "str",
+          "type": "std::string *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "str",
+          "type": "std::string *"
+        }
+      ],
+      "code": "// Capture the original input; API guarantees the input reference is not modified.\nconst std::string original = *str;\n\n// Invoke the target function. It returns a new string; input must remain unchanged.\nstd::string trimmed = trim_leading_whitespace(*str);\n\n// Property: input string must be unchanged by the operation.\nFUZZ_ASSERT(*str == original, \"trim_leading_whitespace must not modify its input\");\n\n// We do not need to persist 'trimmed' as an object; it is a value. The input 'str' remains persistent."
+    },
+    {
+      "name": "to_string_with_precision",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a finite float and a non-negative precision n.\nfloat a_value = *FUZZ_PARAM(float);\nint n = (int)(*FUZZ_PARAM(unsigned int) % 10); // keep n small (0..9) to avoid excessive sizes\n\n// Call the function under test.\nstd::string out = to_string_with_precision(a_value, n);\n\n// Basic property: result should not be empty for any finite input under fixed formatting.\nFUZZ_ASSERT(!out.empty(), \"to_string_with_precision returned empty string\");"
+    },
+    {
+      "name": "read_labels",
+      "inputs": [
+        {
+          "name": "labels_map",
+          "type": "std::unordered_map<int, std::string> *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "labels_map",
+          "type": "std::unordered_map<int, std::string> *"
+        }
+      ],
+      "code": "// Provide a readable text file path; FUZZ_PARAM_FILENAME creates a valid file with random data.\nconst char *path = FUZZ_PARAM_FILENAME();\nstd::string fname(path);\n\n// Invoke the target function. It always returns 0 per contract, regardless of I/O success.\nint rc = read_labels(fname, *labels_map);\nFUZZ_ASSERT(rc == 0, \"read_labels must always return 0\");\n\n// labels_map remains in the pool as it is modified/extended by the call."
+    },
+    {
+      "name": "std::vector<std::string> *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "file_names",
+          "type": "std::vector<std::string> *"
+        }
+      ],
+      "code": "// Construct a std::vector<std::string> with a small, bounded number of entries.\nstd::vector<std::string> *file_names = new (std::nothrow) std::vector<std::string>();\nif (!file_names) { FUZZ_BAIL(); }\n\n// Generate a base string once (looping FUZZ_PARAM_STR() would repeat the same value anyway).\nstd::string base = FUZZ_PARAM_STR();\n\n// Append up to 7 entries to keep allocations small.\nunsigned int count = (*FUZZ_PARAM(unsigned int) % 8); // 0..7 entries\nfor (unsigned int i = 0; i < count; ++i) {\n    // Derive distinct values without additional fuzz calls; duplicates are acceptable too.\n    file_names->push_back(base + std::string(\"_\") + std::to_string(i));\n}\n\n// Track size for potential downstream constraints.\nFUZZ_SET_ATTR_INT(file_names, \"size\", (int)file_names->size());\n\n// Validation: output is allocated and non-null; contents count is bounded (<=7)."
+    },
+    {
+      "name": "std::string *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "str",
+          "type": "std::string *"
+        }
+      ],
+      "code": "// Construct a std::string from fuzz data.\nstd::string seed = FUZZ_PARAM_STR();\n\n// Optionally trim or mutate to create variability without extra fuzz calls.\nsize_t keep = seed.size() ? (*FUZZ_PARAM(unsigned int) % (seed.size())) : 0;\nstd::string derived = seed.substr(0, keep) + std::string(\"_\") + std::to_string((unsigned long long)keep);\n\nstd::string *str = new (std::nothrow) std::string(derived);\nif (!str) { FUZZ_BAIL(); }\n\n// Track metadata for downstream checks.\nFUZZ_SET_ATTR_INT(str, \"length\", (int)str->size());\n\n// Validation: output is allocated and non-null; size attribute reflects the constructed string length."
+    },
+    {
+      "name": "std::unordered_map<int, std::string> *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "labels_map",
+          "type": "std::unordered_map<int, std::string> *"
+        }
+      ],
+      "code": "// Construct a std::unordered_map<int, std::string> with sequential keys starting at 0.\nstd::unordered_map<int, std::string> *labels_map = new (std::nothrow) std::unordered_map<int, std::string>();\nif (!labels_map) { FUZZ_BAIL(); }\n\n// Create a base line once; avoid multiple FUZZ_PARAM_STR() calls in a loop.\nstd::string base = FUZZ_PARAM_STR();\n\n// Insert up to 7 entries; keys 0..N-1, values derived from base to ensure determinism.\nunsigned int count = (*FUZZ_PARAM(unsigned int) % 8); // 0..7 entries\nfor (unsigned int i = 0; i < count; ++i) {\n    (*labels_map)[(int)i] = base + std::string(\"_\") + std::to_string((unsigned long long)i);\n}\n\n// Record metadata for downstream stubs (e.g., read_labels expectations about sequential keys).\nFUZZ_SET_ATTR_INT(labels_map, \"size\", (int)labels_map->size());\n\n// Validation: output is allocated and non-null; keys are sequential from 0 and count is bounded (<=7)."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "trim_leading_whitespace",
+      "data_types": []
+    },
+    {
+      "name": "to_string_with_precision",
+      "data_types": []
+    },
+    {
+      "name": "read_files_in_dir",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "read_labels",
+      "data_types": [
+        "filesystem path",
+        "plain text file lines"
+      ]
+    },
+    {
+      "name": "std::vector<std::string> *",
+      "data_types": []
+    },
+    {
+      "name": "std::string *",
+      "data_types": []
+    },
+    {
+      "name": "std::unordered_map<int, std::string> *",
+      "data_types": []
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path",
+      "description": "A string representing a path to a file system location (file or directory). May be absolute or relative, and uses POSIX-style separators ('/'). For functions expecting directories, the path should refer to an existing, accessible directory; for functions reading files, the path should refer to an existing, readable file."
+    },
+    {
+      "data_type": "plain text file lines",
+      "description": "Arbitrary byte data interpreted as a text file split by newline characters into lines. Each line is treated as an opaque string; no specific encoding is required beyond being readable as bytes. Leading and trailing space characters ' ' may be trimmed by some consumers."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator creates a small, readable text file within a directory tree\n# and returns a bytes buffer containing the absolute file path. The fuzzer\n# stubs treat FUZZ_PARAM_FILENAME as a path to an existing readable file, and\n# they derive a parent directory from it for directory iteration.\n#\n# We avoid any external I/O outside of creating the file path string; the\n# consumer (fuzz harness) is responsible for actually materializing files from\n# this buffer if needed. However, to keep the buffer self-contained and useful\n# for both stubs:\n# - The path encodes plausible POSIX components.\n# - The file content (for read_labels) is encoded inside the filename via a\n#   content plan. Harnesses typically write the provided data into the file.\n# If the harness directly uses the path without writing, the directory-derived\n# parent will still exist in typical setups (current dir or tmp) and exercise\n# read_files_in_dir.\n#\n# Buffer format:\n#   UTF-8 path string terminated by a single \\n. No binary framing.\n#\n# The path points under a relative base like ./fuzzX/... to maximize likelihood\n# that the directory exists or is creatable by the harness.\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_ .\"\n\n\ndef _rand_choice(rng: random.Random, seq: List[str]):\n    return seq[rng.randrange(0, len(seq))]\n\n\ndef _rand_name(rng: random.Random, min_len=1, max_len=12) -> str:\n    n = rng.randint(min_len, max_len)\n    # Ensure name is not \".\" or \"..\" which are skipped by read_files_in_dir\n    while True:\n        s = ''.join(rng.choice(SAFE_CHARS) for _ in range(n)).strip()\n        s = s.replace(\"/\", \"-\")\n        if s and s not in (\".\", \"..\"):\n            return s\n\n\ndef _label_lines(rng: random.Random) -> List[str]:\n    # Generate lines that exercise trimming and indexing behavior\n    lines = []\n    # Mix of leading/trailing spaces, empty lines, tabs (which should be preserved)\n    candidates = [\n        \"cat\",\n        \" dog\",\n        \"bird  \",\n        \"  fish  \",\n        \"\\t-tab-start\",  # tabs should be preserved\n        \"multi  space   inside\",\n        \"\",  # empty line\n        \"    \",  # spaces only\n        \" space-leading\",\n        \"trailing-space \",\n        \"mix ed  space s\",\n    ]\n    rng.shuffle(candidates)\n    # Choose 3-10 lines\n    k = rng.randint(3, min(10, len(candidates)))\n    lines.extend(candidates[:k])\n    # Add a couple of random strings with random leading spaces\n    for _ in range(rng.randint(1, 4)):\n        lead = \" \" * rng.randint(0, 4)\n        body = ''.join(rng.choice(string.ascii_lowercase + \" -\\t\") for _ in range(rng.randint(1, 12)))\n        # Ensure there's at least one non-space\n        if body.strip() == \"\":\n            body = \"x\"\n        lines.append(lead + body)\n    return lines\n\n\ndef _compose_path(rng: random.Random) -> str:\n    # Randomly decide absolute vs relative\n    absolute = rng.random() < 0.4\n    parts = []\n\n    if absolute:\n        base = \"/\"\n        # Optionally add a temp-like prefix\n        if rng.random() < 0.5:\n            parts.append(\"tmp\")\n        else:\n            parts.append(_rand_name(rng))\n    else:\n        # Relative: either current directory or a named base\n        base = \".\"\n        if rng.random() < 0.5:\n            parts.append(_rand_name(rng))\n        else:\n            parts.append(\"fuzz\" + str(rng.randint(0, 9)))\n\n    # Add 0-3 subdirectories\n    for _ in range(rng.randint(0, 3)):\n        parts.append(_rand_name(rng))\n\n    # File name with an extension to hint text content\n    fname = _rand_name(rng, 3, 10)\n    ext = _rand_choice(rng, [\".txt\", \".labels\", \".data\", \".lst\"]) if rng.random() < 0.8 else \"\"\n    parts.append(fname + ext)\n\n    path = base\n    if base != \"/\":\n        path = base + \"/\" + \"/\".join(parts)\n    else:\n        path = base + \"/\".join(parts)\n    # Collapse potential duplicate slashes (unlikely here)\n    path = os.path.normpath(path)\n    # For absolute root-only case, normpath returns \"/\"; ensure we still have a filename\n    if path.endswith(\"/\") or path == \"/\":\n        path = os.path.join(path, fname + ext)\n    return path\n\n\ndef _embed_content_comment(lines: List[str]) -> str:\n    # Not all harnesses support side-band content; include a hint in the filename\n    # by appending a URL-like query containing base64-escaped preview. Keep short.\n    # We keep it filesystem-friendly by replacing spaces with '+', '/' with '-'.\n    preview = \"|\".join(lines[:3])[:40]\n    safe = preview.replace(\" \", \"+\").replace(\"/\", \"-\")\n    return f\"__hint-{safe}\" if safe else \"\"\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide whether to target read_labels (file with useful content) or just a path\n    target_labels = rng.random() < 0.7\n\n    path = _compose_path(rng)\n\n    if target_labels:\n        # Create a sibling directory depth to ensure parent exists when derived.\n        # Append a filename that hints about content.\n        lines = _label_lines(rng)\n        hint = _embed_content_comment(lines)\n        root, ext = os.path.splitext(path)\n        if not ext:\n            ext = \".txt\"\n        # Incorporate hint while keeping path length reasonable\n        if len(hint) > 0 and len(root) + len(hint) < 220:\n            path = root + hint + ext\n        else:\n            path = root + ext\n\n        # Serialize file content after a NUL separator so harnesses that read only\n        # the path up to NUL still work. Some fuzzing frameworks expect single blob;\n        # here we keep simple: path + newline + content. The consumer typically only\n        # needs the path; if it writes content, it's available after the first line.\n        content = \"\\n\".join(lines) + \"\\n\"\n        blob = (path + \"\\n\" + content).encode(\"utf-8\")\n    else:\n        # Only provide the path; suitable for read_files_in_dir parent derivation\n        blob = (path + \"\\n\").encode(\"utf-8\")\n\n    # Enforce size limit\n    if len(blob) > 4096:\n        blob = blob[:4096]\n    return blob\n"
+    },
+    {
+      "data_type": "plain text file lines",
+      "generator": "import random\nfrom typing import List\n\ndef _rand_spaces(r: random.Random, max_count: int = 6) -> str:\n    return \" \" * r.randint(0, max_count)\n\ndef _weighted_choice(r: random.Random, items):\n    total = sum(w for _, w in items)\n    pick = r.uniform(0, total)\n    upto = 0.0\n    for item, w in items:\n        if upto + w >= pick:\n            return item\n        upto += w\n    return items[-1][0]\n\ndef _gen_label_line(r: random.Random, index: int) -> str:\n    # Create a variety of lines to exercise trim_leading_whitespace and map insertion\n    # Emphasize leading/trailing spaces, empty lines, long lines, unicode-ish bytes preserved\n    kinds = [\n        (\"plain\", 3.0),\n        (\"leading_spaces\", 3.0),\n        (\"trailing_spaces\", 2.0),\n        (\"both_spaces\", 2.0),\n        (\"empty\", 1.0),\n        (\"only_spaces\", 1.0),\n        (\"tabs\", 1.5),\n        (\"numbers\", 1.2),\n        (\"punct\", 1.0),\n        (\"long\", 0.8),\n        (\"utf8\", 0.8),\n    ]\n    kind = _weighted_choice(r, kinds)\n\n    def rand_word(n_min=3, n_max=10):\n        n = r.randint(n_min, n_max)\n        alphabet = \"abcdefghijklmnopqrstuvwxyz\"\n        return ''.join(r.choice(alphabet) for _ in range(n))\n\n    if kind == \"empty\":\n        core = \"\"\n    elif kind == \"only_spaces\":\n        core = _rand_spaces(r, 12)\n    elif kind == \"tabs\":\n        # Tabs should be preserved; only spaces trimmed\n        core = (\"\\t\" * r.randint(0, 3)) + rand_word() + (\"\\t\" * r.randint(0, 3))\n    elif kind == \"numbers\":\n        core = f\"{r.randint(-10000, 10000)}_{r.random():.6f}\"\n    elif kind == \"punct\":\n        punct = \"-_.,:/\\\\|!@#$%^&*()[]{}<>?+=\"\n        core = ''.join(r.choice(punct) for _ in range(r.randint(1, 16)))\n    elif kind == \"long\":\n        chunks = [rand_word(3, 12) for _ in range(r.randint(6, 20))]\n        sep = _weighted_choice(r, [(\" \", 3.0), (\"\\t\", 1.0), (\"-\", 1.0), (\"_\", 1.0)])\n        core = sep.join(chunks)\n    elif kind == \"utf8\":\n        # Include multi-byte UTF-8 sequences which should be preserved\n        samples = [\"α\", \"β\", \"γ\", \"δ\", \"π\", \"漢\", \"字\", \"🙂\", \"é\", \"ç\", \"ñ\"]\n        base = rand_word(2, 6)\n        inserts = ''.join(r.choice(samples) for _ in range(r.randint(1, 6)))\n        core = base + inserts + rand_word(2, 6)\n    else:\n        # default word-based\n        words = [rand_word() for _ in range(r.randint(1, 4))]\n        core = ' '.join(words)\n\n    # Add spaces per kind to exercise trimming\n    if kind == \"leading_spaces\":\n        return _rand_spaces(r) + core\n    if kind == \"trailing_spaces\":\n        return core + _rand_spaces(r)\n    if kind == \"both_spaces\":\n        return _rand_spaces(r) + core + _rand_spaces(r)\n    return core\n\ndef _gen_file(r: random.Random, target_size: int) -> bytes:\n    # Mix a variety of lines, including duplicates and blanks\n    num_lines = r.randint(1, 120)\n    lines: List[str] = []\n\n    # Seed with some deterministic labels to test indices and overwrites when reused\n    if r.random() < 0.8:\n        lines.extend([\n            \"cat\",\n            \" dog\",              # leading space\n            \"bird \",             # trailing space\n            \"  fish  \",          # both\n            \"\",                   # empty\n            \"   \",                # only spaces\n            \"\\tindented\\tname\",   # tabs preserved\n            \"label_0\",\n            \"label_1\",\n        ])\n\n    for i in range(num_lines):\n        lines.append(_gen_label_line(r, i))\n\n    # Randomly ensure last line ends or not with newline to test getline handling\n    end_with_newline = r.random() < 0.7\n\n    # Join lines with newlines, keeping total under 4096 bytes\n    content = \"\\n\".join(lines)\n    if end_with_newline:\n        content += \"\\n\"\n\n    data = content.encode('utf-8', errors='surrogatepass')\n\n    if len(data) > 4096:\n        data = data[:4096]\n        # Avoid cutting mid-UTF-8 sequence: try to trim to last newline or valid boundary\n        # Find last newline within truncated data\n        nl = data.rfind(b\"\\n\")\n        if nl > 0:\n            data = data[:nl+1]\n        else:\n            # Fallback: attempt to decode by progressively trimming\n            while data:\n                try:\n                    data.decode('utf-8')\n                    break\n                except UnicodeDecodeError:\n                    data = data[:-1]\n    return data\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Choose a rough target size to vary behaviors, within limit\n    target_size = r.randint(64, 2048)\n    return _gen_file(r, target_size)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1183,
+            "output_tokens": 308,
+            "total_tokens": 1491
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 761,
+            "output_tokens": 34,
+            "total_tokens": 795
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1213,
+            "output_tokens": 1457,
+            "total_tokens": 2670
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4758,
+            "output_tokens": 3129,
+            "total_tokens": 7887
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4292,
+            "output_tokens": 2283,
+            "total_tokens": 6575
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3478,
+            "output_tokens": 208,
+            "total_tokens": 3686
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 185.2647430896759,
+    "scan_objects": 7.311282396316528,
+    "validate_objects": 0.8650188446044922,
+    "scan_functions": 30.863037109375,
+    "synthesis": 64.66632795333862,
+    "fill": 45.29426097869873,
+    "classify": 4.305102586746216,
+    "build_generators": 31.958601236343384
+  }
+}

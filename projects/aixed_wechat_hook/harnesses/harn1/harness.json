@@ -1,0 +1,104 @@
+{
+  "objects": [],
+  "functions": [
+    {
+      "name": "String2WString",
+      "signature": "std::wstring String2WString(const std::string& s);",
+      "description": "Converts a narrow std::string to a wide std::wstring. Intended for scenarios where a wide-character representation is needed (e.g., Windows APIs). Encoding/locale used for the conversion is not documented in the header and is therefore unknown; correct results depend on the implementation’s expected encoding of the input string.",
+      "requirements": [
+        "s must be a valid std::string object; its lifetime must span the call (const reference is acceptable for temporaries).",
+        "Input encoding requirements are unspecified; the caller should ensure s uses the encoding expected by the implementation for meaningful conversion (unknown from this header).",
+        "The function returns a new std::wstring by value and may allocate memory; callers should be prepared for potential allocation failure (e.g., std::bad_alloc)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "String2WString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a fuzzed narrow string input. Lifetime spans the call via local variable.\nstd::string s = FUZZ_PARAM_STR();\n\n// Call the conversion function. It may allocate; guard against allocation failure.\ntry {\n    std::wstring ws = String2WString(s);\n\n    // Enforce a minimal semantic: empty input should reasonably produce empty output.\n    if (s.empty() && !ws.empty()) { FUZZ_BAIL(); }\n\n    // Touch result to keep it live and exercise access paths without assumptions on encoding.\n    if (!ws.empty()) {\n        volatile wchar_t ch = ws[0];\n        (void)ch;\n    }\n} catch (const std::bad_alloc&) {\n    // If conversion allocates and fails, bail to keep harness stable.\n    FUZZ_BAIL();\n} catch (...) {\n    // Implementation-specific exceptions (locale/encoding issues, etc.) are treated as bail conditions\n    // to avoid undefined harness behavior.\n    FUZZ_BAIL();\n}\n\n// Validation: No inputs/outputs from the object pool are required; we generate the std::string locally\n// and do not expose the returned std::wstring as a persistent object. Error paths bail appropriately."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "String2WString",
+      "data_types": [
+        "text string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "text string",
+      "description": "Arbitrary byte sequence intended to represent textual data in some character encoding (e.g., UTF-8, locale-specific encodings). May include empty string, ASCII, multi-byte sequences, or invalid/ill-formed byte sequences. Used where a function expects a narrow std::string that will be interpreted/converted as text."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "text string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces narrow (byte) strings intended to be interpreted as text\n# for conversion to wide strings. We cover a variety of plausible encodings and\n# edge cases while keeping inputs valid and meaningful.\n\nMAX_SIZE = 4096\n\nASCII_PRINTABLE = [i for i in range(0x20, 0x7F)]\nASCII_WHITESPACE = [0x09, 0x0A, 0x0D, 0x20]\n\n# Common UTF-8 test snippets\nUTF8_SAMPLES = [\n    \"\",  # empty\n    \"A\",  # single ASCII\n    \"Hello, world!\",\n    \"Café\",\n    \"Résumé\",\n    \"naïve\",\n    \"日本語\",\n    \"😀😃😄😁😆\",  # emoji\n    \"𝒜𝓁𝓅𝒽𝒶 β Γ\",  # SMP and Greek\n    \"مرحبا بالعالم\",  # Arabic\n    \"हिन्दी\",         # Devanagari\n    \"Καλημέρα\",       # Greek\n    \"Здравствуй, мир\", # Cyrillic\n]\n\n# Code page 1252 bytes that map to printable characters\nCP1252_EXTRA = [0x80,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8E,\n                0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9E,0x9F,\n                0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF,\n                0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF,\n                0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF,\n                0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF,\n                0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF,\n                0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF]\n\n# Ill-formed UTF-8 sequences to test failure/edge paths that may still be accepted\n# by implementations using lenient conversion. While the harness bails on exceptions,\n# these sequences are still worth exercising because many implementations are permissive.\nBAD_UTF8_CASES = [\n    b\"\\xC3\",                 # truncated 2-byte sequence\n    b\"\\xE2\\x82\",             # truncated 3-byte sequence\n    b\"\\xF0\\x9F\\x98\",        # truncated 4-byte sequence\n    b\"\\x80\",                  # lone continuation byte\n    b\"\\xC0\\xAF\",             # overlong '/'\n    b\"\\xED\\xA0\\x80\",         # UTF-16 surrogate U+D800 in UTF-8\n]\n\ndef _rand_ascii(r: random.Random, n: int) -> bytes:\n    return bytes(r.choices(ASCII_PRINTABLE + ASCII_WHITESPACE, k=n))\n\ndef _rand_cp1252(r: random.Random, n: int) -> bytes:\n    base = ASCII_PRINTABLE + ASCII_WHITESPACE + CP1252_EXTRA\n    return bytes(r.choices(base, k=n))\n\ndef _utf8_from_samples(r: random.Random) -> bytes:\n    s = r.choice(UTF8_SAMPLES)\n    # Randomly repeat or concatenate to vary length\n    reps = r.randint(1, 8)\n    out = (s + (\" \" if r.random() < 0.3 else \"\")).encode(\"utf-8\") * reps\n    # Optionally sprinkle newlines/tabs\n    if r.random() < 0.4:\n        out += b\"\\n\\t\"\n    return out\n\ndef _utf8_mixed(r: random.Random, target_len: int) -> bytes:\n    parts: List[bytes] = []\n    while sum(len(p) for p in parts) < target_len:\n        choice = r.random()\n        if choice < 0.5:\n            # valid UTF-8 snippet\n            parts.append(_utf8_from_samples(r))\n        elif choice < 0.8:\n            # random ASCII span\n            parts.append(_rand_ascii(r, r.randint(1, 32)))\n        else:\n            # occasionally include a bad sequence (lenient converters may replace)\n            parts.append(r.choice(BAD_UTF8_CASES))\n    data = b\"\".join(parts)\n    return data[:target_len]\n\ndef _boms(r: random.Random) -> bytes:\n    # Provide BOMs that some converters look for\n    options = [\n        b\"\",                     # no BOM\n        b\"\\xEF\\xBB\\xBF\",       # UTF-8 BOM\n        b\"\\xFF\\xFE\",           # UTF-16 LE BOM in narrow buffer\n        b\"\\xFE\\xFF\",           # UTF-16 BE BOM in narrow buffer\n    ]\n    return r.choice(options)\n\ndef _make_pathlike(r: random.Random) -> bytes:\n    # Windows-style path to exercise code paths expecting Windows APIs after conversion\n    drives = [b\"C:\", b\"D:\", b\"E:\"]\n    seps = [b\"\\\\\", b\"/\"]\n    comps = [\n        b\"Program Files\", b\"Windows\", b\"System32\", b\"Users\", b\"Temp\", b\"My Documents\",\n        \"データ\".encode(\"utf-8\"), \"Документы\".encode(\"utf-8\"), \"桌面\".encode(\"utf-8\")\n    ]\n    ncomp = r.randint(1, 5)\n    parts = [r.choice(drives), r.choice(seps)]\n    for _ in range(ncomp):\n        parts.append(r.choice(comps))\n        if r.random() < 0.8:\n            parts.append(r.choice(seps))\n    if parts[-1] in (b\"\\\\\", b\"/\") and r.random() < 0.5:\n        parts.pop()\n    return b\"\".join(parts)\n\ndef _repeat_pattern(r: random.Random, base: bytes, max_len: int) -> bytes:\n    if not base:\n        return base\n    reps = max(1, min(max_len // max(1, len(base)), r.randint(1, 256)))\n    out = base * reps\n    return out[:max_len]\n\ndef _make_payload(r: random.Random) -> bytes:\n    # Choose a scenario that exercises different converter assumptions\n    scenario = r.choices(\n        population=[\n            \"empty\",\n            \"short_ascii\",\n            \"long_ascii\",\n            \"utf8_samples\",\n            \"utf8_mixed\",\n            \"cp1252\",\n            \"pathlike\",\n            \"boms_prefix\",\n            \"nulls_inside\",\n            \"repeated_emoji\",\n            \"latin1_accent_block\",\n        ],\n        weights=[3, 6, 4, 6, 6, 5, 4, 3, 3, 3, 3],\n        k=1,\n    )[0]\n\n    if scenario == \"empty\":\n        return b\"\"\n    if scenario == \"short_ascii\":\n        n = r.randint(1, 32)\n        return _rand_ascii(r, n)\n    if scenario == \"long_ascii\":\n        n = r.randint(256, 2048)\n        return _rand_ascii(r, n)\n    if scenario == \"utf8_samples\":\n        data = _utf8_from_samples(r)\n        # Possibly repeat to increase size\n        if r.random() < 0.5:\n            data = _repeat_pattern(r, data, r.randint(len(data), 1024))\n        return data\n    if scenario == \"utf8_mixed\":\n        target = r.randint(16, 1024)\n        return _utf8_mixed(r, target)\n    if scenario == \"cp1252\":\n        n = r.randint(16, 1024)\n        return _rand_cp1252(r, n)\n    if scenario == \"pathlike\":\n        return _make_pathlike(r)\n    if scenario == \"boms_prefix\":\n        body = _utf8_from_samples(r)\n        return _boms(r) + body\n    if scenario == \"nulls_inside\":\n        # Include NUL bytes which are valid in std::string and may affect downstream logic\n        base = _utf8_mixed(r, r.randint(8, 256))\n        # Insert a few NULs\n        buf = bytearray(base)\n        for _ in range(r.randint(1, 8)):\n            pos = r.randrange(0, len(buf)+1)\n            buf[pos:pos] = b\"\\x00\"\n        return bytes(buf[:1024])\n    if scenario == \"repeated_emoji\":\n        emoji = \"😀\".encode(\"utf-8\")\n        return _repeat_pattern(r, emoji, r.randint(4, 1024))\n    if scenario == \"latin1_accent_block\":\n        # Generate bytes 0xA0-0xFF commonly used in ISO-8859-1/CP1252 accented letters\n        block = bytes(range(0xA0, 0x100))\n        return _repeat_pattern(r, block, r.randint(len(block), 1024))\n\n    return b\"\"\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Build possibly multiple segments to hit diverse branches in a single input\n    segments: List[bytes] = []\n\n    # Optionally start with a BOM or leave empty\n    if r.random() < 0.4:\n        segments.append(_boms(r))\n\n    # Add 1-3 payload segments\n    for _ in range(r.randint(1, 3)):\n        seg = _make_payload(r)\n        segments.append(seg)\n        # Optional separators to simulate sentences or lines\n        if r.random() < 0.5:\n            sep_choice = r.choice([b\"\\n\", b\"\\r\\n\", b\" \", b\"\\t\"]) \n            segments.append(sep_choice)\n\n    data = b\"\".join(segments)\n\n    # Ensure we respect the harness size limit\n    if len(data) > MAX_SIZE:\n        data = data[:MAX_SIZE]\n\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 709,
+            "output_tokens": 14,
+            "total_tokens": 723
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 287,
+            "output_tokens": 20,
+            "total_tokens": 307
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 722,
+            "output_tokens": 582,
+            "total_tokens": 1304
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3822,
+            "output_tokens": 1331,
+            "total_tokens": 5153
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1465,
+            "output_tokens": 110,
+            "total_tokens": 1575
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 117.44104146957397,
+    "scan_objects": 1.4880180358886719,
+    "validate_objects": 0.000060558319091796875,
+    "scan_functions": 19.984113216400146,
+    "synthesis": 30.123424768447876,
+    "fill": 0,
+    "classify": 3.372897148132324,
+    "build_generators": 62.47197699546814
+  }
+}

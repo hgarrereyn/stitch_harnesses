@@ -1,0 +1,235 @@
+{
+  "objects": [
+    {
+      "ptr_type": "pxProxyFactory *",
+      "aliases": [],
+      "definition": "typedef struct _pxProxyFactory pxProxyFactory;",
+      "description": "Opaque handle to a proxy factory object from libproxy. The struct is forward-declared only; its contents are private and defined elsewhere. It represents a long-lived factory with internal caching used to resolve proxy configuration and compute proxy lists for URLs. Lifetime is managed manually; create with px_proxy_factory_new() and free with px_proxy_factory_free().",
+      "direct_api_constructors": [
+        "px_proxy_factory_new"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "GType *",
+      "aliases": [],
+      "definition": "",
+      "description": "GType is a GLib fundamental type used for runtime type information in GObject. It is only referenced here via the function px_proxy_factory_get_type(); it is not defined in this header. Note: This entry is included only to acknowledge its presence; the actual type is defined by GLib, not this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "px_proxy_factory_new",
+      "signature": "pxProxyFactory *px_proxy_factory_new (void);",
+      "description": "Creates a new pxProxyFactory instance used to resolve proxy settings for URLs. Intended to be kept for the lifetime of the application or as long as convenient to benefit from internal caching. Caller owns the returned object and should free it when done.",
+      "requirements": [
+        "Caller assumes ownership of the returned pxProxyFactory and must release it with px_proxy_factory_free.",
+        "Do not use the pxProxyFactory after it has been freed."
+      ],
+      "error": null
+    },
+    {
+      "name": "px_proxy_factory_get_type",
+      "signature": "GType px_proxy_factory_get_type (void) G_GNUC_CONST;",
+      "description": "Returns the GType for pxProxyFactory (GLib type system). Pure function with no side effects (G_GNUC_CONST). Typically used for type registration/introspection in GLib/GObject contexts.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "px_proxy_factory_get_proxies",
+      "signature": "char **px_proxy_factory_get_proxies (pxProxyFactory *self, const char *url);",
+      "description": "Returns a NULL-terminated array of proxy configuration strings describing how to reach the given URL via proxies, in priority order. May block while reading configuration, evaluating PAC, or performing WPAD. Returns NULL on unrecoverable error. The caller must free the returned array using px_proxy_factory_free_proxies.",
+      "requirements": [
+        "self must be a valid pxProxyFactory instance (created by px_proxy_factory_new) and not yet freed.",
+        "url must point to a valid, NUL-terminated URL string; behavior is unspecified if url is NULL or invalid.",
+        "The returned array is NULL-terminated and must be freed with px_proxy_factory_free_proxies when no longer needed.",
+        "The caller must handle a NULL return value as an unrecoverable error condition.",
+        "If multiple proxies are returned, the caller should attempt them in the given order (try the next if the first fails).",
+        "If a proxy string uses the socks scheme without version (socks://), the client MUST try SOCKS5 first and, on connection failure, fall back to SOCKS4.",
+        "If username:password are present in a proxy URL, the client should use them for authentication."
+      ],
+      "error": null
+    },
+    {
+      "name": "px_proxy_factory_free_proxies",
+      "signature": "void px_proxy_factory_free_proxies (char **proxies);",
+      "description": "Frees a NULL-terminated array of proxy strings previously returned by px_proxy_factory_get_proxies.",
+      "requirements": [
+        "proxies must be a NULL-terminated array as returned by px_proxy_factory_get_proxies.",
+        "Call exactly once for a given proxies array; do not access the array or its strings after freeing.",
+        "Do not pass arrays not obtained from px_proxy_factory_get_proxies."
+      ],
+      "error": null
+    },
+    {
+      "name": "px_proxy_factory_free",
+      "signature": "void px_proxy_factory_free (pxProxyFactory *self);",
+      "description": "Frees a pxProxyFactory instance and associated resources.",
+      "requirements": [
+        "self must be a pxProxyFactory previously created by px_proxy_factory_new.",
+        "Call exactly once per instance; do not use self after it has been freed.",
+        "Ensure no concurrent use of self is in progress when freeing."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "px_proxy_factory_new",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "factory",
+          "type": "pxProxyFactory *"
+        }
+      ],
+      "code": "// Create a new proxy factory and ensure non-null as the API implies successful construction is required for use.\npxProxyFactory *factory = px_proxy_factory_new();\nif (!factory) { FUZZ_BAIL(); }\n// Track lifetime to prevent double-free and use-after-free in subsequent stubs.\nFUZZ_SET_ATTR_INT(factory, \"freed\", 0);\n// Validation: factory is non-null and marked as not freed; ownership is returned to the fuzzer runtime as output.\n"
+    },
+    {
+      "name": "px_proxy_factory_get_type",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Pure function; retrieve the GType for pxProxyFactory. No inputs/outputs in pool.\n// We stash it globally to aid potential cross-stub assertions without requiring a pointer-typed output.\nGType t = px_proxy_factory_get_type();\n// Record the type value (cast to int for attribute storage). Zero/non-zero is not specified by API, so we do not assert.\nFUZZ_SET_ATTR_INT_GLOBAL(\"px_proxy_factory_gtype\", (int)(unsigned long)t);\n// Validation: Function invoked with no side effects; value stored globally for reference.\n"
+    },
+    {
+      "name": "px_proxy_factory_get_proxies",
+      "inputs": [
+        {
+          "name": "factory",
+          "type": "pxProxyFactory *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "factory",
+          "type": "pxProxyFactory *"
+        },
+        {
+          "name": "proxies",
+          "type": "void *"
+        }
+      ],
+      "code": "// Enforce that the factory is still alive.\nif (FUZZ_GET_ATTR_INT(factory, \"freed\")) { FUZZ_BAIL(); }\n\n// Build a plausible URL string: scheme://host[/path]\n// Choose a scheme from common options, including socks variants to exercise code paths.\nunsigned int r = *FUZZ_PARAM(unsigned int);\nconst char *schemes[] = {\"http\", \"https\", \"ftp\", \"socks\", \"socks5\", \"socks4\"};\nconst char *scheme = schemes[r % (sizeof(schemes)/sizeof(schemes[0]))];\n\n// Generate host and path components from fuzz strings, filtering to a safe URL character set.\nstd::string host_raw = FUZZ_PARAM_STR();\nstd::string path_raw = FUZZ_PARAM_STR();\nstd::string host; host.reserve(64);\nfor (char c : host_raw) { if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' ) host.push_back(c); if (host.size() >= 63) break; }\nif (host.empty()) host = \"example.com\";\nstd::string path; path.reserve(128);\nfor (char c : path_raw) { if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '-' || c == '_' || c == '.' ) path.push_back(c); if (path.size() >= 127) break; }\nif (!path.empty() && path[0] != '/') path.insert(path.begin(), '/');\n\nstd::string url = std::string(scheme) + \"://\" + host + path;\nif (url.size() > 1024) { url.resize(1024); }\n\n// Call the target function.\nchar **list = px_proxy_factory_get_proxies(factory, url.c_str());\n// Per API, NULL indicates an unrecoverable error. To keep outputs non-null for the pool, bail on NULL here.\nif (!list) { FUZZ_BAIL(); }\n\n// Track provenance and lifetime on the returned proxies array so only the correct free function will consume it.\nvoid *proxies = (void*)list;\nFUZZ_SET_ATTR_STR(proxies, \"origin\", \"px_proxy_factory_get_proxies\");\nFUZZ_SET_ATTR_INT(proxies, \"freed\", 0);\n// Also record which scheme we asked for to diversify downstream logic (e.g., SOCKS handling in clients).\nFUZZ_SET_ATTR_STR(proxies, \"requested_scheme\", scheme);\n\n// Return the still-alive factory and the proxies array to the object pool.\n// Validation: factory is preserved; proxies is non-null, attributed with origin, and not yet freed.\n"
+    },
+    {
+      "name": "px_proxy_factory_free_proxies",
+      "inputs": [
+        {
+          "name": "proxies",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Ensure this proxies pointer came from px_proxy_factory_get_proxies and hasn't been freed yet.\nconst char *origin = FUZZ_GET_ATTR_STR(proxies, \"origin\");\nif (!origin || origin[0] == '\\0') { FUZZ_BAIL(); }\nint correct_origin = (std::string(origin) == \"px_proxy_factory_get_proxies\");\nif (!correct_origin) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(proxies, \"freed\")) { FUZZ_BAIL(); }\n\n// Free using the API and mark as freed. Do not access after freeing and do not return it as an output.\npx_proxy_factory_free_proxies((char**)proxies);\nFUZZ_SET_ATTR_INT(proxies, \"freed\", 1);\n// Validation: Freed exactly once a proxies array allocated by the correct API; no objects returned to the pool.\n"
+    },
+    {
+      "name": "px_proxy_factory_free",
+      "inputs": [
+        {
+          "name": "factory",
+          "type": "pxProxyFactory *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce single free and that the factory was created by px_proxy_factory_new.\nif (FUZZ_GET_ATTR_INT(factory, \"freed\")) { FUZZ_BAIL(); }\n\n// The API requires no concurrent use; we cannot detect concurrency here, but we ensure we don't keep it in the pool.\npx_proxy_factory_free(factory);\nFUZZ_SET_ATTR_INT(factory, \"freed\", 1);\n// Validation: Factory freed exactly once and dropped from the pool to avoid use-after-free.\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "px_proxy_factory_new",
+      "data_types": []
+    },
+    {
+      "name": "px_proxy_factory_get_type",
+      "data_types": []
+    },
+    {
+      "name": "px_proxy_factory_free_proxies",
+      "data_types": []
+    },
+    {
+      "name": "px_proxy_factory_free",
+      "data_types": []
+    },
+    {
+      "name": "px_proxy_factory_get_proxies",
+      "data_types": [
+        "URL string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "URL string",
+      "description": "A NUL-terminated string representing a URL, typically in the form scheme://host[/path]. The scheme can be common values such as http, https, ftp, or socks variants (socks, socks5, socks4). The host should consist of alphanumeric characters, dots, and hyphens; an example default like example.com is valid. The optional path may contain slashes, alphanumerics, dashes, underscores, and dots. The overall length is typically bounded (e.g., up to around 1024 bytes)."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "URL string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces a URL string buffer to seed FUZZ_PARAM_STR and related inputs\n# for px_proxy_factory_get_proxies. The fuzzer stub constructs a URL from:\n#   scheme:// + filtered(host_raw) + filtered(path_raw)\n# We therefore generate two concatenated strings separated by a NUL so that a single\n# buffer can be split by the fuzzer framework into multiple FUZZ_PARAM_STR calls if it\n# uses slicing, or at least provide rich content for one call. The buffer will contain:\n#   host_raw\\0path_raw\n# The stub applies filtering to host and path characters, so we prefer producing\n# characters that survive filtering and also include some extras to explore edge cases.\n\nSCHEMES = [\n    \"http\", \"https\", \"ftp\", \"socks\", \"socks5\", \"socks4\"\n]\n\nHOST_CHARS = string.ascii_letters + string.digits + \".-\"\nPATH_CHARS = string.ascii_letters + string.digits + \"/-_.\"\n# Some additional characters that will be filtered out by the stub to test sanitization\nEXTRA_NOISE = \"!@#$%^&*()[]{}|`~:,?=+\\t\\n\\r\\x00\\x01\\x7f\"\n\nTLDS = [\n    \"com\", \"net\", \"org\", \"io\", \"dev\", \"local\", \"example\", \"co.uk\", \"de\", \"jp\", \"edu\"\n]\n\nPATH_SEGMENTS = [\n    \"\", \"index.html\", \"login\", \"api\", \"status\", \"health\", \"v1\", \"v2\", \"download\", \"upload\",\n    \"config\", \"pac\", \"wpad.dat\", \"data.json\", \"image.png\", \"sitemap.xml\"\n]\n\n\ndef _rand_label(rng: random.Random, min_len: int = 1, max_len: int = 63) -> str:\n    n = rng.randint(min_len, max_len)\n    # Avoid leading/trailing hyphen per common DNS label rules; keep within stub filter\n    if n == 1:\n        return rng.choice(string.ascii_lowercase + string.digits)\n    middle_len = max(0, n - 2)\n    middle = ''.join(rng.choices(string.ascii_lowercase + string.digits + '-', k=middle_len))\n    return rng.choice(string.ascii_lowercase + string.digits) + middle + rng.choice(string.ascii_lowercase + string.digits)\n\n\ndef _rand_host(rng: random.Random) -> str:\n    # Generate diverse hostnames: simple, multi-label, IPv4-like (will be filtered ok), or mixed\n    choice = rng.random()\n    if choice < 0.25:\n        # simple example.com style\n        name = _rand_label(rng, 3, 12)\n        tld = rng.choice(TLDS)\n        return f\"{name}.{tld}\"\n    elif choice < 0.50:\n        # multi-label\n        labels = [_rand_label(rng, 1, rng.randint(3, 12)) for _ in range(rng.randint(2, 4))]\n        return '.'.join(labels)\n    elif choice < 0.75:\n        # ipv4-like dotted quad\n        parts = [str(rng.randint(1, 254)) for _ in range(4)]\n        return '.'.join(parts)\n    else:\n        # include some noise that will be filtered out\n        core = ''.join(rng.choices(HOST_CHARS, k=rng.randint(3, 20)))\n        noise = ''.join(rng.choices(EXTRA_NOISE, k=rng.randint(0, 6)))\n        return core + noise\n\n\ndef _rand_path(rng: random.Random) -> str:\n    # Build a path starting with '/' optionally, the stub will prepend if missing\n    seg_count = rng.randint(0, 5)\n    segments: List[str] = []\n    for _ in range(seg_count):\n        if rng.random() < 0.5:\n            seg = rng.choice(PATH_SEGMENTS)\n            if seg:\n                segments.append(seg)\n            else:\n                segments.append('')\n        else:\n            length = rng.randint(1, 16)\n            seg = ''.join(rng.choices(PATH_CHARS + EXTRA_NOISE, k=length))\n            segments.append(seg)\n    path = '/'.join(s for s in segments)\n    # Occasionally ensure leading slash is absent to test stub insertion\n    if rng.random() < 0.6:\n        path = '/' + path if not path.startswith('/') else path\n    else:\n        path = path.lstrip('/')\n    # Limit length to what stub reserves\n    return path[:127]\n\n\ndef _maybe_auth_in_host(rng: random.Random, host: str) -> str:\n    # Sometimes prefix with user:pass@ to exercise auth parsing downstream in clients\n    if rng.random() < 0.2:\n        user_chars = string.ascii_letters + string.digits + \"._-\"\n        pass_chars = user_chars\n        user = ''.join(rng.choices(user_chars, k=rng.randint(1, 8)))\n        pwd = ''.join(rng.choices(pass_chars, k=rng.randint(0, 10)))\n        if pwd:\n            return f\"{user}:{pwd}@{host}\"\n        else:\n            return f\"{user}@{host}\"\n    return host\n\n\ndef _build_url(rng: random.Random) -> str:\n    scheme = rng.choice(SCHEMES)\n    host = _rand_host(rng)\n    host = _maybe_auth_in_host(rng, host)\n    path = _rand_path(rng)\n    url = f\"{scheme}://{host}{path}\"\n    return url[:1024]\n\n\ndef _compose_buffer(url: str) -> bytes:\n    # The stub creates url from two FUZZ_PARAM_STR calls (host_raw, path_raw) and a chosen scheme.\n    # To seed both, we provide two strings separated by NUL: host_raw\\0path_raw.\n    # We derive host_raw and path_raw from the URL for high validity.\n    # Split scheme://host/path heuristically\n    try:\n        rest = url.split('://', 1)[1]\n    except IndexError:\n        rest = url\n    # Extract host and path\n    slash = rest.find('/')\n    if slash == -1:\n        host_raw = rest\n        path_raw = ''\n    else:\n        host_raw = rest[:slash]\n        path_raw = rest[slash:]\n    # Ensure within bounds expected by stub reserve sizes\n    host_raw = host_raw[:63]\n    path_raw = path_raw[:127]\n    payload = host_raw.encode('utf-8', 'ignore') + b\"\\x00\" + path_raw.encode('utf-8', 'ignore')\n    # Keep total under 4096\n    return payload[:4096]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    url = _build_url(rng)\n    return _compose_buffer(url)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1864,
+            "output_tokens": 213,
+            "total_tokens": 2077
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1442,
+            "output_tokens": 45,
+            "total_tokens": 1487
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1906,
+            "output_tokens": 1685,
+            "total_tokens": 3591
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4571,
+            "output_tokens": 3530,
+            "total_tokens": 8101
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2634,
+            "output_tokens": 158,
+            "total_tokens": 2792
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 109.26906156539917,
+    "scan_objects": 3.971404790878296,
+    "validate_objects": 0.37940144538879395,
+    "scan_functions": 26.880703926086426,
+    "synthesis": 54.003427505493164,
+    "fill": 0,
+    "classify": 3.299466848373413,
+    "build_generators": 20.73366355895996
+  }
+}

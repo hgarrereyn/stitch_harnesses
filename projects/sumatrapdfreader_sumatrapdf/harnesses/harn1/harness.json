@@ -1,0 +1,864 @@
+{
+  "objects": [
+    {
+      "ptr_type": "off64_t *",
+      "aliases": [],
+      "definition": "typedef int64_t off64_t;",
+      "description": "Signed 64-bit file offset type used for stream seeking/telling within this API.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "time64_t *",
+      "aliases": [],
+      "definition": "typedef int64_t time64_t;",
+      "description": "Signed 64-bit timestamp type; in this API it represents 100-nanosecond intervals since 1601-01-01 for entry modification times.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ar_stream *",
+      "aliases": [
+        "struct ar_stream_s *"
+      ],
+      "definition": "typedef struct ar_stream_s ar_stream;",
+      "description": "Opaque handle for a read-only input stream. Represents data sources backed by FILE, filesystem paths, memory buffers, or platform streams. Lifetime is managed by ar_close.",
+      "direct_api_constructors": [
+        "ar_open",
+        "ar_open_file",
+        "ar_open_memory",
+        "ar_open_istream",
+        "ar_open_file_w"
+      ],
+      "owned_by": [
+        "ar_archive *"
+      ]
+    },
+    {
+      "ptr_type": "struct IStream *",
+      "aliases": [
+        "struct IStream *"
+      ],
+      "definition": "typedef struct IStream IStream;",
+      "description": "Forward declaration of a Windows COM IStream interface used to open an ar_stream via ar_open_istream. Definition is external to this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ar_archive *",
+      "aliases": [
+        "struct ar_archive_s *"
+      ],
+      "definition": "typedef struct ar_archive_s ar_archive;",
+      "description": "Opaque handle for an opened archive abstraction (RAR/TAR/ZIP/7z). Provides iteration over entries, metadata access, and decompression of entry data. Created from an ar_stream by format-specific open functions and freed with ar_close_archive (does not close the underlying ar_stream).",
+      "direct_api_constructors": [
+        "ar_open_rar_archive",
+        "ar_open_tar_archive",
+        "ar_open_zip_archive",
+        "ar_open_7z_archive"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "ar_open",
+      "signature": "ar_stream *ar_open(FILE *f);",
+      "description": "Opens a read-only unarr stream that wraps an existing FILE*. Use it as the input source for archive open functions. Returns NULL on error.",
+      "requirements": [
+        "f must be a valid, open FILE* positioned at the intended start of data.",
+        "The returned ar_stream is read-only.",
+        "Close the stream with ar_close when finished.",
+        "Do not use the FILE* directly for I/O after giving it to ar_open, to avoid desynchronization (inferred from typical stream wrapper patterns)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_open_file",
+      "signature": "ar_stream *ar_open_file(const char *path);",
+      "description": "Opens a read-only unarr stream for the file at the given path. Returns NULL on error.",
+      "requirements": [
+        "path must be a valid, non-NULL C string path to an existing readable file.",
+        "Close the stream with ar_close when finished."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_open_memory",
+      "signature": "ar_stream *ar_open_memory(const void *data, size_t datalen);",
+      "description": "Opens a read-only unarr stream over an in-memory buffer. The data pointer must remain valid until ar_close is called. Returns NULL on error.",
+      "requirements": [
+        "data must be a valid, non-NULL pointer to at least datalen bytes.",
+        "datalen must accurately reflect the buffer size.",
+        "The memory referenced by data must remain valid and unchanged until ar_close is called on the returned stream.",
+        "Close the stream with ar_close when finished."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_close",
+      "signature": "void ar_close(ar_stream *stream);",
+      "description": "Closes the stream and releases underlying resources. After this call, the stream must not be used.",
+      "requirements": [
+        "stream must be a stream returned by an ar_open*/ar_open_* function or NULL (behavior for NULL is unspecified; avoid passing NULL).",
+        "Do not use stream after calling ar_close."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_read",
+      "signature": "size_t ar_read(ar_stream *stream, void *buffer, size_t count);",
+      "description": "Reads up to count bytes from the stream into buffer, advancing the read offset. Returns the actual number of bytes read.",
+      "requirements": [
+        "stream must be a valid, open ar_stream.",
+        "buffer must point to a writable region of at least count bytes.",
+        "count may be zero.",
+        "Handle short reads; fewer than count bytes may be returned at EOF or on partial availability."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_seek",
+      "signature": "bool ar_seek(ar_stream *stream, off64_t offset, int origin);",
+      "description": "Moves the read offset pointer similarly to fseek. Returns false on failure.",
+      "requirements": [
+        "stream must be a valid, open ar_stream.",
+        "origin must be a valid seek origin (SEEK_SET, SEEK_CUR, or SEEK_END).",
+        "offset is interpreted relative to origin and may be negative when origin is SEEK_CUR or SEEK_END (off64_t is signed).",
+        "Do not seek within an archive between ar_parse_entry and the final corresponding ar_entry_uncompress call (see API warning)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_skip",
+      "signature": "bool ar_skip(ar_stream *stream, off64_t count);",
+      "description": "Convenience for ar_seek(stream, count, SEEK_CUR). Advances or rewinds by count bytes. Returns false on failure.",
+      "requirements": [
+        "stream must be a valid, open ar_stream.",
+        "count may be positive (forward) or negative (backward).",
+        "Do not seek/skip within an archive between ar_parse_entry and the final corresponding ar_entry_uncompress call (see API warning)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_tell",
+      "signature": "off64_t ar_tell(ar_stream *stream);",
+      "description": "Returns the current read offset in the stream, or 0 on error. Note that a legitimate position of 0 is indistinguishable from an error using this function alone.",
+      "requirements": [
+        "stream must be a valid, open ar_stream.",
+        "Callers should disambiguate a 0 return (start-of-stream vs. error) via additional context or prior successful operations."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_close_archive",
+      "signature": "void ar_close_archive(ar_archive *ar);",
+      "description": "Frees all data associated with the given archive handle. Does not close the underlying ar_stream.",
+      "requirements": [
+        "ar must be a valid ar_archive returned by an ar_open_*_archive function.",
+        "Do not use ar after calling ar_close_archive.",
+        "Call ar_close separately on the underlying ar_stream if you own it."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_parse_entry",
+      "signature": "bool ar_parse_entry(ar_archive *ar);",
+      "description": "Reads the next archive entry. Returns false on error or when reaching the end; use ar_at_eof to distinguish EOF from error.",
+      "requirements": [
+        "ar must be a valid, initialized archive.",
+        "Do not manually seek in the underlying stream between ar_parse_entry and the last corresponding ar_entry_uncompress call (API warning).",
+        "On false return, use ar_at_eof(ar) to determine if EOF was reached."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_parse_entry_at",
+      "signature": "bool ar_parse_entry_at(ar_archive *ar, off64_t offset);",
+      "description": "Reads the archive entry at the given offset (as returned by ar_entry_get_offset). Offset 0 restarts at the first entry. The call should always succeed.",
+      "requirements": [
+        "ar must be a valid, initialized archive.",
+        "offset must be either 0 or a value previously obtained from ar_entry_get_offset for this archive.",
+        "Do not manually seek in the underlying stream between parsing an entry and completing its uncompression (API warning)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_parse_entry_for",
+      "signature": "bool ar_parse_entry_for(ar_archive *ar, const char *entry_name);",
+      "description": "Locates and reads the (first) archive entry with the given name. Returns false if not found.",
+      "requirements": [
+        "ar must be a valid, initialized archive.",
+        "entry_name must be a valid, non-NULL UTF-8 string representing the desired entry name.",
+        "Name matching semantics beyond first match are unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_at_eof",
+      "signature": "bool ar_at_eof(ar_archive *ar);",
+      "description": "Indicates whether the last ar_parse_entry call reached the archive's expected end-of-file.",
+      "requirements": [
+        "ar must be a valid, initialized archive.",
+        "Call after ar_parse_entry returns false to distinguish EOF from error."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_entry_get_name",
+      "signature": "const char *ar_entry_get_name(ar_archive *ar);",
+      "description": "Returns the UTF-8 name of the current entry. The returned pointer is valid only until the next call to ar_parse_entry. Returns NULL on failure.",
+      "requirements": [
+        "ar must refer to a current, successfully parsed entry.",
+        "Do not retain or use the returned pointer after the next ar_parse_entry call; copy it if needed longer.",
+        "Treat a NULL return as a failure to retrieve the name."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_entry_get_offset",
+      "signature": "off64_t ar_entry_get_offset(ar_archive *ar);",
+      "description": "Returns the stream offset of the current entry for use with ar_parse_entry_at.",
+      "requirements": [
+        "ar must refer to a current, successfully parsed entry.",
+        "Use the returned value with ar_parse_entry_at on the same archive/stream context."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_entry_get_size",
+      "signature": "size_t ar_entry_get_size(ar_archive *ar);",
+      "description": "Returns the total uncompressed size of the current entry. Read exactly this many bytes via ar_entry_uncompress across one or more calls.",
+      "requirements": [
+        "ar must refer to a current, successfully parsed entry.",
+        "Use this size to govern the total number of bytes requested via ar_entry_uncompress; do not exceed this total."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_entry_get_filetime",
+      "signature": "time64_t ar_entry_get_filetime(ar_archive *ar);",
+      "description": "Returns the stored modification timestamp of the current entry as 100-nanosecond intervals since 1601-01-01 (FILETIME epoch).",
+      "requirements": [
+        "ar must refer to a current, successfully parsed entry.",
+        "Interpretation and conversion to other time bases is the caller's responsibility."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_entry_uncompress",
+      "signature": "bool ar_entry_uncompress(ar_archive *ar, void *buffer, size_t count);",
+      "description": "Decompresses the next count bytes of the current entry into buffer. Returns false on error. Do not manually seek in the stream between ar_parse_entry and the last corresponding ar_entry_uncompress call.",
+      "requirements": [
+        "ar must refer to a current, successfully parsed entry ready for extraction.",
+        "buffer must point to a writable memory region of at least count bytes.",
+        "The sum of counts over successive calls should not exceed ar_entry_get_size(ar).",
+        "Do not perform manual seeks/skips on the underlying stream until all requested uncompression for the entry is complete."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_get_global_comment",
+      "signature": "size_t ar_get_global_comment(ar_archive *ar, void *buffer, size_t count);",
+      "description": "Copies up to count bytes of the archive’s global comment (if present) into buffer. Returns the actual number of bytes copied, or if buffer is NULL, the required buffer size.",
+      "requirements": [
+        "ar must be a valid, initialized archive.",
+        "If buffer is non-NULL, it must point to a writable region of at least count bytes.",
+        "Passing buffer == NULL queries the size required to hold the full comment."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_open_rar_archive",
+      "signature": "ar_archive *ar_open_rar_archive(ar_stream *stream);",
+      "description": "Checks whether the stream contains RAR data and prepares the archive for listing/extraction. Returns NULL on failure.",
+      "requirements": [
+        "stream must be a valid, readable ar_stream positioned at the start of the RAR data.",
+        "The stream remains owned by the caller; close it with ar_close after ar_close_archive."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_open_tar_archive",
+      "signature": "ar_archive *ar_open_tar_archive(ar_stream *stream);",
+      "description": "Checks whether the stream contains TAR data and prepares the archive for listing/extraction. Returns NULL on failure.",
+      "requirements": [
+        "stream must be a valid, readable ar_stream positioned at the start of the TAR data.",
+        "The stream remains owned by the caller; close it with ar_close after ar_close_archive."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_open_zip_archive",
+      "signature": "ar_archive *ar_open_zip_archive(ar_stream *stream, bool deflatedonly);",
+      "description": "Checks whether the stream contains ZIP data and prepares the archive for listing/extraction. Returns NULL on failure. Set deflatedonly when extracting formats (e.g., XPS, EPUB) that only allow Deflate compression.",
+      "requirements": [
+        "stream must be a valid, readable ar_stream positioned at the start of the ZIP data.",
+        "Choose deflatedonly = true when only Deflate-compressed entries should be supported per format constraints; otherwise false is acceptable.",
+        "The stream remains owned by the caller; close it with ar_close after ar_close_archive."
+      ],
+      "error": null
+    },
+    {
+      "name": "ar_open_7z_archive",
+      "signature": "ar_archive *ar_open_7z_archive(ar_stream *stream);",
+      "description": "Checks whether the stream contains 7Z data and prepares the archive for listing/extraction. Returns NULL on failure.",
+      "requirements": [
+        "stream must be a valid, readable ar_stream positioned at the start of the 7Z data.",
+        "The stream remains owned by the caller; close it with ar_close after ar_close_archive."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ar_open",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "code": "// Open a FILE* from a fuzz-provided filename and wrap it into an ar_stream\n// Requirements enforced:\n// - Only pass a valid, open FILE* (we bail if fopen fails)\n// - Do not use FILE* after giving to ar_open (we don't touch it afterwards)\n// - ar_stream must be closed via ar_close by downstream stubs\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *f = fopen(path, \"rb\");\nif (!f) { FUZZ_BAIL(); }\nar_stream *stream = ar_open(f);\nif (!stream) { FUZZ_BAIL(); }\n// Track that this stream originated from a FILE* so ar_close doesn't try to free extra resources\nFUZZ_SET_ATTR_STR(stream, \"origin\", \"file_handle\");\nFUZZ_SET_ATTR_INT(stream, \"archive_count\", FUZZ_GET_ATTR_INT(stream, \"archive_count\"));\nFUZZ_SET_ATTR_INT(stream, \"in_entry\", 0);\n// stream is returned as output and owned by the fuzzer pool now"
+    },
+    {
+      "name": "ar_open_file",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "code": "// Open a stream directly from a path\n// Requirements enforced:\n// - Provide a valid non-NULL path (FUZZ_PARAM_FILENAME guarantees a real path)\n// - On failure, bail to avoid introducing a bad stream into the pool\nconst char *path = FUZZ_PARAM_FILENAME();\nar_stream *stream = ar_open_file(path);\nif (!stream) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(stream, \"origin\", \"path\");\nFUZZ_SET_ATTR_INT(stream, \"archive_count\", 0);\nFUZZ_SET_ATTR_INT(stream, \"in_entry\", 0);\n// stream is returned as output"
+    },
+    {
+      "name": "ar_open_memory",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "code": "// Open a stream over an in-memory buffer. The buffer must remain valid until ar_close.\n// We allocate a persistent heap buffer and attach it to the stream so ar_close can free it.\nstd::string src = FUZZ_PARAM_STR();\nsize_t len = src.size();\nif (len == 0) { FUZZ_BAIL(); }\nunsigned char *heap_buf = new unsigned char[len];\nmemcpy(heap_buf, src.data(), len);\nar_stream *stream = ar_open_memory((const void *)heap_buf, len);\nif (!stream) { delete[] heap_buf; FUZZ_BAIL(); }\n// Attach lifetime info so ar_close can release it later\nFUZZ_SET_ATTR_STR(stream, \"origin\", \"memory\");\nFUZZ_SET_ATTR_PTR(stream, \"mem_buf\", (void*)heap_buf);\nFUZZ_SET_ATTR_INT(stream, \"mem_size\", (int)len);\nFUZZ_SET_ATTR_INT(stream, \"archive_count\", 0);\nFUZZ_SET_ATTR_INT(stream, \"in_entry\", 0);\n// stream is returned as output"
+    },
+    {
+      "name": "ar_close",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Close the stream and free any attached user-managed resources.\n// Requirements enforced:\n// - stream must be a valid ar_stream (the fuzzer runtime supplies one)\n// - Do not close while an attached archive is active\nint ac = FUZZ_GET_ATTR_INT(stream, \"archive_count\");\nif (ac > 0) { FUZZ_BAIL(); }\n// If this stream originated from ar_open_memory, free the backing buffer we allocated\nvoid *buf = FUZZ_GET_ATTR_PTR(stream, \"mem_buf\");\nif (buf) {\n    delete[] (unsigned char*)buf;\n    FUZZ_SET_ATTR_PTR(stream, \"mem_buf\", nullptr);\n}\n// Perform the actual close\nar_close(stream);\n// No outputs; the object is dropped from the pool"
+    },
+    {
+      "name": "ar_read",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "code": "// Read up to count bytes from the stream. Ensure we do not violate archive in-entry seek rules.\n// If this stream is tied to an archive and currently within an entry, we allow read but do not seek.\n// ar_read itself is permitted; the restriction is on seeking between parse and uncompress.\nsize_t count = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\nstd::string buf; buf.resize(count);\nsize_t n = ar_read(stream, (void*)buf.data(), count);\n// No strong assertions; short reads are allowed. Return stream as output."
+    },
+    {
+      "name": "ar_seek",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "code": "// Seek within the stream. Disallow seeking while an archive tied to this stream is mid-entry.\nint in_entry = FUZZ_GET_ATTR_INT(stream, \"in_entry\");\nif (in_entry) { FUZZ_BAIL(); }\nint which = (int)(*FUZZ_PARAM(unsigned int) % 3);\nint origin = which == 0 ? SEEK_SET : (which == 1 ? SEEK_CUR : SEEK_END);\nlong long off_rng = (long long)(*FUZZ_PARAM(unsigned int) % 2049); // 0..2048\nlong long sign = (*FUZZ_PARAM(unsigned int) & 1) ? 1 : -1;\noff64_t offset = (off64_t)(sign * off_rng);\n( void ) ar_seek(stream, offset, origin);\n// We don't assert success; return stream regardless."
+    },
+    {
+      "name": "ar_skip",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "code": "// Skip relative within the stream. Disallow while mid-entry for any attached archive.\nint in_entry = FUZZ_GET_ATTR_INT(stream, \"in_entry\");\nif (in_entry) { FUZZ_BAIL(); }\nlong long off_rng = (long long)(*FUZZ_PARAM(unsigned int) % 2049);\nlong long sign = (*FUZZ_PARAM(unsigned int) & 1) ? 1 : -1;\noff64_t delta = (off64_t)(sign * off_rng);\n( void ) ar_skip(stream, delta);\n// Return stream as output."
+    },
+    {
+      "name": "ar_tell",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "code": "// Report the current offset. 0 may indicate start or error; we don't disambiguate here.\n( void ) ar_tell(stream);\n// Return stream as output."
+    },
+    {
+      "name": "ar_close_archive",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Close the archive. It does not close the underlying stream.\n// Enforce that we are not mid-entry and detach from its stream bookkeeping.\nint in_entry = FUZZ_GET_ATTR_INT(ar, \"in_entry\");\nif (in_entry) { FUZZ_BAIL(); }\n// Get and update the attached stream's archive_count\nar_stream *s = (ar_stream*)FUZZ_GET_ATTR_PTR(ar, \"stream\");\nif (s) {\n    int ac = FUZZ_GET_ATTR_INT(s, \"archive_count\");\n    if (ac > 0) { FUZZ_SET_ATTR_INT(s, \"archive_count\", ac - 1); }\n}\n// Perform close\nar_close_archive(ar);\n// Drop ar from the pool by not returning it as an output"
+    },
+    {
+      "name": "ar_at_eof",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Query EOF status following a parse attempt.\n( void ) ar_at_eof(ar);\n// Return ar as output"
+    },
+    {
+      "name": "ar_entry_get_name",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Get the current entry name. Valid only when an entry is active.\nif (!FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\n( void ) ar_entry_get_name(ar);\n// Do not retain the pointer beyond the next parse; return ar."
+    },
+    {
+      "name": "ar_entry_get_offset",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Get the offset of the current entry.\nif (!FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\noff64_t off = ar_entry_get_offset(ar); (void)off;\nFUZZ_SET_ATTR_INT(ar, \"have_last_offset\", 1);\nFUZZ_SET_ATTR_INT(ar, \"last_offset_lo\", (int)(off & 0xFFFFFFFF));\n// Return ar"
+    },
+    {
+      "name": "ar_entry_get_filetime",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Get the modification time of the current entry.\nif (!FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\n( void ) ar_entry_get_filetime(ar);\n// Return ar"
+    },
+    {
+      "name": "ar_entry_uncompress",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Uncompress the next chunk of the current entry into a buffer.\nif (!FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\nint remaining = FUZZ_GET_ATTR_INT(ar, \"remaining\");\nif (remaining < 0) { remaining = 0; }\nsize_t max_chunk = (size_t)(remaining > 1024 ? 1024 : remaining);\nsize_t count = (size_t)(*FUZZ_PARAM(unsigned int) % (max_chunk + 1));\nstd::string buf; buf.resize(count);\nbool ok = ar_entry_uncompress(ar, (void*)buf.data(), count);\nif (!ok) { FUZZ_BAIL(); }\n// Update remaining and clear in_entry when done\nint new_remaining = remaining - (int)count;\nFUZZ_SET_ATTR_INT(ar, \"remaining\", new_remaining);\nif (new_remaining == 0) { FUZZ_SET_ATTR_INT(ar, \"in_entry\", 0); }\n// Return ar"
+    },
+    {
+      "name": "ar_get_global_comment",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Fetch the global comment, either by querying size or copying to a buffer.\nint do_query_only = (int)(*FUZZ_PARAM(unsigned int) & 1);\nif (do_query_only) {\n    ( void ) ar_get_global_comment(ar, nullptr, 0);\n} else {\n    size_t cap = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\n    std::string buf; buf.resize(cap);\n    ( void ) ar_get_global_comment(ar, (void*)buf.data(), cap);\n}\n// Return ar as output"
+    },
+    {
+      "name": "ar_open_rar_archive",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        },
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Open a RAR archive on the provided stream. The stream remains caller-owned and must be closed separately.\n// Enforce: stream must be positioned at start and not mid-entry. We cannot guarantee format correctness; bail if mid-entry.\nif (FUZZ_GET_ATTR_INT(stream, \"in_entry\")) { FUZZ_BAIL(); }\nar_archive *ar = ar_open_rar_archive(stream);\nif (!ar) { FUZZ_BAIL(); }\n// Link archive to stream and track state\nFUZZ_SET_ATTR_PTR(ar, \"stream\", (void*)stream);\nFUZZ_SET_ATTR_INT(ar, \"in_entry\", 0);\nFUZZ_SET_ATTR_INT(ar, \"remaining\", 0);\nFUZZ_SET_ATTR_INT(ar, \"have_last_offset\", 0);\n// Increment stream's attached archive count so ar_close can refuse premature close\nint ac = FUZZ_GET_ATTR_INT(stream, \"archive_count\");\nFUZZ_SET_ATTR_INT(stream, \"archive_count\", ac + 1);\n// Also mirror in_entry flag on stream for seek/skip guards\nFUZZ_SET_ATTR_INT(stream, \"in_entry\", 0);\n// Return both stream (still owned by caller) and new archive as outputs"
+    },
+    {
+      "name": "ar_parse_entry",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Parse the next archive entry. On success, record that an entry is active and cache size/offset.\n// Enforce: do not call while already in an active entry (per API warning about seeking/uncompress cycle).\nif (FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\nbool ok = ar_parse_entry(ar);\nif (ok) {\n    FUZZ_SET_ATTR_INT(ar, \"in_entry\", 1);\n    // Cache entry size and clamp to a safe int range for our bookkeeping of remaining bytes.\n    size_t sz = ar_entry_get_size(ar);\n    int remaining_cap = (int)(sz > (size_t)1048576 ? 1048576 : sz); // clamp to 1 MiB for safety\n    FUZZ_SET_ATTR_INT(ar, \"remaining\", remaining_cap);\n    // Capture an offset hint for potential ar_parse_entry_at usage.\n    off64_t off = ar_entry_get_offset(ar); (void)off;\n    FUZZ_SET_ATTR_INT(ar, \"have_last_offset\", 1);\n    FUZZ_SET_ATTR_INT(ar, \"last_offset_lo\", (int)(off & 0xFFFFFFFF));\n}\n// Return ar either way; caller may query ar_at_eof(ar) on false\n// Validation: Ensures not mid-entry on call; on success sets in_entry and a bounded remaining budget."
+    },
+    {
+      "name": "ar_parse_entry_at",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Parse the entry at a specific offset (0 restarts from the first entry).\n// Enforce: not currently within an entry, and use only allowed offsets (0 is always valid per API).\nif (FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\n// Favor 0 as a universally valid offset to honor the API contract safely.\noff64_t offset = 0;\nbool ok = ar_parse_entry_at(ar, offset);\nif (ok) {\n    FUZZ_SET_ATTR_INT(ar, \"in_entry\", 1);\n    size_t sz = ar_entry_get_size(ar);\n    int remaining_cap = (int)(sz > (size_t)1048576 ? 1048576 : sz);\n    FUZZ_SET_ATTR_INT(ar, \"remaining\", remaining_cap);\n}\n// Validation: Only uses offset 0 (guaranteed valid); sets in_entry/remaining on success."
+    },
+    {
+      "name": "ar_parse_entry_for",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Locate and parse the first entry with the given name.\n// Enforce: not currently within an entry. Provide a valid C string from fuzz input.\nif (FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\nstd::string name = FUZZ_PARAM_STR();\nconst char *entry_name = name.c_str();\nbool ok = ar_parse_entry_for(ar, entry_name);\nif (ok) {\n    FUZZ_SET_ATTR_INT(ar, \"in_entry\", 1);\n    size_t sz = ar_entry_get_size(ar);\n    int remaining_cap = (int)(sz > (size_t)1048576 ? 1048576 : sz);\n    FUZZ_SET_ATTR_INT(ar, \"remaining\", remaining_cap);\n}\n// Validation: Guards mid-entry calls; initializes remaining budget on success."
+    },
+    {
+      "name": "ar_entry_get_size",
+      "inputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Get the uncompressed size of the current entry and refresh remaining budget for uncompress.\nif (!FUZZ_GET_ATTR_INT(ar, \"in_entry\")) { FUZZ_BAIL(); }\nsize_t sz = ar_entry_get_size(ar);\nint remaining_cap = (int)(sz > (size_t)1048576 ? 1048576 : sz);\nFUZZ_SET_ATTR_INT(ar, \"remaining\", remaining_cap);\n// Validation: Requires an active entry; updates bounded remaining count."
+    },
+    {
+      "name": "ar_open_tar_archive",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        },
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Open a TAR archive on the provided stream. Stream remains caller-owned.\n// Enforce: stream must not be mid-entry and is assumed positioned at start of TAR data.\nif (FUZZ_GET_ATTR_INT(stream, \"in_entry\")) { FUZZ_BAIL(); }\nar_archive *ar = ar_open_tar_archive(stream);\nif (!ar) { FUZZ_BAIL(); }\n// Link archive to stream and initialize bookkeeping.\nFUZZ_SET_ATTR_PTR(ar, \"stream\", (void*)stream);\nFUZZ_SET_ATTR_INT(ar, \"in_entry\", 0);\nFUZZ_SET_ATTR_INT(ar, \"remaining\", 0);\nFUZZ_SET_ATTR_INT(ar, \"have_last_offset\", 0);\n// Increment stream's attached archive count for lifetime management.\nint ac = FUZZ_GET_ATTR_INT(stream, \"archive_count\");\nFUZZ_SET_ATTR_INT(stream, \"archive_count\", ac + 1);\n// Validation: Ensures stream state is compatible; returns both stream and opened archive."
+    },
+    {
+      "name": "ar_open_zip_archive",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        },
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Open a ZIP archive on the provided stream. Stream remains caller-owned.\n// Enforce: stream not mid-entry; choose deflatedonly based on fuzz input.\nif (FUZZ_GET_ATTR_INT(stream, \"in_entry\")) { FUZZ_BAIL(); }\nbool deflatedonly = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nar_archive *ar = ar_open_zip_archive(stream, deflatedonly);\nif (!ar) { FUZZ_BAIL(); }\n// Link archive to stream and initialize bookkeeping.\nFUZZ_SET_ATTR_PTR(ar, \"stream\", (void*)stream);\nFUZZ_SET_ATTR_INT(ar, \"in_entry\", 0);\nFUZZ_SET_ATTR_INT(ar, \"remaining\", 0);\nFUZZ_SET_ATTR_INT(ar, \"have_last_offset\", 0);\n// Increment stream's attached archive count.\nint ac = FUZZ_GET_ATTR_INT(stream, \"archive_count\");\nFUZZ_SET_ATTR_INT(stream, \"archive_count\", ac + 1);\n// Validation: Respects ownership and deflatedonly parameter; sets consistent state."
+    },
+    {
+      "name": "ar_open_7z_archive",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ar_stream *"
+        },
+        {
+          "name": "ar",
+          "type": "ar_archive *"
+        }
+      ],
+      "code": "// Open a 7Z archive on the provided stream. Stream remains caller-owned.\n// Enforce: stream not mid-entry; assume positioned at start of 7Z data.\nif (FUZZ_GET_ATTR_INT(stream, \"in_entry\")) { FUZZ_BAIL(); }\nar_archive *ar = ar_open_7z_archive(stream);\nif (!ar) { FUZZ_BAIL(); }\n// Link archive to stream and initialize bookkeeping.\nFUZZ_SET_ATTR_PTR(ar, \"stream\", (void*)stream);\nFUZZ_SET_ATTR_INT(ar, \"in_entry\", 0);\nFUZZ_SET_ATTR_INT(ar, \"remaining\", 0);\nFUZZ_SET_ATTR_INT(ar, \"have_last_offset\", 0);\n// Increment stream's attached archive count.\nint ac = FUZZ_GET_ATTR_INT(stream, \"archive_count\");\nFUZZ_SET_ATTR_INT(stream, \"archive_count\", ac + 1);\n// Validation: Ensures correct stream state and archive lifetime accounting."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "ar_close",
+      "data_types": []
+    },
+    {
+      "name": "ar_read",
+      "data_types": []
+    },
+    {
+      "name": "ar_seek",
+      "data_types": []
+    },
+    {
+      "name": "ar_skip",
+      "data_types": []
+    },
+    {
+      "name": "ar_tell",
+      "data_types": []
+    },
+    {
+      "name": "ar_close_archive",
+      "data_types": []
+    },
+    {
+      "name": "ar_at_eof",
+      "data_types": []
+    },
+    {
+      "name": "ar_entry_get_name",
+      "data_types": []
+    },
+    {
+      "name": "ar_entry_get_offset",
+      "data_types": []
+    },
+    {
+      "name": "ar_entry_get_filetime",
+      "data_types": []
+    },
+    {
+      "name": "ar_entry_uncompress",
+      "data_types": []
+    },
+    {
+      "name": "ar_get_global_comment",
+      "data_types": []
+    },
+    {
+      "name": "ar_open_rar_archive",
+      "data_types": []
+    },
+    {
+      "name": "ar_parse_entry",
+      "data_types": []
+    },
+    {
+      "name": "ar_parse_entry_at",
+      "data_types": []
+    },
+    {
+      "name": "ar_entry_get_size",
+      "data_types": []
+    },
+    {
+      "name": "ar_open_tar_archive",
+      "data_types": []
+    },
+    {
+      "name": "ar_open_zip_archive",
+      "data_types": []
+    },
+    {
+      "name": "ar_open_7z_archive",
+      "data_types": []
+    },
+    {
+      "name": "ar_open",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "ar_open_file",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "ar_open_memory",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ar_parse_entry_for",
+      "data_types": [
+        "UTF-8 string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path",
+      "description": "A valid path string to a readable file on the local filesystem. May include directories, extensions, and platform-appropriate separators. The content of the file referenced by the path is what downstream consumers read; the path itself must be a syntactically valid, existing file path."
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "description": "An uninterpreted byte buffer of any length (including embedded NULs). Used when APIs accept raw memory and may treat it as archive bytes or other opaque data without assuming text encoding."
+    },
+    {
+      "data_type": "UTF-8 string",
+      "description": "A textual string encoded in UTF-8, suitable for functions that expect human-readable names or identifiers. May include any valid Unicode code points encoded as UTF-8 and is NUL-terminated when passed as a C string."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport io\nimport random\nimport struct\nimport tempfile\nimport zipfile\nimport tarfile\nimport time\nfrom typing import Tuple\n\n# This generator produces a valid filesystem path string (as bytes) to a\n# readable temporary file containing a small, valid archive or raw data.\n# It targets stubs ar_open and ar_open_file which both expect a filesystem path\n# pointing to readable data. We create the file in the system temp directory,\n# write valid contents (ZIP/TAR/7z-like header placeholder or generic bytes),\n# and return the path bytes. The fuzzer harness will read from that path.\n#\n# Design goals:\n# - Always return an existing, readable file path.\n# - Generate a variety of valid archive formats and plain data.\n# - Stay within 4096 bytes total file content.\n# - Seeded randomness for reproducibility.\n\nMAX_SIZE = 4096\n\n\ndef _rand_ascii_filename(rng: random.Random, ext: str) -> str:\n    # Generate a simple ASCII-safe filename to avoid path issues\n    name = ''.join(rng.choice('abcdefghijklmnopqrstuvwxyz0123456789_-') for _ in range(rng.randint(5, 16)))\n    return f\"fuzz_{name}{ext}\"\n\n\ndef _write_bytes(path: str, data: bytes):\n    with open(path, 'wb') as f:\n        f.write(data[:MAX_SIZE])\n\n\ndef _make_plain_file(tmpdir: str, rng: random.Random) -> str:\n    # Create a small random-but-valid binary blob. This may exercise raw stream reads.\n    size = rng.randint(32, 1024)\n    # Bias towards textual headers to look like archives occasionally\n    prefixes = [b'', b'Rar!\\x1A\\x07\\x00', b'PK\\x03\\x04', b\"7z\\xBC\\xAF\\x27\\x1C\"]\n    prefix = rng.choice(prefixes)\n    body = bytearray(rng.getrandbits(8) for _ in range(max(0, size - len(prefix))))\n    data = prefix + bytes(body)\n    fname = _rand_ascii_filename(rng, '.bin')\n    path = os.path.join(tmpdir, fname)\n    _write_bytes(path, data)\n    return path\n\n\ndef _make_zip_file(tmpdir: str, rng: random.Random) -> str:\n    # Create a minimal but valid ZIP with 1-3 files, varying compression.\n    fname = _rand_ascii_filename(rng, '.zip')\n    path = os.path.join(tmpdir, fname)\n    # Use Python's zipfile to ensure validity.\n    compression = rng.choice([zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED])\n    # Some Python builds may not have zlib; fallback to stored if deflated unavailable\n    if compression == zipfile.ZIP_DEFLATED and not zipfile.zlib:\n        compression = zipfile.ZIP_STORED\n    with zipfile.ZipFile(path, 'w', compression=compression) as zf:\n        nfiles = rng.randint(1, 3)\n        for i in range(nfiles):\n            arcname = f\"file_{i}_{rng.randint(0, 9999)}.txt\"\n            # Mix small text and small binary payloads\n            if rng.random() < 0.6:\n                content = (\"Hello from fuzz ZIP \" + str(rng.randint(0, 1_000_000))).encode('utf-8')\n            else:\n                size = rng.randint(1, 256)\n                content = bytes(rng.getrandbits(8) for _ in range(size))\n            zf.writestr(arcname, content)\n        # Optionally set a global comment (ZIP supports this)\n        if rng.random() < 0.5:\n            comment = (\"ZIP comment \" + str(rng.randint(0, 1_000_000))).encode('utf-8')\n            # Truncate to limit total size\n            zf.comment = comment[:128]\n    # Ensure file is not oversized\n    if os.path.getsize(path) > MAX_SIZE:\n        # If too big, rewrite with fewer/smaller entries\n        with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_STORED) as zf:\n            zf.writestr('small.txt', b'A')\n    return path\n\n\ndef _make_tar_file(tmpdir: str, rng: random.Random) -> str:\n    # Create a minimal POSIX tar with 1-2 files. tarfile writes valid headers.\n    fname = _rand_ascii_filename(rng, '.tar')\n    path = os.path.join(tmpdir, fname)\n    mode = rng.choice(['w', 'w:gz', 'w:bz2', 'w:xz'])\n    # Some compressions may be unavailable; fall back silently\n    for m in [mode, 'w', 'w:gz', 'w:bz2', 'w:xz']:\n        try:\n            with tarfile.open(path, m) as tf:\n                nfiles = rng.randint(1, 2)\n                for i in range(nfiles):\n                    data = (f\"hello tar {rng.randint(0, 1_000_000)}\\n\").encode('utf-8')\n                    info = tarfile.TarInfo(name=f\"item_{i}_{rng.randint(0, 9999)}.txt\")\n                    info.size = len(data)\n                    info.mtime = int(time.time())\n                    tf.addfile(info, io.BytesIO(data))\n            break\n        except tarfile.TarError:\n            continue\n    # If size too large, rewrite uncompressed minimal\n    if os.path.exists(path) and os.path.getsize(path) > MAX_SIZE:\n        with tarfile.open(path, 'w') as tf:\n            data = b'A' * 10\n            info = tarfile.TarInfo(name='small.txt')\n            info.size = len(data)\n            tf.addfile(info, io.BytesIO(data))\n    return path\n\n\ndef _make_7z_like_file(tmpdir: str, rng: random.Random) -> str:\n    # Python stdlib cannot create true 7z. We write a minimal 7z signature + small payload\n    # to look like a 7z stream. Some consumers check signature first.\n    # 7z signature: 37 7A BC AF 27 1C, then version bytes and other header fields.\n    fname = _rand_ascii_filename(rng, '.7z')\n    path = os.path.join(tmpdir, fname)\n    sig = b\"7z\\xBC\\xAF'\\x1C\"  # 6 bytes signature\n    version = bytes([0x00, 0x04])  # arbitrary minor/major\n    start_header_crc = struct.pack('<I', rng.getrandbits(32))\n    next_header_offset = struct.pack('<Q', rng.randint(0, 64))\n    next_header_size = struct.pack('<Q', rng.randint(0, 64))\n    next_header_crc = struct.pack('<I', rng.getrandbits(32))\n    header = sig + version + start_header_crc + next_header_offset + next_header_size + next_header_crc\n    payload = bytes(rng.getrandbits(8) for _ in range(rng.randint(0, 128)))\n    data = (header + payload)[:MAX_SIZE]\n    _write_bytes(path, data)\n    return path\n\n\ndef _make_rar_like_file(tmpdir: str, rng: random.Random) -> str:\n    # Write RAR signature with small payload to simulate a RAR stream start.\n    # RAR 4.x signature: 52 61 72 21 1A 07 00 (\"Rar!\\x1A\\x07\\x00\")\n    fname = _rand_ascii_filename(rng, '.rar')\n    path = os.path.join(tmpdir, fname)\n    sig = b'Rar!\\x1A\\x07\\x00'\n    payload = bytes(rng.getrandbits(8) for _ in range(rng.randint(16, 256)))\n    data = (sig + payload)[:MAX_SIZE]\n    _write_bytes(path, data)\n    return path\n\n\ndef _choose_builder(rng: random.Random):\n    # Weighted selection to favor truly valid formats (zip/tar) but still cover signature-led ones.\n    builders = [\n        (_make_zip_file, 3.0),\n        (_make_tar_file, 2.5),\n        (_make_plain_file, 1.5),\n        (_make_7z_like_file, 1.0),\n        (_make_rar_like_file, 1.0),\n    ]\n    total = sum(w for _, w in builders)\n    pick = rng.random() * total\n    acc = 0.0\n    for b, w in builders:\n        acc += w\n        if pick <= acc:\n            return b\n    return builders[0][0]\n\n\ndef _safe_temp_dir() -> str:\n    # Use system temp dir; ensure it exists\n    return tempfile.gettempdir()\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    tmpdir = _safe_temp_dir()\n\n    builder = _choose_builder(rng)\n\n    # To reduce collisions, ensure unique path by including random token\n    # but keep simple ASCII chars.\n    try:\n        path = builder(tmpdir, rng)\n    except Exception:\n        # Fallback to plain file if builder fails for any reason\n        path = _make_plain_file(tmpdir, rng)\n\n    # Ensure file exists and is readable; otherwise fallback\n    if not (isinstance(path, str) and os.path.isfile(path) and os.access(path, os.R_OK)):\n        path = _make_plain_file(tmpdir, rng)\n\n    # Return path as UTF-8 bytes; fuzzer expects a C string path\n    return os.fsencode(path)\n"
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\n\n# Generator for arbitrary binary data to feed ar_open_memory. We try to create\n# small but valid-looking archive buffers (ZIP/TAR/7z/RAR) and some signature-\n# prefixed random content. Keep under 4096 bytes and deterministic by seed.\n\nMAX_SIZE = 4096\n\n\ndef _zip_eocd(comment: bytes = b\"\") -> bytes:\n    # End of central directory record for empty archive\n    sig = b\"PK\\x05\\x06\"\n    disks = 0\n    disk_central = 0\n    entries_this = 0\n    entries_total = 0\n    cd_size = 0\n    cd_offset = 0\n    comment_len = len(comment)\n    hdr = struct.pack(\"<4sHHHHIIH\", sig, disks, disk_central, entries_this, entries_total, cd_size, cd_offset, comment_len)\n    return (hdr + comment)[:MAX_SIZE]\n\n\ndef _zip_local_header(name: bytes, data: bytes, method: int = 0, extra: bytes = b\"\") -> bytes:\n    # Build a ZIP local file header + name + extra + data (no data descriptor)\n    # Layout (little endian):\n    # signature(4) = 0x04034b50, version needed(2), flags(2), method(2), mtime(2), mdate(2),\n    # crc32(4), comp_size(4), uncomp_size(4), name_len(2), extra_len(2)\n    sig = b\"PK\\x03\\x04\"\n    ver_needed = 20\n    flags = 0\n    if method != 0:\n        method = 0\n    mtime = 0\n    mdate = 0\n    import zlib\n\n    crc32 = zlib.crc32(data) & 0xFFFFFFFF\n    comp = data  # store\n    comp_size = len(comp)\n    uncomp_size = len(data)\n    name_len = len(name)\n    extra_len = len(extra)\n\n    out = bytearray()\n    out += sig\n    out += struct.pack(\"<HHHHH\", ver_needed, flags, method, mtime, mdate)\n    out += struct.pack(\"<III\", crc32, comp_size, uncomp_size)\n    out += struct.pack(\"<HH\", name_len, extra_len)\n    out += name\n    out += extra\n    out += comp\n    return bytes(out)\n\n\ndef _zip_central_header(name: bytes, local_offset: int, data: bytes, method: int = 0, extra: bytes = b\"\", comment: bytes = b\"\") -> bytes:\n    # Central directory file header\n    # signature(4)=0x02014b50, ver_made(2), ver_needed(2), flags(2), method(2), mtime(2), mdate(2),\n    # crc32(4), comp_size(4), uncomp_size(4), name_len(2), extra_len(2), comment_len(2),\n    # disk_start(2), int_attr(2), ext_attr(4), rel_offset(4)\n    sig = b\"PK\\x01\\x02\"\n    ver_made = 20\n    ver_needed = 20\n    flags = 0\n    if method != 0:\n        method = 0\n    mtime = 0\n    mdate = 0\n    import zlib\n\n    crc32 = zlib.crc32(data) & 0xFFFFFFFF\n    comp_size = len(data)\n    uncomp_size = len(data)\n    name_len = len(name)\n    extra_len = len(extra)\n    comment_len = len(comment)\n    disk_start = 0\n    int_attr = 0\n    ext_attr = 0\n    rel_offset = local_offset\n\n    out = bytearray()\n    out += sig\n    out += struct.pack(\"<HHHHH\", ver_made, ver_needed, flags, method, mtime)\n    out += struct.pack(\"<H\", mdate)\n    out += struct.pack(\"<III\", crc32, comp_size, uncomp_size)\n    out += struct.pack(\"<HHH\", name_len, extra_len, comment_len)\n    out += struct.pack(\"<HH\", disk_start, int_attr)\n    out += struct.pack(\"<I\", ext_attr)\n    out += struct.pack(\"<I\", rel_offset)\n    out += name\n    out += extra\n    out += comment\n    return bytes(out)\n\n\ndef make_zip_empty(comment: bytes) -> bytes:\n    return _zip_eocd(comment)\n\n\ndef make_zip_single_file(name: bytes, content: bytes, global_comment: bytes = b\"\") -> bytes:\n    local = _zip_local_header(name, content, method=0, extra=b\"\")\n    local_offset = 0  # placed at start\n    central = _zip_central_header(name, local_offset, content, method=0, extra=b\"\", comment=b\"\")\n    cd_start = len(local)\n    cd = central\n    eocd = struct.pack(\n        \"<4sHHHHIIH\",\n        b\"PK\\x05\\x06\",\n        0,\n        0,\n        1,\n        1,\n        len(cd),\n        cd_start,\n        len(global_comment),\n    ) + global_comment\n    return (local + cd + eocd)[:MAX_SIZE]\n\n\ndef make_7z_minimal() -> bytes:\n    # 7z signature header\n    sig = b\"7z\\xBC\\xAF\\x27\\x1C\"\n    major, minor = 0, 4\n    next_header_offset = 0\n    next_header_size = 0\n    next_header_crc = 0\n    import zlib\n\n    start = struct.pack(\"<QIQ\", next_header_offset, next_header_size, next_header_crc)\n    start_crc = zlib.crc32(start) & 0xFFFFFFFF\n    header = bytearray()\n    header += sig\n    header += struct.pack(\"<BB\", major, minor)\n    header += struct.pack(\"<I\", start_crc)\n    header += start\n    return bytes(header)\n\n\ndef _tar_checksum(block: bytearray) -> None:\n    # Compute tar checksum over 512-byte header\n    block[148:156] = b\"        \"\n    total = sum(block)\n    chksum = (oct(total)[2:]).encode(\"ascii\")\n    chksum = chksum.rjust(6, b\"0\") + b\"\\x00\\x20\"\n    block[148:156] = chksum\n\n\ndef make_tar_with_file(name: bytes, data: bytes) -> bytes:\n    hdr = bytearray(512)\n    hdr[0:len(name[:100])] = name[:100]\n    hdr[100:108] = b\"0000777\\0\"\n    hdr[108:116] = b\"0000000\\0\"\n    hdr[116:124] = b\"0000000\\0\"\n    size_o = (oct(len(data))[2:]).encode(\"ascii\").rjust(11, b\"0\") + b\"\\0\"\n    hdr[124:136] = size_o\n    hdr[136:148] = b\"00000000000\\0\"\n    hdr[156:157] = b\"0\"\n    hdr[257:263] = b\"ustar\\0\"\n    hdr[263:265] = b\"00\"\n    hdr[265:297] = b\"user\\0\" + b\"\\0\" * (32 - 5)\n    hdr[297:329] = b\"group\\0\" + b\"\\0\" * (32 - 6)\n    _tar_checksum(hdr)\n\n    out = bytearray()\n    out += hdr\n    out += data\n    pad = (-len(out)) % 512\n    out += b\"\\0\" * pad\n    out += b\"\\0\" * 1024\n    return bytes(out[:MAX_SIZE])\n\n\ndef make_rar4_minimal() -> bytes:\n    # RAR 4.x signature and a minimal archive header block\n    sig = b\"Rar!\\x1A\\x07\\x00\"\n    # Build block body (type 0x73 = main), flags=0, size=13, plus 9 reserved bytes\n    body = bytearray()\n    body += b\"\\x73\"  # type\n    body += struct.pack(\"<H\", 0)  # flags\n    body += struct.pack(\"<H\", 13)  # size\n    body += b\"\\x00\" * 9\n    import zlib\n\n    crc16 = zlib.crc32(bytes(body)) & 0xFFFF\n    return sig + struct.pack(\"<H\", crc16) + bytes(body)\n\n\ndef make_rar5_minimal() -> bytes:\n    # RAR5 signature, then a tiny main header\n    sig = b\"Rar!\\x1A\\x07\\x01\\x00\"\n    import zlib\n\n    block_type = 1  # main\n    flags_varint = b\"\\x00\"\n    size_varint = b\"\\x00\"\n    body = bytes([block_type]) + flags_varint + size_varint\n    crc = zlib.crc32(body) & 0xFFFFFFFF\n    return sig + struct.pack(\"<I\", crc) + body\n\n\ndef make_prefixed_random(prefix: bytes, rnd: random.Random, total_max: int = 512) -> bytes:\n    max_body = max(0, min(total_max, MAX_SIZE) - len(prefix))\n    size = rnd.randint(0, max_body)\n    body = rnd.randbytes(size)\n    return (prefix + body)[:MAX_SIZE]\n\n\nCHOICES = [\n    # ZIP empty archive\n    lambda rnd: make_zip_empty(comment=rnd.choice([b\"\", b\"fuzz\", rnd.randbytes(rnd.randint(0, 50))])),\n    # ZIP single stored file\n    lambda rnd: make_zip_single_file(\n        name=rnd.choice([b\"a.txt\", b\"dir/file.bin\", b\"unicode_\\xE2\\x98\\x83.txt\"]),\n        content=rnd.choice([b\"\", b\"hello\", rnd.randbytes(rnd.randint(1, 64))]),\n        global_comment=rnd.choice([b\"\", b\"zipcomment\"]),\n    ),\n    # 7z minimal\n    lambda rnd: make_7z_minimal(),\n    # TAR with one file\n    lambda rnd: make_tar_with_file(\n        name=rnd.choice([b\"file\", b\"dir/file\", b\"longname_\" + rnd.randbytes(8).hex().encode(\"ascii\")])[:100],\n        data=rnd.choice([b\"\", b\"A\" * rnd.randint(1, 200)]),\n    ),\n    # RAR4 minimal\n    lambda rnd: make_rar4_minimal(),\n    # RAR5 minimal\n    lambda rnd: make_rar5_minimal(),\n    # Random buffers with ZIP signatures\n    lambda rnd: make_prefixed_random(b\"PK\\x03\\x04\", rnd, 256),\n    lambda rnd: make_prefixed_random(b\"PK\\x05\\x06\", rnd, 64),\n]\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    data = rnd.choice(CHOICES)(rnd)\n    if not data:\n        data = b\"\\0\"\n    return data[:MAX_SIZE]\n"
+    },
+    {
+      "data_type": "UTF-8 string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces UTF-8 strings for entry names used by ar_parse_entry_for.\n# It avoids embedding NUL bytes in the source or output.\n\nASCII_SAFE = string.ascii_letters + string.digits + \" _-.\"\n\nCOMMON_DIRS = [\n    \"\",  # root\n    \"/\",\n    \"./\",\n    \"../\",\n    \"docs/\",\n    \"src/\",\n    \"bin/\",\n    \"lib/\",\n    \"assets/\",\n    \"images/\",\n    \"META-INF/\",\n    \"OEBPS/\",\n    \"_rels/\",\n    \"[Content_Types]/\",\n]\n\nCOMMON_BASENAMES = [\n    \"README\", \"LICENSE\", \"CHANGELOG\", \"Makefile\", \"CMakeLists\",\n    \"index\", \"main\", \"app\", \"data\", \"config\", \"manifest\", \"package\",\n    \"content\", \"document\", \"image\", \".hidden\", \".gitignore\", \".npmignore\",\n]\n\nCOMMON_EXTS = [\n    \"\", \".txt\", \".md\", \".json\", \".xml\", \".html\", \".htm\", \".ini\", \".cfg\", \".yml\", \".yaml\",\n    \".png\", \".jpg\", \".jpeg\", \".gif\", \".bmp\", \".webp\",\n    \".zip\", \".tar\", \".gz\", \".xz\", \".7z\",\n    \".bin\", \".dat\", \".db\", \".sqlite\", \".so\", \".dll\", \".dylib\",\n    \".class\", \".jar\", \".dex\",\n]\n\n# Unicode snippets to exercise UTF-8 handling, specified via escape sequences to avoid literal control chars\nUNICODE_SEGMENTS = [\n    \"\\u00A9\",   # ©\n    \"\\u00E9\",   # é\n    \"\\u03B1\",   # α\n    \"\\u0416\",   # Ж\n    \"\\u0561\",   # ա\n    \"\\u0627\",   # ا\n    \"\\u0661\",   # ١ (Arabic-Indic digit one)\n    \"\\u06F2\",   # ۲ (Eastern Arabic-Indic digit two)\n    \"\\u0E01\",   # ก (Thai letter ko kai)\n    \"\\u1F600\",  # 😀\n    \"\\u1F4C4\",  # 📄\n    \"\\u2009\",   # thin space\n    \"\\u2026\",   # ellipsis …\n]\n\nSPECIAL_NAMES = [\n    \"/\", \"//\", \"./\", \"../\", \".\", \"..\",\n    \"./././file.txt\", \"../up/level.txt\",\n    \"folder/\", \"folder//sub//file\",  # double slashes\n    \"a\" * 255,  # long component\n    \"nested/\" + (\"deep/\" * 10) + \"file.txt\",\n    \"CON\", \"PRN\", \"AUX\", \"NUL\",  # Windows reserved\n    \"com1\", \"lpt1\",  # Windows reserved\n    \"path with spaces/file name.txt\",\n    \"mixed\\\\separators/and\\\\backslashes.txt\",\n    \"trailing-space \",\n    \"leading-space \",\n    \"dot.\", \"dot..\", \"traildot.\",\n    \"utf8-\" + \"\\u00E9\" + \"-\" + \"\\u1F4C4\" + \".txt\",\n]\n\nEPUB_LIKE = [\n    \"mimetype\",\n    \"META-INF/container.xml\",\n    \"OEBPS/content.opf\",\n    \"OEBPS/toc.ncx\",\n    \"OEBPS/Images/cover.jpg\",\n    \"OEBPS/Text/chapter1.xhtml\",\n]\n\nZIP_APP_LIKE = [\n    \"[Content_Types].xml\",\n    \"_rels/.rels\",\n    \"docProps/app.xml\",\n    \"docProps/core.xml\",\n    \"word/document.xml\",\n]\n\nIMAGE_LIKE = [\n    \"images/logo.png\",\n    \"assets/sprite@2x.png\",\n    \"assets/icons/arrow-left.svg\",\n]\n\nJAR_LIKE = [\n    \"META-INF/MANIFEST.MF\",\n    \"com/example/Main.class\",\n]\n\nCOMMON_SET = (\n    SPECIAL_NAMES\n    + EPUB_LIKE\n    + ZIP_APP_LIKE\n    + IMAGE_LIKE\n    + JAR_LIKE\n)\n\n\ndef _rand_path_component(r: random.Random, max_len: int = 16) -> str:\n    s = []\n    n = r.randint(1, max_len)\n    for _ in range(n):\n        choice = r.random()\n        if choice < 0.75:\n            s.append(r.choice(ASCII_SAFE))\n        else:\n            seg = r.choice(UNICODE_SEGMENTS)\n            s.append(seg)\n    comp = \"\".join(s)\n    comp = comp.replace(\"\\x00\", \"\")\n    comp = comp.replace(\"/\", \"-\").replace(\"\\\\\", \"-\")\n    return comp or \"x\"\n\n\ndef _random_entry_name(r: random.Random) -> str:\n    if r.random() < 0.55:\n        return r.choice(COMMON_SET)\n\n    parts: List[str] = []\n    depth = r.randint(0, 6)\n    if r.random() < 0.2:\n        parts.append(\"./\")\n    elif r.random() < 0.1:\n        parts.append(\"../\")\n    for _ in range(depth):\n        parts.append(_rand_path_component(r, max_len=r.randint(3, 20)))\n        parts.append(\"/\")\n    base = _rand_path_component(r, max_len=r.randint(1, 40))\n\n    if r.random() < 0.15:\n        name = (\"\".join(parts)) + base + \"/\"\n        return name\n\n    ext = r.choice(COMMON_EXTS)\n    if r.random() < 0.2:\n        base = base.upper()\n    elif r.random() < 0.2:\n        base = base.lower()\n\n    if r.random() < 0.1:\n        base = \".\" + base\n    if r.random() < 0.05:\n        base = base + \".\"\n\n    name = (\"\".join(parts)) + base + ext\n\n    if r.random() < 0.1:\n        name = name.replace(\"/\", r.choice([\"/\", \"\\\\\"]))\n\n    enc = name.encode('utf-8')\n    if len(enc) > 4000:\n        enc = enc[-4000:]\n        name = enc.decode('utf-8', 'ignore')\n    return name\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    name = _random_entry_name(r)\n\n    # Ensure valid UTF-8 and no embedded NULs\n    name = name.replace(\"\\x00\", \"\")\n\n    data = name.encode('utf-8')\n    if not data:\n        data = b\"file\"\n\n    if len(data) > 4096:\n        data = data[:4096]\n        try:\n            data.decode('utf-8')\n        except UnicodeDecodeError:\n            for i in range(4095, 0, -1):\n                try:\n                    data[:i].decode('utf-8')\n                    data = data[:i]\n                    break\n                except UnicodeDecodeError:\n                    continue\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1753,
+            "output_tokens": 414,
+            "total_tokens": 2167
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1331,
+            "output_tokens": 119,
+            "total_tokens": 1450
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1887,
+            "output_tokens": 3333,
+            "total_tokens": 5220
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 18256,
+            "output_tokens": 9690,
+            "total_tokens": 27946
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4958,
+            "output_tokens": 247,
+            "total_tokens": 5205
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 426.1460244655609,
+    "scan_objects": 10.42605447769165,
+    "validate_objects": 0.28313446044921875,
+    "scan_functions": 75.32513785362244,
+    "synthesis": 174.72021627426147,
+    "fill": 0,
+    "classify": 7.5719993114471436,
+    "build_generators": 157.81854915618896
+  }
+}

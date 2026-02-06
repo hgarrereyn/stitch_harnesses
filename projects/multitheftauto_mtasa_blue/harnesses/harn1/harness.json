@@ -1,0 +1,694 @@
+{
+  "objects": [
+    {
+      "ptr_type": "CChecksum *",
+      "aliases": [],
+      "definition": "class CChecksum\n{\npublic:\n    unsigned long ulCRC;\n    unsigned char mD5[16];\n};",
+      "description": "Small POD-style class holding checksum data: a 32-bit CRC (ulCRC) and a 16-byte MD5 digest (mD5). Used to represent resource meta/file checksums returned by the module manager interfaces.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ILuaModuleManager *",
+      "aliases": [],
+      "definition": "class ILuaModuleManager\n{\npublic:\n    virtual void ErrorPrintf(const char* szFormat, ...) = 0;\n    virtual void DebugPrintf(lua_State* luaVM, const char* szFormat, ...) = 0;\n    virtual void Printf(const char* szFormat, ...) = 0;\n\n    virtual bool RegisterFunction(lua_State* luaVM, const char* szFunctionName, lua_CFunction Func) = 0;\n    virtual bool GetResourceName(\n        lua_State* luaVM, std::string& strName) = 0;            // This function might not work if module and MTA were compiled with different compiler versions\n    virtual CChecksum GetResourceMetaChecksum(lua_State* luaVM) = 0;\n    virtual CChecksum GetResourceFileChecksum(lua_State* luaVM, const char* szFile) = 0;\n};",
+      "description": "Abstract interface for Lua dynamic modules (pre-1.0/DP2.3). Provides logging utilities, function registration into a Lua state, and accessors for resource names and checksums. All methods are pure virtual; the engine supplies an implementation.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ILuaModuleManager10 *",
+      "aliases": [],
+      "definition": "class ILuaModuleManager10 : public ILuaModuleManager\n{\npublic:\n    virtual unsigned long GetVersion() = 0;\n    virtual const char*   GetVersionString() = 0;\n    virtual const char*   GetVersionName() = 0;\n    virtual unsigned long GetNetcodeVersion() = 0;\n    virtual const char*   GetOperatingSystemName() = 0;\n\n    virtual lua_State* GetResourceFromName(const char* szResourceName) = 0;\n\n    // GetResourceName above doesn't work if module and MTA were compiled with different compiler versions\n    virtual bool GetResourceName(lua_State* luaVM, char* szName, size_t length) = 0;\n    virtual bool GetResourceFilePath(lua_State* luaVM, const char* fileName, char* path, size_t length) = 0;\n};",
+      "description": "Extended interface for modules targeting MTA 1.0. Inherits ILuaModuleManager and adds versioning queries, OS name, resource lookup by name, and ABI-stable resource name/path retrieval using caller-provided buffers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "ILuaModuleManager::ErrorPrintf",
+      "signature": "virtual void ErrorPrintf(const char* szFormat, ...) = 0;",
+      "description": "Prints or logs an error message using a printf-style format string. Intended for reporting module errors to the host (MTA) error channel.",
+      "requirements": [
+        "szFormat must be a valid, null-terminated format string.",
+        "The variable arguments must match the format specifiers in szFormat (printf-style).",
+        "Do not pass nullptr for szFormat.",
+        "Thread-safety or reentrancy is unknown; call from contexts permitted by the host."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager::DebugPrintf",
+      "signature": "virtual void DebugPrintf(lua_State* luaVM, const char* szFormat, ...) = 0;",
+      "description": "Emits a debug message associated with a specific Lua VM using a printf-style format string. Used for module debugging output tied to a particular resource/VM.",
+      "requirements": [
+        "luaVM must point to a valid lua_State managed by the host.",
+        "szFormat must be a valid, null-terminated format string.",
+        "The variable arguments must match the format specifiers in szFormat (printf-style).",
+        "Do not pass nullptr for luaVM or szFormat.",
+        "Output destination and formatting follow the host’s debug facilities; thread-safety unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager::Printf",
+      "signature": "virtual void Printf(const char* szFormat, ...) = 0;",
+      "description": "Prints a general informational message using a printf-style format string. Intended for standard module log/output (non-error, non-debug).",
+      "requirements": [
+        "szFormat must be a valid, null-terminated format string.",
+        "The variable arguments must match the format specifiers in szFormat (printf-style).",
+        "Do not pass nullptr for szFormat.",
+        "Output destination is controlled by the host; thread-safety unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager::RegisterFunction",
+      "signature": "virtual bool RegisterFunction(lua_State* luaVM, const char* szFunctionName, lua_CFunction Func) = 0;",
+      "description": "Registers a C function with the given name into the specified Lua VM, making it callable from Lua scripts.",
+      "requirements": [
+        "luaVM must point to a valid lua_State for the target resource.",
+        "szFunctionName must be a valid, null-terminated string naming the Lua global or function being registered.",
+        "Func must be a valid lua_CFunction pointer; do not pass nullptr.",
+        "Returns true on success, false on failure; callers should check the return value.",
+        "Name collisions, namespace, and registration scope follow host conventions (exact behavior unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceName",
+      "signature": "virtual bool GetResourceName(lua_State* luaVM, std::string& strName) = 0;",
+      "description": "Retrieves the resource name associated with the given Lua VM and writes it into a C++ std::string. Note: May not work if the module and MTA were compiled with different compiler versions.",
+      "requirements": [
+        "luaVM must point to a valid lua_State associated with a resource.",
+        "strName must be a valid reference; the function will assign to it.",
+        "Returns true on success, false on failure; callers should check the return value.",
+        "Be aware of potential ABI incompatibility between different compiler versions affecting this overload (as noted in the header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceMetaChecksum",
+      "signature": "virtual CChecksum GetResourceMetaChecksum(lua_State* luaVM) = 0;",
+      "description": "Computes/returns the checksum (CRC and MD5) of the meta definition for the resource owning the given Lua VM. Useful for integrity or version checks.",
+      "requirements": [
+        "luaVM must point to a valid lua_State associated with a resource.",
+        "Caller should use the returned CChecksum fields (ulCRC and mD5[16]); endianness/format specifics are not documented.",
+        "Behavior on invalid luaVM is unspecified; ensure a valid VM."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceFileChecksum",
+      "signature": "virtual CChecksum GetResourceFileChecksum(lua_State* luaVM, const char* szFile) = 0;",
+      "description": "Computes/returns the checksum (CRC and MD5) of a file within the resource associated with the given Lua VM.",
+      "requirements": [
+        "luaVM must point to a valid lua_State associated with a resource.",
+        "szFile must be a valid, null-terminated path/name referring to a resource file; do not pass nullptr.",
+        "Path resolution (absolute vs. resource-relative) follows host conventions (unspecified here).",
+        "Caller consumes the returned CChecksum (ulCRC and mD5[16])."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersion",
+      "signature": "virtual unsigned long GetVersion() = 0;",
+      "description": "Returns the host/module manager version as a numeric value. Typically used for compatibility checks.",
+      "requirements": [
+        "No arguments; returned value format/semantics beyond being a version number are unspecified.",
+        "Caller should not assume a particular encoding beyond an unsigned long."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersionString",
+      "signature": "virtual const char* GetVersionString() = 0;",
+      "description": "Returns a human-readable version string of the host/module manager.",
+      "requirements": [
+        "Returned pointer must be treated as read-only; do not free or modify.",
+        "Pointer validity lifetime is managed by the host; copy if long-term storage is needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersionName",
+      "signature": "virtual const char* GetVersionName() = 0;",
+      "description": "Returns a human-readable version name (e.g., release codename) of the host/module manager.",
+      "requirements": [
+        "Returned pointer must be treated as read-only; do not free or modify.",
+        "Pointer lifetime is managed by the host; copy if needed for long-term use."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetNetcodeVersion",
+      "signature": "virtual unsigned long GetNetcodeVersion() = 0;",
+      "description": "Returns the network protocol version used by the host. Useful for ensuring network compatibility.",
+      "requirements": [
+        "No arguments; interpretation of the numeric value is host-defined.",
+        "Caller should compare against known expected versions for compatibility checks."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetOperatingSystemName",
+      "signature": "virtual const char* GetOperatingSystemName() = 0;",
+      "description": "Returns the name of the current operating system as a string.",
+      "requirements": [
+        "Returned pointer must be treated as read-only; do not free or modify.",
+        "Pointer lifetime is managed by the host; copy if needed for long-term storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceFromName",
+      "signature": "virtual lua_State* GetResourceFromName(const char* szResourceName) = 0;",
+      "description": "Looks up a resource by name and returns its associated Lua state.",
+      "requirements": [
+        "szResourceName must be a valid, null-terminated resource name string; do not pass nullptr.",
+        "Returns a lua_State* on success, or possibly nullptr on failure (behavior not explicitly documented); caller should check for a null result before use."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceName",
+      "signature": "virtual bool GetResourceName(lua_State* luaVM, char* szName, size_t length) = 0;",
+      "description": "Retrieves the resource name associated with the given Lua VM and writes it into a caller-provided C string buffer. This overload avoids the ABI issues of the std::string variant.",
+      "requirements": [
+        "luaVM must point to a valid lua_State associated with a resource.",
+        "szName must be a valid, writable buffer; do not pass nullptr.",
+        "length must specify the total size of szName in bytes and be greater than 0.",
+        "The buffer must be large enough to hold the name plus a null terminator; if insufficient, the function may fail and return false (exact truncation behavior unspecified).",
+        "Returns true on success, false on failure; callers should check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceFilePath",
+      "signature": "virtual bool GetResourceFilePath(lua_State* luaVM, const char* fileName, char* path, size_t length) = 0;",
+      "description": "Resolves a file name within the given resource to a full/normalized path and writes it into a caller-provided buffer.",
+      "requirements": [
+        "luaVM must point to a valid lua_State associated with a resource.",
+        "fileName must be a valid, null-terminated string naming a file in the resource; do not pass nullptr.",
+        "path must be a valid, writable buffer; do not pass nullptr.",
+        "length must specify the total size of path in bytes and be greater than 0.",
+        "The path buffer must be large enough to hold the resulting path including the null terminator; if not, the function may fail and return false (exact truncation behavior unspecified).",
+        "Returns true on success, false on failure; callers should check the return value."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ILuaModuleManager::ErrorPrintf",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Use a safe, fixed printf-style format string and matching arguments\nconst char* fmt = \"[FUZZ][ERR] s=%s i=%d u=%u p=%p\";\nstd::string s = FUZZ_PARAM_STR();\nint i = (int)(*FUZZ_PARAM(unsigned int));\nunsigned int u = *FUZZ_PARAM(unsigned int);\nvoid* p = (void*)FUZZ_GET_ATTR_PTR(mgr, \"lastLuaVM\"); // may be null, just printed as %p\n// Enforce non-null format string as per requirements\nif (!fmt) { FUZZ_BAIL(); }\n// Call the target with arguments matching the format specifiers\nmgr->ErrorPrintf(fmt, s.c_str(), i, u, p);\n// Validation: fixed format with matching args avoids UB; mgr returned to pool.\n"
+    },
+    {
+      "name": "ILuaModuleManager::DebugPrintf",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Obtain a valid lua_State* from a resource name before calling DebugPrintf\nstd::string resName = FUZZ_PARAM_STR();\nif (resName.empty()) { resName = \"res\"; }\nlua_State* luaVM = mgr->GetResourceFromName(resName.c_str());\nif (!luaVM) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", (void*)luaVM);\n// Safe format with matching arguments\nconst char* fmt = \"[FUZZ][DBG] res=%s val=%d hex=%08X ptr=%p\";\nstd::string s = FUZZ_PARAM_STR();\nint val = (int)(*FUZZ_PARAM(unsigned int));\nunsigned int hex = *FUZZ_PARAM(unsigned int);\nvoid* ptr = (void*)luaVM;\n// Enforce non-null pointers\nif (!fmt || !luaVM) { FUZZ_BAIL(); }\n// Invoke target\nmgr->DebugPrintf(luaVM, fmt, s.c_str(), val, hex, ptr);\n// Validation: luaVM ensured non-null; format and args aligned; mgr returned.\n"
+    },
+    {
+      "name": "ILuaModuleManager::Printf",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Use a fixed, valid format string to satisfy varargs contract\nconst char* fmt = \"[FUZZ][INFO] s=%s n=%lld u=%u\";\nstd::string s = FUZZ_PARAM_STR();\nunsigned long long n = (unsigned long long)(*FUZZ_PARAM(unsigned int));\nunsigned int u = *FUZZ_PARAM(unsigned int);\nif (!fmt) { FUZZ_BAIL(); }\nmgr->Printf(fmt, s.c_str(), (long long)n, u);\n// Validation: format matches provided args; mgr persisted as output.\n"
+    },
+    {
+      "name": "ILuaModuleManager::RegisterFunction",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Acquire a lua_State* from a resource name so we don't rely on external inputs\nstd::string resName = FUZZ_PARAM_STR();\nif (resName.empty()) { resName = \"res\"; }\nlua_State* luaVM = mgr->GetResourceFromName(resName.c_str());\nif (!luaVM) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", (void*)luaVM);\n// Prepare a valid Lua-global name (non-empty, trim to a reasonable size)\nstd::string funcName = FUZZ_PARAM_STR();\nif (funcName.empty()) { funcName = \"f\"; }\nif (funcName.size() > 63) funcName.resize(63);\n// Provide a valid lua_CFunction (no-capture lambda decays to function pointer)\nauto cfunc = +[](lua_State*) -> int { return 0; };\n// Register and record result\nbool ok = mgr->RegisterFunction(luaVM, funcName.c_str(), (lua_CFunction)cfunc);\nFUZZ_SET_ATTR_INT(mgr, \"reg_ok\", ok ? 1 : 0);\n// Validation: ensured non-null luaVM and function pointer; name non-empty; mgr output.\n"
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceMetaChecksum",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Ensure a valid lua_State*\nstd::string resName = FUZZ_PARAM_STR();\nif (resName.empty()) { resName = \"res\"; }\nlua_State* luaVM = mgr->GetResourceFromName(resName.c_str());\nif (!luaVM) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", (void*)luaVM);\n// Invoke checksum retrieval\nCChecksum cs = mgr->GetResourceMetaChecksum(luaVM);\n// Basic property: MD5 is 16 bytes; store first byte and CRC for downstream checks\nFUZZ_SET_ATTR_INT(mgr, \"lastMetaCRC\", (int)(cs.ulCRC & 0x7FFFFFFF));\nFUZZ_SET_ATTR_INT(mgr, \"lastMetaMD5_0\", (int)cs.mD5[0]);\n// Validation: preconditions met; outputs stored as attributes; mgr returned.\n"
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceFileChecksum",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Get a valid lua_State*\nstd::string resName = FUZZ_PARAM_STR();\nif (resName.empty()) { resName = \"res\"; }\nlua_State* luaVM = mgr->GetResourceFromName(resName.c_str());\nif (!luaVM) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", (void*)luaVM);\n// Generate a plausible resource-relative filename (non-empty, trimmed)\nstd::string fileName = FUZZ_PARAM_STR();\nif (fileName.empty()) { fileName = \"meta.xml\"; }\nif (fileName.size() > 128) fileName.resize(128);\n// Invoke checksum retrieval for the file\nCChecksum cs = mgr->GetResourceFileChecksum(luaVM, fileName.c_str());\nFUZZ_SET_ATTR_INT(mgr, \"lastFileCRC\", (int)(cs.ulCRC & 0x7FFFFFFF));\nFUZZ_SET_ATTR_INT(mgr, \"lastFileMD5_0\", (int)cs.mD5[0]);\n// Validation: luaVM non-null and filename non-empty ensured; mgr returned to pool.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersion",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "unsigned long v = mgr->GetVersion();\nFUZZ_SET_ATTR_INT(mgr, \"ver_ul\", (int)(v & 0x7FFFFFFF));\n// Validation: simple getter invoked; value stored for potential cross-checks; mgr output.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersionString",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "const char* s = mgr->GetVersionString();\n// Treat as read-only; copy length-bounded into a local std::string for sanity\nstd::string tmp = s ? std::string(s) : std::string();\nFUZZ_SET_ATTR_INT(mgr, \"ver_str_len\", (int)tmp.size());\n// Validation: pointer not modified/freed; length captured; mgr persisted.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersionName",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "const char* s = mgr->GetVersionName();\nstd::string tmp = s ? std::string(s) : std::string();\nFUZZ_SET_ATTR_INT(mgr, \"ver_name_len\", (int)tmp.size());\n// Validation: read-only use respected; mgr returned.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetNetcodeVersion",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "unsigned long v = mgr->GetNetcodeVersion();\nFUZZ_SET_ATTR_INT(mgr, \"net_ver_ul\", (int)(v & 0x7FFFFFFF));\n// Validation: simple getter; value recorded; mgr output.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetOperatingSystemName",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "const char* s = mgr->GetOperatingSystemName();\nstd::string tmp = s ? std::string(s) : std::string();\nFUZZ_SET_ATTR_INT(mgr, \"os_name_len\", (int)tmp.size());\n// Validation: read-only pointer honored; mgr preserved.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceFromName",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        },
+        {
+          "name": "luaVM",
+          "type": "void *"
+        }
+      ],
+      "code": "// Generate a resource name and query\nstd::string resName = FUZZ_PARAM_STR();\nif (resName.empty()) { resName = \"res\"; }\nif (resName.size() > 64) resName.resize(64);\nlua_State* vm = mgr->GetResourceFromName(resName.c_str());\n// We may receive null; enforce that we only output a valid VM\nif (!vm) { FUZZ_BAIL(); }\nvoid* luaVM = (void*)vm;\n// Track that this is a lua_State originating from this manager\nFUZZ_SET_ATTR_STR(luaVM, \"type\", \"lua_State\");\nFUZZ_SET_ATTR_PTR(luaVM, \"parent_mgr\", mgr);\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", luaVM);\n// Validation: non-null VM required; attributes set to constrain opaque pointer; mgr and luaVM returned.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceName",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Acquire a lua_State* first\nstd::string resQuery = FUZZ_PARAM_STR();\nif (resQuery.empty()) { resQuery = \"res\"; }\nlua_State* luaVM = mgr->GetResourceFromName(resQuery.c_str());\nif (!luaVM) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", (void*)luaVM);\n// Prepare an output buffer with fuzz-chosen length in [1, 256]\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 256u) + 1u;\nstd::vector<char> buf(len, '\\0');\nbool ok = mgr->GetResourceName(luaVM, buf.data(), buf.size());\nif (ok) {\n    // Ensure null-termination invariant if reported success\n    buf[buf.size() - 1] = '\\0';\n    FUZZ_SET_ATTR_STR(mgr, \"lastResourceName\", buf.data());\n}\n// Validation: luaVM verified; writable buffer provided with length>0; return value checked; mgr output.\n"
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceFilePath",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Get a valid lua_State*\nstd::string resName = FUZZ_PARAM_STR();\nif (resName.empty()) { resName = \"res\"; }\nlua_State* luaVM = mgr->GetResourceFromName(resName.c_str());\nif (!luaVM) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", (void*)luaVM);\n// Prepare a filename and destination buffer\nstd::string fileName = FUZZ_PARAM_STR();\nif (fileName.empty()) { fileName = \"meta.xml\"; }\nif (fileName.size() > 96) fileName.resize(96);\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 512u) + 1u; // [1, 512]\nstd::vector<char> path(len, '\\0');\nbool ok = mgr->GetResourceFilePath(luaVM, fileName.c_str(), path.data(), path.size());\nif (ok) {\n    // On success, store the resolved path string for later use\n    path[path.size() - 1] = '\\0';\n    FUZZ_SET_ATTR_STR(mgr, \"lastResolvedPath\", path.data());\n}\n// Validation: all constraints enforced (non-null luaVM, filename, writable buffer with length>0); mgr returned.\n"
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceName",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Acquire a valid lua_State* from a resource name using ILuaModuleManager10 API\nstd::string resQuery = FUZZ_PARAM_STR();\nif (resQuery.empty()) { resQuery = \"res\"; }\nlua_State* luaVM = mgr->GetResourceFromName(resQuery.c_str());\nif (!luaVM) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_PTR(mgr, \"lastLuaVM\", (void*)luaVM);\n\n// Call the std::string& overload from the base interface explicitly to avoid name hiding\nstd::string nameOut;\nbool ok = static_cast<ILuaModuleManager*>(mgr)->GetResourceName(luaVM, nameOut);\nif (ok) {\n    // Track the name for downstream usage\n    FUZZ_SET_ATTR_STR(mgr, \"lastResourceName\", nameOut.c_str());\n}\n// Validation: ensured non-null luaVM; invoked base overload via cast to bypass ILuaModuleManager10 name hiding; return value checked; mgr returned.\n"
+    },
+    {
+      "name": "ILuaModuleManager10 *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "ILuaModuleManager10 *"
+        }
+      ],
+      "code": "// Construct a concrete ILuaModuleManager10 without using FUZZ_PARAM inside class scope.\n// All fuzz-derived data is gathered here and passed into the object to avoid capture issues.\n\nclass FakeLuaModuleManager10 : public ILuaModuleManager10 {\npublic:\n    struct ResRec { std::string name; lua_State* vm; };\n    struct RegRec { lua_State* vm; std::string name; lua_CFunction func; };\n\n    std::vector<ResRec> resources;\n    std::vector<RegRec> registry;\n\n    unsigned long ver_ul;\n    unsigned long net_ul;\n    std::string ver_str;\n    std::string ver_name;\n    std::string os_name;\n\n    FakeLuaModuleManager10(const std::vector<ResRec>& res,\n                           unsigned long ver,\n                           unsigned long net,\n                           const std::string& verStr,\n                           const std::string& verName,\n                           const std::string& os)\n        : resources(res), ver_ul(ver), net_ul(net), ver_str(verStr), ver_name(verName), os_name(os) {}\n\n    // ILuaModuleManager methods\n    virtual void ErrorPrintf(const char* /*szFormat*/, ...) {}\n    virtual void DebugPrintf(lua_State* /*luaVM*/, const char* /*szFormat*/, ...) {}\n    virtual void Printf(const char* /*szFormat*/, ...) {}\n\n    virtual bool RegisterFunction(lua_State* luaVM, const char* szFunctionName, lua_CFunction Func) {\n        if (!luaVM || !szFunctionName || !Func) return false;\n        std::string name(szFunctionName);\n        if (name.empty()) return false;\n        if (name.size() > 64) name.resize(64);\n        registry.push_back({luaVM, name, Func});\n        return true;\n    }\n\n    virtual bool GetResourceName(lua_State* luaVM, std::string& strName) {\n        if (!luaVM) return false;\n        for (auto& r : resources) { if (r.vm == luaVM) { strName = r.name; return true; } }\n        return false;\n    }\n\n    virtual CChecksum GetResourceMetaChecksum(lua_State* luaVM) {\n        CChecksum cs{};\n        std::string name;\n        if (!luaVM || !GetResourceName(luaVM, name)) { cs.ulCRC = 0; for (int i=0;i<16;++i) cs.mD5[i]=0; return cs; }\n        fillChecksumFromKey(name, cs);\n        return cs;\n    }\n\n    virtual CChecksum GetResourceFileChecksum(lua_State* luaVM, const char* szFile) {\n        CChecksum cs{};\n        std::string name;\n        if (!luaVM || !szFile || !GetResourceName(luaVM, name)) { cs.ulCRC = 0; for (int i=0;i<16;++i) cs.mD5[i]=0; return cs; }\n        std::string key = name + std::string(\":\") + std::string(szFile);\n        fillChecksumFromKey(key, cs);\n        return cs;\n    }\n\n    // ILuaModuleManager10 methods\n    virtual unsigned long GetVersion() { return ver_ul; }\n    virtual const char* GetVersionString() { return ver_str.c_str(); }\n    virtual const char* GetVersionName() { return ver_name.c_str(); }\n    virtual unsigned long GetNetcodeVersion() { return net_ul; }\n    virtual const char* GetOperatingSystemName() { return os_name.c_str(); }\n\n    virtual lua_State* GetResourceFromName(const char* szResourceName) {\n        if (!szResourceName) return nullptr;\n        std::string q(szResourceName);\n        for (auto& r : resources) { if (r.name == q) return r.vm; }\n        for (auto& r : resources) { if (r.name.find(q) != std::string::npos) return r.vm; }\n        return nullptr;\n    }\n\n    virtual bool GetResourceName(lua_State* luaVM, char* szName, size_t length) {\n        if (!luaVM || !szName || length == 0) return false;\n        std::string out;\n        if (!GetResourceName(luaVM, out)) return false;\n        size_t toCopy = (out.size() < (length - 1)) ? out.size() : (length - 1);\n        for (size_t i = 0; i < toCopy; ++i) szName[i] = out[i];\n        szName[toCopy] = '\\0';\n        return true;\n    }\n\n    virtual bool GetResourceFilePath(lua_State* luaVM, const char* fileName, char* path, size_t length) {\n        if (!luaVM || !fileName || !path || length == 0) return false;\n        std::string res;\n        if (!GetResourceName(luaVM, res)) return false;\n        std::string full = std::string(\"resources/\") + res + std::string(\"/\") + std::string(fileName);\n        size_t toCopy = (full.size() < (length - 1)) ? full.size() : (length - 1);\n        for (size_t i = 0; i < toCopy; ++i) path[i] = full[i];\n        path[toCopy] = '\\0';\n        return true;\n    }\n\nprivate:\n    void fillChecksumFromKey(const std::string& key, CChecksum& out) {\n        // Simple FNV-1a style mix to produce deterministic data\n        unsigned long crc = 0x811C9DC5u;\n        for (unsigned char c : key) crc = (crc ^ c) * 16777619u;\n        out.ulCRC = crc;\n        for (int i = 0; i < 16; ++i) {\n            unsigned char b = (unsigned char)((crc >> ((i % 4) * 8)) & 0xFFu);\n            if (!key.empty()) b ^= (unsigned char)key[i % key.size()];\n            out.mD5[i] = b;\n        }\n    }\n};\n\n// Gather fuzz parameters here (outside the class) to avoid referencing enclosing-scope locals inside methods\nstd::string verStr = FUZZ_PARAM_STR(); if (verStr.empty()) verStr = \"1.0.0\"; if (verStr.size() > 64) verStr.resize(64);\nstd::string verName = FUZZ_PARAM_STR(); if (verName.empty()) verName = \"FuzzEdition\"; if (verName.size() > 64) verName.resize(64);\nstd::string osName = FUZZ_PARAM_STR(); if (osName.empty()) osName = \"UnknownOS\"; if (osName.size() > 64) osName.resize(64);\nunsigned long verNum = (unsigned long)(*FUZZ_PARAM(unsigned int));\nunsigned long netNum = (unsigned long)(*FUZZ_PARAM(unsigned int));\n\nunsigned int count = (*FUZZ_PARAM(unsigned int) % 3u) + 1u; // 1..3 resources\nstd::vector<FakeLuaModuleManager10::ResRec> res;\nres.reserve(count);\nfor (unsigned int i = 0; i < count; ++i) {\n    std::string base = FUZZ_PARAM_STR();\n    if (base.empty()) base = \"res\";\n    if (base.size() > 32) base.resize(32);\n    std::string name = base + std::string(\"_\") + std::to_string(i);\n    // Create an opaque lua_State* by allocating a small blob; not freed here to keep VM valid across pool usage\n    char* slot = new char[16];\n    for (int k = 0; k < 16; ++k) slot[k] = (char)(0xA0 + ((i + k) & 0x0F));\n    lua_State* vm = reinterpret_cast<lua_State*>(slot);\n    res.push_back({name, vm});\n}\n\n// Construct the manager instance with prepared data\nILuaModuleManager10* mgr = new FakeLuaModuleManager10(res, verNum, netNum, verStr, verName, osName);\nFUZZ_SET_ATTR_STR(mgr, \"type\", \"FakeLuaModuleManager10\");\n// Validation: This stub returns a non-null ILuaModuleManager10* and avoids using FUZZ_PARAM inside class scope, preventing capture/compile issues while honoring API contracts.\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "ILuaModuleManager10::GetVersion",
+      "data_types": []
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersionString",
+      "data_types": []
+    },
+    {
+      "name": "ILuaModuleManager10::GetVersionName",
+      "data_types": []
+    },
+    {
+      "name": "ILuaModuleManager10::GetNetcodeVersion",
+      "data_types": []
+    },
+    {
+      "name": "ILuaModuleManager10::GetOperatingSystemName",
+      "data_types": []
+    },
+    {
+      "name": "ILuaModuleManager::ErrorPrintf",
+      "data_types": [
+        "printf format string",
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager::DebugPrintf",
+      "data_types": [
+        "resource name",
+        "printf format string",
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager::Printf",
+      "data_types": [
+        "printf format string",
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager::RegisterFunction",
+      "data_types": [
+        "resource name",
+        "Lua identifier"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceMetaChecksum",
+      "data_types": [
+        "resource name"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceFileChecksum",
+      "data_types": [
+        "resource name",
+        "filename"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceFromName",
+      "data_types": [
+        "resource name"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceName",
+      "data_types": [
+        "resource name"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager10::GetResourceFilePath",
+      "data_types": [
+        "resource name",
+        "filename"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager::GetResourceName",
+      "data_types": [
+        "resource name"
+      ]
+    },
+    {
+      "name": "ILuaModuleManager10 *",
+      "data_types": [
+        "version string",
+        "version name",
+        "operating system name",
+        "resource name"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "printf format string",
+      "description": "A C printf-style format string. Must be a valid, null-terminated ASCII/UTF-8 string containing printf conversion specifiers (e.g., %s, %d, %u, %p) that match provided variadic arguments."
+    },
+    {
+      "data_type": "arbitrary string",
+      "description": "A general-purpose text string with no specific format constraints. May be empty or contain any bytes; typically used as user-visible text or generic payload."
+    },
+    {
+      "data_type": "resource name",
+      "description": "A Lua/MTA resource identifier string. Expected to be a non-empty, human-readable name consisting of typical filename/identifier characters. Used to look up a resource’s lua_State."
+    },
+    {
+      "data_type": "Lua identifier",
+      "description": "A valid Lua global/function name string. Typically non-empty, composed of letters, digits, and underscores, and often limited in length (e.g., <=64 chars) for registration into a Lua state."
+    },
+    {
+      "data_type": "filename",
+      "description": "A file name or relative path component string referencing a file within a resource. Usually non-empty, may include path separators, and should be valid under the host’s filesystem rules."
+    },
+    {
+      "data_type": "version string",
+      "description": "A human-readable version string such as 1.2.3 or similar semantic versions; arbitrary text allowed."
+    },
+    {
+      "data_type": "version name",
+      "description": "A human-readable version/codename label, e.g., ReleaseCandidate or FuzzEdition; arbitrary text allowed."
+    },
+    {
+      "data_type": "operating system name",
+      "description": "A human-readable operating system name string such as Windows, Linux, or UnknownOS."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "printf format string",
+      "generator": "import random\nimport struct\nimport string\nfrom typing import List\n\n# Target data type: printf format strings and general strings consumed by FUZZ_PARAM_STR\n# The fuzzer stubs use fixed format strings internally, so FUZZ_PARAM_STR() values\n# are used strictly as %s arguments and as resource names. We should therefore\n# generate:\n# - Reasonable ASCII/UTF-8 strings (including empty and long boundary cases)\n# - Resource-like names (alnum, underscore, dash) with varied lengths\n# - Strings containing spaces and punctuation to exercise logging output\n#\n# The buffers produced here are intended to seed the fuzzer's random pool so that\n# FUZZ_PARAM_STR() pulls interesting but valid values.\n\nMAX_TOTAL = 4096\n\nPRINTABLES = string.ascii_letters + string.digits + string.punctuation + \" \"\nRES_NAME_CHARS = string.ascii_lowercase + string.digits + \"_-\"\n\n\ndef _rand(r: random.Random, n: int) -> int:\n    return r.randrange(n)\n\n\ndef _make_resource_name(r: random.Random) -> str:\n    # Resource names used by GetResourceFromName; prefer valid, filesystem-safe tokens\n    # Mix in variants: simple, namespaced-like, with dashes/underscores, with digits\n    styles = [\"simple\", \"ns\", \"dash\", \"under\", \"mixed\", \"numeric\", \"long\"]\n\n    style = r.choice(styles)\n    if style == \"simple\":\n        base = ''.join(r.choice(RES_NAME_CHARS) for _ in range(r.randint(3, 10)))\n        return base\n    if style == \"ns\":\n        a = ''.join(r.choice(RES_NAME_CHARS) for _ in range(r.randint(3, 8)))\n        b = ''.join(r.choice(RES_NAME_CHARS) for _ in range(r.randint(3, 8)))\n        return f\"{a}:{b}\"\n    if style == \"dash\":\n        parts = [''.join(r.choice(RES_NAME_CHARS) for _ in range(r.randint(2, 6))) for _ in range(r.randint(2, 4))]\n        return '-'.join(parts)\n    if style == \"under\":\n        parts = [''.join(r.choice(RES_NAME_CHARS) for _ in range(r.randint(2, 6))) for _ in range(r.randint(2, 4))]\n        return '_'.join(parts)\n    if style == \"mixed\":\n        base = ''.join(r.choice(RES_NAME_CHARS) for _ in range(r.randint(3, 8)))\n        suf = ''.join(r.choice(string.digits) for _ in range(r.randint(1, 3)))\n        return base + suf\n    if style == \"numeric\":\n        return 'res' + ''.join(r.choice(string.digits) for _ in range(r.randint(1, 6)))\n    if style == \"long\":\n        ln = r.randint(12, 48)\n        return ''.join(r.choice(RES_NAME_CHARS) for _ in range(ln))\n    return \"res\"\n\n\ndef _make_log_string(r: random.Random) -> str:\n    # Strings to be used as %s arguments in Printf/ErrorPrintf/DebugPrintf\n    variants = []\n    # Empty and small\n    variants.append(\"\")\n    variants.append(\"a\")\n    variants.append(\"ok\")\n    variants.append(\"hello\")\n    # Whitespace-heavy\n    variants.append(\"   \")\n    variants.append(\"\\tindented\\nline\")\n    # Punctuation and format-like content (but safe as plain string)\n    variants.append(\"value=%d; ptr=%p; str=%s\")\n    variants.append(\"{\\\"k\\\":\\\"v\\\",\\\"n\\\":123}\")\n    variants.append(\"[INFO] ready\")\n    variants.append(\"path/to/file.lua\")\n    # Unicode (valid UTF-8)\n    variants.append(\"naïve café ☕\")\n    variants.append(\"日本語リソース\")\n    # Long-ish\n    long1 = ''.join(r.choice(PRINTABLES) for _ in range(r.randint(32, 96)))\n    variants.append(long1)\n    # Alnum\n    variants.append(''.join(r.choice(string.ascii_letters + string.digits) for _ in range(r.randint(8, 32))))\n\n    # Random constructed\n    if r.random() < 0.6:\n        ln = r.randint(1, 128)\n        s = ''.join(r.choice(PRINTABLES) for _ in range(ln))\n        variants.append(s)\n\n    return r.choice(variants)\n\n\ndef _encode_cstr(s: str) -> bytes:\n    # Encode UTF-8 with a single trailing NUL for C strings\n    return s.encode('utf-8', errors='strict') + b'\\x00'\n\n\ndef _pick(entries: List[bytes], r: random.Random, budget: int) -> List[bytes]:\n    # Pick a subset that fits within budget\n    out = []\n    r.shuffle(entries)\n    total = 0\n    for e in entries:\n        if total + len(e) <= budget:\n            out.append(e)\n            total += len(e)\n    return out\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # We generate a set of C-strings concatenated together, since the harness\n    # typically reads from its input stream to populate multiple FUZZ_PARAM_STR() calls.\n    # Each string is NUL-terminated to allow robust tokenization by the fuzz shim.\n\n    # Construct a balanced corpus:\n    entries: List[bytes] = []\n\n    # Ensure at least one valid resource name (non-empty) for DebugPrintf path\n    res = _make_resource_name(r)\n    if not res:\n        res = \"res\"\n    entries.append(_encode_cstr(res))\n\n    # Add additional candidate resource names to explore different lookups\n    for _ in range(r.randint(1, 4)):\n        entries.append(_encode_cstr(_make_resource_name(r)))\n\n    # Add log strings for %s arguments\n    for _ in range(r.randint(3, 8)):\n        entries.append(_encode_cstr(_make_log_string(r)))\n\n    # Boundary cases: empty, very long printable, and path-like names\n    entries.append(_encode_cstr(\"\"))\n    long_printable = ''.join(r.choice(PRINTABLES) for _ in range(r.randint(128, 512)))\n    entries.append(_encode_cstr(long_printable))\n    entries.append(_encode_cstr(\"res-with-dash_underscore123\"))\n\n    # Deduplicate while preserving order lightly\n    seen = set()\n    deduped: List[bytes] = []\n    for e in entries:\n        if e not in seen:\n            seen.add(e)\n            deduped.append(e)\n\n    # Respect overall size limit\n    payloads = _pick(deduped, r, MAX_TOTAL)\n\n    # Concatenate; keep as a pure byte stream of NUL-terminated strings\n    data = b''.join(payloads)\n\n    # Safety: cap to MAX_TOTAL\n    if len(data) > MAX_TOTAL:\n        data = data[:MAX_TOTAL]\n\n    return data\n"
+    },
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator targets fuzz stubs that call FUZZ_PARAM_STR for:\n# - resource names (used to look up a lua_State via GetResourceFromName)\n# - general printf string arguments\n# and FUZZ_PARAM_FILENAME is not used in provided stubs.\n#\n# Strategy:\n# - Produce a single bytes buffer that encodes one or more newline-separated strings.\n# - The first string will be a plausible resource name (alnum/underscore/dash), non-empty,\n#   to maximize chances GetResourceFromName succeeds.\n# - Follow with several additional strings containing a wide variety of content to exercise\n#   printf formatting paths: ASCII words, numbers, long strings, Unicode, percent signs,\n#   null-byte-including segments encoded via length-prefix to allow the harness to read up\n#   to a newline while still containing rich content before it (we avoid actual NULs since\n#   fuzzer expects C strings).\n# - Keep total size <= 4096 bytes.\n#\n# Note: The fuzz harness typically pulls a string per FUZZ_PARAM_STR call in order of usage.\n#       We'll provide multiple lines so each call can consume the next line.\n\nSAFE_RESOURCE_CHARS = \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-\"\n\nASCII_WORDS = [\n    \"hello\", \"world\", \"test\", \"module\", \"resource\", \"alpha\", \"beta\", \"gamma\",\n    \"delta\", \"printf\", \"debug\", \"error\", \"info\", \"lua\", \"state\", \"checksum\",\n]\n\nUNICODE_SNIPPETS = [\n    \"✓\", \"😀\", \"Привет\", \"こんにちは\", \"안녕하세요\", \"مرحبا\", \"हैलो\", \"שלום\", \"ñandú\", \"résumé\",\n]\n\nEDGE_PATTERNS = [\n    \"%\", \"%%\", \"%s\", \"%d\", \"%p\", \"%08X\", \"%lld\", \"%u\", \"{0}\", \"${VAR}\",\n    \"\\\\n\", \"\\\\r\\\\n\", \"\\t\", \" \", \"\\u0000\",  # Note: actual NUL avoided; literal sequence only\n]\n\nNUMBERS = [\"0\", \"1\", \"-1\", \"42\", \"1337\", \"2147483647\", \"-2147483648\", \"4294967295\"]\n\n\ndef _rand_res_name(rnd: random.Random) -> str:\n    # Length between 1 and 32\n    length = rnd.randint(3, 16)\n    # Ensure starts with alpha to resemble typical resource names\n    start = rnd.choice(\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\")\n    rest = \"\".join(rnd.choice(SAFE_RESOURCE_CHARS) for _ in range(length - 1))\n    # Occasionally include a dash or underscore separated pattern\n    if length > 6 and rnd.random() < 0.4:\n        pivot = rnd.randint(2, length - 2)\n        rest = rest[:pivot] + rnd.choice([\"-\", \"_\"]) + rest[pivot:]\n    return start + rest\n\n\ndef _rand_ascii_blob(rnd: random.Random, target_len: int) -> str:\n    pool = ASCII_WORDS + NUMBERS + EDGE_PATTERNS\n    parts: List[str] = []\n    while sum(len(p) + 1 for p in parts) < target_len:\n        parts.append(rnd.choice(pool))\n    s = \" \".join(parts)\n    return s[:target_len]\n\n\ndef _rand_unicode_blob(rnd: random.Random, target_len: int) -> str:\n    # Mix ASCII with Unicode to form a valid UTF-8 string\n    parts: List[str] = []\n    while len(\"\".join(parts).encode(\"utf-8\")) < target_len:\n        parts.append(rnd.choice(ASCII_WORDS + [\"-\", \"_\", \"/\"]))\n        parts.append(rnd.choice(UNICODE_SNIPPETS))\n    s = \"\".join(parts)\n    # trim to target_len bytes when UTF-8 encoded without breaking encoding\n    b = s.encode(\"utf-8\")[:target_len]\n    # ensure valid utf-8 by backing off to a complete sequence\n    while True:\n        try:\n            return b.decode(\"utf-8\")\n        except UnicodeDecodeError as e:\n            b = b[:e.start]\n            if not b:\n                return \"\"\n\n\ndef _lines_for_run(rnd: random.Random) -> List[str]:\n    lines: List[str] = []\n\n    # 1) Resource name for DebugPrintf GetResourceFromName\n    lines.append(_rand_res_name(rnd))\n\n    # 2) General string for ErrorPrintf/Printf first %s\n    # Keep moderate size\n    lines.append(_rand_ascii_blob(rnd, rnd.randint(8, 64)))\n\n    # 3) Another string for DebugPrintf %s with mix of unicode and format-like tokens\n    lines.append(_rand_unicode_blob(rnd, rnd.randint(16, 96)))\n\n    # 4) Very short string (edge case)\n    lines.append(rnd.choice([\"a\", \"0\", \"-\", \"%\"]))\n\n    # 5) Longer path-like or name-like string\n    if rnd.random() < 0.5:\n        # path-like\n        segs = [_rand_res_name(rnd) for _ in range(rnd.randint(2, 4))]\n        lines.append(\"/\".join(segs))\n    else:\n        lines.append(_rand_ascii_blob(rnd, rnd.randint(32, 128)))\n\n    # 6) Percent-heavy string to test escaping but still valid as data argument\n    percenty = \"\".join(rnd.choice([\"%\", \"%%\", \"x\", \"s\", \"d\"]) for _ in range(rnd.randint(10, 40)))\n    lines.append(percenty)\n\n    # 7) Very long but bounded UTF-8 content (ensure overall buffer <= 4096)\n    lines.append(_rand_unicode_blob(rnd, rnd.randint(128, 512)))\n\n    return lines\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Compose multiple scenarios in one buffer occasionally to feed more FUZZ_PARAM_STR calls\n    scenario_count = 1 if rnd.random() < 0.6 else rnd.randint(2, 4)\n\n    all_lines: List[str] = []\n    for _ in range(scenario_count):\n        all_lines.extend(_lines_for_run(rnd))\n\n    # Join with newlines; avoid embedded NULs since consumer expects C strings\n    blob = \"\\n\".join(all_lines)\n\n    # Ensure size limit\n    max_bytes = 4096\n    data = blob.encode(\"utf-8\")\n    if len(data) > max_bytes:\n        data = data[:max_bytes]\n        # Trim to avoid cutting a multi-byte sequence\n        while True:\n            try:\n                data.decode(\"utf-8\")\n                break\n            except UnicodeDecodeError as e:\n                data = data[:e.start]\n                if not data:\n                    break\n    return data\n"
+    },
+    {
+      "data_type": "resource name",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces valid input buffers for FUZZ_PARAM_STR/FUZZ_PARAM_FILENAME\n# used by the ILuaModuleManager10-focused fuzzers. The stubs primarily request:\n# - Resource names (non-empty, <= ~64 chars)\n# - Filenames within a resource (e.g., meta.xml or other plausible names)\n# - Version strings/names/OS names\n# - Assorted other strings for printf/debug and registration names\n#\n# The harness is likely to parse the provided bytes into multiple FUZZ_PARAM_STR\n# calls sequentially. We therefore emit a sequence of newline-separated strings\n# followed by some 32-bit integers for FUZZ_PARAM(unsigned int) calls.\n#\n# Format strategy (line-oriented):\n# - Provide 1..3 resource names following pattern: <base>_<index>\n# - Then provide several generic strings for use in various stubs (func names, filenames, etc.)\n# - Include plausible filenames like meta.xml, script.lua, data/config.json, images/tex.png\n# - Keep each line non-empty and within reasonable size limits the stubs expect\n# - Append a small tail of binary 32-bit little-endian unsigned ints to satisfy integer params\n#\n# The output stays under 4096 bytes and is deterministic for a given seed.\n\nIDENT_CHARS = string.ascii_letters + string.digits + \"-_\"\nFILENAME_CHARS = IDENT_CHARS + \"/._\"\n\ndef _rand_ident(rnd: random.Random, min_len: int, max_len: int) -> str:\n    n = rnd.randint(min_len, max_len)\n    s = ''.join(rnd.choice(IDENT_CHARS) for _ in range(max(1, n)))\n    # avoid starting with digit to be more name-like\n    if s and s[0].isdigit():\n        s = 'r' + s[1:]\n    return s\n\ndef _rand_filename(rnd: random.Random) -> str:\n    # Weighted choices of common resource files\n    choices = [\n        \"meta.xml\",\n        \"script.lua\",\n        \"client.lua\",\n        \"server.lua\",\n        \"config.xml\",\n        \"data/config.json\",\n        \"data/table.csv\",\n        \"images/tex.png\",\n        \"models/veh.dff\",\n        \"models/veh.txd\",\n        \"docs/readme.txt\",\n    ]\n    if rnd.random() < 0.6:\n        return rnd.choice(choices)\n    # Otherwise synthesize a plausible path\n    parts = []\n    depth = 1 if rnd.random() < 0.7 else rnd.randint(2, 3)\n    for _ in range(depth - 1):\n        parts.append(_rand_ident(rnd, 3, 10).lower())\n    base = _rand_ident(rnd, 3, 12).lower()\n    ext = rnd.choice([\".xml\", \".lua\", \".json\", \".txt\", \".png\", \".dff\", \".txd\", \".cfg\"]) \n    parts.append(base + ext)\n    return '/'.join(parts)\n\ndef _bounded(s: str, max_len: int) -> str:\n    if len(s) <= max_len:\n        return s\n    return s[:max_len]\n\ndef _make_resource_names(rnd: random.Random) -> List[str]:\n    count = rnd.randint(1, 3)\n    base = _rand_ident(rnd, 3, 12)\n    base = _bounded(base, 32)\n    names = [f\"{base}_{i}\" for i in range(count)]\n    return names\n\ndef _version_string(rnd: random.Random) -> str:\n    major = rnd.randint(0, 10)\n    minor = rnd.randint(0, 20)\n    patch = rnd.randint(0, 50)\n    suffix = rnd.choice([\"\", \"-dev\", \"-rc1\", \"-beta\", \"-fuzz\"]) \n    return _bounded(f\"{major}.{minor}.{patch}{suffix}\", 64)\n\ndef _version_name(rnd: random.Random) -> str:\n    codenames = [\n        \"FuzzEdition\", \"Aurora\", \"Beacon\", \"Catalyst\", \"Delta\",\n        \"Echo\", \"Falcon\", \"Genesis\", \"Helix\", \"Ion\",\n    ]\n    return _bounded(rnd.choice(codenames), 64)\n\ndef _os_name(rnd: random.Random) -> str:\n    return _bounded(rnd.choice([\n        \"Windows\", \"Linux\", \"macOS\", \"FreeBSD\", \"UnknownOS\"\n    ]), 64)\n\ndef _func_name(rnd: random.Random) -> str:\n    # Lua global function-style name\n    base = _rand_ident(rnd, 1, 12)\n    return _bounded(base, 63)\n\ndef _random_misc_string(rnd: random.Random) -> str:\n    # For general DebugPrintf argument s, etc.\n    if rnd.random() < 0.5:\n        return _bounded(_rand_ident(rnd, 1, 24), 64)\n    # Include some punctuation sometimes\n    pool = string.ascii_letters + string.digits + \"-_ .,:/\"\n    n = rnd.randint(1, 48)\n    return ''.join(rnd.choice(pool) for _ in range(n))\n\ndef _u32_le(n: int) -> bytes:\n    n &= 0xFFFFFFFF\n    return bytes((n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF))\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    lines: List[str] = []\n\n    # 1) Construct 1..3 resource names used by the manager factory\n    res_names = _make_resource_names(rnd)\n    lines.extend(res_names)\n\n    # 2) Version metadata strings for manager factory\n    lines.append(_version_string(rnd))        # verStr\n    lines.append(_version_name(rnd))          # verName\n    lines.append(_os_name(rnd))               # osName\n\n    # 3) Additional resource query names used by stubs; include exact and partial names\n    lines.append(res_names[0])                # direct hit\n    # Partial or variant to exercise substring matching in GetResourceFromName\n    partial = res_names[0][: max(1, min(len(res_names[0]), rnd.randint(1, 5)))]\n    lines.append(partial)\n\n    # 4) Function registration names (non-empty, <=63)\n    for _ in range(rnd.randint(1, 3)):\n        lines.append(_func_name(rnd))\n\n    # 5) Filenames for file checksum and path resolution\n    for _ in range(rnd.randint(2, 4)):\n        lines.append(_bounded(_rand_filename(rnd), 96))\n\n    # 6) Misc strings for DebugPrintf message arguments or other generic uses\n    for _ in range(rnd.randint(2, 5)):\n        lines.append(_random_misc_string(rnd))\n\n    # Ensure none are empty; replace empties with defaults\n    cleaned = []\n    for s in lines:\n        if not s:\n            s = \"res\"\n        # Avoid leading/trailing whitespace that might be trimmed unexpectedly\n        s = s.strip()\n        if not s:\n            s = \"res\"\n        cleaned.append(s)\n\n    text_payload = (\"\\n\".join(cleaned) + \"\\n\").encode('utf-8')\n\n    # 7) Append several unsigned ints for stubs that pull FUZZ_PARAM(unsigned int)\n    # Provide values that cover interesting cases\n    ints: List[int] = []\n    # Generic randoms\n    for _ in range(4):\n        ints.append(rnd.getrandbits(32))\n    # Boundary-biased integers for buffer sizing in stubs (mod 256/512 usage)\n    ints += [0, 1, 255, 256, 511, 512, 1024, 0xFFFFFFFF]\n\n    int_payload = b''.join(_u32_le(x) for x in ints)\n\n    out = text_payload + int_payload\n    if len(out) > 4096:\n        out = out[:4096]\n    return out\n"
+    },
+    {
+      "data_type": "Lua identifier",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces valid strings for two FUZZ_PARAM_STR uses in the stub:\n# 1) Resource name for ILuaModuleManager10::GetResourceFromName\n# 2) Lua identifier for ILuaModuleManager::RegisterFunction\n#\n# Goals:\n# - Provide plausible resource names (alphanumeric, underscore, dashes) with some\n#   common prefixes/suffixes to exercise lookup variations.\n# - Provide valid Lua identifiers (start with letter or underscore, followed by letters/digits/underscores),\n#   non-empty, length <= 63 per stub logic.\n# - Pack both strings into a single buffer that the fuzzer framework can split/consume\n#   as separate FUZZ_PARAM_STR calls. We separate with newlines. If the framework\n#   reads sequentially, it will take first line as resName and second line as funcName.\n#\n# The output is a bytes payload with: b\"<resName>\\n<funcName>\\n\"\n\nRES_PREFIXES: List[str] = [\n    \"res\", \"resource\", \"mod\", \"pkg\", \"lib\", \"game\", \"map\", \"ui\", \"net\", \"snd\",\n]\nRES_SUFFIXES: List[str] = [\n    \"\", \"_v1\", \"_v2\", \"-test\", \"-dev\", \"_debug\", \"_release\", \"-alpha\", \"-beta\", \"_lite\",\n]\n\nLUA_FIRST_CHARS = string.ascii_letters + \"_\"\nLUA_CHARS = string.ascii_letters + string.digits + \"_\"\n\nRES_CHARS = string.ascii_letters + string.digits + \"_-\"\n\nMAX_FUNC_LEN = 63  # stub trims to 63\n\ndef _rand_bool(r: random.Random, p: float) -> bool:\n    return r.random() < p\n\ndef _rand_res_name(r: random.Random) -> str:\n    # Compose resource names like: prefix + optional number + optional separator + core + suffix\n    prefix = r.choice(RES_PREFIXES)\n    core_len = r.randint(1, 12)\n    core = ''.join(r.choice(RES_CHARS) for _ in range(core_len))\n    sep = r.choice(['', '-', '_'])\n    suffix = r.choice(RES_SUFFIXES)\n    maybe_num = str(r.randint(1, 999)) if _rand_bool(r, 0.4) else ''\n    parts = [prefix]\n    if maybe_num:\n        parts.append(maybe_num)\n    if sep:\n        parts.append(sep)\n    parts.append(core)\n    final = ''.join(parts) + suffix\n    # Ensure non-empty and reasonable length\n    if not final:\n        final = 'res'\n    return final[:128]\n\ndef _rand_lua_identifier(r: random.Random) -> str:\n    # Start char must be letter or underscore\n    first = r.choice(LUA_FIRST_CHARS)\n    # Choose length 1..63 (inclusive)\n    remaining_len = r.randint(0, MAX_FUNC_LEN - 1)\n    rest = ''.join(r.choice(LUA_CHARS) for _ in range(remaining_len))\n    ident = first + rest\n    # Bias towards some interesting names\n    specials = [\n        'f', 'init', 'update', 'onStart', 'on_stop', 'handleEvent', 'process',\n        '_', '_G', 'main', 'tick', 'Render', 'NetHandler', 'CRC32', 'MD5',\n    ]\n    if _rand_bool(r, 0.15):\n        ident = r.choice(specials)\n    # Enforce max length\n    return ident[:MAX_FUNC_LEN]\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Create a mix: sometimes short canonical names, sometimes longer/randomized\n    if _rand_bool(r, 0.2):\n        res_name = 'res'\n    else:\n        res_name = _rand_res_name(r)\n\n    if _rand_bool(r, 0.2):\n        func_name = 'f'\n    else:\n        func_name = _rand_lua_identifier(r)\n\n    # Assemble payload as two lines to feed sequential FUZZ_PARAM_STR calls\n    payload = f\"{res_name}\\n{func_name}\\n\"\n    return payload.encode('utf-8')\n"
+    },
+    {
+      "data_type": "filename",
+      "generator": "import random\nimport string\nfrom typing import List\n\ndef _rand_choice(rng: random.Random, items: List[str]) -> str:\n    return rng.choice(items)\n\ndef _weighted_bool(rng: random.Random, p_true: float) -> bool:\n    return rng.random() < p_true\n\nRESOURCE_NAMES_COMMON = [\n    \"res\", \"admin\", \"default\", \"core\", \"gameplay\", \"map\", \"test\", \"utils\",\n    \"vehicles\", \"weapons\", \"skins\", \"gui\", \"hud\", \"audio\", \"net\", \"fs\",\n]\n\nFILE_NAMES_COMMON = [\n    \"meta.xml\",\n    \"script.lua\",\n    \"client.lua\",\n    \"server.lua\",\n    \"config.xml\",\n    \"readme.txt\",\n    \"data/vehicles.xml\",\n    \"data/weapons.json\",\n    \"images/logo.png\",\n    \"images/icon.dds\",\n    \"models/car.dff\",\n    \"models/car.txd\",\n    \"maps/map01.lua\",\n    \"maps/map01.xml\",\n    \"sounds/engine.wav\",\n    \"sounds/music.ogg\",\n]\n\n# Generate a plausible resource name (letters, digits, underscore, dash)\ndef _gen_resource_name(rng: random.Random) -> str:\n    if _weighted_bool(rng, 0.5):\n        return _rand_choice(rng, RESOURCE_NAMES_COMMON)\n    length = rng.randint(3, 24)\n    alphabet = string.ascii_letters + string.digits + \"_-\"\n    # Avoid starting with dash for typical name rules\n    first_chars = string.ascii_letters + string.digits + \"_\"\n    s = rng.choice(first_chars)\n    s += \"\".join(rng.choice(alphabet) for _ in range(length - 1))\n    return s\n\n# Generate a plausible resource-relative filename/path\ndef _gen_resource_file(rng: random.Random) -> str:\n    if _weighted_bool(rng, 0.55):\n        base = _rand_choice(rng, FILE_NAMES_COMMON)\n    else:\n        # Build a custom path: optional one or two directories, then a filename with extension\n        dirs = []\n        if _weighted_bool(rng, 0.8):\n            n_dirs = 1 if _weighted_bool(rng, 0.7) else 2\n            for _ in range(n_dirs):\n                dlen = rng.randint(2, 12)\n                dirs.append(\"\".join(rng.choice(string.ascii_lowercase + string.digits + \"_-\") for _ in range(dlen)))\n        fname_len = rng.randint(3, 16)\n        fname = \"\".join(rng.choice(string.ascii_lowercase + string.digits + \"_-\") for _ in range(fname_len))\n        ext = _rand_choice(rng, [\".lua\", \".xml\", \".json\", \".txt\", \".png\", \".dds\", \".wav\", \".ogg\", \".cfg\"]) if _weighted_bool(rng, 0.9) else \"\"\n        base = \"/\".join(dirs + [fname + ext]) if dirs else (fname + ext)\n    # Ensure length constraints as per stubs (<= 128 and <= 96 in places). We'll stay well below.\n    if len(base) > 96:\n        base = base[:96]\n    if not base:\n        base = \"meta.xml\"\n    return base\n\n# Encode as two null-terminated strings concatenated: resourceName\\0fileName\\0\n# This aligns well with FUZZ_PARAM_STR extractions that may split the input.\n# The fuzzing harness typically pulls independent strings, but providing both\n# in one buffer helps seed both FUZZ_PARAM_STR calls with meaningful values.\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    res_name = _gen_resource_name(rng)\n    file_name = _gen_resource_file(rng)\n\n    # Occasionally produce longer paths or tricky names to explore behavior\n    if _weighted_bool(rng, 0.2):\n        # Add relative elements but keep valid (no traversal outside resource)\n        # Avoid leading slash; include single \".\" segments sometimes\n        prefixes = []\n        if _weighted_bool(rng, 0.5):\n            prefixes.append(\".\")\n        if _weighted_bool(rng, 0.3):\n            prefixes.append(\"assets\")\n        extra = \"/\".join(prefixes + [file_name]) if prefixes else file_name\n        file_name = extra[:120] if len(extra) > 120 else extra\n\n    # Construct buffer: resName\\0fileName\\0 and pad with a small random trailer to vary seeds\n    parts = [res_name.encode(\"utf-8\"), b\"\\x00\", file_name.encode(\"utf-8\"), b\"\\x00\"]\n\n    # Small, valid trailer comprised of additional candidate names separated by NULs\n    if _weighted_bool(rng, 0.3):\n        # Add a couple more plausible filenames as optional extras\n        extras = []\n        for _ in range(rng.randint(1, 3)):\n            extras.append(_gen_resource_file(rng).encode(\"utf-8\"))\n        for e in extras:\n            parts.append(e)\n            parts.append(b\"\\x00\")\n\n    data = b\"\".join(parts)\n\n    # Enforce maximum size\n    if len(data) > 4096:\n        data = data[:4096]\n    return data\n"
+    },
+    {
+      "data_type": "version string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Target data type: \"version string\" used by FUZZ_PARAM_STR in the stub to populate:\n# - verStr (GetVersionString)\n# - verName (GetVersionName)\n# - osName (GetOperatingSystemName)\n# Plus additional arbitrary strings for resource base names.\n# The stub limits strings to certain lengths (64 for version/name/os, 32 for resource base),\n# and synthesizes resource names as base + \"_\" + index. It also creates 1..3 resources.\n# It also pulls two unsigned ints for version/net numbers and a third for resource count modulo 3.\n#\n# Our goal is to provide a single byte buffer that FUZZ framework will slice into for\n# FUZZ_PARAM_STR and FUZZ_PARAM(unsigned int) calls, yielding valid and interesting values.\n#\n# Assumptions about FUZZ framework (typical patterns):\n# - FUZZ_PARAM_STR reads a length-prefixed or NUL-terminated slice from input. To stay broadly\n#   compatible, we encode our buffer as a sequence of NUL-terminated strings followed by a\n#   series of 32-bit little-endian integers. Many frameworks consume in call order.\n# - Even if exact mechanics differ, providing clear NUL-terminated strings and aligned integers\n#   tends to produce stable, valid values in common harnesses.\n#\n# We therefore build the buffer in the exact order of consumption in the stub:\n#   1) verStr  (string, <=64)\n#   2) verName (string, <=64)\n#   3) osName  (string, <=64)\n#   4) verNum  (uint32)\n#   5) netNum  (uint32)\n#   6) countSeed (uint32) -> determines resource count 1..3 via %3 + 1\n#   7) For i in [0..count-1]: base string (<=32). Stub appends _i.\n#\n# We pick values to exercise different behaviors:\n# - Version strings: semantic, long with metadata, unusual characters but printable, and edge lengths.\n# - Version name: codename-like strings, include spaces and dashes.\n# - OS name: common OS identifiers and exotic names.\n# - Numbers: choose varied ranges to impact checksum generation and internal state.\n# - Resource bases: mix short, max-length, with dashes/periods and unicode-like ASCII approximations.\n#\n# The generator stays under 4096 bytes.\n\nMAX_TOTAL = 4096\n\nSEMVER_CORES = [\n    \"1.0.0\", \"2.3.4\", \"0.9.9\", \"10.0.1\", \"2024.1.0\", \"3.0.0\", \"1.2.3\",\n]\nPRE_RELEASE_IDS = [\n    \"alpha\", \"beta\", \"rc.1\", \"rc.2\", \"dev\", \"exp\", \"nightly\", \"preview\",\n]\nBUILD_META_IDS = [\n    \"001\", \"build.123\", \"gabcdef\", \"sha.012345\", \"win\", \"linux\", \"x64\", \"arm64\",\n]\nCODENAMES = [\n    \"FuzzEdition\", \"Long Term Support\", \"Dragon-Edge\", \"Blue Sky\", \"Neon\",\n    \"Zebra\", \"Falcon-Prime\", \"Omega\", \"Aurora\", \"Quantum\",\n]\nOSNAMES = [\n    \"Windows\", \"Windows_NT\", \"Linux\", \"GNU/Linux\", \"macOS\", \"FreeBSD\",\n    \"OpenBSD\", \"NetBSD\", \"Solaris\", \"UnknownOS\", \"Haiku\",\n]\nRES_BASES = [\n    \"res\", \"core\", \"assets\", \"textures\", \"scripts\", \"audio\", \"ui\", \"data\",\n    \"pkg\", \"module\", \"resource\", \"checksum\", \"mtasa\", \"lua\",\n]\n\nSAFE_CHARS = string.ascii_letters + string.digits + \" .-_+:/\"\n\n\ndef rand_semver(r: random.Random) -> str:\n    core = r.choice(SEMVER_CORES)\n    parts = [core]\n    # Optionally add pre-release\n    if r.random() < 0.7:\n        pre_count = 1 if r.random() < 0.7 else 2\n        pres = [r.choice(PRE_RELEASE_IDS) for _ in range(pre_count)]\n        parts.append(\"-\" + \".\".join(pres))\n    # Optionally add build metadata\n    if r.random() < 0.7:\n        bcount = 1 if r.random() < 0.7 else 2\n        metas = [r.choice(BUILD_META_IDS) for _ in range(bcount)]\n        parts.append(\"+\" + \".\".join(metas))\n    s = \"\".join(parts)\n    # Ensure <=64 as per stub truncation preference\n    return s[:64]\n\n\ndef rand_codename(r: random.Random) -> str:\n    base = r.choice(CODENAMES)\n    # Optionally add minor versioning tag or year\n    suffixes = [\n        \"\", \" R\" + str(r.randint(1, 5)),\n        \" Update \" + str(r.randint(1, 4)),\n        \" \" + str(r.randint(2000, 2035)),\n    ]\n    name = base + r.choice(suffixes)\n    # Mix spacing or dashes\n    if r.random() < 0.4:\n        name = name.replace(\" \", \"-\")\n    return name[:64]\n\n\ndef rand_osname(r: random.Random) -> str:\n    if r.random() < 0.7:\n        name = r.choice(OSNAMES)\n    else:\n        # Compose custom OS string\n        vendor = r.choice([\"ContosoOS\", \"FuzzOS\", \"ProtoOS\", \"EdgeOS\", \"MegaOS\"])\n        ver = rand_semver(r)\n        name = f\"{vendor} {ver}\"\n    return name[:64]\n\n\ndef rand_uint32(r: random.Random) -> int:\n    # Choose from interesting value sets including boundaries and randoms\n    choices = [0, 1, 2, 3, 7, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256,\n               1023, 1024, 4095, 4096, 2**32 - 1]\n    if r.random() < 0.6:\n        return r.choice(choices)\n    # Otherwise return fully random 32-bit value\n    return r.getrandbits(32)\n\n\ndef rand_base_name(r: random.Random) -> str:\n    if r.random() < 0.6:\n        base = r.choice(RES_BASES)\n    else:\n        # Build a safe random token 3..16 chars\n        n = r.randint(3, 16)\n        base = \"\".join(r.choice(SAFE_CHARS) for _ in range(n)).strip()\n        if not base:\n            base = \"res\"\n    # Add optional sub-qualifier\n    if r.random() < 0.5:\n        tag = r.choice([\"dev\", \"rc\", \"hd\", \"lo\", \"common\", \"shared\"]) if r.random() < 0.7 else str(r.randint(1, 9999))\n        sep = r.choice([\"-\", \".\", \"_\"])\n        base = f\"{base}{sep}{tag}\"\n    return base[:32] if base else \"res\"\n\n\ndef put_cstr(buf: bytearray, s: str):\n    # Ensure NUL-terminated C string using UTF-8-safe ASCII. Stub doesn't require UTF-8 but safe.\n    data = s.encode('utf-8', errors='ignore')\n    # Avoid embedded NULs\n    data = data.replace(b\"\\x00\", b\"?\")\n    buf.extend(data)\n    buf.append(0)\n\n\ndef put_u32le(buf: bytearray, v: int):\n    v &= 0xFFFFFFFF\n    buf.extend(bytes((v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF)))\n\n\ndef build_buffer(r: random.Random) -> bytes:\n    buf = bytearray()\n\n    # 1) verStr\n    ver_str = rand_semver(r)\n    put_cstr(buf, ver_str)\n\n    # 2) verName\n    ver_name = rand_codename(r)\n    put_cstr(buf, ver_name)\n\n    # 3) osName\n    os_name = rand_osname(r)\n    put_cstr(buf, os_name)\n\n    # 4) verNum\n    ver_num = rand_uint32(r)\n    put_u32le(buf, ver_num)\n\n    # 5) netNum\n    net_num = rand_uint32(r)\n    put_u32le(buf, net_num)\n\n    # 6) countSeed\n    # Choose seed to exercise 1..3 resources evenly\n    count = r.randint(1, 3)\n    # Find a seed such that (seed % 3) + 1 == count\n    rem = (count - 1) % 3\n    # Create a seed with desired remainder but also varied magnitude\n    base = rand_uint32(r) & ~0x3\n    seed = base | rem\n    put_u32le(buf, seed)\n\n    # 7) Resource base strings\n    for _ in range(count):\n        base_name = rand_base_name(r)\n        put_cstr(buf, base_name)\n\n    # Safety cap\n    return bytes(buf[:MAX_TOTAL])\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    return build_buffer(r)\n"
+    },
+    {
+      "data_type": "version name",
+      "generator": "import random\nimport struct\nimport hashlib\nfrom typing import List\n\n# Target data type: \"version name\" (human-readable version/codename label)\n# The fuzzer stub consumes several FUZZ_PARAM_STR() values used as:\n#   - verStr (version string)\n#   - verName (version name/codename)\n#   - osName (operating system name)\n#   - base (resource base names), 1..3 resources\n# It also consumes a few FUZZ_PARAM(unsigned int) values for version numbers and count.\n#\n# Our job: emit a single bytes buffer that the harness will split into FUZZ_PARAM_* pieces.\n# We therefore pack multiple strings and integers in a deterministic, self-describing way.\n#\n# Design of buffer format (compact, valid, and diverse):\n#   - Header magic: b\"LMGR10\\0\"\n#   - verNum (u32 LE)\n#   - netNum (u32 LE)\n#   - count (u32 LE) in range 1..3\n#   - verStr (len-prefixed UTF-8, 1..64 bytes)\n#   - verName (1..64)\n#   - osName (1..64)\n#   - For each resource i in [0..count-1]: baseName (1..32)\n#\n# Values are chosen from curated sets and randomized with the given seed to provide\n# valid but varied inputs. All strings are ASCII/UTF-8 without nulls and within the\n# size constraints the stub enforces (it truncates if longer, but we keep them within limits).\n\nOS_NAMES = [\n    \"Windows\", \"Linux\", \"macOS\", \"FreeBSD\", \"OpenBSD\", \"NetBSD\", \"Solaris\", \"Haiku\",\n    \"Android\", \"iOS\", \"UnknownOS\"\n]\n\nVER_PREFIX = [\n    \"0.1\", \"0.9\", \"1.0\", \"1.1\", \"1.2\", \"2.0\", \"3.5\", \"10.0\", \"2024.1\", \"2025.7\"\n]\n\nVER_TAGS = [\n    \"alpha\", \"beta\", \"rc1\", \"rc2\", \"stable\", \"LTS\", \"preview\", \"nightly\", \"exp\", \"hotfix\"\n]\n\nCODENAMES = [\n    \"FuzzEdition\", \"Thunderbolt\", \"Nebula\", \"Quasar\", \"Aurora\", \"Zenith\", \"Nimbus\",\n    \"Eclipse\", \"Odyssey\", \"Pioneer\", \"Voyager\", \"Atlas\"\n]\n\nRES_BASE_WORDS = [\n    \"core\", \"ui\", \"net\", \"audio\", \"physics\", \"render\", \"entity\", \"world\", \"vehicle\", \"ped\",\n    \"mission\", \"map\", \"hud\", \"input\", \"anim\", \"camera\"\n]\n\n# Utility: build a version string that looks realistic and stays <= 64 chars\n\ndef build_version_string(r: random.Random) -> str:\n    # Compose like: <prefix>.<patch>[-<tag>][-build<nnn>]\n    prefix = r.choice(VER_PREFIX)\n    patch = r.randint(0, 15)\n    s = f\"{prefix}.{patch}\"\n    # Optional tag\n    if r.random() < 0.8:\n        s += f\"-{r.choice(VER_TAGS)}\"\n    # Optional build metadata\n    if r.random() < 0.6:\n        s += f\"+build{r.randint(1, 9999)}\"\n    # Ensure <= 64\n    return s[:64]\n\n# Utility: build a version codename <= 64\n\ndef build_version_name(r: random.Random) -> str:\n    # Either a single codename or codename with cycle/year\n    name = r.choice(CODENAMES)\n    if r.random() < 0.7:\n        # Add cycle or year\n        if r.random() < 0.5:\n            name += f\"-{r.randint(1, 12)}\"\n        else:\n            name += f\"-{r.randint(2008, 2035)}\"\n    return name[:64]\n\n# Utility: build OS name <= 64\n\ndef build_os_name(r: random.Random) -> str:\n    base = r.choice(OS_NAMES)\n    if base in (\"Windows\", \"Linux\", \"FreeBSD\", \"OpenBSD\", \"NetBSD\") and r.random() < 0.7:\n        # Add variant/version\n        tail = r.choice([\n            \"XP\", \"7\", \"8.1\", \"10\", \"11\", \"Server\", \"Mint\", \"Arch\", \"Debian\",\n            \"Ubuntu\", \"Fedora\", \"22.04\", \"24.04\", \"13.2\", \"CURRENT\"\n        ])\n        return f\"{base} {tail}\"[:64]\n    if base == \"macOS\" and r.random() < 0.7:\n        tail = r.choice([\"Monterey\", \"Ventura\", \"Sonoma\", \"Sequoia\"]) \n        return f\"{base} {tail}\"[:64]\n    return base\n\n# Utility: resource base names 1..32 chars, ASCII\n\ndef build_res_base(r: random.Random) -> str:\n    # Choose 1-2 words and optional suffix\n    parts = [r.choice(RES_BASE_WORDS)]\n    if r.random() < 0.6:\n        parts.append(r.choice(RES_BASE_WORDS))\n    base = \"_\".join(parts)\n    # Optional variant\n    if r.random() < 0.7:\n        if r.random() < 0.5:\n            base += f\"_{r.randint(0, 9)}\"\n        else:\n            base += f\"_{r.choice(['dbg','opt','hi','lo','hd','sd'])}\"\n    # Ensure length bounds\n    if len(base) < 1:\n        base = \"res\"\n    return base[:32]\n\n# Helper to encode a length-prefixed UTF-8 string with 1..max_len length\n\ndef put_lp_string(buf: bytearray, s: str, max_len: int) -> None:\n    b = s.encode('utf-8', errors='ignore')\n    if len(b) == 0:\n        b = b\"a\"\n    if len(b) > max_len:\n        b = b[:max_len]\n    buf += struct.pack('<H', len(b))\n    buf += b\n\n# Generate deterministic but varied unsigned long values; keep them wide-ranging\n\ndef pick_version_numbers(r: random.Random):\n    # Create two 32-bit values with some structure\n    # verNum encodes major/minor/patch in bytes\n    major = r.randint(0, 255)\n    minor = r.randint(0, 255)\n    patch = r.randint(0, 255)\n    extra = r.randint(0, 255)\n    verNum = (extra << 24) | (major << 16) | (minor << 8) | patch\n\n    # netNum uses a hash of string components for determinism variety\n    seed_str = f\"{major}.{minor}.{patch}-{extra}\".encode()\n    h = hashlib.blake2s(seed_str, digest_size=4).digest()\n    netNum = struct.unpack('<I', h)[0]\n    return verNum, netNum\n\n# Main entry\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    buf = bytearray()\n\n    # Magic header to help triage inputs\n    buf += b\"LMGR10\\x00\"\n\n    verNum, netNum = pick_version_numbers(r)\n    count = r.randint(1, 3)\n\n    buf += struct.pack('<I', verNum)\n    buf += struct.pack('<I', netNum)\n    buf += struct.pack('<I', count)\n\n    verStr = build_version_string(r)\n    verName = build_version_name(r)\n    osName = build_os_name(r)\n\n    put_lp_string(buf, verStr, 64)\n    put_lp_string(buf, verName, 64)\n    put_lp_string(buf, osName, 64)\n\n    for _ in range(count):\n        base = build_res_base(r)\n        put_lp_string(buf, base, 32)\n\n    # Ensure <= 4096 bytes (it will be much smaller)\n    if len(buf) > 4096:\n        return bytes(buf[:4096])\n    return bytes(buf)\n"
+    },
+    {
+      "data_type": "operating system name",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets string buffers consumed by FUZZ_PARAM_STR in the FakeLuaModuleManager10 fuzzer stub.\n# The stub uses these strings for:\n# - Version string (verStr): default \"1.0.0\", truncated to 64\n# - Version name (verName): human-readable codename, truncated to 64\n# - OS name (osName): human-readable operating system name, truncated to 64\n# - Resource base names (base): up to 32 chars, then suffixed with _<index>\n# It also consumes two unsigned ints (verNum/netNum) and one unsigned int for resource count (mod 3 + 1),\n# but these come from FUZZ_PARAM(unsigned int) rather than FUZZ_PARAM_STR and are not directly fed from our bytes.\n# Our job is to provide a single bytes buffer that the harness will slice/consume for FUZZ_PARAM_STR/FUZZ_PARAM_FILENAME.\n# We'll encode multiple newline-separated fields so the fuzzer can parse them as distinct strings in order.\n# We ensure values are valid, interesting, and exercise different code paths (equality, substring match, truncation, empty defaulting avoidance).\n\nMAX_TOTAL = 4096\n\nOS_NAMES = [\n    \"Windows\",\n    \"Linux\",\n    \"macOS\",\n    \"FreeBSD\",\n    \"Android\",\n    \"iOS\",\n    \"UnknownOS\",\n]\n\nVER_PREFIXES = [\"0.9.\", \"1.0.\", \"1.1.\", \"2.0.\", \"2024.\", \"10.\"]\nVER_SUFFIXES = [\"alpha\", \"beta\", \"rc1\", \"rc2\", \"stable\", \"LTS\"]\n\nCODENAMES = [\n    \"FuzzEdition\",\n    \"Nightly\",\n    \"Canary\",\n    \"Dragon\",\n    \"Phoenix\",\n    \"Omega\",\n    \"Zeta\",\n    \"Nebula\",\n]\n\n# Some resource bases meant to trigger exact and substring behaviors in GetResourceFromName\nRESOURCE_BASE_SETS = [\n    [\"core\", \"coreutils\", \"utils\"],\n    [\"res\", \"resmod\", \"mod\"],\n    [\"game\", \"gameplay\", \"play\"],\n    [\"alpha\", \"alphabet\", \"beta\"],\n    [\"data\", \"metadata\", \"meta\"],\n]\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_.\"\n\n\ndef _rand_choice(rng: random.Random, items: List[str]) -> str:\n    return items[rng.randrange(len(items))]\n\n\ndef _make_version_string(rng: random.Random) -> str:\n    # Generate versions like 1.2.3, 2024.1, or 1.0.0-rc1, within 64 chars\n    major = rng.randint(0, 20)\n    minor = rng.randint(0, 20)\n    patch = rng.randint(0, 50)\n    style = rng.randrange(4)\n    if style == 0:\n        ver = f\"{major}.{minor}.{patch}\"\n    elif style == 1:\n        ver = f\"{_rand_choice(rng, VER_PREFIXES)}{rng.randint(0, 99)}\"\n    elif style == 2:\n        ver = f\"{major}.{minor}.{patch}-{_rand_choice(rng, VER_SUFFIXES)}\"\n    else:\n        ver = f\"v{major}.{minor}\"\n    # Occasionally hit truncation boundary (64)\n    if rng.random() < 0.2:\n        extra = ''.join(rng.choice(SAFE_CHARS) for _ in range(rng.randint(30, 80)))\n        ver = (ver + \"-\" + extra)[:70]  # still safe before stub truncates to 64\n    return ver[:64] or \"1.0.0\"\n\n\ndef _make_version_name(rng: random.Random) -> str:\n    base = _rand_choice(rng, CODENAMES)\n    if rng.random() < 0.5:\n        base += f\" {rng.randint(1, 9)}\"\n    if rng.random() < 0.3:\n        # avoid f-string list literal; pick separately\n        stage = _rand_choice(rng, [\"dev\", \"stable\", \"preview\", \"lts\"])\n        base += f\" ({stage})\"\n    if rng.random() < 0.2:\n        # Try to exceed 64 to trigger truncation behavior\n        base += \"-\" + ''.join(rng.choice(SAFE_CHARS) for _ in range(80))\n    return base[:64] or \"FuzzEdition\"\n\n\ndef _make_os_name(rng: random.Random) -> str:\n    if rng.random() < 0.7:\n        name = _rand_choice(rng, OS_NAMES)\n    else:\n        # Custom OS string\n        vendor = _rand_choice(rng, [\"Contoso\", \"Acme\", \"Umbrella\", \"Wayne\", \"Stark\"])\n        name = f\"{vendor}OS {rng.randint(1, 12)}.{rng.randint(0, 9)}\"\n    # Occasionally push the truncation\n    if rng.random() < 0.15:\n        name += \"-\" + ''.join(rng.choice(SAFE_CHARS) for _ in range(70))\n    return name[:64] or \"UnknownOS\"\n\n\ndef _make_resource_bases(rng: random.Random) -> List[str]:\n    # Pick a set that includes overlapping names to exercise substring matching\n    base_set = _rand_choice(rng, RESOURCE_BASE_SETS)\n    # Also add a random custom base sometimes\n    if rng.random() < 0.5:\n        custom_len = rng.randint(3, 20)\n        custom = ''.join(rng.choice(string.ascii_lowercase) for _ in range(custom_len))\n        base_set = list(dict.fromkeys(base_set + [custom]))\n    # Enforce 1..3 number of resources; the stub itself picks count from unsigned param,\n    # but we provide up to 3 base names so any consumption order has valid data.\n    rng.shuffle(base_set)\n    base_set = base_set[:3]\n    # Ensure each base is non-empty and <=32\n    out = []\n    for b in base_set:\n        b = b.strip().strip(\"\\0\")\n        if not b:\n            b = \"res\"\n        if len(b) > 32:\n            b = b[:32]\n        out.append(b)\n    # Ensure at least one base shares a substring with another to trigger the fallback search\n    if len(out) >= 2 and rng.random() < 0.6:\n        out[1] = (out[0] + \"utils\")[:32]\n    return out\n\n\ndef _pack_strings(fields: List[str]) -> bytes:\n    # Join with newlines, which most FUZZ_PARAM_STR implementations can split by\n    blob = \"\\n\".join(fields)\n    b = blob.encode(\"utf-8\", errors=\"ignore\")\n    return b[:MAX_TOTAL]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    ver_str = _make_version_string(rng)\n    ver_name = _make_version_name(rng)\n    os_name = _make_os_name(rng)\n    bases = _make_resource_bases(rng)\n\n    # Provide additional filler strings to satisfy any extra FUZZ_PARAM_STR calls beyond our expected ones\n    # and to allow the stub to pull different base values for multiple resources.\n    filler = []\n    for b in bases:\n        # Include raw base and some variants to diversify names used when the stub concatenates _<i>\n        filler.append(b)\n        if len(b) >= 2:\n            filler.append(b[:2])\n        filler.append(b + \"-alt\")\n\n    # First entries should map to verStr, verName, osName usage in the stub.\n    fields: List[str] = [ver_str, ver_name, os_name]\n\n    # Then a pool of resource base candidates; the stub will call FUZZ_PARAM_STR per resource.\n    fields.extend(bases)\n\n    # Add extra pool strings so future FUZZ_PARAM_STR calls remain valid and non-empty.\n    fields.extend(filler)\n\n    # Ensure no empty strings so the stub doesn't replace with defaults unless desired.\n    fields = [s if s else \"X\" for s in fields]\n\n    return _pack_strings(fields)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1227,
+            "output_tokens": 705,
+            "total_tokens": 1932
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 805,
+            "output_tokens": 158,
+            "total_tokens": 963
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1392,
+            "output_tokens": 2503,
+            "total_tokens": 3895
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 16582,
+            "output_tokens": 6448,
+            "total_tokens": 23030
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 32112,
+            "output_tokens": 10295,
+            "total_tokens": 42407
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8698,
+            "output_tokens": 583,
+            "total_tokens": 9281
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 483.69051575660706,
+    "scan_objects": 8.225015640258789,
+    "validate_objects": 0.31510257720947266,
+    "scan_functions": 61.119054317474365,
+    "synthesis": 123.82031059265137,
+    "fill": 190.36321234703064,
+    "classify": 12.85483193397522,
+    "build_generators": 86.99200820922852
+  }
+}

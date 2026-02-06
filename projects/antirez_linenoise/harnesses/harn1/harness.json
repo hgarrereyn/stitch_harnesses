@@ -1,0 +1,510 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct linenoiseState *",
+      "aliases": [],
+      "definition": "struct linenoiseState {\n    int in_completion;  /* The user pressed TAB and we are now in completion\n                         * mode, so input is handled by completeLine(). */\n    size_t completion_idx; /* Index of next completion to propose. */\n    int ifd;            /* Terminal stdin file descriptor. */\n    int ofd;            /* Terminal stdout file descriptor. */\n    char *buf;          /* Edited line buffer. */\n    size_t buflen;      /* Edited line buffer size. */\n    const char *prompt; /* Prompt to display. */\n    size_t plen;        /* Prompt length. */\n    size_t pos;         /* Current cursor position. */\n    size_t oldpos;      /* Previous refresh cursor position. */\n    size_t len;         /* Current edited line length. */\n    size_t cols;        /* Number of columns in terminal. */\n    size_t oldrows;     /* Rows used by last refrehsed line (multiline mode) */\n    int oldrpos;        /* Cursor row from last refresh (for multiline clearing). */\n    int history_index;  /* The history index we are currently editing. */\n};",
+      "description": "Mutable editor state used during interactive line editing. Holds file descriptors, prompt and buffer info, cursor/length bookkeeping, terminal geometry, and history position. Constructed/initialized by the non-blocking API before editing and passed to edit functions. Lifetime and ownership are managed by the caller; ensure buf points to valid storage of size buflen for the session.",
+      "direct_api_constructors": [
+        "linenoiseEditStart"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "linenoiseCompletions *",
+      "aliases": [],
+      "definition": "typedef struct linenoiseCompletions {\n  size_t len;\n  char **cvec;\n} linenoiseCompletions;",
+      "description": "Container for tab-completion candidates. len is the number of completions; cvec is an array of allocated C strings owned by this structure per the implementation. The library fills/extends it via linenoiseAddCompletion and passes it to completion callbacks.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "linenoiseCompletionCallback *",
+      "aliases": [],
+      "definition": "typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);",
+      "description": "Function type for completion callbacks. Implementations receive the current input and a mutable completions container to which they should add proposals.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "linenoiseHintsCallback *",
+      "aliases": [],
+      "definition": "typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);",
+      "description": "Function type for inline hints callbacks. Returns a heap-allocated hint string for the given input and sets optional color/bold attributes. The library will free the returned string via the configured free-hints callback.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "linenoiseFreeHintsCallback *",
+      "aliases": [],
+      "definition": "typedef void(linenoiseFreeHintsCallback)(void *);",
+      "description": "Function type for freeing strings returned by the hints callback. Should deallocate the memory using the same allocator used in the hints callback.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "linenoiseEditStart",
+      "signature": "int linenoiseEditStart(struct linenoiseState *l, int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt);",
+      "description": "Starts a non-blocking interactive line-editing session bound to the given input/output file descriptors, using the provided buffer and prompt. The function initializes the provided linenoiseState and prepares it to accept incremental input via linenoiseEditFeed.",
+      "requirements": [
+        "l must be a valid, writable pointer to a linenoiseState structure.",
+        "stdin_fd should be a valid, open file descriptor for terminal input.",
+        "stdout_fd should be a valid, open file descriptor for terminal output.",
+        "buf must be a valid, writable character buffer used to store the edited line.",
+        "buflen must reflect the actual size of buf and should be > 0 to hold input plus terminator.",
+        "prompt must point to a null-terminated string to display as the prompt.",
+        "Callers should only call linenoiseEditFeed/linenoiseHide/linenoiseShow/linenoiseEditStop on a state previously started with linenoiseEditStart.",
+        "Return value conventions and specific error codes are not documented in this header; non-zero/negative error handling is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseEditFeed",
+      "signature": "char *linenoiseEditFeed(struct linenoiseState *l);",
+      "description": "Feeds pending terminal input to the active non-blocking editor state and advances the editing session. When a full line is completed (e.g., on Enter), it may return a pointer to the resulting line; otherwise it returns NULL. Intended to be polled repeatedly after linenoiseEditStart until a line is produced.",
+      "requirements": [
+        "l must be a valid pointer to a linenoiseState previously initialized via linenoiseEditStart.",
+        "Must not be called after linenoiseEditStop has been invoked on l.",
+        "Return value semantics (heap-allocated vs. internal buffer) are not documented here; ownership is unknown. If a heap pointer is returned by the implementation, free it with linenoiseFree; otherwise treat it as transient."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseEditStop",
+      "signature": "void linenoiseEditStop(struct linenoiseState *l);",
+      "description": "Stops a non-blocking line-editing session and releases any terminal state associated with the session. Use when done with incremental input started by linenoiseEditStart.",
+      "requirements": [
+        "l must be a valid pointer to a linenoiseState that is currently engaged in an active session started by linenoiseEditStart.",
+        "After calling this function, the editor state must not be used with linenoiseEditFeed/linenoiseHide/linenoiseShow unless restarted."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseHide",
+      "signature": "void linenoiseHide(struct linenoiseState *l);",
+      "description": "Temporarily hides or suspends the on-screen editor rendering for the given non-blocking editing state. Useful to prevent UI conflicts while other output is written.",
+      "requirements": [
+        "l must be a valid pointer to a linenoiseState previously initialized via linenoiseEditStart.",
+        "Behavior when called outside an active session is not documented; avoid calling unless a session is active."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseShow",
+      "signature": "void linenoiseShow(struct linenoiseState *l);",
+      "description": "Restores or re-displays the on-screen editor rendering for the given non-blocking editing state after a prior hide.",
+      "requirements": [
+        "l must be a valid pointer to a linenoiseState previously initialized via linenoiseEditStart.",
+        "Should generally be called after linenoiseHide and while a session is active."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoise",
+      "signature": "char *linenoise(const char *prompt);",
+      "description": "Blocking API to read a single line of input with line-editing features. Displays the given prompt, performs editing, and returns the completed line on success or NULL on EOF/error. The returned string is allocated by the library.",
+      "requirements": [
+        "prompt must point to a null-terminated string to display as the prompt.",
+        "The returned pointer, when not NULL, should be freed by the caller using linenoiseFree.",
+        "Thread-safety and reentrancy are not documented; typical usage is from a single thread bound to a terminal."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseFree",
+      "signature": "void linenoiseFree(void *ptr);",
+      "description": "Frees memory returned by linenoise APIs that allocate strings (e.g., linenoise). Provided for portability to match the allocator used by the library.",
+      "requirements": [
+        "ptr must be either NULL or a pointer previously returned by a linenoise API that documented heap allocation (e.g., linenoise).",
+        "Do not pass pointers to stack or static storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseSetCompletionCallback",
+      "signature": "void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);",
+      "description": "Registers a completion callback used to provide candidate completions when the user requests tab-completion. The callback receives the current input and a completions container to populate.",
+      "requirements": [
+        "The function pointer must match the type: void(const char*, linenoiseCompletions*).",
+        "The callback, when invoked, may call linenoiseAddCompletion to append suggestions to the provided linenoiseCompletions.",
+        "Whether passing NULL to clear the callback is supported is not documented here (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseSetHintsCallback",
+      "signature": "void linenoiseSetHintsCallback(linenoiseHintsCallback *);",
+      "description": "Registers a hints callback used to show inline hints for the current input. The callback returns a string to display and may set color and bold flags.",
+      "requirements": [
+        "The function pointer must match the type: char*(const char*, int *color, int *bold).",
+        "The returned hint string’s ownership and required deallocation are determined by the paired free-hints callback; see linenoiseSetFreeHintsCallback.",
+        "Whether passing NULL to clear the callback is supported is not documented here (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseSetFreeHintsCallback",
+      "signature": "void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);",
+      "description": "Registers a deallocation callback used to free strings returned by the hints callback. Ensures hints are released using the same allocator semantics they were created with.",
+      "requirements": [
+        "The function pointer must match the type: void(void*).",
+        "Must be consistent with the allocation strategy used by the hints callback; the free callback must correctly free the pointers returned by linenoiseHintsCallback.",
+        "Whether passing NULL to clear the callback is supported is not documented here (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseAddCompletion",
+      "signature": "void linenoiseAddCompletion(linenoiseCompletions *, const char *);",
+      "description": "Adds a single completion string to the provided completions container. Intended to be called by the registered completion callback to build the list of suggestions.",
+      "requirements": [
+        "The first argument must be a valid pointer to a linenoiseCompletions structure provided by linenoise during a completion request.",
+        "The second argument must be a valid, null-terminated string representing a completion candidate."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseHistoryAdd",
+      "signature": "int linenoiseHistoryAdd(const char *line);",
+      "description": "Adds a line to the in-memory history so it can be recalled during future editing sessions.",
+      "requirements": [
+        "line must be a valid, null-terminated string.",
+        "Maximum history length limits apply as configured via linenoiseHistorySetMaxLen (exact behavior when over capacity is implementation-defined and not specified here).",
+        "Return value and error codes are not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseHistorySetMaxLen",
+      "signature": "int linenoiseHistorySetMaxLen(int len);",
+      "description": "Sets the maximum number of history entries to retain.",
+      "requirements": [
+        "len should be a positive integer indicating the maximum number of entries to keep. Values <= 0 are likely invalid, but exact handling is not documented.",
+        "Return value and error codes are not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseHistorySave",
+      "signature": "int linenoiseHistorySave(const char *filename);",
+      "description": "Saves the in-memory history to the specified file path.",
+      "requirements": [
+        "filename must be a valid, null-terminated path string.",
+        "The process must have permission to create or write to the target file.",
+        "Return value and specific error codes are not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseHistoryLoad",
+      "signature": "int linenoiseHistoryLoad(const char *filename);",
+      "description": "Loads history entries from the specified file path into memory, replacing or augmenting the current history depending on implementation.",
+      "requirements": [
+        "filename must be a valid, null-terminated path string.",
+        "The process must have permission to read the specified file.",
+        "Return value and specific error codes are not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseClearScreen",
+      "signature": "void linenoiseClearScreen(void);",
+      "description": "Clears the terminal screen. Intended as a utility to reset the display.",
+      "requirements": [
+        "Must be called in a terminal-capable environment; behavior on non-terminal streams is implementation-defined and not specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseSetMultiLine",
+      "signature": "void linenoiseSetMultiLine(int ml);",
+      "description": "Enables or disables multi-line editing mode depending on the non-zero/zero value of ml.",
+      "requirements": [
+        "ml is treated as a boolean-like flag (0 to disable, non-zero to enable).",
+        "Affects subsequent editing sessions; exact timing relative to active sessions is not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoisePrintKeyCodes",
+      "signature": "void linenoisePrintKeyCodes(void);",
+      "description": "Utility that reads key presses and prints their key codes. Useful for debugging terminal input sequences.",
+      "requirements": [
+        "Intended to be run interactively in a terminal. Behavior when standard input is redirected is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseMaskModeEnable",
+      "signature": "void linenoiseMaskModeEnable(void);",
+      "description": "Enables mask mode so user input is not echoed verbatim (e.g., for password entry).",
+      "requirements": [
+        "Global effect applies to subsequent prompts; exact scope and interaction with active sessions are not specified."
+      ],
+      "error": null
+    },
+    {
+      "name": "linenoiseMaskModeDisable",
+      "signature": "void linenoiseMaskModeDisable(void);",
+      "description": "Disables mask mode, restoring normal echoing of input characters.",
+      "requirements": [
+        "Global effect applies to subsequent prompts; exact scope and interaction with active sessions are not specified."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "linenoiseFree",
+      "inputs": [],
+      "outputs": [],
+      "code": "// API allows NULL; exercise the path without risking invalid frees\nvoid *p = (void*)0;\nlinenoiseFree(p);\n// Validation: Calls the free routine with a safe NULL pointer as permitted by the API; no outputs or further state."
+    },
+    {
+      "name": "linenoiseHistoryAdd",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random line (non-empty per FUZZ_PARAM_STR contract)\nstd::string line = FUZZ_PARAM_STR();\n// Add to history; return value unspecified, ignore\n(void)linenoiseHistoryAdd(line.c_str());\n// Validation: Provides a valid null-terminated string; function has no persistent side-effects we must capture here."
+    },
+    {
+      "name": "linenoiseHistorySetMaxLen",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Constrain to positive integer as required (>=1)\nint maxlen = (int)(*FUZZ_PARAM(unsigned int) % 128) + 1;\n(void)linenoiseHistorySetMaxLen(maxlen);\n// Validation: Ensures len > 0 per requirement; ignores unspecified return value."
+    },
+    {
+      "name": "linenoiseHistorySave",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Use a fuzz-provided writable filename\nconst char *path = FUZZ_PARAM_FILENAME();\n(void)linenoiseHistorySave(path);\n// Validation: Supplies a valid path; function result is not specified so we ignore it."
+    },
+    {
+      "name": "linenoiseHistoryLoad",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Use a fuzz-provided readable filename (runtime ensures file exists)\nconst char *path = FUZZ_PARAM_FILENAME();\n(void)linenoiseHistoryLoad(path);\n// Validation: Supplies a valid path; return semantics unspecified, safely ignored."
+    },
+    {
+      "name": "linenoiseClearScreen",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Clear screen utility; no arguments, no return\nlinenoiseClearScreen();\n// Validation: Safe one-shot call; environment terminal capability is unspecified but call is non-blocking."
+    },
+    {
+      "name": "linenoiseSetMultiLine",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Toggle multi-line mode with a boolean-like flag\nint ml = (int)(*FUZZ_PARAM(unsigned int) & 1);\nlinenoiseSetMultiLine(ml);\n// Validation: Supplies 0/1 as required; global effect requires no outputs."
+    },
+    {
+      "name": "linenoiseMaskModeEnable",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Enable mask mode globally\nlinenoiseMaskModeEnable();\n// Validation: Global toggle has no inputs/outputs; call is non-blocking."
+    },
+    {
+      "name": "linenoiseMaskModeDisable",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Disable mask mode globally\nlinenoiseMaskModeDisable();\n// Validation: Global toggle has no inputs/outputs; call is non-blocking."
+    },
+    {
+      "name": "linenoiseSetCompletionCallback",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Register no completion callback; passing NULL is commonly supported\nlinenoiseSetCompletionCallback((linenoiseCompletionCallback*)0);\n// Validation: Uses a NULL function pointer of the correct type; no persistent object state to track."
+    },
+    {
+      "name": "linenoiseSetHintsCallback",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Register no hints callback; passing NULL is commonly supported\nlinenoiseSetHintsCallback((linenoiseHintsCallback*)0);\n// Validation: Uses a NULL function pointer of the correct type; ownership semantics are irrelevant when NULL."
+    },
+    {
+      "name": "linenoiseSetFreeHintsCallback",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Register no free-hints callback; passing NULL is commonly supported\nlinenoiseSetFreeHintsCallback((linenoiseFreeHintsCallback*)0);\n// Validation: Uses a NULL function pointer of the correct type; no resource to free here."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "linenoiseEditStart",
+      "reason": "Requires valid TTY file descriptors and interactive terminal state, which cannot be reliably provided in the fuzzer environment."
+    },
+    {
+      "name": "linenoiseEditFeed",
+      "reason": "Depends on an active editing session from linenoiseEditStart and interactive terminal I/O, which are unavailable in the fuzzer model."
+    },
+    {
+      "name": "linenoiseEditStop",
+      "reason": "Must act on a live session created by linenoiseEditStart, which we cannot safely create without a real TTY."
+    },
+    {
+      "name": "linenoiseHide",
+      "reason": "Semantics require an active non-blocking editing session; without TTY-backed state it cannot be meaningfully exercised."
+    },
+    {
+      "name": "linenoiseShow",
+      "reason": "Semantics require an active non-blocking editing session; without TTY-backed state it cannot be meaningfully exercised."
+    },
+    {
+      "name": "linenoise",
+      "reason": "The blocking interactive line-reading API requires a real terminal and would block the fuzzer."
+    },
+    {
+      "name": "linenoiseAddCompletion",
+      "reason": "Expects a linenoise-managed linenoiseCompletions instance provided during callbacks, which cannot be safely constructed or owned by the fuzzer."
+    },
+    {
+      "name": "linenoisePrintKeyCodes",
+      "reason": "Reads interactive keypresses and blocks awaiting input, which is incompatible with fast, non-interactive fuzzing."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "linenoiseFree",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseHistorySetMaxLen",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseClearScreen",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseSetMultiLine",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseMaskModeEnable",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseMaskModeDisable",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseSetCompletionCallback",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseSetHintsCallback",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseSetFreeHintsCallback",
+      "data_types": []
+    },
+    {
+      "name": "linenoiseHistoryAdd",
+      "data_types": [
+        "UTF-8 text string"
+      ]
+    },
+    {
+      "name": "linenoiseHistorySave",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "linenoiseHistoryLoad",
+      "data_types": [
+        "filesystem path string",
+        "line-oriented text file"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "UTF-8 text string",
+      "description": "A null-terminated string containing arbitrary textual data encoded in UTF-8. May include spaces and punctuation; should not contain embedded null bytes. Suitable for APIs expecting general human-readable text lines."
+    },
+    {
+      "data_type": "filesystem path string",
+      "description": "A null-terminated string representing a file system path. May be absolute or relative, and may include directory separators and extensions. The content is interpreted by the OS/filesystem APIs as a pathname, not as file data."
+    },
+    {
+      "data_type": "line-oriented text file",
+      "description": "A file whose contents are interpreted as lines of text, typically separated by newline characters. Each line may be arbitrary text; the file may end with or without a trailing newline. Used by history/load-like functions that parse entries line-by-line."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "UTF-8 text string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for UTF-8 text strings suitable for linenoiseHistoryAdd(line)\n# Requirements:\n# - Null-terminated C string at consumer side => our bytes must not contain embedded nulls\n# - UTF-8 valid\n# - Non-empty per FUZZ_PARAM_STR contract\n# - Keep size <= 4096\n\nMAX_TOTAL = 4096\n\n# Some interesting Unicode ranges (code points) to exercise UTF-8 handling\nUNICODE_BLOCKS = [\n    (0x20, 0x7E),      # Basic ASCII printable\n    (0x00A0, 0x00FF),  # Latin-1 supplement\n    (0x0100, 0x017F),  # Latin Extended-A\n    (0x0370, 0x03FF),  # Greek\n    (0x0400, 0x04FF),  # Cyrillic\n    (0x0600, 0x06FF),  # Arabic\n    (0x0900, 0x097F),  # Devanagari\n    (0x3040, 0x309F),  # Hiragana\n    (0x30A0, 0x30FF),  # Katakana\n    (0x4E00, 0x9FFF),  # CJK Unified Ideographs (subset)\n    (0x1F300, 0x1F64F),# Emojis & pictographs\n]\n\n# Some interesting ASCII tokens for shell-like lines or commands\nASCII_WORDS = [\n    \"help\", \"exit\", \"list\", \"show\", \"set\", \"unset\", \"history\", \"load\", \"save\",\n    \"echo\", \"status\", \"run\", \"test\", \"config\", \"path\", \"user\", \"password\",\n]\n\nPUNCT = \"-_.:,;|/~@#%+={}[]()<>*&^$!\"  # exclude backslash and quotes sometimes included separately\n\nESCAPE_SEQUENCES = [\n    \"\\\\t\", \"\\\\r\", \"\\\\n\", \"\\\\b\", \"\\\\f\", \"\\\\v\", \"\\\\x1b\",  # visible escapes as two-char sequences\n]\n\nCONTROL_CHARS = [\n    \"\\x01\", \"\\x02\", \"\\x03\", \"\\x04\", \"\\x05\", \"\\x06\", \"\\x07\", \"\\x08\",\n    \"\\x09\", \"\\x0A\", \"\\x0B\", \"\\x0C\", \"\\x0D\", \"\\x1B\"  # include TAB/CR/LF/ESC\n]\n\n# Ensure we avoid '\\0' in the content; newline and others are acceptable for history lines typically\n\ndef random_codepoint(rng: random.Random) -> int:\n    block = rng.choice(UNICODE_BLOCKS)\n    start, end = block\n    return rng.randint(start, end)\n\n\ndef make_utf8_text(rng: random.Random, target_len: int) -> str:\n    # Build a string with mixture of ASCII words, punctuation, spaces, unicode, control chars\n    parts: List[str] = []\n    while len(\"\".join(parts)) < target_len:\n        choice = rng.random()\n        if choice < 0.25:\n            parts.append(rng.choice(ASCII_WORDS))\n        elif choice < 0.45:\n            # random ascii token\n            n = rng.randint(1, 12)\n            token = ''.join(rng.choice(string.ascii_letters + string.digits + PUNCT) for _ in range(n))\n            parts.append(token)\n        elif choice < 0.65:\n            # some spaces or separators\n            parts.append(rng.choice([\" \", \"  \", \"\\t\", \" | \", \" : \", \"/\", \"::\"]))\n        elif choice < 0.8:\n            # visible escape sequence text\n            parts.append(rng.choice(ESCAPE_SEQUENCES))\n        elif choice < 0.92:\n            # actual control chars (excluding NUL) to test handling\n            parts.append(rng.choice(CONTROL_CHARS))\n        else:\n            # random unicode char\n            cp = random_codepoint(rng)\n            # Avoid surrogate range\n            if 0xD800 <= cp <= 0xDFFF:\n                cp = 0xE000 + (cp - 0xD800)\n            try:\n                parts.append(chr(cp))\n            except ValueError:\n                pass\n    s = \"\".join(parts)\n    # Trim to approximate target length\n    if len(s) > target_len:\n        s = s[:target_len]\n    # Ensure not empty and no embedded NULs\n    s = s.replace('\\x00', '')\n    if not s:\n        s = \"a\"\n    return s\n\n\ndef build_command_like(rng: random.Random) -> str:\n    # Construct command-like line with options and args\n    cmd = rng.choice(ASCII_WORDS)\n    parts = [cmd]\n    # flags\n    for _ in range(rng.randint(0, 4)):\n        flag = '-' + rng.choice(string.ascii_lowercase)\n        if rng.random() < 0.4:\n            flag = '--' + rng.choice([\"all\",\"force\",\"verbose\",\"quiet\",\"color\",\"no-color\",\"user\",\"path\"]) \\\n                   + (\"=\" + rng.choice([\"1\",\"true\",\"false\",\"auto\"])) * (1 if rng.random()<0.5 else 0)\n        parts.append(flag)\n    # arguments and paths\n    for _ in range(rng.randint(0, 3)):\n        if rng.random() < 0.5:\n            # pseudo path\n            segs = [rng.choice([\"/\", \"./\", \"../\"])]\n            for _ in range(rng.randint(1, 3)):\n                name = ''.join(rng.choice(string.ascii_letters + string.digits + \"-_.\") for _ in range(rng.randint(1,8)))\n                segs.append(name)\n            parts.append('/'.join(segs))\n        else:\n            parts.append(make_utf8_text(rng, rng.randint(3, 20)))\n    # join with spaces, maybe add quotes around some args\n    out = []\n    for p in parts:\n        if rng.random() < 0.2 and (' ' in p or '\\t' in p):\n            quote = rng.choice(['\"', \"'\"])\n            out.append(quote + p + quote)\n        else:\n            out.append(p)\n    return ' '.join(out)\n\n\ndef choose_template(rng: random.Random) -> str:\n    kind = rng.random()\n    if kind < 0.3:\n        # plain text with unicode\n        return make_utf8_text(rng, rng.randint(8, 128))\n    elif kind < 0.6:\n        # command-like\n        return build_command_like(rng)\n    else:\n        # history-like sequences combining several commands separated by semicolons or newlines\n        lines = []\n        count = rng.randint(1, 4)\n        for _ in range(count):\n            if rng.random() < 0.5:\n                lines.append(build_command_like(rng))\n            else:\n                lines.append(make_utf8_text(rng, rng.randint(5, 60)))\n        sep = rng.choice(['; ', '\\n', ' && '])\n        s = sep.join(lines)\n        # Ensure non-empty and no NULs\n        s = s.replace('\\x00', '')\n        if not s:\n            s = 'x'\n        return s\n\n\ndef clamp_size(data: bytes) -> bytes:\n    if len(data) > MAX_TOTAL:\n        return data[:MAX_TOTAL]\n    return data\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Build a UTF-8 string without embedded NULs, then encode\n    s = choose_template(rng)\n    # Randomly pad or prefix with spaces/prompt-like markers to exercise prompts/history boundaries\n    if rng.random() < 0.3:\n        prefix = rng.choice([\"> \", \"$ \", \"# \", \"(venv) \", \"user@host:~$ \"])\n        s = prefix + s\n    if rng.random() < 0.3:\n        suffix = rng.choice([\"\", \" \", \"  \", \"\\n\", \"\\r\\n\"])  # trailing whitespace/newline acceptable\n        s = s + suffix\n    # Ensure no embedded NUL characters\n    s = s.replace('\\x00', '')\n    if not s:\n        s = 'history'\n    data = s.encode('utf-8', errors='strict')\n    return clamp_size(data)\n"
+    },
+    {
+      "data_type": "filesystem path string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for valid filesystem path strings to exercise linenoiseHistorySave/Load.\n# We will build a plausible POSIX-style or Windows-style path with directories and filename.\n# The fuzzer harness provides FUZZ_PARAM_FILENAME which expects a filename pointing to data.\n# Our role is to return bytes that represent a path string. The harness will likely write the\n# provided bytes to a file and then pass the path to the API. So we should return a valid\n# path string, null-terminated, covering various interesting cases but remaining valid.\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_. ,@#(){}[]!$%+=\"\n\nRESERVED_WIN_NAMES = {\n    \"CON\", \"PRN\", \"AUX\", \"NUL\",\n    *(f\"COM{i}\" for i in range(1, 10)),\n    *(f\"LPT{i}\" for i in range(1, 10)),\n}\n\nCOMMON_EXTS = [\"\", \".txt\", \".log\", \".hist\", \".dat\", \".cfg\", \".json\"]\n\ndef _rand(r: random.Random, n_min: int, n_max: int) -> int:\n    return r.randint(n_min, n_max)\n\ndef _segment(r: random.Random, allow_dotdirs: bool, for_windows: bool) -> str:\n    # Sometimes use . or .. segments to exercise relative resolution\n    if allow_dotdirs and r.random() < 0.12:\n        return \".\" if r.random() < 0.6 else \"..\"\n    # Avoid empty and reserved names on Windows without extension\n    base_len = _rand(r, 1, 12)\n    base = ''.join(r.choice(SAFE_CHARS) for _ in range(base_len)).strip()\n    if not base:\n        base = \"a\"\n    # Occasionally include spaces or small suffix\n    if r.random() < 0.2:\n        base += r.choice([\" \", \"-\", \"_\"])\n        base += ''.join(r.choice(string.ascii_lowercase) for _ in range(_rand(r, 1, 4)))\n    if for_windows and base.upper() in RESERVED_WIN_NAMES:\n        base += \"_\"\n    return base\n\ndef _build_posix_path(r: random.Random) -> str:\n    absolute = r.random() < 0.5\n    parts: List[str] = []\n    depth = _rand(r, 0 if not absolute else 1, 5)\n    for _ in range(depth):\n        parts.append(_segment(r, allow_dotdirs=True, for_windows=False))\n    # filename\n    fname = _segment(r, allow_dotdirs=False, for_windows=False)\n    ext = r.choice(COMMON_EXTS)\n    if ext and not fname.endswith(ext):\n        fname = fname + ext\n    parts.append(fname)\n    # Join, skipping empty segments\n    path = \"/\".join(p for p in parts if p != \"\")\n    if absolute:\n        path = \"/\" + path\n    return path\n\ndef _drive_letter(r: random.Random) -> str:\n    return chr(r.randint(ord('C'), ord('Z')))\n\ndef _build_windows_path(r: random.Random) -> str:\n    kind = r.random()\n    if kind < 0.15:\n        # UNC path\n        server = _segment(r, allow_dotdirs=False, for_windows=True)\n        share = _segment(r, allow_dotdirs=False, for_windows=True)\n        prefix = f\"\\\\\\\\{server}\\\\{share}\"\n    elif kind < 0.9:\n        # Drive letter path\n        prefix = f\"{_drive_letter(r)}:\\\\\"\n    else:\n        # Relative path\n        prefix = \"\"\n    depth = _rand(r, 0, 4)\n    parts: List[str] = []\n    for _ in range(depth):\n        parts.append(_segment(r, allow_dotdirs=True, for_windows=True))\n    fname = _segment(r, allow_dotdirs=False, for_windows=True)\n    ext = r.choice(COMMON_EXTS)\n    if ext and not fname.endswith(ext):\n        fname += ext\n    parts.append(fname)\n    # Mix separators occasionally\n    seps = [\"\\\\\", \"/\"]\n    sep = r.choice(seps)\n    middle = sep.join(parts)\n    path = prefix + middle if prefix else middle\n    return path\n\ndef _maybe_env_prefix(r: random.Random, path: str) -> str:\n    # Prepend environment-like prefixes sometimes: ./, ../, ~/, %TEMP%\\\n    roll = r.random()\n    if roll < 0.15:\n        return \"./\" + path\n    if roll < 0.28:\n        return \"../\" + path\n    if roll < 0.36:\n        # Home expansion style for POSIX\n        user = \"\" if r.random() < 0.7 else \"user\"\n        return \"~\" + (\"/\" if not user else f\"{user}/\") + path\n    if roll < 0.42:\n        # Windows environment var style\n        var = r.choice([\"TEMP\", \"TMP\", \"USERPROFILE\"])  # not expanded but remains valid string\n        return f\"%{var}%\\\\\" + path\n    return path\n\ndef _sanitize(path: str) -> str:\n    # Ensure not exceeding 4095 bytes before NUL; clamp components if needed\n    b = path.encode('utf-8', errors='ignore')\n    if len(b) <= 4095:\n        return path\n    # Truncate safely at a separator if possible\n    limit = 4095\n    cut = b[:limit]\n    # try to cut back to last separator byte\n    for i in range(len(cut) - 1, -1, -1):\n        if cut[i:i+1] in (b'/', b'\\\\'):\n            cut = cut[:i]\n            break\n    return cut.decode('utf-8', errors='ignore')\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Choose platform style randomly to cover both APIs\n    if r.random() < 0.5:\n        path = _build_posix_path(r)\n    else:\n        path = _build_windows_path(r)\n    path = _maybe_env_prefix(r, path)\n    path = _sanitize(path)\n    # Ensure non-empty and reasonable\n    if not path:\n        path = \"file.txt\"\n    # Null-terminate as many fuzz harnesses expect C-strings in the buffer\n    data = path.encode('utf-8') + b\"\\x00\"\n    # Final clamp to 4096 bytes\n    return data[:4096]\n"
+    },
+    {
+      "data_type": "line-oriented text file",
+      "generator": "import random\nfrom typing import List\n\n# Generator for a line-oriented text file suitable for linenoiseHistoryLoad\n# The file consists of newline-delimited history entries. Entries can be empty,\n# contain spaces, tabs, Unicode, escape sequences, and very long lines. The\n# function returns bytes that represent the entire file contents.\n\nASCII_WORDS = [\n    \"help\", \"exit\", \"quit\", \"list\", \"show\", \"set\", \"get\", \"history\",\n    \"save\", \"load\", \"print\", \"echo\", \"version\", \"status\", \"config\",\n]\n\nSPECIAL_PREFIXES = [\n    \"#\",      # comment-like\n    \";\",      # ini-like\n    \":\",      # vim-like\n    \"/\",      # path-like\n    \"~/\",     # home path\n    \"./\",     # relative path\n    \".. /\",   # odd spacing\n]\n\nUNICODE_FRAGMENTS = [\n    \"π\", \"λ\", \"你好\", \"😀\", \"ß\", \"¡Hola!\", \"русский\", \"العربية\", \"日本語\",\n]\n\nESC_SEQ_FRAGMENTS = [\n    \"\\t\", \"\\r\", \"\\u001b[31m\", \"\\u001b[0m\", \"\\\\n\", \"\\\\t\", \"\\u0000\",\n]\n\nQUOTED_PATTERNS = [\n    '\"quoted value\"',\n    \"'single quoted'\",\n    '\"with spaces and tabs\\tinside\"',\n]\n\nOPERATORS = [\"=\", \":\", \"->\", \"=>\", \"::\", \"+=\", \"-=\", \"|\", \"||\", \"&&\"]\n\nPATHS = [\n    \"/etc/linenoise.conf\", \"/var/log/syslog\", \"/tmp/test.txt\",\n    \"C:/Windows/System32\", \"../relative/path\", \"./script.sh\",\n]\n\nENV_VARS = [\"$HOME\", \"$PATH\", \"$SHELL\", \"${USER}\"]\n\n\ndef _rand_choice(rng: random.Random, items: List[str]) -> str:\n    return rng.choice(items)\n\n\ndef _make_ascii_cmd(rng: random.Random) -> str:\n    cmd = _rand_choice(rng, ASCII_WORDS)\n    parts = [cmd]\n    # add arguments\n    argc = rng.randint(0, 5)\n    for _ in range(argc):\n        choice = rng.randint(0, 4)\n        if choice == 0:\n            parts.append(_rand_choice(rng, ASCII_WORDS))\n        elif choice == 1:\n            parts.append(_rand_choice(rng, PATHS))\n        elif choice == 2:\n            parts.append(_rand_choice(rng, ENV_VARS))\n        elif choice == 3:\n            parts.append(str(rng.randint(-100000, 100000)))\n        else:\n            parts.append(_rand_choice(rng, QUOTED_PATTERNS))\n    # maybe connect with operators\n    if rng.random() < 0.3 and len(parts) >= 2:\n        i = rng.randrange(1, len(parts))\n        parts.insert(i, _rand_choice(rng, OPERATORS))\n    return \" \".join(parts)\n\n\ndef _make_unicode_line(rng: random.Random) -> str:\n    base = _make_ascii_cmd(rng)\n    inserts = rng.randint(1, 4)\n    for _ in range(inserts):\n        pos = rng.randrange(0, len(base) + 1)\n        frag = _rand_choice(rng, UNICODE_FRAGMENTS)\n        base = base[:pos] + frag + base[pos:]\n    return base\n\n\ndef _make_escaped_line(rng: random.Random) -> str:\n    segs = []\n    n = rng.randint(1, 6)\n    for _ in range(n):\n        t = rng.randint(0, 3)\n        if t == 0:\n            segs.append(_make_ascii_cmd(rng))\n        elif t == 1:\n            segs.append(_rand_choice(rng, ESC_SEQ_FRAGMENTS))\n        else:\n            segs.append(_rand_choice(rng, UNICODE_FRAGMENTS))\n    return \" \".join(segs)\n\n\ndef _make_long_line(rng: random.Random, target_len: int) -> str:\n    # Build a long but valid, printable-ish line\n    chunks: List[str] = []\n    while sum(len(c) for c in chunks) < target_len:\n        choice = rng.randint(0, 4)\n        if choice == 0:\n            chunks.append(_make_ascii_cmd(rng))\n        elif choice == 1:\n            chunks.append(_make_unicode_line(rng))\n        elif choice == 2:\n            chunks.append(_rand_choice(rng, PATHS))\n        elif choice == 3:\n            chunks.append(str(rng.getrandbits(32)))\n        else:\n            chunks.append(_rand_choice(rng, QUOTED_PATTERNS))\n    s = \" \".join(chunks)\n    # Trim exactly to target range to avoid exceeding global cap\n    return s[:target_len]\n\n\ndef _make_empty_or_whitespace_line(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return \"\"\n    # random whitespace mix\n    whites = [\" \", \"\\t\"]\n    return \"\".join(rng.choice(whites) for _ in range(rng.randint(1, 20)))\n\n\ndef _make_commentish_line(rng: random.Random) -> str:\n    prefix = _rand_choice(rng, SPECIAL_PREFIXES)\n    if rng.random() < 0.3:\n        return prefix\n    return prefix + _make_ascii_cmd(rng)\n\n\ndef _make_path_heavy_line(rng: random.Random) -> str:\n    parts = []\n    n = rng.randint(1, 5)\n    for _ in range(n):\n        parts.append(_rand_choice(rng, PATHS))\n        if rng.random() < 0.5:\n            parts.append(_rand_choice(rng, OPERATORS))\n    return \" \".join(parts)\n\n\ndef _build_lines(rng: random.Random, max_bytes: int) -> List[str]:\n    lines: List[str] = []\n\n    # Seed with a variety of canonical cases\n    lines.append(\"help\")\n    lines.append(\"exit\")\n    lines.append(_make_ascii_cmd(rng))\n    lines.append(_make_unicode_line(rng))\n    lines.append(_make_escaped_line(rng))\n    lines.append(_make_empty_or_whitespace_line(rng))\n    lines.append(_make_commentish_line(rng))\n    lines.append(_make_path_heavy_line(rng))\n\n    # Add several more random lines\n    extra = rng.randint(5, 25)\n    for _ in range(extra):\n        t = rng.randint(0, 6)\n        if t == 0:\n            lines.append(_make_ascii_cmd(rng))\n        elif t == 1:\n            lines.append(_make_unicode_line(rng))\n        elif t == 2:\n            lines.append(_make_escaped_line(rng))\n        elif t == 3:\n            # long lines of varying sizes but keep within cap\n            target = rng.randint(64, 512)\n            lines.append(_make_long_line(rng, target))\n        elif t == 4:\n            lines.append(_make_empty_or_whitespace_line(rng))\n        elif t == 5:\n            lines.append(_make_commentish_line(rng))\n        else:\n            lines.append(_make_path_heavy_line(rng))\n\n    # Occasionally ensure a very long final line to exercise buffers\n    if rng.random() < 0.5:\n        lines.append(_make_long_line(rng, rng.randint(1024, 2048)))\n\n    # Ensure we don't exceed max_bytes when joined with newlines\n    b = []\n    total = 0\n    for i, line in enumerate(lines):\n        # Each line will get a newline except possibly the last; we allow both\n        # with and without trailing newline randomly.\n        sep = \"\\n\" if (i < len(lines) - 1 or rng.random() < 0.7) else \"\"\n        encoded = (line + sep).encode(\"utf-8\", errors=\"strict\")\n        if total + len(encoded) > max_bytes:\n            # try to truncate the line to fit\n            remaining = max_bytes - total\n            if remaining <= 0:\n                break\n            # Reserve space for potential newline at end only if any remaining\n            trunc = (line).encode(\"utf-8\", errors=\"strict\")\n            if len(trunc) > remaining:\n                trunc = trunc[:remaining]\n            b.append(trunc)\n            total += len(trunc)\n            break\n        b.append(encoded)\n        total += len(encoded)\n\n    return [chunk.decode('utf-8', errors='ignore') for chunk in b]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    max_size = 4096\n\n    # Build the lines and concatenate. We already ensured size cap while building.\n    # Join the decoded chunks safely as they were encoded earlier.\n    chunks = _build_lines(rng, max_size)\n    data = \"\".join(chunks)\n\n    # Ensure final encoding and hard cap\n    out = data.encode(\"utf-8\", errors=\"strict\")\n    if len(out) > max_size:\n        out = out[:max_size]\n    return out\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1721,
+            "output_tokens": 723,
+            "total_tokens": 2444
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1299,
+            "output_tokens": 140,
+            "total_tokens": 1439
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1873,
+            "output_tokens": 3179,
+            "total_tokens": 5052
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6871,
+            "output_tokens": 3089,
+            "total_tokens": 9960
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4259,
+            "output_tokens": 240,
+            "total_tokens": 4499
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 241.59239077568054,
+    "scan_objects": 14.267054557800293,
+    "validate_objects": 0.19695091247558594,
+    "scan_functions": 79.80688190460205,
+    "synthesis": 76.89721894264221,
+    "fill": 0,
+    "classify": 6.369896650314331,
+    "build_generators": 64.05368065834045
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct repository *",
+      "aliases": [],
+      "definition": "struct repository;",
+      "description": "Forward declaration of the repository struct. It is only declared (incomplete type) in this header and not defined here. Used to reference a repository object elsewhere. Construction, layout, and lifetime are unknown from this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "char *",
+      "aliases": [
+        "const char *"
+      ],
+      "definition": "",
+      "description": "Alias pointer type representative for the string constants and function return types defined here. Note: there is no typedef in this header; C built-in const char pointers are used directly. Included for clarity that no custom typedef is provided for strings. If strict adherence to 'only explicitly defined types' is required, this entry can be disregarded.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "git_user_agent",
+      "signature": "const char *git_user_agent(void);",
+      "description": "Returns a pointer to a C string describing the program's User-Agent. Intended for use when constructing protocol or HTTP headers that require a User-Agent identifier. Exact format and lifetime are not documented here; based on the signature, it is expected to be a static, read-only string.",
+      "requirements": [
+        "Caller must not modify the returned string (it is const-qualified).",
+        "Caller must not free the returned pointer (likely points to static storage).",
+        "Thread-safety and lifetime guarantees are unknown; if used across threads or stored long-term, treat as read-only and consider copying if needed.",
+        "Returned pointer may be NULL is unknown; callers should defensively handle a NULL return."
+      ],
+      "error": null
+    },
+    {
+      "name": "git_user_agent_sanitized",
+      "signature": "const char *git_user_agent_sanitized(void);",
+      "description": "Returns a pointer to a sanitized User-Agent string suitable for external exposure (e.g., with sensitive details removed). Exact differences from git_user_agent() are not documented here; based on naming it likely omits or normalizes fields that might leak environment-specific data.",
+      "requirements": [
+        "Caller must not modify the returned string (it is const-qualified).",
+        "Caller must not free the returned pointer (likely points to static storage).",
+        "Thread-safety and lifetime guarantees are unknown; if used across threads or stored long-term, treat as read-only and consider copying if needed.",
+        "Returned pointer may be NULL is unknown; callers should defensively handle a NULL return."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_uname_info",
+      "signature": "int get_uname_info(struct strbuf *buf, unsigned int full);",
+      "description": "Attempts to obtain system information using uname(2). On success, writes uname details into buf and returns 0; on uname error, writes an error message into buf and returns -1. The full parameter likely controls how much detail is included, but acceptable values are not documented here.",
+      "requirements": [
+        "buf must be a non-NULL pointer to a valid, writable struct strbuf.",
+        "buf must be properly initialized according to struct strbuf’s contract before calling (so it can be written into).",
+        "Caller must check the return value: 0 indicates success (buf contains uname info); -1 indicates failure (buf contains an error message).",
+        "The meaning and accepted range/flags for full are not documented; passing 0 for default behavior is a safe assumption based on common patterns.",
+        "Function relies on uname(2); availability and behavior may vary by platform (non-POSIX systems may not support uname)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "git_user_agent",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "user_agent",
+          "type": "void *"
+        }
+      ],
+      "code": "// Fetch the program's User-Agent string (const, likely static storage)\nconst char *ua_cstr = git_user_agent();\n\n// Defensive null check; if API returns NULL, bail without producing an output\nif (!ua_cstr) { FUZZ_BAIL(); }\n\n// Ensure it is NUL-terminated within a bounded scan (avoid reading past end)\nsize_t max_scan = 2048; // keep bounded for performance and safety\nsize_t len = 0;\nfor (; len < max_scan; ++len) {\n    if (ua_cstr[len] == '\\0') break;\n}\nif (len == max_scan) { FUZZ_BAIL(); }\n\n// Expose as an opaque pointer to respect constness while allowing pooling\nvoid *user_agent = (void *)ua_cstr;\n\n// Record attributes to enforce correct usage downstream (read-only, static lifetime)\nFUZZ_SET_ATTR_INT(user_agent, \"readonly\", 1);\nFUZZ_SET_ATTR_STR(user_agent, \"lifetime\", \"static\");\nFUZZ_SET_ATTR_STR(user_agent, \"kind\", \"user-agent\");\nFUZZ_SET_ATTR_INT(user_agent, \"sanitized\", 0);\nFUZZ_SET_ATTR_INT(user_agent, \"strlen\", (int)len);\n\n// Validation summary: ensures non-null, bounded NUL-termination, and tags metadata to prevent freeing/modification."
+    },
+    {
+      "name": "git_user_agent_sanitized",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "user_agent_sanitized",
+          "type": "void *"
+        }
+      ],
+      "code": "// Fetch the sanitized User-Agent string (const, likely static storage)\nconst char *ua_s_cstr = git_user_agent_sanitized();\n\n// Defensive null check\nif (!ua_s_cstr) { FUZZ_BAIL(); }\n\n// Ensure NUL-termination within bounds\nsize_t max_scan = 2048;\nsize_t len = 0;\nfor (; len < max_scan; ++len) {\n    if (ua_s_cstr[len] == '\\0') break;\n}\nif (len == max_scan) { FUZZ_BAIL(); }\n\n// Expose as an opaque pointer to avoid casting away const in type system\nvoid *user_agent_sanitized = (void *)ua_s_cstr;\n\n// Tag attributes to document constraints and provenance\nFUZZ_SET_ATTR_INT(user_agent_sanitized, \"readonly\", 1);\nFUZZ_SET_ATTR_STR(user_agent_sanitized, \"lifetime\", \"static\");\nFUZZ_SET_ATTR_STR(user_agent_sanitized, \"kind\", \"user-agent\");\nFUZZ_SET_ATTR_INT(user_agent_sanitized, \"sanitized\", 1);\nFUZZ_SET_ATTR_INT(user_agent_sanitized, \"strlen\", (int)len);\n\n// Validation summary: checks non-null, bounded termination, and records attributes for safe downstream use."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "get_uname_info",
+      "reason": "Cannot safely construct and initialize the required struct strbuf input; its definition and initialization contract are unavailable, so a valid writable buffer cannot be provided."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "git_user_agent",
+      "data_types": []
+    },
+    {
+      "name": "git_user_agent_sanitized",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 797,
+            "output_tokens": 181,
+            "total_tokens": 978
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 375,
+            "output_tokens": 31,
+            "total_tokens": 406
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 823,
+            "output_tokens": 1375,
+            "total_tokens": 2198
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15220,
+            "output_tokens": 4947,
+            "total_tokens": 20167
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 90.12592887878418,
+    "scan_objects": 5.724921226501465,
+    "validate_objects": 0.35987353324890137,
+    "scan_functions": 22.19340205192566,
+    "synthesis": 61.770957946777344,
+    "fill": 0,
+    "classify": 0.07564830780029297,
+    "build_generators": 0.00016546249389648438
+  }
+}

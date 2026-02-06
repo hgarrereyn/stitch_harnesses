@@ -1,0 +1,240 @@
+{
+  "objects": [
+    {
+      "ptr_type": "Util::LoggingInterface *",
+      "aliases": [],
+      "definition": "namespace Util\n{\nclass LoggingInterface\n{\npublic:\n\tvirtual ~LoggingInterface() = default;\n\tvirtual bool log(const char *tag, const char *fmt, va_list va) = 0;\n};\n\nbool interface_log(const char *tag, const char *fmt, ...);\nvoid set_thread_logging_interface(LoggingInterface *iface);\n}\n",
+      "description": "Abstract interface for pluggable logging backends in the Util namespace. Implementations provide the log(tag, fmt, va_list) method which is called by the logging helpers; returns true if the message was handled. Lifetime is managed by the user; a pointer can be set per-thread via set_thread_logging_interface.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Internal::IsDebugged *",
+      "aliases": [],
+      "definition": "namespace Internal\n{\n// Stole idea from RenderDoc.\nstruct IsDebugged\n{\n\tIsDebugged()\n\t{\n\t\tFILE *f = ::fopen(\"/proc/self/status\", \"r\");\n\t\tif (!f)\n\t\t\treturn;\n\n\t\twhile (!feof(f))\n\t\t{\n\t\t\tconstexpr int size = 512;\n\t\t\tchar line[size];\n\t\t\tline[size - 1] = '\\0';\n\t\t\tif (!fgets(line, sizeof(line) - 1, f))\n\t\t\t\tbreak;\n\n\t\t\tint pid = 0;\n\t\t\tif (sscanf(line, \"TracerPid: %d\", &pid) == 1 && pid != 0)\n\t\t\t{\n\t\t\t\tstate = true;\n\t\t\t\tbreak;\n\t\t\t}\n\t\t}\n\n\t\t::fclose(f);\n\t}\n\n\tbool state = false;\n};\n\nstatic inline bool is_debugged()\n{\n\tstatic IsDebugged is_debugged;\n\treturn is_debugged.state;\n}\n}\n",
+      "description": "Small utility struct in the Internal namespace that determines at construction time whether the current Linux process is being traced by a debugger by parsing /proc/self/status (TracerPid). The state field is true if a debugger is attached.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "Util::LoggingInterface::~LoggingInterface",
+      "signature": "virtual Util::LoggingInterface::~LoggingInterface() = default",
+      "description": "Virtual destructor for Util::LoggingInterface. Ensures proper cleanup via base-class pointers when deleting objects implementing the logging interface. Typically invoked implicitly when a LoggingInterface-derived instance goes out of scope or is deleted.",
+      "requirements": [
+        "The object must be a valid, fully constructed instance of a class derived from Util::LoggingInterface at the time of destruction"
+      ],
+      "error": null
+    },
+    {
+      "name": "Util::LoggingInterface::log",
+      "signature": "virtual bool Util::LoggingInterface::log(const char *tag, const char *fmt, va_list va) = 0",
+      "description": "Pure virtual method that concrete logging backends must implement. Logs a message given a tag, a printf-style format string, and a va_list of arguments. Return value indicates whether the message was handled.",
+      "requirements": [
+        "tag must be a valid, null-terminated C string",
+        "fmt must be a valid, null-terminated printf-style format string",
+        "va must be a valid, initialized va_list corresponding to fmt",
+        "Implementations should return true if the message was successfully handled, false otherwise"
+      ],
+      "error": null
+    },
+    {
+      "name": "Util::interface_log",
+      "signature": "bool Util::interface_log(const char *tag, const char *fmt, ...)",
+      "description": "Thread-aware logging entry point that attempts to log using the current thread’s LoggingInterface. Accepts a tag and a printf-style format string with variadic arguments. Returns true if a logging interface handled the message; otherwise false so callers can fall back to another logging mechanism.",
+      "requirements": [
+        "tag must be a valid, null-terminated C string",
+        "fmt must be a valid, null-terminated printf-style format string",
+        "The variadic arguments must match the format specifiers in fmt",
+        "Callers should check the boolean return value to decide whether to perform a fallback log path"
+      ],
+      "error": null
+    },
+    {
+      "name": "Util::set_thread_logging_interface",
+      "signature": "void Util::set_thread_logging_interface(Util::LoggingInterface *iface)",
+      "description": "Sets the thread-local logging interface used by interface_log for the current thread. Typically used to install or change the logging backend for a thread.",
+      "requirements": [
+        "iface must point to a valid Util::LoggingInterface instance whose lifetime exceeds any subsequent calls to interface_log on this thread; passing nullptr behavior is unknown from this header"
+      ],
+      "error": null
+    },
+    {
+      "name": "Internal::is_debugged",
+      "signature": "static inline bool Internal::is_debugged()",
+      "description": "Checks whether the current process is being debugged. On non-MSVC builds, it inspects /proc/self/status and reads TracerPid to detect an attached debugger. Used to decide whether to trigger a debug trap.",
+      "requirements": [
+        "Available and functional only on non-MSVC platforms (guarded by #ifndef _MSC_VER)",
+        "Requires readable /proc/self/status on platforms that provide it"
+      ],
+      "error": null
+    },
+    {
+      "name": "debug_break",
+      "signature": "static inline void debug_break()",
+      "description": "Triggers a debugger break/trap if a debugger is attached, using platform-appropriate mechanisms. On MSVC, uses IsDebuggerPresent and __debugbreak; on some GCC/Clang Unix targets, uses an int3 or builtin trap when a debugger is detected.",
+      "requirements": [
+        "Intended for debug contexts; behavior depends on platform and presence of a debugger",
+        "On non-MSVC GCC Linux x86, only triggers if Internal::is_debugged() returns true"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "Util::LoggingInterface::~LoggingInterface",
+      "inputs": [
+        {
+          "name": "iface",
+          "type": "Util::LoggingInterface *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Ensure we are not destroying an interface that is currently installed for this thread.\n// If installed, we'd leave a dangling thread-local pointer in Util::interface_log.\nint installed = FUZZ_GET_ATTR_INT(iface, \"installed\");\nif (installed) { FUZZ_BAIL(); }\n\n// Requirement: iface must be a valid, fully constructed derived instance.\n// Invoke polymorphic destruction via delete-through-base to run the derived dtor then base dtor.\n// After this call, iface must not be used again; we intentionally do not return it as an output.\n// The fuzzer runtime will drop it from the pool as there are no outputs.\ndelete iface;\n\n// No outputs returned; ownership relinquished and object destroyed."
+    },
+    {
+      "name": "Util::interface_log",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "installed_iface",
+          "type": "Util::LoggingInterface *"
+        }
+      ],
+      "code": "// Install a temporary per-thread logging backend and exercise Util::interface_log\n// with valid tag/fmt/args combinations. We persist the backend via outputs to\n// ensure its lifetime extends beyond this call, satisfying API requirements.\n\n// Simple concrete backend implementing the abstract interface.\nclass FuzzLogger : public Util::LoggingInterface {\npublic:\n    bool log(const char *tag, const char *fmt, va_list va) override {\n        // Validate required inputs are non-null C strings.\n        if (!tag || !fmt) return false;\n        // Attempt to format into a small bounded buffer to exercise va_list handling.\n        char buf[256];\n        buf[0] = '\\0';\n        vsnprintf(buf, sizeof(buf), fmt, va);\n        // Arbitrary handling rule: handle if tag length is even to explore both true/false paths.\n        size_t len = strlen(tag);\n        return (len % 2) == 0;\n    }\n};\n\n// Create and install the logger for this thread.\nUtil::LoggingInterface *installed_iface = new FuzzLogger();\nUtil::set_thread_logging_interface(installed_iface);\nFUZZ_SET_ATTR_INT(installed_iface, \"installed\", 1);\n\n// Generate a valid tag string.\nstd::string tag_str = FUZZ_PARAM_STR();\nconst char *tag = tag_str.c_str();\n\n// Choose among known-safe printf formats and provide matching variadic args.\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 4u;\nbool handled = false;\nif (mode == 0u) {\n    // No specifiers.\n    handled = Util::interface_log(tag, \"plain message without specifiers\");\n} else if (mode == 1u) {\n    // Single integer specifier.\n    int v = (int)(*FUZZ_PARAM(unsigned int) & 0x7fffffff);\n    handled = Util::interface_log(tag, \"int value: %d\", v);\n} else if (mode == 2u) {\n    // Single string specifier; keep the backing std::string alive across the call.\n    std::string s = FUZZ_PARAM_STR();\n    handled = Util::interface_log(tag, \"string: %s\", s.c_str());\n} else {\n    // Multiple specifiers of well-defined types.\n    unsigned int x = *FUZZ_PARAM(unsigned int);\n    size_t n = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u);\n    handled = Util::interface_log(tag, \"hex=%x size=%zu\", x, n);\n}\n\n// Property check: interface_log returns whatever the backend decides. We can't assert\n// a specific value here, but we ensure the call path is valid and non-crashing.\n(void)handled;\n\n// Persist installed_iface by returning it as an output so its lifetime exceeds\n// any subsequent interface_log calls from other stubs."
+    },
+    {
+      "name": "Util::set_thread_logging_interface",
+      "inputs": [
+        {
+          "name": "iface",
+          "type": "Util::LoggingInterface *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "iface",
+          "type": "Util::LoggingInterface *"
+        }
+      ],
+      "code": "// Install the provided interface for the current thread. The object is user-managed,\n// so we do not delete it here and must return it as an output to keep it alive in the pool.\n// Mark it as installed to prevent accidental destruction while active.\n\nif (!iface) { FUZZ_BAIL(); }\nUtil::set_thread_logging_interface(iface);\nFUZZ_SET_ATTR_INT(iface, \"installed\", 1);\n\n// Return iface as an output to maintain its lifetime across stubs."
+    },
+    {
+      "name": "Internal::is_debugged",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call Internal::is_debugged() and assert result is stable within the same process\n// due to internal static caching semantics in the provided implementation.\nbool a = Internal::is_debugged();\nbool b = Internal::is_debugged();\nFUZZ_ASSERT(a == b, \"is_debugged() must be stable within a process\");\n\n// No inputs/outputs involved; this function is pure query in the given implementation."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "Util::LoggingInterface::log",
+      "reason": "The method is pure virtual and requires a valid va_list, which cannot be safely constructed without defining a variadic helper function."
+    },
+    {
+      "name": "debug_break",
+      "reason": "Invoking it can trigger a trap/SIGTRAP and terminate the fuzzer process if a debugger is detected, making it unsafe to harness."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "Util::LoggingInterface::~LoggingInterface",
+      "data_types": []
+    },
+    {
+      "name": "Util::set_thread_logging_interface",
+      "data_types": []
+    },
+    {
+      "name": "Internal::is_debugged",
+      "data_types": []
+    },
+    {
+      "name": "Util::interface_log",
+      "data_types": [
+        "C string",
+        "printf format string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "C string",
+      "description": "A null-terminated sequence of bytes interpreted as a C-style string. May contain arbitrary bytes except that a terminating NUL (\\0) marks the end. Used for parameters expecting const char* such as tags or general text."
+    },
+    {
+      "data_type": "printf format string",
+      "description": "A null-terminated C string interpreted by printf-style formatting functions. Contains ordinary characters and optional % conversion specifiers that must match the provided variadic arguments (e.g., %d, %s, %x, %zu). Should not contain invalid or mismatched specifiers."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "C string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# We generate bytes that will be consumed by FUZZ_PARAM_STR and generic integer parameters.\n# The fuzzer stub uses:\n# - FUZZ_PARAM_STR() for tag\n# - mode = *FUZZ_PARAM(unsigned int) % 4\n# - possibly another FUZZ_PARAM_STR() when mode==2\n# - FUZZ_PARAM(unsigned int) for values\n# Our buffer should therefore encode a sequence the harness can split into these items.\n# Common fuzz harnesses map FUZZ_PARAM_STR to pulling a length-prefixed or NUL-terminated\n# slice from the input. To maximize compatibility while keeping inputs valid C strings,\n# we emit a simple concatenation of NUL-terminated strings and fixed-width integers.\n#\n# Layout we produce (in order):\n# 1) tag_str: NUL-terminated C string (printable with some edge cases)\n# 2) mode: 4 bytes little-endian unsigned int\n# 3) Depending on mode:\n#    - mode 0: no extra\n#    - mode 1: int v (4 bytes LE)\n#    - mode 2: second string s: NUL-terminated C string\n#    - mode 3: two unsigned ints x (4 bytes LE) and n (4 bytes LE)\n#\n# Notes:\n# - We keep strings reasonably small and vary content to explore odd/even tag lengths (affects return path).\n# - We ensure all strings are valid C strings by terminating with NUL and avoiding embedded NULs.\n# - Integers are generated across a wide range.\n# - Total size limited to <= 4096 bytes.\n\nMAX_TOTAL = 4096\n\nPRINTABLE = string.ascii_letters + string.digits + \"_-./:@[]{}(),+*=<>!?%# \"\n\n\ndef _rand(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_c_string(rng: random.Random, target_len: int, ensure_even_length: bool | None = None) -> bytes:\n    # Generate a C string of length target_len (not including NUL) with printable chars.\n    # Optionally enforce even/odd length to hit different FuzzLogger return paths.\n    if target_len < 0:\n        target_len = 0\n    length = target_len\n    if ensure_even_length is not None:\n        if ensure_even_length and (length % 2) != 0:\n            length += 1\n        if not ensure_even_length and (length % 2) == 0:\n            length = max(1, length + 1)\n    s = ''.join(rng.choice(PRINTABLE) for _ in range(length))\n    return s.encode('utf-8') + b\"\\x00\"\n\n\ndef _u32_le(x: int) -> bytes:\n    return int(x & 0xFFFFFFFF).to_bytes(4, 'little', signed=False)\n\n\ndef _i32_le(x: int) -> bytes:\n    return int(x & 0xFFFFFFFF).to_bytes(4, 'little', signed=False)\n\n\ndef _choose_modes(rng: random.Random) -> int:\n    # Bias to cover all modes frequently\n    weights = [1, 1, 1, 1]\n    # Occasionally emphasize mode 2 and 3 which have extra params\n    if rng.random() < 0.3:\n        weights = [1, 1, 2, 2]\n    total = sum(weights)\n    pick = rng.randrange(total)\n    acc = 0\n    for i, w in enumerate(weights):\n        acc += w\n        if pick < acc:\n            return i\n    return rng.randrange(4)\n\n\ndef _tag_candidates(rng: random.Random) -> List[bytes]:\n    # Provide some interesting tags: empty, short, long, with spaces and punctuation\n    tags = [\n        b\"\\x00\",  # empty tag\n        b\"a\\x00\",\n        b\"even\\x00\",  # even length (4)\n        b\"odd\\x00\",   # odd length (3)\n        b\"INFO\\x00\",\n        b\"WARN:net\\x00\",\n        b\"render-thread\\x00\",\n        b\"io.worker.7\\x00\",\n        (\"X\" * 63).encode() + b\"\\x00\",  # long but < 256\n        (\"Y\" * 128).encode() + b\"\\x00\",\n    ]\n    # Random tag with controlled parity to toggle return value\n    want_even = rng.choice([True, False])\n    rand_len = rng.randint(0, 40)\n    tags.append(_make_c_string(rng, rand_len, ensure_even_length=want_even))\n    return tags\n\n\ndef _second_string_candidates(rng: random.Random) -> List[bytes]:\n    s = [\n        b\"hello\\x00\",\n        b\"\\x00\",  # empty string\n        b\"% not a spec, literal percent\\x00\",\n        b\"Some UTF-8: \\xE2\\x9C\\x93\\x00\",\n        (\"A\" * rng.randint(1, 200)).encode() + b\"\\x00\",\n    ]\n    return s\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    out = bytearray()\n\n    # 1) Tag string\n    tag = rng.choice(_tag_candidates(rng))\n    out += tag\n\n    # 2) Mode\n    mode = _choose_modes(rng)\n    out += _u32_le(mode)\n\n    # 3) Mode-specific payload\n    if mode == 1:\n        # int v for \"%d\"\n        # Cover both small and large, positive/negative values\n        choices = [0, 1, -1, 42, -42, 2**31 - 1, -2**31]\n        if rng.random() < 0.6:\n            v = rng.randint(-2**31, 2**31 - 1)\n        else:\n            v = rng.choice(choices)\n        out += _i32_le(v)\n    elif mode == 2:\n        # string s for \"%s\"\n        s = rng.choice(_second_string_candidates(rng))\n        out += s\n    elif mode == 3:\n        # unsigned int x for %x and size_t n for %zu (we'll provide 32-bit; harness likely reads u32)\n        # x spans full range; n limited to 0..1023 in stub, but we provide general values;\n        # the stub masks n to 0..1023 anyway.\n        x_choices = [0, 1, 0x7fffffff, 0xffffffff, rng.getrandbits(32)]\n        x = rng.choice(x_choices)\n        n_choices = [0, 1, 15, 255, 1023, 4095, rng.getrandbits(32)]\n        n = rng.choice(n_choices)\n        out += _u32_le(x)\n        out += _u32_le(n)\n\n    # Limit size\n    if len(out) > MAX_TOTAL:\n        out = out[:MAX_TOTAL]\n\n    return bytes(out)\n"
+    },
+    {
+      "data_type": "printf format string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces valid C strings intended for use as:\n# - tag strings (arbitrary text, null-terminated when consumed by the fuzzer framework)\n# - printf format strings with arguments chosen by the stub itself\n#\n# The target fuzzer stub constructs its own format strings and provides matching\n# arguments. Our job is to provide interesting yet valid data for FUZZ_PARAM_STR,\n# primarily the tag and the optional string argument when mode==2.\n#\n# Strategy:\n# - Produce a buffer that concatenates multiple null-terminated strings so the\n#   FUZZ_PARAM_STR consumer can slice different segments. We keep total size <= 4096.\n# - Include a broad variety of tags: empty, very short, very long, even/odd length\n#   (affects FuzzLogger return), ASCII, Unicode-like UTF-8, whitespace, punctuation,\n#   and paths. Also include strings containing percent signs that are safe (\"%%\") so\n#   they won't be treated as format specifiers if re-used as fmt.\n# - Include some strings with embedded NUL terminators by delimiting items with \\0.\n#   The fuzzer framework typically treats FUZZ_PARAM_STR as a C string from the\n#   current cursor, so multiple items give it multiple choices as input evolves.\n# - Avoid invalid UTF-8 and avoid unmatched printf specifiers in case a string is\n#   ever used as a format string; we escape single % as %%.\n\nMAX_TOTAL = 4096\n\nSAFE_ASCII = string.ascii_letters + string.digits + \" _-./:@#,+=\"\n\nCOMMON_TAGS = [\n    \"\",  # empty\n    \"a\",  # odd length\n    \"ab\",  # even length\n    \"main\",\n    \"io\",\n    \"render\",\n    \"network\",\n    \"dbg\",\n    \"info\",\n    \"warn\",\n    \"error\",\n    \"trace\",\n    \"util\",\n    \"thread\",\n    \"logger\",\n]\n\nUNICODE_SNIPPETS = [\n    \"αβγ\",        # Greek\n    \"日本語\",       # Japanese\n    \"emoji_😀\",    # Emoji\n    \"русский\",     # Cyrillic\n    \"arabic_مرحبا\",\n]\n\nPATHS = [\n    \"/\", \"/tmp\", \"/var/log/app\", \"C:/Windows/System32\", \"..\", \"./relative/path\",\n]\n\nSAFE_PERCENT_SAMPLES = [\n    \"percent_100%%\",  # literal percent\n    \"mix%%-tag\",\n    \"end%%\",\n]\n\nWHITESPACEY = [\n    \" \", \"\\t\\t\", \"\\n\", \" tag\\nwith\\nnewlines \", \" leading \", \"trailing \", \" middle spaced \",\n]\n\nLONG_BLOCKS = [\n    \"A\" * 1,\n    \"B\" * 2,\n    \"C\" * 15,\n    \"D\" * 64,\n    \"E\" * 127,\n    \"F\" * 255,\n    \"G\" * 512,\n]\n\n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    n = rng.randint(min_len, max_len)\n    return \"\".join(rng.choice(SAFE_ASCII) for _ in range(n))\n\n\ndef _escape_single_percents(s: str) -> str:\n    # Replace single % with %% to keep strings safe if interpreted as format strings.\n    # Do not touch existing %% sequences.\n    out = []\n    i = 0\n    while i < len(s):\n        if s[i] == '%':\n            if i + 1 < len(s) and s[i + 1] == '%':\n                out.append('%%')\n                i += 2\n            else:\n                out.append('%%')\n                i += 1\n        else:\n            out.append(s[i])\n            i += 1\n    return ''.join(out)\n\n\ndef _build_items(rng: random.Random) -> List[bytes]:\n    items: List[bytes] = []\n\n    # Core common tags\n    for t in COMMON_TAGS:\n        items.append(t.encode('utf-8'))\n\n    # Whitespace-focused\n    for t in WHITESPACEY:\n        items.append(t.encode('utf-8'))\n\n    # Paths\n    for p in PATHS:\n        items.append(p.encode('utf-8'))\n\n    # Unicode snippets and combinations\n    for u in UNICODE_SNIPPETS:\n        items.append(u.encode('utf-8'))\n    # Mixed unicode + ascii\n    for u in UNICODE_SNIPPETS:\n        items.append((u + \"-\" + _rand_ascii(rng, 1, 8)).encode('utf-8'))\n\n    # Safe percent samples\n    for s in SAFE_PERCENT_SAMPLES:\n        items.append(s.encode('utf-8'))\n\n    # Random ascii samples with safe percent escaping\n    for _ in range(12):\n        raw = _rand_ascii(rng, 0, 48)\n        raw = raw[: rng.randint(0, len(raw))]\n        raw = raw + (\"%\" if rng.random() < 0.3 else \"\")\n        items.append(_escape_single_percents(raw).encode('utf-8'))\n\n    # Long blocks to hit buffer boundaries and even/odd lengths\n    for lb in LONG_BLOCKS:\n        items.append(lb.encode('utf-8'))\n\n    # Crafted even/odd length toggles\n    for base in [\"t\", \"tag\", \"even\", \"odd\"]:\n        for k in range(4):\n            s = base + (\"_\" * k)\n            items.append(s.encode('utf-8'))\n\n    # A few strings containing format-like text but escaped\n    fmt_like = [\n        \"value_%d_here\",\n        \"hex_%x_num\",\n        \"size_%zu_units\",\n        \"multi_%d_%x_%zu\",\n    ]\n    for f in fmt_like:\n        items.append(_escape_single_percents(f).encode('utf-8'))\n\n    # Very long mixed string under limit\n    big = (\n        \"TAG_\" + _rand_ascii(rng, 32, 256) + \"_\" + rng.choice(UNICODE_SNIPPETS) + \"_\" + rng.choice(SAFE_PERCENT_SAMPLES)\n    )\n    items.append(big.encode('utf-8'))\n\n    # Deduplicate while preserving order\n    seen = set()\n    uniq: List[bytes] = []\n    for it in items:\n        if it not in seen:\n            uniq.append(it)\n            seen.add(it)\n    return uniq\n\n\ndef _join_cstrings(items: List[bytes], max_total: int, rng: random.Random) -> bytes:\n    # Join as NUL-terminated C strings: item + '\\0' + ... + final '\\0'\n    out = bytearray()\n    # Randomize order slightly\n    items = items[:]  # copy\n    rng.shuffle(items)\n\n    # Always ensure we include a couple of guaranteed varieties first\n    must = [b\"\", b\"ab\", b\"abc\", b\"percent_100%%\"]\n    for m in must:\n        if m not in items:\n            items.insert(0, m)\n    # Build\n    for it in items:\n        need = len(it) + 1  # plus NUL\n        if len(out) + need > max_total:\n            break\n        out += it\n        out.append(0)\n    # Ensure final NUL terminator (already ensured by loop)\n    if not out or out[-1] != 0:\n        out.append(0)\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    items = _build_items(rng)\n    buf = _join_cstrings(items, MAX_TOTAL, rng)\n    return buf\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1884,
+            "output_tokens": 525,
+            "total_tokens": 2409
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1462,
+            "output_tokens": 51,
+            "total_tokens": 1513
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1933,
+            "output_tokens": 1546,
+            "total_tokens": 3479
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4945,
+            "output_tokens": 3852,
+            "total_tokens": 8797
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3071,
+            "output_tokens": 161,
+            "total_tokens": 3232
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 160.3165831565857,
+    "scan_objects": 10.709423542022705,
+    "validate_objects": 0.31363582611083984,
+    "scan_functions": 29.83544397354126,
+    "synthesis": 80.7574520111084,
+    "fill": 0,
+    "classify": 4.825217008590698,
+    "build_generators": 33.87442421913147
+  }
+}

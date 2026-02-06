@@ -1,0 +1,149 @@
+{
+  "objects": [
+    {
+      "ptr_type": "const char **",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom types are defined in this header. It only declares two C-linkage functions. There are no structs, enums, typedefs, or classes to document.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "waifu2x_ex_gui_version",
+      "signature": "const char* waifu2x_ex_gui_version();",
+      "description": "Returns a read-only C string identifying the waifu2x-ex GUI library/application version. Typical usage is to display or log the version string; no arguments are required. Exact format and lifetime of the returned string are not documented; treat it as a null-terminated constant string.",
+      "requirements": [
+        "Must not attempt to modify the returned string (it is const).",
+        "Do not free or deallocate the returned pointer (ownership and lifetime are not documented; typical pattern is static storage).",
+        "Caller should handle the possibility of a null or empty string result if the implementation returns one (behavior not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "waifu2x_ex_gui_upscale_preview",
+      "signature": "int waifu2x_ex_gui_upscale_preview(const char* path);",
+      "description": "Triggers an upscale preview operation for the resource located at the given filesystem path, likely opening a preview window or generating a temporary preview. Returns an int status code; exact semantics (success/failure values) are not documented.",
+      "requirements": [
+        "path must be a non-null pointer to a valid, null-terminated C string.",
+        "The string referenced by path should remain valid for the duration of the call.",
+        "The path should identify a valid resource/file expected by the implementation (exact accepted formats are not documented).",
+        "Caller should check the returned int for success/failure according to the library’s conventions (not documented here)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "waifu2x_ex_gui_version",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "version_out",
+          "type": "const char **"
+        }
+      ],
+      "code": "// Invoke the target to retrieve a read-only version string\nconst char *ver = waifu2x_ex_gui_version();\n\n// Create an output holder to persist the returned pointer across stubs.\n// We must not modify or free the returned const char*; only the holder is managed by the fuzzer.\nconst char **version_out = new const char *; // non-null output object per harness contract\nif (!version_out) { FUZZ_BAIL(); }\n*version_out = ver;\n\n// Track metadata for downstream stubs without touching the returned buffer\nFUZZ_SET_ATTR_INT(version_out, \"is_null\", ver ? 0 : 1);\n// Bounded length probe to avoid overruns if the provider misbehaves; does not assume well-formed input\nint len_bounded = 0;\nif (ver) {\n    for (; len_bounded < 4096 && ver[len_bounded] != '\\0'; ++len_bounded) {}\n}\nFUZZ_SET_ATTR_INT(version_out, \"len_bounded\", len_bounded);\n\n// Notes:\n// - The returned const char* may be null or empty; this is recorded but not treated as an error.\n// - We do not copy, mutate, or free the underlying string, honoring constness and unknown lifetime."
+    },
+    {
+      "name": "waifu2x_ex_gui_upscale_preview",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid, null-terminated filesystem path whose contents exist for the duration of the call\nconst char *path = FUZZ_PARAM_FILENAME();\nif (!path) { FUZZ_BAIL(); }\n\n// Call the target function. Semantics of the return code are undocumented, so we only ensure the call is made with a valid path.\nint status = waifu2x_ex_gui_upscale_preview(path);\n(void)status;\n\n// Notes:\n// - We do not enforce specific success/failure values due to unspecified conventions.\n// - The provided path memory remains valid during this call and is not freed here."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "waifu2x_ex_gui_version",
+      "data_types": []
+    },
+    {
+      "name": "waifu2x_ex_gui_upscale_preview",
+      "data_types": [
+        "filesystem path string",
+        "image or media file data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path string",
+      "description": "A null-terminated C string that represents a filesystem path to a file or directory. May include absolute or relative paths, separators, extensions, and Unicode/UTF-8 characters depending on platform. Should reference an existing file for functions that open/read it."
+    },
+    {
+      "data_type": "image or media file data",
+      "description": "Binary file contents representing an image or related media resource that an upscale/preview operation would consume (e.g., PNG, JPEG, BMP, or similar). The exact formats are not specified; data may be any common raster image format that such a function might attempt to decode."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path string",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator produces bytes intended to be written by the fuzzing harness\n# to a temporary file referenced by FUZZ_PARAM_FILENAME. We generate small but\n# valid image-like files (PNG, BMP, JPEG, PPM) or text descriptors. We avoid\n# embedding NUL bytes in source strings; any binary content is built from bytes\n# literals and numeric values.\n\nMAX_SIZE = 4096\n\ndef _rand(r: random.Random, n: int) -> int:\n    return r.randrange(n)\n\ndef _random_ascii(r: random.Random, length: int) -> bytes:\n    chars = string.ascii_letters + string.digits + \" _-.#\"\n    return ''.join(r.choice(chars) for _ in range(length)).encode('ascii')\n\ndef _random_utf8_text(r: random.Random, length: int) -> bytes:\n    # Mix ASCII and some common multi-byte UTF-8 sequences safely (no embedded NULs in source)\n    pool = [\n        b\"aeiou\", b\"AEIOU\", b\"0123456789\", b\"-_ .#\",\n    ]\n    # Add some multi-byte UTF-8 sequences using Unicode escapes\n    unicode_snippets = [\n        \"\\u263A\" ,   # ☺\n        \"\\u00E9\" ,   # é\n        \"\\u00DF\" ,   # ß\n        \"\\u041E\" ,   # О (Cyrillic O)\n        \"\\u0627\" ,   # ا (Arabic Alef)\n        \"\\u0924\" ,   # त (Devanagari)\n        \"\\u1200\" ,   # Ethiopic letter\n        \"\\U0001F600\",# 😀\n    ]\n    for s in unicode_snippets:\n        pool.append(s.encode('utf-8'))\n    out = bytearray()\n    while len(out) < length:\n        chunk = r.choice(pool)\n        if len(out) + len(chunk) > length:\n            chunk = chunk[: max(0, length - len(out))]\n        out.extend(chunk)\n    return bytes(out)\n\nimport zlib\nimport struct\n\ndef _png_minimal(r: random.Random) -> bytes:\n    width = r.choice([1, 2, 3, 4])\n    height = r.choice([1, 2, 3, 4])\n    bit_depth = 8\n    color_type = r.choice([2, 6])  # truecolor or truecolor+alpha\n    compression = 0\n    filter_method = 0\n    interlace = r.choice([0, 1])\n\n    def chunk(typ: bytes, data: bytes) -> bytes:\n        return struct.pack('>I', len(data)) + typ + data + struct.pack('>I', zlib.crc32(typ + data) & 0xffffffff)\n\n    sig = b\"\\x89PNG\\r\\n\\x1a\\n\"\n    ihdr = struct.pack('>IIBBBBB', width, height, bit_depth, color_type, compression, filter_method, interlace)\n\n    channels = 4 if color_type == 6 else 3\n    bpp = channels\n    scanline = bytes([0]) + bytes([r.randrange(256) for _ in range(width * bpp)])  # filter type 0\n    raw = scanline * height\n    idat = zlib.compress(raw, level=1)\n\n    chunks = [chunk(b'IHDR', ihdr)]\n    if r.random() < 0.6:\n        k = r.choice([b\"Title\", b\"Author\", b\"Comment\", b\"Software\"]) + b\"\\x00\"\n        v = _random_utf8_text(r, r.randint(4, 32))\n        chunks.append(chunk(b'tEXt', k + v))\n    chunks.append(chunk(b'IDAT', idat))\n    chunks.append(chunk(b'IEND', b''))\n    png = sig + b''.join(chunks)\n    return png\n\n\ndef _bmp_minimal(r: random.Random) -> bytes:\n    width = r.choice([1, 2, 3, 4])\n    height = r.choice([1, 2, 3, 4])\n    bpp = r.choice([24, 32])\n    compression = 0  # BI_RGB\n    biSize = 40\n    planes = 1\n\n    row_bytes = ((width * (bpp // 8) + 3) // 4) * 4\n    pixel_array_size = row_bytes * height\n\n    bfType = b\"BM\"\n    bfOffBits = 14 + 40\n    bfSize = bfOffBits + pixel_array_size\n\n    file_header = struct.pack('<2sIHHI', bfType, bfSize, 0, 0, bfOffBits)\n    info_header = struct.pack('<IIIHHIIIIII', biSize, width, height, planes, bpp, compression,\n                               pixel_array_size, 2835, 2835, 0, 0)\n\n    pixels = bytearray()\n    for _ in range(height):\n        row = bytearray()\n        for _ in range(width):\n            if bpp == 24:\n                row.extend([_rand(r, 256), _rand(r, 256), _rand(r, 256)])  # B, G, R\n            else:\n                row.extend([_rand(r, 256), _rand(r, 256), _rand(r, 256), 255])  # BGRA\n        while len(row) % 4 != 0:\n            row.append(0)\n        pixels.extend(row)\n\n    return file_header + info_header + bytes(pixels)\n\n\ndef _jpeg_minimal(r: random.Random) -> bytes:\n    def be16(x):\n        return struct.pack('>H', x)\n\n    out = bytearray()\n    out += b'\\xff\\xd8'  # SOI\n\n    app0 = bytearray(b\"JFIF\\x00\\x01\\x02\\x00\\x00\\x01\\x00\\x01\\x00\\x00\")\n    out += b'\\xff\\xe0' + be16(len(app0) + 2) + app0\n\n    q = bytearray([max(1, min(255, int(abs(r.gauss(16, 8))))) for _ in range(64)])\n    dqt = bytes([0x00]) + bytes(q)\n    out += b'\\xff\\xdb' + be16(len(dqt) + 2) + dqt\n\n    height = r.choice([8, 16])\n    width = r.choice([8, 16])\n    sof0 = bytes([8]) + be16(height) + be16(width) + bytes([1, 1, 0x11, 0])\n    out += b'\\xff\\xc0' + be16(len(sof0) + 2) + sof0\n\n    std_dc_bits = bytes([0,1,5,1,1,1,1,1,1,1,1,0,0,0,0,0])\n    std_dc_vals = bytes([0,1,2,3,4,5,6,7,8,9,10,11])\n    dht_dc = bytes([0x00]) + std_dc_bits + std_dc_vals\n    std_ac_bits = bytes([0,2,1,3,3,2,4,3,5,5,4,4,0,0,1,0x7d])\n    std_ac_vals = bytes([\n        1,2,3,0,4,11,5,12,21,31,41,6,13,51,61,7,22,71,14,32,81,91,8,23,42,15,52,101,113,9,33,62,72,82,\n        10,16,24,34,43,53,63,73,83,92,103,114,17,25,35,44,54,64,74,84,93,104,115,26,36,45,55,65,75,85,\n        94,105,116,27,37,46,56,66,76,86,95,106,117,28,38,47,57,67,77,87,96,107,118,29,39,48,58,68,78,88,\n        97,108,119,40,49,59,69,79,89,98,109,120,41,50,60,70,80,90,99,110,121,100,111,122,112,113,114,115,\n        116,117,118,119,120,121,122\n    ])\n    dht_ac = bytes([0x10]) + std_ac_bits + std_ac_vals\n    out += b'\\xff\\xc4' + be16(len(dht_dc) + 2) + dht_dc\n    out += b'\\xff\\xc4' + be16(len(dht_ac) + 2) + dht_ac\n\n    sos = bytes([1, 1, 0x00, 0, 63, 0])\n    out += b'\\xff\\xda' + be16(len(sos) + 2) + sos\n\n    data = bytearray()\n    for _ in range(r.randint(2, 8)):\n        b = _rand(r, 256)\n        if b == 0xff:\n            data.extend(b'\\xff\\x00')\n        else:\n            data.append(b)\n    out += data\n\n    out += b'\\xff\\xd9'  # EOI\n    return bytes(out)\n\n\ndef _ppm_minimal(r: random.Random) -> bytes:\n    width = r.choice([1, 2, 3, 4])\n    height = r.choice([1, 2, 3, 4])\n    maxv = 255\n    if r.random() < 0.5:\n        header = f\"P3\\n# {''.join(r.choice('ABCxyz123') for _ in range(8))}\\n{width} {height}\\n{maxv}\\n\".encode('ascii')\n        pixels = []\n        for _ in range(width * height * 3):\n            pixels.append(str(_rand(r, maxv + 1)))\n        body = (' '.join(pixels) + '\\n').encode('ascii')\n        return header + body\n    else:\n        header = f\"P6\\n{width} {height}\\n{maxv}\\n\".encode('ascii')\n        body = bytes(_rand(r, 256) for _ in range(width * height * 3))\n        return header + body\n\n\ndef _text_descriptor(r: random.Random) -> bytes:\n    lines: List[str] = []\n    lines.append(\"# waifu2x preview script\")\n    lines.append(f\"version={_rand(r, 3)+1}\")\n    lines.append(f\"scale={r.choice([1,2,4,8])}\")\n    lines.append(f\"noise={r.choice([0,1,2,3])}\")\n    lines.append(f\"mode={r.choice(['photo','art','auto'])}\")\n    lines.append(f\"model={r.choice(['cunet','anime_style_art_rgb','upconv_7_anime'])}\")\n    lines.append(\"input=inline\")\n    payload = _random_utf8_text(r, r.randint(16, 128)).decode('utf-8', 'ignore')\n    lines.append(\"data=\" + payload)\n    return (\"\\n\".join(lines) + \"\\n\").encode('utf-8')\n\n\ndef _build_candidate(r: random.Random) -> bytes:\n    choice = r.random()\n    if choice < 0.30:\n        return _png_minimal(r)\n    elif choice < 0.55:\n        return _bmp_minimal(r)\n    elif choice < 0.75:\n        return _jpeg_minimal(r)\n    elif choice < 0.92:\n        return _ppm_minimal(r)\n    else:\n        return _text_descriptor(r)\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    parts: List[bytes] = []\n    count = 1 + (seed % 3)  # 1..3 parts\n    for _ in range(count):\n        part = _build_candidate(r)\n        parts.append(part)\n    data = b\"\".join(parts)\n    if len(data) > MAX_SIZE:\n        data = data[:MAX_SIZE]\n    return data"
+    },
+    {
+      "data_type": "image or media file data",
+      "generator": "import random\nimport struct\nimport zlib\n\n# This generator produces valid image/media file bytes suitable for FUZZ_PARAM_FILENAME\n# to write to disk and pass a filename to waifu2x_ex_gui_upscale_preview().\n# It focuses on small yet valid files across common formats: PNG, JPEG, BMP, and PPM.\n# Files are constrained to <= 4096 bytes.\n\n_MAX_BYTES = 4096\n\n\ndef _crc32(data: bytes) -> int:\n    return zlib.crc32(data) & 0xFFFFFFFF\n\n\ndef _png_chunk(typ: bytes, data: bytes) -> bytes:\n    length = struct.pack(\">I\", len(data))\n    crc = struct.pack(\">I\", _crc32(typ + data))\n    return length + typ + data + crc\n\n\ndef _make_png(rng: random.Random) -> bytes:\n    # Create a minimal, valid PNG with IHDR, IDAT (compressed), IEND.\n    # Randomize small dimensions and color type 2 (truecolor) or 6 (truecolor+alpha).\n    width = rng.randint(1, 64)\n    height = rng.randint(1, 64)\n    color_type = rng.choice([2, 6])\n    bit_depth = 8\n    compression = 0\n    filter_method = 0\n    interlace = rng.choice([0, 1])\n\n    ihdr = struct.pack(\n        \">IIBBBBB\",\n        width,\n        height,\n        bit_depth,\n        color_type,\n        compression,\n        filter_method,\n        interlace,\n    )\n\n    # Generate a small image with solid or simple gradient rows; each row prefixed by filter byte 0.\n    # Bytes per pixel\n    bpp = {2: 3, 6: 4}[color_type]\n    row_bytes = width * bpp\n    rows = []\n    mode = rng.choice([\"solid\", \"hstripe\", \"vstripe\", \"gradient\"]) \n    # Choose base colors\n    c1 = bytes([rng.randrange(256) for _ in range(bpp)])\n    c2 = bytes([rng.randrange(256) for _ in range(bpp)])\n    for y in range(height):\n        if mode == \"solid\":\n            row = c1 * width\n        elif mode == \"hstripe\":\n            row = (c1 if (y % 2 == 0) else c2) * width\n        elif mode == \"vstripe\":\n            row = b\"\".join((c1 if (x % 2 == 0) else c2) for x in range(width))\n        else:  # gradient\n            row = bytearray(row_bytes)\n            for x in range(width):\n                for k in range(bpp):\n                    v = int((x * 255) / max(1, width - 1))\n                    row[x * bpp + k] = v if k < 3 else 255\n            row = bytes(row)\n        rows.append(bytes([0]) + row)  # filter type 0\n\n    raw = b\"\".join(rows)\n    compressed = zlib.compress(raw, level=rng.randint(1, 9))\n\n    png = b\"\\x89PNG\\r\\n\\x1a\\n\" + _png_chunk(b\"IHDR\", ihdr) + _png_chunk(b\"IDAT\", compressed) + _png_chunk(b\"IEND\", b\"\")\n    return png[:_MAX_BYTES]\n\n\ndef _make_bmp(rng: random.Random) -> bytes:\n    # Minimal 24-bit BMP with BI_RGB, no compression.\n    width = rng.randint(1, 64)\n    height = rng.randint(1, 64)\n    bpp = 24\n    row_stride = ((width * 3 + 3) // 4) * 4  # rows padded to 4 bytes\n    pixel_data_size = row_stride * height\n\n    bfType = b\"BM\"\n    bfOffBits = 14 + 40  # headers size\n    bfSize = bfOffBits + pixel_data_size\n    bmp_header = struct.pack(\"<2sIHHI\", bfType, bfSize, 0, 0, bfOffBits)\n\n    biSize = 40\n    biPlanes = 1\n    biCompression = 0  # BI_RGB\n    biXPelsPerMeter = 2835\n    biYPelsPerMeter = 2835\n    biClrUsed = 0\n    biClrImportant = 0\n    dib_header = struct.pack(\n        \"<IIIHHIIIIII\",\n        biSize,\n        width,\n        height,\n        biPlanes,\n        bpp,\n        biCompression,\n        pixel_data_size,\n        biXPelsPerMeter,\n        biYPelsPerMeter,\n        biClrUsed,\n        biClrImportant,\n    )\n\n    # Bottom-up rows, BGR order\n    row0 = bytes([rng.randrange(256) for _ in range(width * 3)])\n    pad = b\"\\x00\" * (row_stride - len(row0))\n    # Use few patterns to keep file small\n    rows = []\n    for y in range(height):\n        if y % 4 == 0:\n            row = row0\n        elif y % 4 == 1:\n            row = bytes((255 - b) for b in row0)\n        elif y % 4 == 2:\n            row = bytes(((b + 85) & 0xFF) for b in row0)\n        else:\n            row = bytes(((b * 3) & 0xFF) for b in row0)\n        rows.append(row + pad)\n    pixel_data = b\"\".join(reversed(rows))  # bottom-up\n\n    bmp = bmp_header + dib_header + pixel_data\n    return bmp[:_MAX_BYTES]\n\n\ndef _make_ppm(rng: random.Random) -> bytes:\n    # ASCII PPM (P3) or binary PPM (P6)\n    is_binary = rng.choice([True, False])\n    width = rng.randint(1, 64)\n    height = rng.randint(1, 64)\n    maxval = rng.choice([15, 31, 63, 127, 255])\n    if is_binary:\n        header = f\"P6\\n{width} {height}\\n{maxval}\\n\".encode(\"ascii\")\n        # generate pixel data\n        pixels = bytearray(width * height * 3)\n        for i in range(0, len(pixels), 3):\n            r = rng.randrange(maxval + 1)\n            g = rng.randrange(maxval + 1)\n            b = rng.randrange(maxval + 1)\n            pixels[i] = r & 0xFF\n            pixels[i + 1] = g & 0xFF\n            pixels[i + 2] = b & 0xFF\n        data = header + bytes(pixels)\n        return data[:_MAX_BYTES]\n    else:\n        header = f\"P3\\n# comment\\n{width} {height}\\n{maxval}\\n\"\n        lines = [header]\n        for _ in range(width * height):\n            r = rng.randrange(maxval + 1)\n            g = rng.randrange(maxval + 1)\n            b = rng.randrange(maxval + 1)\n            lines.append(f\"{r} {g} {b}\\n\")\n            if len(\"\".join(lines).encode(\"ascii\")) > _MAX_BYTES:\n                break\n        data = \"\".join(lines).encode(\"ascii\")\n        return data[:_MAX_BYTES]\n\n\ndef _make_jpeg(rng: random.Random) -> bytes:\n    # Create a minimal baseline JPEG with random small image using a canned JFIF template\n    # and random Huffman-coded data that still parses: we build a tiny 1x1 or 8x8 MCUs block\n    # with fixed tables. For simplicity, embed a tiny valid prebuilt JPEG and vary comment/APP0.\n\n    # Base minimal JPEG (1x1, grayscale) bytes. Valid and decodable.\n    base = bytes([\n        0xFF,0xD8,             # SOI\n        # APP0 JFIF\n        0xFF,0xE0, 0x00,0x10,  # length 16\n        ord('J'),ord('F'),ord('I'),ord('F'),0x00, 0x01,0x01, 0x00, 0x00,0x01,0x00,0x01, 0x00,0x00,\n        # DQT\n        0xFF,0xDB, 0x00,0x43, 0x00\n    ] + [\n        # 8x8 quant table (luminance) simple\n        16,11,12,14,12,10,16,14,13,16,12,12,14,18,17,16,\n        18,23,22,18,18,22,21,24,28,36,30,24,26,34,26,22,\n        22,26,49,35,37,40,49,58,57,56,57,55,56,60,66,84,\n        71,60,63,79,64,55,56,72,97,73,79,86,89,95,96,95\n    ] + [\n        # SOF0\n        0xFF,0xC0, 0x00,0x11, 0x08, 0x00,0x08, 0x00,0x08, 0x01, 0x01, 0x11, 0x00,\n        # DHT (minimal)\n        0xFF,0xC4, 0x00,0x14, 0x00,\n        0x01,0x02,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,\n        0x00,\n        # SOS\n        0xFF,0xDA, 0x00,0x0C, 0x01, 0x01, 0x00, 0x00,0x3F,0x00,\n        # Minimal scan data (stuffed to avoid 0xFF sequences)\n        0x00,0x3F,0x00,0x11,0x22,0x33,0x44,0x55,\n        # EOI\n        0xFF,0xD9\n    ])\n\n    # Randomly insert a COM or APP1 segment to vary content while staying valid\n    segs = []\n    if rng.random() < 0.7:\n        txt = \"Generated by seed %d\" % rng.randrange(1 << 30)\n        payload = txt.encode(\"latin1\", errors=\"ignore\")[:100]\n        length = len(payload) + 2\n        segs.append(b\"\\xFF\\xFE\" + struct.pack(\">H\", length) + payload)  # COM\n    if rng.random() < 0.5:\n        app = b\"Exif\\x00\\x00\" + bytes(rng.randrange(256) for _ in range(rng.randint(0, 16)))\n        length = len(app) + 2\n        segs.append(b\"\\xFF\\xE1\" + struct.pack(\">H\", length) + app)\n\n    # Place segments after SOI\n    out = bytearray()\n    out += b\"\\xFF\\xD8\"\n    for s in segs:\n        out += s\n    out += base[2:]  # rest of the base JPEG\n    return bytes(out[:_MAX_BYTES])\n\n\ndef _choose_format(rng: random.Random):\n    return rng.choices(\n        population=[_make_png, _make_jpeg, _make_bmp, _make_ppm],\n        weights=[4, 2, 2, 2],\n        k=1,\n    )[0]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    maker = _choose_format(rng)\n    data = maker(rng)\n    # Ensure non-empty and within limit\n    if not data:\n        data = b\"BM\\x00\\x00\\x00\\x00\"  # fallback tiny header-like bytes\n    return data[:_MAX_BYTES]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 731,
+            "output_tokens": 72,
+            "total_tokens": 803
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 309,
+            "output_tokens": 33,
+            "total_tokens": 342
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 758,
+            "output_tokens": 899,
+            "total_tokens": 1657
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4038,
+            "output_tokens": 1957,
+            "total_tokens": 5995
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1520,
+            "output_tokens": 176,
+            "total_tokens": 1696
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 173.7022624015808,
+    "scan_objects": 2.5369279384613037,
+    "validate_objects": 0.1780860424041748,
+    "scan_functions": 21.53827977180481,
+    "synthesis": 53.70333528518677,
+    "fill": 0,
+    "classify": 4.5364415645599365,
+    "build_generators": 91.20860958099365
+  }
+}

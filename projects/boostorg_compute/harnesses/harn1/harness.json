@@ -1,0 +1,286 @@
+{
+  "objects": [
+    {
+      "ptr_type": "boost::compute::system *",
+      "aliases": [],
+      "definition": "namespace boost {\nnamespace compute {\n\nclass system\n{\npublic:\n    static device default_device()\n    {\n        return init_default_device();\n    }\n\n    static device find_device(const std::string &name)\n    {\n        const std::vector<device> devices = system::devices();\n        for(size_t i = 0; i < devices.size(); i++){\n            const device& device = devices[i];\n\n            if(device.name() == name){\n                return device;\n            }\n        }\n\n        BOOST_THROW_EXCEPTION(no_device_found());\n    }\n\n    static std::vector<device> devices()\n    {\n        std::vector<device> devices;\n\n        const std::vector<platform> platforms = system::platforms();\n        for(size_t i = 0; i < platforms.size(); i++){\n            const std::vector<device> platform_devices = platforms[i].devices();\n\n            devices.insert(\n                devices.end(), platform_devices.begin(), platform_devices.end()\n            );\n        }\n\n        return devices;\n    }\n\n    static size_t device_count()\n    {\n        size_t count = 0;\n\n        const std::vector<platform> platforms = system::platforms();\n        for(size_t i = 0; i < platforms.size(); i++){\n            count += platforms[i].device_count();\n        }\n\n        return count;\n    }\n\n    static context default_context()\n    {\n        return init_default_context();\n    }\n\n    static command_queue& default_queue(const command_queue &user_queue = command_queue())\n    {\n        return init_default_queue(user_queue);\n    }\n\n    static void finish()\n    {\n        default_queue().finish();\n    }\n\n    static std::vector<platform> platforms()\n    {\n        cl_uint count = 0;\n        clGetPlatformIDs(0, 0, &count);\n\n        std::vector<platform> platforms;\n        if(count > 0)\n        {\n            std::vector<cl_platform_id> platform_ids(count);\n            clGetPlatformIDs(count, &platform_ids[0], 0);\n\n            for(size_t i = 0; i < platform_ids.size(); i++){\n                platforms.push_back(platform(platform_ids[i]));\n            }\n        }\n        return platforms;\n    }\n\n    static size_t platform_count()\n    {\n        cl_uint count = 0;\n        clGetPlatformIDs(0, 0, &count);\n        return static_cast<size_t>(count);\n    }\n\nprivate:\n    static device find_default_device()\n    {\n        const std::vector<device> devices_ = devices();\n        if(devices_.empty()){\n            BOOST_THROW_EXCEPTION(no_device_found());\n        }\n\n        const char *name     = detail::getenv(\"BOOST_COMPUTE_DEFAULT_DEVICE\");\n        const char *type     = detail::getenv(\"BOOST_COMPUTE_DEFAULT_DEVICE_TYPE\");\n        const char *platform = detail::getenv(\"BOOST_COMPUTE_DEFAULT_PLATFORM\");\n        const char *vendor   = detail::getenv(\"BOOST_COMPUTE_DEFAULT_VENDOR\");\n        const char *enforce  = detail::getenv(\"BOOST_COMPUTE_DEFAULT_ENFORCE\");\n\n        if(name || type || platform || vendor){\n            for(size_t i = 0; i < devices_.size(); i++){\n                const device& device = devices_[i];\n                if (name && !matches(device.name(), name))\n                    continue;\n\n                if (type && matches(std::string(\"GPU\"), type))\n                    if (!(device.type() & device::gpu))\n                        continue;\n\n                if (type && matches(std::string(\"CPU\"), type))\n                    if (!(device.type() & device::cpu))\n                        continue;\n\n                if (platform && !matches(device.platform().name(), platform))\n                    continue;\n\n                if (vendor && !matches(device.vendor(), vendor))\n                    continue;\n\n                return device;\n            }\n\n            if(enforce && enforce[0] == '1')\n                BOOST_THROW_EXCEPTION(no_device_found());\n        }\n\n        for(size_t i = 0; i < devices_.size(); i++){\n            const device& device = devices_[i];\n\n            if(device.type() & device::gpu){\n                return device;\n            }\n        }\n\n        for(size_t i = 0; i < devices_.size(); i++){\n            const device& device = devices_[i];\n\n            if(device.type() & device::cpu){\n                return device;\n            }\n        }\n\n        return devices_[0];\n    }\n\n    static bool matches(const std::string &str, const std::string &pattern)\n    {\n        return str.find(pattern) != std::string::npos;\n    }\n\n    static device init_default_device(const device &user_device = device())\n    {\n        static device default_device;\n\n#ifdef BOOST_COMPUTE_THREAD_SAFE\n    #ifdef BOOST_COMPUTE_USE_CPP11\n        using namespace std;\n    #else \n        using namespace boost;\n    #endif \n        static atomic<bool> is_init;\n        static mutex init_mutex;\n\n        bool is_init_value = is_init.load(memory_order_consume);\n        if (!is_init_value)\n        {\n            lock_guard<mutex> lock(init_mutex);\n            is_init_value = is_init.load(memory_order_consume);\n            if (!is_init_value)\n            {\n                default_device = user_device.get() ? \n                    user_device : find_default_device();\n\n                is_init.store(true, memory_order_release);\n            }\n        }\n#else // BOOST_COMPUTE_THREAD_SAFE\n        if (!default_device.get())\n        {\n            default_device = user_device.get() ? \n                user_device : find_default_device();\n        }\n#endif // BOOST_COMPUTE_THREAD_SAFE   \n        return default_device;\n    }\n\n    static context init_default_context(const context &user_context = context())\n    {\n        static context default_context;\n\n#ifdef BOOST_COMPUTE_THREAD_SAFE\n    #ifdef BOOST_COMPUTE_USE_CPP11\n        using namespace std;\n    #else \n        using namespace boost;\n    #endif \n        static atomic<bool> is_init;\n        static mutex init_mutex;\n\n        bool is_init_value = is_init.load(memory_order_consume);\n        if (!is_init_value)\n        {\n            lock_guard<mutex> lock(init_mutex);\n            is_init_value = is_init.load(memory_order_consume);\n            if (!is_init_value)\n            {\n                default_context = user_context.get() ? \n                    user_context : context(default_device());\n\n                is_init.store(true, memory_order_release);\n            }\n        }\n#else // BOOST_COMPUTE_THREAD_SAFE\n        if (!default_context.get())\n        {\n            default_context = user_context.get() ?\n                user_context : context(default_device());\n        }\n#endif // BOOST_COMPUTE_THREAD_SAFE\n        return default_context;\n    }\n\n    static void init_default_device_and_context(const command_queue &user_queue)\n    {\n        device user_device = user_queue.get_device();\n        context user_context = user_queue.get_context();\n\n        if ( (user_device != init_default_device(user_device)) ||\n             (user_context != init_default_context(user_context)) )\n        {\n            BOOST_THROW_EXCEPTION(set_default_queue_error());  \n        }\n    }\n    \n    static command_queue& init_default_queue(const command_queue &user_queue = command_queue())\n    {\n        static command_queue default_queue;\n\n#ifdef BOOST_COMPUTE_THREAD_SAFE\n    #ifdef BOOST_COMPUTE_USE_CPP11\n        using namespace std;\n    #else \n        using namespace boost;\n    #endif \n        static atomic<bool> is_init;\n        static mutex init_mutex;\n\n        bool is_init_value = is_init.load(memory_order_consume);\n        if (!is_init_value)\n        {\n            lock_guard<mutex> lock(init_mutex);\n            is_init_value = is_init.load(memory_order_consume);\n            if (!is_init_value)\n            {\n                if (user_queue.get())\n                    init_default_device_and_context(user_queue);\n\n                default_queue = user_queue.get() ? \n                    user_queue : \n                    command_queue(default_context(), default_device());\n\n                is_init.store(true, memory_order_release);\n            }\n        }\n#else // BOOST_COMPUTE_THREAD_SAFE\n        if (!default_queue.get())\n        {\n            if (user_queue.get())\n                init_default_device_and_context(user_queue);\n\n            default_queue = user_queue.get() ? \n                user_queue :\n                command_queue(default_context(), default_device());\n        }\n#endif // BOOST_COMPUTE_THREAD_SAFE\n        else\n        {\n            BOOST_ASSERT_MSG(user_queue.get() == 0, \n                \"Default command queue has already been set.\");\n        }\n        return default_queue;\n    }\n};\n\n} // end compute namespace\n} // end boost namespace",
+      "description": "Singleton-like utility class providing static APIs to discover OpenCL platforms/devices and to obtain process-wide default device, context, and command queue. It caches the first-resolved defaults (optionally thread-safe) and allows selecting via environment variables. No instances are intended; all methods are static.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "This header file is a meta-header that only includes other Boost.Compute functional headers. It does not define any structs, enums, typedefs, or classes itself.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom types are defined in this header. It is a meta-header that only includes other headers (local_buffer.hpp and svm_ptr.hpp). Types referenced or defined in those included headers are out of scope per the instructions.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "boost::compute::system::default_device",
+      "signature": "static boost::compute::device boost::compute::system::default_device()",
+      "description": "Returns the system-wide default OpenCL compute device. Selection is done once on first call using heuristics and may be influenced by environment variables (BOOST_COMPUTE_DEFAULT_DEVICE, BOOST_COMPUTE_DEFAULT_DEVICE_TYPE, BOOST_COMPUTE_DEFAULT_PLATFORM, BOOST_COMPUTE_DEFAULT_VENDOR, BOOST_COMPUTE_DEFAULT_ENFORCE). Subsequent calls return the same device. Throws if no device can be found under the selection rules.",
+      "requirements": [
+        "The host system must have at least one OpenCL-capable device available; otherwise no_device_found may be thrown.",
+        "If BOOST_COMPUTE_DEFAULT_ENFORCE is set to \"1\" and any of the related default-selection environment variables is set but no match is found, the function throws no_device_found.",
+        "Callers should not assume the device changes across calls; the selected device is cached after the first call."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::find_device",
+      "signature": "static boost::compute::device boost::compute::system::find_device(const std::string &name)",
+      "description": "Searches all OpenCL devices on the system and returns the one whose name matches exactly the provided string. Useful for selecting a specific GPU/CPU by its reported cl_device_name.",
+      "requirements": [
+        "The name argument must exactly match device.name() of an available device to succeed.",
+        "If no device with the given name exists, the function throws boost::compute::no_device_found."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::devices",
+      "signature": "static std::vector<boost::compute::device> boost::compute::system::devices()",
+      "description": "Enumerates and returns all OpenCL devices across all detected OpenCL platforms on the system. Intended for iteration and manual selection.",
+      "requirements": [
+        "OpenCL platforms must be discoverable via clGetPlatformIDs; otherwise the returned vector may be empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::device_count",
+      "signature": "static std::size_t boost::compute::system::device_count()",
+      "description": "Returns the total number of OpenCL devices available across all platforms on the system. A convenience count helper for quick checks.",
+      "requirements": [
+        "None beyond being able to enumerate platforms and their devices."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::default_context",
+      "signature": "static boost::compute::context boost::compute::system::default_context()",
+      "description": "Returns the system-wide default OpenCL context, created on first use for the default_device(). Subsequent calls return the same context object.",
+      "requirements": [
+        "A default device must be obtainable (default_device()); otherwise default_device() may throw no_device_found and context creation would not proceed.",
+        "Context is created once and reused; callers should not assume it changes across calls."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::default_queue",
+      "signature": "static boost::compute::command_queue& boost::compute::system::default_queue(const boost::compute::command_queue &user_queue = boost::compute::command_queue())",
+      "description": "Returns a reference to the system-wide default OpenCL command queue. On first use, if a non-empty user_queue is provided, the system’s default device and context are initialized to match it. If a provided user_queue’s device/context do not match already-initialized defaults, a set_default_queue_error is thrown. Subsequent calls return the same queue.",
+      "requirements": [
+        "If providing a user_queue, it must be a valid (non-null) queue whose device and context are consistent with each other.",
+        "If a user_queue is provided on the first call, it will define the defaults; if it is provided on any later call after initialization, this is invalid and triggers an assertion (the API expects no user_queue after initialization).",
+        "If a user_queue is provided and its device/context do not match the defaults already set, the function throws set_default_queue_error.",
+        "If no user_queue is provided on first call, the function will create a queue for default_context() and default_device(); those must be creatable."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::finish",
+      "signature": "static void boost::compute::system::finish()",
+      "description": "Blocks until all previously enqueued operations on the default command queue complete. Equivalent to system::default_queue().finish().",
+      "requirements": [
+        "Requires that the default command queue can be obtained or created; otherwise any underlying failures would surface from default_queue() or queue.finish()."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::platforms",
+      "signature": "static std::vector<boost::compute::platform> boost::compute::system::platforms()",
+      "description": "Enumerates and returns all OpenCL platforms present on the system using clGetPlatformIDs. Useful for manual exploration and selection of devices by platform.",
+      "requirements": [
+        "The OpenCL ICD/driver must be installed so clGetPlatformIDs can succeed. If no platforms are present, the returned vector will be empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "boost::compute::system::platform_count",
+      "signature": "static std::size_t boost::compute::system::platform_count()",
+      "description": "Returns the number of OpenCL platforms on the system using clGetPlatformIDs. Convenience helper for quick presence checks.",
+      "requirements": [
+        "OpenCL runtime must be available for clGetPlatformIDs; otherwise count will be zero or the underlying call may fail depending on platform."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "boost::compute::system::default_device",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise boost::compute::system::default_device().\n// Requirements enforced: must succeed if a default device is discoverable; otherwise we bail on the thrown exception.\ntry {\n    boost::compute::device dev = boost::compute::system::default_device();\n    // Touch a trivial property to exercise returned object; do not persist it.\n    (void)dev.name();\n} catch(...) {\n    // If no device is available or selection rules fail, the API throws; treat as expected error.\n    FUZZ_BAIL();\n}\n// Validation: Invoked API under try/catch; no persistent objects to return; exceptions correctly mapped to FUZZ_BAIL()."
+    },
+    {
+      "name": "boost::compute::system::find_device",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise boost::compute::system::find_device(name) with both matching and non-matching names.\nstd::string random_name = FUZZ_PARAM_STR();\nunsigned int choice = *FUZZ_PARAM(unsigned int);\ntry {\n    // 50/50: either use an existing device name (if any), or a random name to trigger the not-found path.\n    if ((choice & 1u) == 0) {\n        std::vector<boost::compute::device> all = boost::compute::system::devices();\n        if (!all.empty()) {\n            const boost::compute::device &pick = all[(*FUZZ_PARAM(unsigned int)) % all.size()];\n            boost::compute::device found = boost::compute::system::find_device(pick.name());\n            (void)found.name();\n        } else {\n            // No devices available: any lookup will throw; run with random_name to cover throw path.\n            (void)boost::compute::system::find_device(random_name);\n        }\n    } else {\n        // Intentionally likely to fail, to cover exception path.\n        (void)boost::compute::system::find_device(random_name);\n    }\n} catch(...) {\n    // Not-found or environment-driven selection failure is an expected outcome.\n    FUZZ_BAIL();\n}\n// Validation: When devices exist, we attempt a guaranteed-match path; otherwise exercise throw path. All exceptions mapped to FUZZ_BAIL(); no persistent outputs."
+    },
+    {
+      "name": "boost::compute::system::devices",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise enumeration of devices and assert it matches device_count().\ntry {\n    std::vector<boost::compute::device> devs = boost::compute::system::devices();\n    // Touch device properties to increase coverage.\n    for (size_t i = 0; i < devs.size() && i < 8; ++i) {\n        (void)devs[i].name();\n    }\n    size_t count = boost::compute::system::device_count();\n    // Property: device_count() must equal devices().size() per implementation.\n    FUZZ_ASSERT(count == devs.size(), \"device_count() must equal devices().size()\");\n} catch(...) {\n    FUZZ_BAIL();\n}\n// Validation: Enumerates devices and asserts count consistency; any unexpected exception results in FUZZ_BAIL()."
+    },
+    {
+      "name": "boost::compute::system::device_count",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise device_count() and cross-check with devices().\ntry {\n    size_t count = boost::compute::system::device_count();\n    size_t vec_count = boost::compute::system::devices().size();\n    FUZZ_ASSERT(count == vec_count, \"device_count() must equal devices().size()\");\n    (void)count;\n} catch(...) {\n    FUZZ_BAIL();\n}\n// Validation: Checks property equality with devices().size(); exceptions are handled via FUZZ_BAIL()."
+    },
+    {
+      "name": "boost::compute::system::default_context",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise boost::compute::system::default_context().\ntry {\n    boost::compute::context ctx = boost::compute::system::default_context();\n    // Touch the underlying handle if available through get(); ignore result.\n    (void)ctx.get();\n} catch(...) {\n    // May throw if default_device() cannot be obtained.\n    FUZZ_BAIL();\n}\n// Validation: Obtains default context and uses it minimally; exceptions mapped to FUZZ_BAIL()."
+    },
+    {
+      "name": "boost::compute::system::default_queue",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise boost::compute::system::default_queue() without providing a user queue\n// to avoid cross-call global state constraints.\ntry {\n    boost::compute::command_queue &q = boost::compute::system::default_queue();\n    // Exercise a simple operation on the queue to increase coverage.\n    q.finish();\n} catch(...) {\n    FUZZ_BAIL();\n}\n// Validation: Accesses the default queue safely with no user_queue; exceptions are handled via FUZZ_BAIL()."
+    },
+    {
+      "name": "boost::compute::system::finish",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise system::finish() which blocks until the default queue is idle.\ntry {\n    boost::compute::system::finish();\n} catch(...) {\n    FUZZ_BAIL();\n}\n// Validation: Simply invokes finish(); exceptions from default_queue() or queue.finish() cause FUZZ_BAIL()."
+    },
+    {
+      "name": "boost::compute::system::platforms",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise enumeration of OpenCL platforms and assert agreement with platform_count().\ntry {\n    std::vector<boost::compute::platform> plats = boost::compute::system::platforms();\n    for (size_t i = 0; i < plats.size() && i < 8; ++i) {\n        (void)plats[i].name();\n    }\n    size_t count = boost::compute::system::platform_count();\n    FUZZ_ASSERT(count == plats.size(), \"platform_count() must equal platforms().size()\");\n} catch(...) {\n    FUZZ_BAIL();\n}\n// Validation: Enumerates platforms, touches a few, and asserts count consistency; exceptions mapped to FUZZ_BAIL()."
+    },
+    {
+      "name": "boost::compute::system::platform_count",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise platform_count() and cross-check with platforms().\ntry {\n    size_t count = boost::compute::system::platform_count();\n    size_t vec_count = boost::compute::system::platforms().size();\n    FUZZ_ASSERT(count == vec_count, \"platform_count() must equal platforms().size()\");\n    (void)count;\n} catch(...) {\n    FUZZ_BAIL();\n}\n// Validation: Validates count equality to platforms().size(); any exceptions lead to FUZZ_BAIL()."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "boost::compute::system::default_device",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::devices",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::device_count",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::default_context",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::default_queue",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::finish",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::platforms",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::platform_count",
+      "data_types": []
+    },
+    {
+      "name": "boost::compute::system::find_device",
+      "data_types": [
+        "arbitrary string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary string",
+      "description": "An unconstrained byte string used as a device name. Any sequence of bytes/characters is accepted; no specific encoding, structure, or character class is required. The function compares it to device.name() for an exact match and may throw if no device with that exact name exists."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets an \"arbitrary string\" buffer consumed by FUZZ_PARAM_STR\n# in the fuzzer stub for boost::compute::system::find_device(name).\n# Goal: produce interesting, but valid, device-name-like strings to trigger both\n# matching and non-matching behaviors across diverse environments.\n# Since we cannot query the actual system devices here, we synthesize a variety of\n# realistic and edge-case names, including common GPU/CPU vendor/model patterns,\n# exact whitespace/UTF-8 cases, and random variants. The fuzzer harness will also\n# sometimes replace our string with a real device name from the runtime.\n\n# Upper bound per requirements\nMAX_SIZE = 4096\n\nCOMMON_VENDOR_TOKENS = [\n    \"NVIDIA\", \"GeForce\", \"RTX\", \"Quadro\", \"Tesla\",\n    \"AMD\", \"Radeon\", \"RX\", \"Vega\", \"Instinct\",\n    \"Intel\", \"UHD Graphics\", \"Iris\", \"Xe\",\n    \"Apple\", \"M1\", \"M2\", \"M3\",\n    \"ARM\", \"Mali\", \"PowerVR\", \"Adreno\",\n    \"Mesa\", \"llvmpipe\", \"softpipe\",\n    \"OpenCL\", \"Compute\", \"Accelerator\"\n]\n\n# Some plausible full device name patterns commonly seen via cl_device_name\nTEMPLATE_NAMES = [\n    \"NVIDIA GeForce RTX 3080\",\n    \"NVIDIA GeForce GTX 1080 Ti\",\n    \"NVIDIA Tesla V100-SXM2-32GB\",\n    \"NVIDIA A100-SXM4-80GB\",\n    \"AMD Radeon RX 6800 XT\",\n    \"AMD Radeon VII\",\n    \"AMD Radeon Pro W6800\",\n    \"Intel(R) UHD Graphics 630\",\n    \"Intel(R) Iris(R) Xe Graphics\",\n    \"Intel(R) Core(TM) i7-1185G7 CPU @ 3.00GHz\",\n    \"Apple M1\",\n    \"Apple M2 Max\",\n    \"QUALCOMM Adreno 650\",\n    \"ARM Mali-G78\",\n    \"Mesa Intel(R) UHD Graphics 620 (CML GT2)\",\n    \"llvmpipe (LLVM 13.0.1, 256 bits)\",\n    \"Portable Computing Language\"\n]\n\nUNICODE_VARIANTS = [\n    \"ＧｅＦｏｒｃｅ ＲＴＸ ３０８０\",   # fullwidth\n    \"ГеФорс РТХ 3080\",                 # Cyrillic lookalikes\n    \"GeForce RTX 3080™\",               # trademark symbol\n    \"Radeon RX 6800 — Navi\",           # em dash\n    \"Iris Xe – Integrated\",            # en dash\n    \"A100•SXM4•80GB\",                  # bullet separators\n]\n\nWHITESPACE_EDGE = [\n    \"\",  # empty string\n    \" \",\n    \"\\t\",\n    \"\\n\",\n    \"\\r\\n\",\n    \"\\x00\",  # embedded NUL\n    \"  NVIDIA   GeForce   RTX   3090  \",\n    \"NVIDIA\\tGeForce\\nRTX\\r3090\",\n]\n\n# Construct a library of interesting names to pick from\nBASE_CASES: List[str] = TEMPLATE_NAMES + UNICODE_VARIANTS + WHITESPACE_EDGE\n\n# Some crafted strings to probe exact-match behaviors and boundary conditions\ndef boundary_names() -> List[str]:\n    names = []\n    # Very long name near the limit (but keep overall buffer small)\n    long_core = \"GeForce\" * 200  # 7*200=1400 chars\n    names.append(long_core[:2000])\n    # Mixed case variants\n    names.append(\"nvidia geforce rtx 3080\")\n    names.append(\"Nvidia GeForce RTX 3080\")\n    names.append(\"NVIDIA GEFORCE RTX 3080\")\n    # Trailing/leading spaces and tabs\n    names.append(\"\\tIntel(R) UHD Graphics 630\\t\")\n    names.append(\" AMD Radeon RX 7900 XT \")\n    # Names containing nulls and control chars\n    names.append(\"Radeon\\x00RX 6800\")\n    names.append(\"Intel\\x1fXe\\x7fGraphics\")\n    # Simple CPU strings that sometimes appear as OpenCL CPU devices\n    names.append(\"Intel(R) CPU\")\n    names.append(\"AMD CPU\")\n    return names\n\n# Random realistic device name assembly\ndef random_device_like(rng: random.Random) -> str:\n    vendor = rng.choice([\"NVIDIA\", \"AMD\", \"Intel\", \"Apple\", \"QUALCOMM\", \"ARM\", \"Mesa\"])    \n    if vendor == \"NVIDIA\":\n        series = rng.choice([\"GeForce\", \"Quadro\", \"Tesla\", \"A100\", \"H100\"])    \n        if series in (\"A100\", \"H100\"):\n            suffix = rng.choice([\"-SXM4-80GB\", \"-PCIe-40GB\", \"-SXM-80GB\"])\n            name = f\"NVIDIA {series}{suffix}\"\n        else:\n            family = rng.choice([\"GTX\", \"RTX\"]) if series == \"GeForce\" else series\n            number = rng.choice([\"1060\", \"1080 Ti\", \"2060\", \"2080 Ti\", \"3060\", \"3080\", \"3090\", \"4070 Ti\", \"4090\"])\n            name = f\"NVIDIA GeForce {family} {number}\" if series == \"GeForce\" else f\"NVIDIA {series} {number}\"\n    elif vendor == \"AMD\":\n        family = rng.choice([\"Radeon\", \"Radeon Pro\", \"Instinct\"])        \n        if family == \"Instinct\":\n            model = rng.choice([\"MI50\", \"MI100\", \"MI210\", \"MI250X\"])    \n        else:\n            model = rng.choice([\"RX 5700 XT\", \"RX 6800 XT\", \"RX 7900 XTX\", \"VII\", \"Vega 64\"]) \n        name = f\"AMD {family} {model}\"\n    elif vendor == \"Intel\":\n        family = rng.choice([\"UHD Graphics\", \"Iris Xe Graphics\", \"GPU\", \"CPU\"]) \n        if family == \"CPU\":\n            core = rng.choice([\"i7-1185G7\", \"i9-12900K\", \"i5-8265U\"]) \n            name = f\"Intel(R) Core(TM) {core} CPU @ 3.00GHz\"\n        else:\n            name = f\"Intel(R) {family} {rng.choice(['510', '620', '630', '770'])}\"\n    elif vendor == \"Apple\":\n        name = rng.choice([\"Apple M1\", \"Apple M1 Pro\", \"Apple M2\", \"Apple M2 Max\", \"Apple M3\"]) \n    elif vendor == \"QUALCOMM\":\n        name = rng.choice([\"QUALCOMM Adreno 650\", \"QUALCOMM Adreno 740\"]) \n    elif vendor == \"ARM\":\n        name = rng.choice([\"ARM Mali-G76\", \"ARM Mali-G78\", \"ARM Mali-T860\"]) \n    else:  # Mesa\n        name = rng.choice([\n            \"llvmpipe (LLVM 15.0.7, 256 bits)\",\n            \"Mesa Intel(R) UHD Graphics 620 (CML GT2)\",\n        ])\n    # Occasionally add parenthetical vendor/platform suffixes\n    if rng.random() < 0.25:\n        name += rng.choice([\" (OpenCL)\", \" (Experimental)\", \" (RadeonSI)\", \" (CUD A)\".replace(\" \", \"\")])\n    return name\n\n# Random unlikely-to-match junk (still valid string)\ndef random_unlikely(rng: random.Random) -> str:\n    length = rng.randint(0, 256)\n    alphabet = string.ascii_letters + string.digits + \" _-./:+()[]{}\\t\\n\\r\\x00\\x1f\\x7f\"\n    s = ''.join(rng.choice(alphabet) for _ in range(length))\n    # Occasionally ensure it contains vendor tokens to be close-but-not-exact\n    if rng.random() < 0.4:\n        token = rng.choice(COMMON_VENDOR_TOKENS)\n        insert_at = rng.randrange(0, len(s) + 1)\n        s = s[:insert_at] + token + s[insert_at:]\n    return s\n\n# Main generator\n# Returns bytes for FUZZ_PARAM_STR consumption. The fuzzer may also request\n# other primitive params independently; we only control the string buffer here.\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Assemble a pool of candidates\n    candidates: List[str] = []\n    candidates.extend(BASE_CASES)\n    candidates.extend(boundary_names())\n\n    # Generate several random realistic names\n    for _ in range(10):\n        candidates.append(random_device_like(rng))\n\n    # Generate a few unlikely randoms\n    for _ in range(6):\n        candidates.append(random_unlikely(rng))\n\n    # Add combinations to probe exact-match nuances\n    if rng.random() < 0.5:\n        # Case variations\n        base = rng.choice(TEMPLATE_NAMES)\n        candidates.append(base.lower())\n        candidates.append(base.upper())\n        candidates.append(base + \" \")\n        candidates.append(\" \" + base)\n        candidates.append(\"\\t\" + base + \"\\t\")\n\n    # Choose a final candidate\n    s = rng.choice(candidates)\n\n    # Enforce max size and return bytes (UTF-8 with surrogate escapes to preserve all code points)\n    b = s.encode('utf-8', errors='surrogatepass')[:MAX_SIZE]\n    return b\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11738,
+            "output_tokens": 3033,
+            "total_tokens": 14771
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7940,
+            "output_tokens": 738,
+            "total_tokens": 8678
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 17026,
+            "output_tokens": 21873,
+            "total_tokens": 38899
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7241,
+            "output_tokens": 3128,
+            "total_tokens": 10369
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5073,
+            "output_tokens": 107,
+            "total_tokens": 5180
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 336.4716012477875,
+    "scan_objects": 35.83768558502197,
+    "validate_objects": 6.440067529678345,
+    "scan_functions": 0,
+    "synthesis": 239.8856120109558,
+    "fill": 0,
+    "classify": 4.363799571990967,
+    "build_generators": 49.94352626800537
+  }
+}

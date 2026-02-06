@@ -1,0 +1,686 @@
+{
+  "objects": [
+    {
+      "ptr_type": "protobuf_mutator::libfuzzer::Mutator *",
+      "aliases": [],
+      "definition": "namespace protobuf_mutator {\nnamespace libfuzzer {\n\n// Overrides protobuf_mutator::Mutator::Mutate* methods with implementation\n// which uses libFuzzer library. protobuf_mutator::Mutator has very basic\n// implementation of this methods.\nclass Mutator : public protobuf_mutator::Mutator {\n public:\n  using protobuf_mutator::Mutator::Mutator;\n\n protected:\n  int32_t MutateInt32(int32_t value) override;\n  int64_t MutateInt64(int64_t value) override;\n  uint32_t MutateUInt32(uint32_t value) override;\n  uint64_t MutateUInt64(uint64_t value) override;\n  float MutateFloat(float value) override;\n  double MutateDouble(double value) override;\n  std::string MutateString(const std::string& value,\n                           int size_increase_hint) override;\n};\n\n}  // namespace libfuzzer\n}  // namespace protobuf_mutator",
+      "description": "Concrete subclass of protobuf_mutator::Mutator that overrides numeric and string mutation methods to use libFuzzer-backed strategies. Constructors are inherited via using-declaration; no additional fields are declared here. Methods are declared but defined elsewhere. Intended for mutating primitive and string fields in protobufs with libFuzzer heuristics. Construction and destruction follow the base class; no special ownership semantics are present in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "protobuf_mutator::Mutator *",
+      "aliases": [],
+      "definition": "namespace protobuf_mutator {\n\nclass Mutator {\n public:\n  Mutator() = default;\n  virtual ~Mutator() = default;\n\n  // Initialized internal random number generator.\n  void Seed(uint32_t value);\n\n  // message: message to mutate.\n  // max_size_hint: approximate max ByteSize() of resulting message. Method does\n  // not guarantee that real result will be strictly smaller than value. Caller\n  // could repeat mutation if result was larger than expected.\n  void Mutate(protobuf::Message* message, size_t max_size_hint);\n\n  void CrossOver(const protobuf::Message& message1, protobuf::Message* message2,\n                 size_t max_size_hint);\n\n  // Makes message initialized and calls post processors to make it valid.\n  void Fix(protobuf::Message* message);\n\n  // Callback to postprocess mutations.\n  // Implementation should use seed to initialize random number generators.\n  using PostProcess =\n      std::function<void(protobuf::Message* message, unsigned int seed)>;\n\n  // Register callback which will be called after every message mutation.\n  // In this callback fuzzer may adjust content of the message or mutate some\n  // fields in some fuzzer specific way.\n  void RegisterPostProcessor(const protobuf::Descriptor* desc,\n                             PostProcess callback);\n\n protected:\n  // TODO(vitalybuka): Consider to replace with single mutate (uint8_t*, size).\n  virtual int32_t MutateInt32(int32_t value);\n  virtual int64_t MutateInt64(int64_t value);\n  virtual uint32_t MutateUInt32(uint32_t value);\n  virtual uint64_t MutateUInt64(uint64_t value);\n  virtual float MutateFloat(float value);\n  virtual double MutateDouble(double value);\n  virtual bool MutateBool(bool value);\n  virtual size_t MutateEnum(size_t index, size_t item_count);\n  virtual std::string MutateString(const std::string& value,\n                                   int size_increase_hint);\n\n  RandomEngine* random() { return &random_; }\n\n private:\n  friend class FieldMutator;\n  friend class TestMutator;\n  bool MutateImpl(const std::vector<const protobuf::Message*>& sources,\n                  const std::vector<protobuf::Message*>& messages,\n                  bool copy_clone_only, int size_increase_hint);\n  std::string MutateUtf8String(const std::string& value,\n                               int size_increase_hint);\n  bool IsInitialized(const protobuf::Message& message) const;\n  bool keep_initialized_ = true;\n  size_t random_to_default_ratio_ = 100;\n  RandomEngine random_;\n  using PostProcessors =\n      std::unordered_multimap<const protobuf::Descriptor*, PostProcess>; \n  PostProcessors post_processors_;\n};\n\n}  // namespace protobuf_mutator",
+      "description": "A mutation utility class for protobuf messages. It provides basic randomized mutations and crossover for protobuf::Message instances, optional post-processing callbacks, and virtual hooks to customize primitive-type mutations. It owns an internal RandomEngine and a registry of post-processors keyed by protobuf descriptors.",
+      "direct_api_constructors": [
+        "protobuf_mutator::Mutator::Mutator"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "protobuf_mutator::Mutator::PostProcess *",
+      "aliases": [],
+      "definition": "using PostProcess =\n      std::function<void(protobuf::Message* message, unsigned int seed)>;",
+      "description": "Type alias for a callback invoked after each mutation. Receives the mutated message pointer and a seed to initialize any RNG used by the callback.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "protobuf_mutator::Mutator *"
+      ]
+    },
+    {
+      "ptr_type": "bool *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom structs, classes, enums, or typedefs are defined in this header. Only inline/helper functions and templates are present. Therefore there are no user-defined data types to document. This placeholder entry notes the absence of such types.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "LLVMFuzzerCustomMutator",
+      "signature": "extern \"C\" size_t LLVMFuzzerCustomMutator(uint8_t* data, size_t size, size_t max_size, unsigned int seed)",
+      "description": "libFuzzer entry point generated by DEFINE_*_PROTO_FUZZER macros. It decodes the current input buffer into a protobuf message, applies protobuf-mutator-driven mutations, and writes the mutated bytes back to data, returning the new size. Intended to be compiled into a fuzz target that uses protobuf inputs (text or binary depending on macro).",
+      "requirements": [
+        "Must be defined via DEFINE_PROTO_FUZZER/DEFINE_TEXT_PROTO_FUZZER/DEFINE_BINARY_PROTO_FUZZER (or DEFINE_CUSTOM_PROTO_MUTATOR_IMPL) before linking; otherwise this symbol will not exist.",
+        "data must point to a writable buffer whose capacity is at least max_size bytes (per libFuzzer custom mutator contract).",
+        "size is the current number of valid bytes in data; may be 0.",
+        "The function must not write more than max_size bytes and must return a value <= max_size.",
+        "The function may use seed to guide random choices; behavior should not assume any particular seed distribution.",
+        "The implementation depends on a concrete protobuf message type selected by the macro; that type must be linked in and default-constructible."
+      ],
+      "error": null
+    },
+    {
+      "name": "LLVMFuzzerCustomCrossOver",
+      "signature": "extern \"C\" size_t LLVMFuzzerCustomCrossOver(const uint8_t* data1, size_t size1, const uint8_t* data2, size_t size2, uint8_t* out, size_t max_out_size, unsigned int seed)",
+      "description": "libFuzzer crossover entry point generated by DEFINE_*_PROTO_FUZZER macros. It decodes two parent protobuf inputs, performs a protobuf-aware crossover, and writes a combined/mutated result to out, returning the byte length.",
+      "requirements": [
+        "Must be defined via DEFINE_PROTO_FUZZER/DEFINE_TEXT_PROTO_FUZZER/DEFINE_BINARY_PROTO_FUZZER (or DEFINE_CUSTOM_PROTO_CROSSOVER_IMPL) before linking; otherwise this symbol will not exist.",
+        "data1 and data2 must point to buffers of length size1 and size2 respectively; they may be arbitrary (including non-decodable).",
+        "out must point to a writable buffer of capacity at least max_out_size bytes.",
+        "Must not write more than max_out_size bytes to out and must return a value <= max_out_size.",
+        "seed may be used to guide random choices.",
+        "The concrete protobuf message type is determined by the macro and must be linked in and default-constructible."
+      ],
+      "error": null
+    },
+    {
+      "name": "LLVMFuzzerTestOneInput",
+      "signature": "extern \"C\" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)",
+      "description": "libFuzzer target entry point generated by DEFINE_*_PROTO_FUZZER macros. It attempts to parse the byte input as a protobuf of the configured type (text or binary as selected), and if parsing succeeds, invokes user-defined TestOneProtoInput(const Proto&). Returns 0.",
+      "requirements": [
+        "Must be defined via DEFINE_PROTO_FUZZER/DEFINE_TEXT_PROTO_FUZZER/DEFINE_BINARY_PROTO_FUZZER (or DEFINE_TEST_ONE_PROTO_INPUT_IMPL) before linking; otherwise this symbol will not exist.",
+        "data points to an arbitrary buffer of length size; may be non-null even when size is 0; content may be invalid for the chosen serialization format.",
+        "Must not crash on arbitrary data and must return an int (conventionally 0).",
+        "User must provide a function with signature: static void TestOneProtoInput(const ProtoType&), where ProtoType is the fuzzed protobuf type referenced by the macro."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::CustomProtoMutator",
+      "signature": "size_t protobuf_mutator::libfuzzer::CustomProtoMutator(bool binary, uint8_t* data, size_t size, size_t max_size, unsigned int seed, protobuf::Message* input)",
+      "description": "Helper used by the macro-generated LLVMFuzzerCustomMutator. It decodes the input buffer into the provided protobuf::Message (text or binary depending on binary), mutates the message using protobuf-mutator, re-serializes it into data, and returns the resulting size.",
+      "requirements": [
+        "input must be a non-null pointer to a protobuf::Message instance of the intended concrete message type compatible with the fuzz target.",
+        "data must point to a writable buffer with capacity of at least max_size bytes.",
+        "size is the current number of valid bytes in data; the function will treat the bytes as either text or binary protobuf depending on binary.",
+        "Returned size must be <= max_size.",
+        "seed may be used for randomness; callers should pass through libFuzzer’s provided seed.",
+        "When size==0 or the buffer cannot be decoded, the function may synthesize a valid starting message before mutating (behavior is implementation-defined)."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::CustomProtoCrossOver",
+      "signature": "size_t protobuf_mutator::libfuzzer::CustomProtoCrossOver(bool binary, const uint8_t* data1, size_t size1, const uint8_t* data2, size_t size2, uint8_t* out, size_t max_out_size, unsigned int seed, protobuf::Message* input1, protobuf::Message* input2)",
+      "description": "Helper used by the macro-generated LLVMFuzzerCustomCrossOver. It decodes two parent protobuf inputs into the provided message instances (text or binary per binary), performs a protobuf-aware crossover mutation, serializes the result to out, and returns the resulting size.",
+      "requirements": [
+        "input1 and input2 must be non-null pointers to protobuf::Message instances of the intended concrete message type.",
+        "data1 and data2 point to buffers of lengths size1 and size2 respectively; contents may be arbitrary.",
+        "out must point to a writable buffer with capacity at least max_out_size bytes; the returned size must be <= max_out_size.",
+        "binary selects text (false) or binary (true) serialization for decoding/encoding.",
+        "seed may be used for randomness and should be propagated from libFuzzer."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::LoadProtoInput",
+      "signature": "bool protobuf_mutator::libfuzzer::LoadProtoInput(bool binary, const uint8_t* data, size_t size, protobuf::Message* input)",
+      "description": "Parses the given byte buffer as a protobuf message into input using either binary wire format (binary=true) or text format (binary=false). Returns true if parsing succeeded and input was filled, false otherwise.",
+      "requirements": [
+        "input must be a non-null pointer to a protobuf::Message instance of the expected concrete type to parse into.",
+        "data points to a buffer of length size that may contain arbitrary bytes; size may be 0.",
+        "binary selects parsing mode: true for binary protobuf wire format, false for text format.",
+        "Caller should check the boolean return and only use input if the call returns true."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::RegisterPostProcessor",
+      "signature": "void protobuf_mutator::libfuzzer::RegisterPostProcessor(const protobuf::Descriptor* desc, std::function<void(protobuf::Message* message, unsigned int seed)> callback)",
+      "description": "Registers a post-processor callback to be considered during mutations for the message described by desc. The callback can adjust or fix up a message after a mutation, using seed if needed. Typically invoked indirectly through PostProcessorRegistration<Proto>.",
+      "requirements": [
+        "desc must be a valid, non-null Descriptor for the target message type.",
+        "callback must be a valid callable; it should accept (protobuf::Message*, unsigned int) and must tolerate being invoked multiple times.",
+        "Should be called during one-time initialization (e.g., via static initialization) before fuzzing begins so registrations are in effect for mutations, as suggested by the header comments and PostProcessorRegistration usage.",
+        "The callback must safely downcast message to the expected concrete type if it needs concrete fields (PostProcessorRegistration handles this automatically)."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateInt32",
+      "signature": "int32_t protobuf_mutator::libfuzzer::Mutator::MutateInt32(int32_t value)",
+      "description": "Overrides protobuf_mutator::Mutator::MutateInt32 to produce a mutated 32-bit signed integer using a libFuzzer-based strategy. Intended for internal use by the mutator to tweak scalar fields during fuzzing. Returns the mutated value.",
+      "requirements": [
+        "Must be called on a valid, properly constructed protobuf_mutator::libfuzzer::Mutator instance.",
+        "Method is protected; it can only be invoked from within the class, its friends, or derived classes.",
+        "Input must be a valid 32-bit signed integer (any bit pattern representable by int32_t).",
+        "No error reporting is specified; callers should not expect exceptions or side channels from this signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateInt64",
+      "signature": "int64_t protobuf_mutator::libfuzzer::Mutator::MutateInt64(int64_t value)",
+      "description": "Overrides protobuf_mutator::Mutator::MutateInt64 to produce a mutated 64-bit signed integer using a libFuzzer-based strategy. Used to mutate scalar fields during fuzzing. Returns the mutated value.",
+      "requirements": [
+        "Must be called on a valid, properly constructed protobuf_mutator::libfuzzer::Mutator instance.",
+        "Method is protected; it can only be invoked from within the class, its friends, or derived classes.",
+        "Input must be a valid 64-bit signed integer (any bit pattern representable by int64_t).",
+        "No error reporting is specified; callers should not expect exceptions or side channels from this signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateUInt32",
+      "signature": "uint32_t protobuf_mutator::libfuzzer::Mutator::MutateUInt32(uint32_t value)",
+      "description": "Overrides protobuf_mutator::Mutator::MutateUInt32 to produce a mutated 32-bit unsigned integer using a libFuzzer-based strategy. Used to mutate scalar fields during fuzzing. Returns the mutated value.",
+      "requirements": [
+        "Must be called on a valid, properly constructed protobuf_mutator::libfuzzer::Mutator instance.",
+        "Method is protected; it can only be invoked from within the class, its friends, or derived classes.",
+        "Input must be a valid 32-bit unsigned integer (any bit pattern representable by uint32_t).",
+        "No error reporting is specified; callers should not expect exceptions or side channels from this signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateUInt64",
+      "signature": "uint64_t protobuf_mutator::libfuzzer::Mutator::MutateUInt64(uint64_t value)",
+      "description": "Overrides protobuf_mutator::Mutator::MutateUInt64 to produce a mutated 64-bit unsigned integer using a libFuzzer-based strategy. Used to mutate scalar fields during fuzzing. Returns the mutated value.",
+      "requirements": [
+        "Must be called on a valid, properly constructed protobuf_mutator::libfuzzer::Mutator instance.",
+        "Method is protected; it can only be invoked from within the class, its friends, or derived classes.",
+        "Input must be a valid 64-bit unsigned integer (any bit pattern representable by uint64_t).",
+        "No error reporting is specified; callers should not expect exceptions or side channels from this signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateFloat",
+      "signature": "float protobuf_mutator::libfuzzer::Mutator::MutateFloat(float value)",
+      "description": "Overrides protobuf_mutator::Mutator::MutateFloat to produce a mutated 32-bit floating-point value using a libFuzzer-based strategy. Used to mutate scalar fields during fuzzing. Returns the mutated float.",
+      "requirements": [
+        "Must be called on a valid, properly constructed protobuf_mutator::libfuzzer::Mutator instance.",
+        "Method is protected; it can only be invoked from within the class, its friends, or derived classes.",
+        "Input must be a valid float value (any bit pattern representable by float, including NaN/Inf).",
+        "No error reporting is specified; callers should not expect exceptions or side channels from this signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateDouble",
+      "signature": "double protobuf_mutator::libfuzzer::Mutator::MutateDouble(double value)",
+      "description": "Overrides protobuf_mutator::Mutator::MutateDouble to produce a mutated 64-bit floating-point value using a libFuzzer-based strategy. Used to mutate scalar fields during fuzzing. Returns the mutated double.",
+      "requirements": [
+        "Must be called on a valid, properly constructed protobuf_mutator::libfuzzer::Mutator instance.",
+        "Method is protected; it can only be invoked from within the class, its friends, or derived classes.",
+        "Input must be a valid double value (any bit pattern representable by double, including NaN/Inf).",
+        "No error reporting is specified; callers should not expect exceptions or side channels from this signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateString",
+      "signature": "std::string protobuf_mutator::libfuzzer::Mutator::MutateString(const std::string& value, int size_increase_hint)",
+      "description": "Overrides protobuf_mutator::Mutator::MutateString to produce a mutated std::string using a libFuzzer-based strategy. The size_increase_hint may be used by the implementation to decide how much the output may grow, but this header does not define its semantics. Returns the mutated string.",
+      "requirements": [
+        "Must be called on a valid, properly constructed protobuf_mutator::libfuzzer::Mutator instance.",
+        "Method is protected; it can only be invoked from within the class, its friends, or derived classes.",
+        "Input string must be a valid std::string object; it is passed by const reference and will not be modified in place.",
+        "size_increase_hint is an int; this header provides no explicit bounds or guarantees on how it is interpreted by the implementation.",
+        "No error reporting is specified; callers should not expect exceptions or side channels from this signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Mutator",
+      "signature": "protobuf_mutator::Mutator::Mutator()",
+      "description": "Default constructor for the protobuf_mutator::Mutator. Creates a mutator instance with an internal random engine for protobuf mutations and post-processing. Typically followed by a call to Seed() for reproducible behavior before calling Mutate/CrossOver/Fix.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::Mutator::~Mutator",
+      "signature": "virtual protobuf_mutator::Mutator::~Mutator()",
+      "description": "Virtual destructor for protobuf_mutator::Mutator. Cleans up mutator state. Safe to destroy after all mutations are complete.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Seed",
+      "signature": "void protobuf_mutator::Mutator::Seed(uint32_t value)",
+      "description": "Initializes the mutator’s internal random number generator with the given seed. Use to obtain deterministic mutation sequences across runs.",
+      "requirements": [
+        "value may be any 32-bit unsigned integer",
+        "Call before Mutate/CrossOver/Fix if deterministic behavior is required"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Mutate",
+      "signature": "void protobuf_mutator::Mutator::Mutate(protobuf::Message* message, size_t max_size_hint)",
+      "description": "Randomly applies incremental changes to the given protobuf message. Mutations are basic (bit flips for scalars, small size changes for strings) unless mutation hooks are overridden or post-processors are registered. The max_size_hint is an approximate upper bound on the resulting serialized size; the function does not guarantee the result will be strictly below the hint.",
+      "requirements": [
+        "message must be non-null and point to a valid protobuf::Message instance",
+        "max_size_hint is an approximate bound; caller should verify final size and may need to retry if the result is larger than expected (per comment)",
+        "If deterministic behavior is desired across runs, call Seed() prior to invoking Mutate"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::Mutator::CrossOver",
+      "signature": "void protobuf_mutator::Mutator::CrossOver(const protobuf::Message& message1, protobuf::Message* message2, size_t max_size_hint)",
+      "description": "Combines data from message1 into message2 (in-place) to produce a crossover variant, using the mutator’s strategy and respecting an approximate size hint. Intended for fuzzing-style crossovers between related messages.",
+      "requirements": [
+        "message2 must be non-null and point to a valid protobuf::Message instance",
+        "max_size_hint is an approximate bound; caller should verify final size and may need to retry if the result is larger than expected",
+        "Inferred: message1 and message2 should be of the same concrete protobuf type; behavior for differing types is unspecified",
+        "If deterministic behavior is desired across runs, call Seed() prior to invoking CrossOver"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Fix",
+      "signature": "void protobuf_mutator::Mutator::Fix(protobuf::Message* message)",
+      "description": "Ensures the message is initialized and then invokes any registered post-processors to make the message valid according to custom logic. Useful after manual edits or mutations to bring the message into a consistent state.",
+      "requirements": [
+        "message must be non-null and point to a valid protobuf::Message instance",
+        "Registered post-processors (if any) will be executed; ensure they can handle the provided message type",
+        "If deterministic behavior for post-processing is desired, call Seed() prior to Fix so post-processors can use the provided seed"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::Mutator::RegisterPostProcessor",
+      "signature": "void protobuf_mutator::Mutator::RegisterPostProcessor(const protobuf::Descriptor* desc, protobuf_mutator::Mutator::PostProcess callback)",
+      "description": "Registers a callback to be invoked after every message mutation for messages matching the given descriptor. The callback can adjust fields or apply fuzzer-specific modifications. The callback receives a protobuf::Message* and a seed; implementations should use the seed to initialize their random generators.",
+      "requirements": [
+        "desc must be non-null and should be the descriptor of the target message type(s) for which the post-processor applies",
+        "callback must be a valid callable matching void(protobuf::Message* message, unsigned int seed) and should use the seed to initialize its RNGs (per comment)",
+        "Register post-processors before calling Mutate/CrossOver/Fix to ensure they are applied",
+        "callback must tolerate being called after each mutation and must handle the provided message type safely"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::ParseTextMessage",
+      "signature": "bool protobuf_mutator::ParseTextMessage(const uint8_t* data, size_t size, protobuf::Message* output)",
+      "description": "Parses a text-format protobuf message from a raw byte buffer into the provided protobuf::Message. Use when you have text data in a memory buffer and want to populate an existing message instance. Returns true on successful parse, false otherwise. Exact merge/clear behavior on the output message is not documented in the header; unknown whether fields are cleared or merged on success.",
+      "requirements": [
+        "data must point to at least size bytes of readable memory; data must be non-null when size > 0",
+        "size is the number of bytes of text to parse",
+        "output must be a non-null pointer to a mutable protobuf::Message of the desired concrete type that matches the text being parsed",
+        "The buffer content must contain a valid text-format representation for the type of *output*; otherwise the function returns false",
+        "No exceptions or error objects are documented; callers must check the boolean return value for success",
+        "Behavior on partial/invalid input, field merging vs. clearing, and error reporting details are unknown from this header"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::ParseTextMessage",
+      "signature": "bool protobuf_mutator::ParseTextMessage(const std::string& data, protobuf::Message* output)",
+      "description": "Parses a text-format protobuf message from a std::string into the provided protobuf::Message. Returns true on successful parse, false otherwise. Intended for callers that already have the text data in a C++ string. Merge/clear behavior on the output message is not specified here.",
+      "requirements": [
+        "output must be a non-null pointer to a mutable protobuf::Message of the desired concrete type that matches the text being parsed",
+        "data must contain a valid text-format representation for the type of *output*; otherwise the function returns false",
+        "No exceptions or error objects are documented; callers must check the boolean return value for success",
+        "Behavior on partial/invalid input, field merging vs. clearing, and error reporting details are unknown from this header"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::SaveMessageAsText",
+      "signature": "size_t protobuf_mutator::SaveMessageAsText(const protobuf::Message& message, uint8_t* data, size_t max_size)",
+      "description": "Serializes the given protobuf message to its text-format representation and writes it into the provided byte buffer. Returns a size_t (likely the number of bytes written), but truncation behavior and null-termination are not documented in the header. Use when you need to write into a caller-provided buffer; if the required size is unknown or you need an owning string, prefer the std::string overload.",
+      "requirements": [
+        "data must point to a writable buffer of at least max_size bytes; data must be non-null when max_size > 0",
+        "message must be a valid protobuf::Message instance (may be empty)",
+        "The caller should provide a sufficiently large buffer to hold the full text output; whether the function truncates or fails on insufficient space is unknown from this header",
+        "No guarantees are stated about null-termination; the caller must not assume a trailing '\\0' is written",
+        "The return value’s exact meaning (bytes written vs. required size on overflow) is not specified in this header and should be verified against the implementation/documentation"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::SaveMessageAsText",
+      "signature": "std::string protobuf_mutator::SaveMessageAsText(const protobuf::Message& message)",
+      "description": "Serializes the given protobuf message to its text-format representation and returns it as a std::string. Use this overload when you want a managed string with the full text and do not want to manage buffers.",
+      "requirements": [
+        "message must be a valid protobuf::Message instance (may be empty)",
+        "Returned string contains the entire text-format serialization; encoding specifics are not stated in this header (commonly ASCII/UTF-8 for protobuf text format)"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::ParseBinaryMessage",
+      "signature": "bool protobuf_mutator::ParseBinaryMessage(const uint8_t* data, size_t size, protobuf::Message* output)",
+      "description": "Parses a Protocol Buffers message from a raw binary buffer into the provided protobuf::Message instance. Returns true on successful parse and false otherwise. Typical usage: construct an instance of the desired concrete message type, then call this function with a pointer to the serialized bytes and their length to populate the instance.",
+      "requirements": [
+        "output must be a non-null pointer to a mutable protobuf::Message of the concrete type expected in the binary data",
+        "data must point to a valid, readable memory region of at least size bytes",
+        "size is the exact number of bytes available in data",
+        "The binary payload must be a valid serialization for the concrete type of *output; otherwise the function will return false",
+        "Thread-safety and reentrancy are unknown; callers should not assume this function is thread-safe without external synchronization"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::ParseBinaryMessage",
+      "signature": "bool protobuf_mutator::ParseBinaryMessage(const std::string& data, protobuf::Message* output)",
+      "description": "Parses a Protocol Buffers message from a std::string containing binary-serialized data into the provided protobuf::Message instance. Returns true on success, false on parse failure.",
+      "requirements": [
+        "output must be a non-null pointer to a mutable protobuf::Message of the concrete type expected in the binary data",
+        "data must contain a complete, valid binary serialization for the concrete type of *output",
+        "The contents of data are treated as raw bytes; no encoding conversions are performed",
+        "Thread-safety and reentrancy are unknown; callers should not assume this function is thread-safe without external synchronization"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::SaveMessageAsBinary",
+      "signature": "size_t protobuf_mutator::SaveMessageAsBinary(const protobuf::Message& message, uint8_t* data, size_t max_size)",
+      "description": "Serializes the given Protocol Buffers message into the provided raw byte buffer. Returns the number of bytes written. Intended for callers that manage their own output buffer.",
+      "requirements": [
+        "message must be a fully initialized protobuf message instance suitable for serialization",
+        "data must be a non-null pointer to a writable buffer large enough to hold at least max_size bytes",
+        "max_size specifies the maximum number of bytes that may be written to data",
+        "Behavior when the serialized size exceeds max_size is unspecified by this header; callers should ensure max_size is sufficient for the message's serialized size to avoid truncation or failure"
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::SaveMessageAsBinary",
+      "signature": "std::string protobuf_mutator::SaveMessageAsBinary(const protobuf::Message& message)",
+      "description": "Serializes the given Protocol Buffers message to a std::string containing the binary-encoded form. The returned string contains the exact serialized bytes.",
+      "requirements": [
+        "message must be a fully initialized protobuf message instance suitable for serialization",
+        "The function may allocate memory for the returned string; no capacity guarantees are provided"
+      ],
+      "error": null
+    },
+    {
+      "name": "google::protobuf::DownCastMessage",
+      "signature": "template <typename T>\nconst T* google::protobuf::DownCastMessage(const google::protobuf::Message* message)",
+      "description": "Downcasts a protobuf Message pointer to a specific generated message type T (const-qualified). For older protobuf versions it performs a static_cast; for newer versions it delegates to DownCastToGenerated<T>. Use when you know the dynamic type of message is exactly T (or derived as appropriate) and you need a const T*. Passing nullptr returns nullptr.",
+      "requirements": [
+        "T must match the actual runtime type of the object pointed to by message; otherwise behavior is undefined (static_cast path) or may trigger a check in newer protobufs.",
+        "message may be nullptr; the function returns nullptr in that case.",
+        "T must be a protobuf generated message type compatible with google::protobuf::Message."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::protobuf::DownCastMessage",
+      "signature": "template <typename T>\nT* google::protobuf::DownCastMessage(google::protobuf::Message* message)",
+      "description": "Downcasts a protobuf Message pointer to a specific generated message type T (mutable). For older protobuf versions it performs a static_cast; for newer versions it delegates to DownCastToGenerated<T>. Use when you know the dynamic type of message is exactly T (or derived as appropriate) and you need a T*. Passing nullptr returns nullptr.",
+      "requirements": [
+        "T must match the actual runtime type of the object pointed to by message; otherwise behavior is undefined (static_cast path) or may trigger a check in newer protobufs.",
+        "message may be nullptr; the function returns nullptr in that case.",
+        "T must be a protobuf generated message type compatible with google::protobuf::Message."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::RequiresUtf8Validation",
+      "signature": "inline bool protobuf_mutator::RequiresUtf8Validation(const google::protobuf::FieldDescriptor& descriptor)",
+      "description": "Reports whether a string field requires UTF-8 validation based on the FieldDescriptor and protobuf library version. In newer versions it queries descriptor.requires_utf8_validation(); in older versions it infers this for proto3 string fields.",
+      "requirements": [
+        "descriptor must refer to a valid FieldDescriptor object for the duration of the call.",
+        "Behavior depends on the linked Protobuf version (GOOGLE_PROTOBUF_VERSION)."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::HasPresence",
+      "signature": "inline bool protobuf_mutator::HasPresence(const google::protobuf::FieldDescriptor& descriptor)",
+      "description": "Determines whether the given field has presence semantics. In newer protobuf versions it calls descriptor.has_presence(); in older versions it emulates presence rules (non-repeated messages, oneof members, or proto2 syntax).",
+      "requirements": [
+        "descriptor must refer to a valid FieldDescriptor object for the duration of the call.",
+        "Result depends on Protobuf version and field properties (repeatedness, cpp_type, oneof membership, file syntax)."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::PrepareTextParser",
+      "signature": "inline void protobuf_mutator::PrepareTextParser(google::protobuf::TextFormat::Parser& parser)",
+      "description": "Configures a TextFormat::Parser with recommended settings: sets recursion limit to 100 and allows unknown fields, when supported (protobuf >= 3.8). Acts as a no-op on older versions. Call before parsing text proto input to relax unknowns and cap recursion depth.",
+      "requirements": [
+        "parser must be a valid TextFormat::Parser instance.",
+        "On protobuf versions < 3.8, the function performs no configuration; callers should not rely on recursion limit or unknown-field allowance being set in that case."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::TextParserCanSetRecursionLimit",
+      "signature": "constexpr bool protobuf_mutator::TextParserCanSetRecursionLimit()",
+      "description": "Returns a compile-time boolean indicating whether PrepareTextParser (or caller code) can set TextFormat::Parser's recursion limit (true for protobuf >= 3.8).",
+      "requirements": [
+        "None; pure constexpr function whose value depends on the compiled Protobuf version macro."
+      ],
+      "error": null
+    },
+    {
+      "name": "protobuf_mutator::TextParserCanAllowUnknownField",
+      "signature": "constexpr bool protobuf_mutator::TextParserCanAllowUnknownField()",
+      "description": "Returns a compile-time boolean indicating whether TextFormat::Parser supports allowing unknown fields (true for protobuf >= 3.8).",
+      "requirements": [
+        "None; pure constexpr function whose value depends on the compiled Protobuf version macro."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "protobuf_mutator::Mutator::Mutator",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mutator",
+          "type": "protobuf_mutator::Mutator *"
+        }
+      ],
+      "code": "// Create a new base mutator instance via default constructor.\nprotobuf_mutator::Mutator *mutator = new protobuf_mutator::Mutator();\n\n// Track seeding state for downstream stubs.\nFUZZ_SET_ATTR_INT(mutator, \"seeded\", 0);\nFUZZ_SET_ATTR_INT(mutator, \"seed\", 0);\n\n// Validation: object is non-null and owned by the fuzzer pool via outputs.\n// If allocation failed (extremely unlikely in this harness), bail.\nif (!mutator) { FUZZ_BAIL(); }\n\n// Validation summary: Constructs a fresh Mutator and annotates it as unseeded; the object is returned to the pool."
+    },
+    {
+      "name": "protobuf_mutator::Mutator::~Mutator",
+      "inputs": [
+        {
+          "name": "mutator",
+          "type": "protobuf_mutator::Mutator *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Destroy the mutator. No additional ownership is tracked in the API.\n// Drop any attributes; memory is released by delete.\nif (!mutator) { FUZZ_BAIL(); }\n\n// It is safe to delete regardless of seeded state.\ndelete mutator;\n\n// Validation summary: Ensures non-null then deletes; no outputs are returned to avoid use-after-free."
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Seed",
+      "inputs": [
+        {
+          "name": "mutator",
+          "type": "protobuf_mutator::Mutator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mutator",
+          "type": "protobuf_mutator::Mutator *"
+        }
+      ],
+      "code": "// Seed must be any 32-bit unsigned integer.\nif (!mutator) { FUZZ_BAIL(); }\nuint32_t seed = (uint32_t)(*FUZZ_PARAM(unsigned int));\n\n// Initialize internal RNG for deterministic behavior.\nmutator->Seed(seed);\n\n// Track seeding metadata for later operations.\nFUZZ_SET_ATTR_INT(mutator, \"seeded\", 1);\nFUZZ_SET_ATTR_INT(mutator, \"seed\", (int)seed);\n\n// Keep mutator alive by returning it as an output.\n// Validation summary: Non-null input, calls Seed with a valid 32-bit value, and persists the object with seed metadata."
+    },
+    {
+      "name": "protobuf_mutator::TextParserCanSetRecursionLimit",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Query the compile-time capability and assert it is a proper boolean value.\nbool can_set = protobuf_mutator::TextParserCanSetRecursionLimit();\nFUZZ_ASSERT((can_set == true) || (can_set == false), \"constexpr capability must be boolean\");\n// Record in global attributes for potential cross-stub checks.\nFUZZ_SET_ATTR_INT_GLOBAL(\"TextParserCanSetRecursionLimit\", can_set ? 1 : 0);\n// Validation: No inputs/outputs; call is pure/constexpr and side-effect free. We assert boolean-ness and store a hint for other stubs."
+    },
+    {
+      "name": "protobuf_mutator::TextParserCanAllowUnknownField",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Query the compile-time capability and assert it is a proper boolean value.\nbool can_allow = protobuf_mutator::TextParserCanAllowUnknownField();\nFUZZ_ASSERT((can_allow == true) || (can_allow == false), \"constexpr capability must be boolean\");\n// Cross-check expected relationship: allowing unknown fields implies the parser supports\n// setting recursion limit on versions where this is enabled (>= 3.8 typically sets both).\nbool can_set = protobuf_mutator::TextParserCanSetRecursionLimit();\nif (can_allow) {\n  FUZZ_ASSERT(can_set, \"AllowUnknownField implies SetRecursionLimit support in supported protobuf versions\");\n}\n// Validation: No inputs/outputs; pure constexpr calls. We assert boolean-ness and a logical implication between capabilities."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "LLVMFuzzerCustomMutator",
+      "reason": "This symbol is macro-generated and bound to a concrete Proto type; without a linked DEFINE_*_PROTO_FUZZER target and concrete message type it cannot be safely invoked."
+    },
+    {
+      "name": "LLVMFuzzerCustomCrossOver",
+      "reason": "This entry point is macro-generated and depends on a concrete Proto type; without a linked DEFINE_*_PROTO_FUZZER crossover implementation it cannot be called."
+    },
+    {
+      "name": "LLVMFuzzerTestOneInput",
+      "reason": "This entry point is macro-generated and requires a concrete Proto type and TestOneProtoInput implementation, which are not available in this harness context."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::CustomProtoMutator",
+      "reason": "It requires a concrete protobuf::Message instance of the target type, which is not available among provided objects and cannot be constructed here."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::CustomProtoCrossOver",
+      "reason": "It requires two concrete protobuf::Message instances of the target type, which are not provided and cannot be constructed in this harness."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::LoadProtoInput",
+      "reason": "It requires a protobuf::Message of a specific concrete type to parse into, which is not available in the provided objects."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::RegisterPostProcessor",
+      "reason": "It requires a valid protobuf::Descriptor and concrete-message-aware callback, but no Descriptor or message types are available to the harness."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateInt32",
+      "reason": "Implementation is not linked (only declared in headers), leading to undefined references at link time."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateInt64",
+      "reason": "Implementation is not linked (only declared in headers), leading to undefined references at link time."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateUInt32",
+      "reason": "Implementation is not linked (only declared in headers), leading to undefined references at link time."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateUInt64",
+      "reason": "Implementation is not linked (only declared in headers), leading to undefined references at link time."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateFloat",
+      "reason": "Implementation is not linked (only declared in headers), leading to undefined references at link time."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateDouble",
+      "reason": "Implementation is not linked (only declared in headers), leading to undefined references at link time."
+    },
+    {
+      "name": "protobuf_mutator::libfuzzer::Mutator::MutateString",
+      "reason": "Implementation is not linked (only declared in headers), leading to undefined references at link time."
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Mutate",
+      "reason": "Requires protobuf::Message* which is not available as an object type; cannot safely compile or invoke with void*."
+    },
+    {
+      "name": "protobuf_mutator::Mutator::CrossOver",
+      "reason": "Requires protobuf::Message and protobuf::Message* types which are not provided; type mismatch prevents a safe harness."
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Fix",
+      "reason": "Requires protobuf::Message* which is not available in the object list; cannot be meaningfully exercised."
+    },
+    {
+      "name": "protobuf_mutator::Mutator::RegisterPostProcessor",
+      "reason": "Requires const protobuf::Descriptor* and a callback operating on protobuf::Message*; these types are unavailable for a safe harness."
+    },
+    {
+      "name": "protobuf_mutator::ParseTextMessage",
+      "reason": "Requires a concrete protobuf::Message instance, but no message types are available in the object pool and the abstract base cannot be instantiated in the stub."
+    },
+    {
+      "name": "protobuf_mutator::SaveMessageAsText",
+      "reason": "Requires a concrete protobuf::Message instance to serialize, but no such objects are available or constructible under the provided fuzzer model."
+    },
+    {
+      "name": "protobuf_mutator::ParseBinaryMessage",
+      "reason": "Requires protobuf::Message and descriptor APIs which are unavailable in the current toolchain, so no concrete message can be constructed to call it."
+    },
+    {
+      "name": "protobuf_mutator::SaveMessageAsBinary",
+      "reason": "Requires protobuf::Message and related headers/types which are not present in the build environment, preventing creation of a serializable message instance."
+    },
+    {
+      "name": "google::protobuf::DownCastMessage",
+      "reason": "Cannot instantiate the template without a concrete generated message type T and a matching google::protobuf::Message* instance, which are unavailable in the fuzzer object pool."
+    },
+    {
+      "name": "protobuf_mutator::RequiresUtf8Validation",
+      "reason": "Requires a valid google::protobuf::FieldDescriptor reference, which cannot be constructed or provided by the current fuzzer object model."
+    },
+    {
+      "name": "protobuf_mutator::HasPresence",
+      "reason": "Requires a valid google::protobuf::FieldDescriptor reference, which cannot be constructed or provided by the current fuzzer object model."
+    },
+    {
+      "name": "protobuf_mutator::PrepareTextParser",
+      "reason": "Requires a google::protobuf::TextFormat::Parser reference, which cannot be constructed or provided by the current fuzzer object model."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "protobuf_mutator::Mutator::Mutator",
+      "data_types": []
+    },
+    {
+      "name": "protobuf_mutator::Mutator::~Mutator",
+      "data_types": []
+    },
+    {
+      "name": "protobuf_mutator::Mutator::Seed",
+      "data_types": []
+    },
+    {
+      "name": "protobuf_mutator::TextParserCanSetRecursionLimit",
+      "data_types": []
+    },
+    {
+      "name": "protobuf_mutator::TextParserCanAllowUnknownField",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8027,
+            "output_tokens": 2561,
+            "total_tokens": 10588
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5495,
+            "output_tokens": 470,
+            "total_tokens": 5965
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8479,
+            "output_tokens": 11129,
+            "total_tokens": 19608
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 58494,
+            "output_tokens": 14985,
+            "total_tokens": 73479
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 750.9709832668304,
+    "scan_objects": 9.016970872879028,
+    "validate_objects": 5.276648998260498,
+    "scan_functions": 0,
+    "synthesis": 736.5724658966064,
+    "fill": 0,
+    "classify": 0.10310578346252441,
+    "build_generators": 0.00009465217590332031
+  }
+}

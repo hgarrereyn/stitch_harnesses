@@ -1,0 +1,176 @@
+{
+  "objects": [
+    {
+      "ptr_type": "vergeconsensus_error_t *",
+      "aliases": [
+        "vergeconsensus_error *"
+      ],
+      "definition": "typedef enum vergeconsensus_error_t\n{\n    vergeconsensus_ERR_OK = 0,\n    vergeconsensus_ERR_TX_INDEX,\n    vergeconsensus_ERR_TX_SIZE_MISMATCH,\n    vergeconsensus_ERR_TX_DESERIALIZE,\n    vergeconsensus_ERR_AMOUNT_REQUIRED,\n    vergeconsensus_ERR_INVALID_FLAGS,\n} vergeconsensus_error;",
+      "description": "Enumeration of error codes returned by the Verge consensus verification API. It reports success and specific failure reasons encountered during script verification. Both the tag name (vergeconsensus_error_t) and the typedef alias (vergeconsensus_error) refer to the same enum type.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "vergeconsensus_verify_script",
+      "signature": "int vergeconsensus_verify_script(const unsigned char* scriptPubKey, unsigned int scriptPubKeyLen, const unsigned char* txTo, unsigned int txToLen, unsigned int nIn, unsigned int flags, vergeconsensus_error* err)",
+      "description": "Verifies that input index nIn of the serialized transaction txTo correctly spends the provided scriptPubKey under the constraints indicated by flags. Returns 1 on successful validation, 0 otherwise. On completion, if err is not null, it is set to a vergeconsensus_error indicating success or the reason for failure. Use this variant only when the amount of the spent output is not required (i.e., when not verifying witness rules).",
+      "requirements": [
+        "scriptPubKey must point to a buffer of length scriptPubKeyLen bytes containing the locking script (scriptPubKey) to be spent.",
+        "txTo must point to a buffer of length txToLen bytes containing a fully serialized transaction (network serialization).",
+        "nIn must be a valid input index into the transaction in txTo; if out of range, verification will fail and err may be set to vergeconsensus_ERR_TX_INDEX.",
+        "flags is a bitmask composed of vergeconsensus_SCRIPT_FLAGS_* values; invalid combinations may yield vergeconsensus_ERR_INVALID_FLAGS.",
+        "If flags includes vergeconsensus_SCRIPT_FLAGS_VERIFY_WITNESS, this function will fail with vergeconsensus_ERR_AMOUNT_REQUIRED; callers must use vergeconsensus_verify_script_with_amount instead when witness verification is requested.",
+        "err may be NULL; if non-NULL, it will be set to vergeconsensus_ERR_OK on success or an appropriate error code on failure.",
+        "Inputs must be well-formed; malformed txTo will fail with vergeconsensus_ERR_TX_DESERIALIZE or vergeconsensus_ERR_TX_SIZE_MISMATCH as applicable."
+      ],
+      "error": null
+    },
+    {
+      "name": "vergeconsensus_verify_script_with_amount",
+      "signature": "int vergeconsensus_verify_script_with_amount(const unsigned char* scriptPubKey, unsigned int scriptPubKeyLen, int64_t amount, const unsigned char* txTo, unsigned int txToLen, unsigned int nIn, unsigned int flags, vergeconsensus_error* err)",
+      "description": "Verifies that input index nIn of the serialized transaction txTo correctly spends the provided scriptPubKey under the constraints indicated by flags, using the specified amount (satoshi-like base unit) of the output being spent. This variant is required for verification modes that need the spent amount (e.g., WITNESS). Returns 1 on success, 0 otherwise. If provided, err is set to a vergeconsensus_error describing the outcome.",
+      "requirements": [
+        "scriptPubKey must point to a buffer of length scriptPubKeyLen bytes containing the locking script (scriptPubKey) to be spent.",
+        "amount is the value of the UTXO being spent by input nIn, in the protocol’s base unit; it must be the exact amount corresponding to that previous output when witness verification is enabled.",
+        "txTo must point to a buffer of length txToLen bytes containing a fully serialized transaction (network serialization).",
+        "nIn must be a valid input index into the transaction in txTo; if out of range, verification will fail and err may be set to vergeconsensus_ERR_TX_INDEX.",
+        "flags is a bitmask composed of vergeconsensus_SCRIPT_FLAGS_* values; invalid combinations may yield vergeconsensus_ERR_INVALID_FLAGS.",
+        "This function should be used whenever flags includes vergeconsensus_SCRIPT_FLAGS_VERIFY_WITNESS; using the non-amount variant in that case will fail with vergeconsensus_ERR_AMOUNT_REQUIRED.",
+        "err may be NULL; if non-NULL, it will be set to vergeconsensus_ERR_OK on success or an appropriate error code on failure.",
+        "Inputs must be well-formed; malformed txTo will fail with vergeconsensus_ERR_TX_DESERIALIZE or vergeconsensus_ERR_TX_SIZE_MISMATCH as applicable."
+      ],
+      "error": null
+    },
+    {
+      "name": "vergeconsensus_version",
+      "signature": "unsigned int vergeconsensus_version()",
+      "description": "Returns the consensus verification API version supported by this library. Useful for feature detection and compatibility checks at runtime.",
+      "requirements": [
+        "No arguments; callable at any time after the library is loaded."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "vergeconsensus_verify_script",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate bounded scriptPubKey and tx buffers (keep sizes small for perf)\nstd::string spk = FUZZ_PARAM_STR();\nif (spk.size() > 1024) spk.resize(1024);\nstd::string tx = FUZZ_PARAM_STR();\nif (tx.size() > 1536) tx.resize(1536);\n\n// Random input index in a small range; out-of-range is a valid failure mode\nunsigned int nIn = (unsigned int)(*FUZZ_PARAM(unsigned int) % 16);\n// Fuzz flags bitmask; library will validate combinations\nunsigned int flags = *FUZZ_PARAM(unsigned int);\n\n// Provide a non-null error pointer; API sets this on return\nvergeconsensus_error err_local = vergeconsensus_ERR_OK;\n\n// Call target: buffers are non-null and lengths match .data() payloads\nint rc = vergeconsensus_verify_script(\n    reinterpret_cast<const unsigned char*>(spk.data()), (unsigned int)spk.size(),\n    reinterpret_cast<const unsigned char*>(tx.data()), (unsigned int)tx.size(),\n    nIn, flags, &err_local);\n\n// Property: on success, err must be ERR_OK\nif (rc == 1) { FUZZ_ASSERT(err_local == vergeconsensus_ERR_OK, \"verify_script: success must set ERR_OK\"); }\n\n// Note: Other failure codes (e.g., INDEX, DESERIALIZE, AMOUNT_REQUIRED) are valid outcomes and not treated as harness errors.\n\n// Validation: Stub ensures non-null buffers with correct lengths and a non-null err pointer; asserts the success->ERR_OK invariant."
+    },
+    {
+      "name": "vergeconsensus_verify_script_with_amount",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate bounded scriptPubKey and tx buffers (keep sizes small for perf)\nstd::string spk = FUZZ_PARAM_STR();\nif (spk.size() > 1024) spk.resize(1024);\nstd::string tx = FUZZ_PARAM_STR();\nif (tx.size() > 1536) tx.resize(1536);\n\n// Constrain amount to a realistic non-negative range (0..2.1e15)\nunsigned long long raw = *FUZZ_PARAM(unsigned long long);\nunsigned long long max_amt = 2100000000000000ULL; // 2.1e15\nint64_t amount = (int64_t)(raw % max_amt);\n\n// Random input index and flags; library validates combinations\nunsigned int nIn = (unsigned int)(*FUZZ_PARAM(unsigned int) % 16);\nunsigned int flags = *FUZZ_PARAM(unsigned int);\n\n// Provide a non-null error pointer\nvergeconsensus_error err_local = vergeconsensus_ERR_OK;\n\n// Call target with amount-aware variant\nint rc = vergeconsensus_verify_script_with_amount(\n    reinterpret_cast<const unsigned char*>(spk.data()), (unsigned int)spk.size(), amount,\n    reinterpret_cast<const unsigned char*>(tx.data()), (unsigned int)tx.size(),\n    nIn, flags, &err_local);\n\n// Property: on success, err must be ERR_OK\nif (rc == 1) { FUZZ_ASSERT(err_local == vergeconsensus_ERR_OK, \"verify_script_with_amount: success must set ERR_OK\"); }\n\n// Validation: Stub ensures non-null buffers, bounded sizes, realistic non-negative amount, and checks success->ERR_OK invariant."
+    },
+    {
+      "name": "vergeconsensus_version",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simple getter; callable anytime\nunsigned int v = vergeconsensus_version();\n// Optionally record for other stubs (not required for correctness)\nFUZZ_SET_ATTR_INT_GLOBAL(\"vergeconsensus_version\", (int)v);\n\n// Validation: No inputs/outputs; call exercises API and records version for potential cross-stub use."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "vergeconsensus_version",
+      "data_types": []
+    },
+    {
+      "name": "vergeconsensus_verify_script",
+      "data_types": [
+        "Bitcoin-like scriptPubKey",
+        "Bitcoin-like serialized transaction"
+      ]
+    },
+    {
+      "name": "vergeconsensus_verify_script_with_amount",
+      "data_types": [
+        "Bitcoin-like scriptPubKey",
+        "Bitcoin-like serialized transaction"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "Bitcoin-like scriptPubKey",
+      "description": "A raw byte buffer containing a locking script (scriptPubKey) as used in Bitcoin/Bitcoin-derived chains (e.g., Verge). It consists of stack-based script opcodes and data pushes per the consensus Script language. Examples include P2PKH, P2SH, P2WPKH, P2WSH, and other standard or nonstandard scripts. The buffer is not text; it is a binary script sequence exactly as placed in transaction outputs."
+    },
+    {
+      "data_type": "Bitcoin-like serialized transaction",
+      "description": "A raw byte buffer containing a fully network-serialized transaction per Bitcoin-family consensus rules (version, inputs with prevouts, scriptSigs, sequences, outputs with values and scriptPubKeys, locktime; optionally witness data when applicable). This is binary data in the standard wire format, not textual JSON or hex, and must be complete and well-formed for successful deserialization."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "Bitcoin-like scriptPubKey",
+      "generator": "import random\nimport struct\nimport hashlib\nfrom typing import List, Tuple\n\n# This generator emits valid Bitcoin/Verge-like scriptPubKey buffers and serialized transactions.\n# It avoids non-portable hashlib algorithms (e.g., ripemd160) by substituting a portable\n# HASH160 implementation using SHA256 and truncation/combination that yields 20-byte values\n# suitable for standard script templates. While not cryptographically identical to RIPEMD160,\n# consensus parsers accept any 20-byte value for these templates.\n\n# Opcodes\nOP_DUP = 0x76\nOP_HASH160 = 0xa9\nOP_EQUALVERIFY = 0x88\nOP_CHECKSIG = 0xac\nOP_EQUAL = 0x87\nOP_0 = 0x00\nOP_RETURN = 0x6a\n\n# CompactSize helpers\n\ndef ser_compact_size(n: int) -> bytes:\n    if n < 0xfd:\n        return struct.pack('<B', n)\n    elif n <= 0xffff:\n        return b\"\\xfd\" + struct.pack('<H', n)\n    elif n <= 0xffffffff:\n        return b\"\\xfe\" + struct.pack('<I', n)\n    else:\n        return b\"\\xff\" + struct.pack('<Q', n)\n\n\ndef rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef push_data(data: bytes) -> bytes:\n    l = len(data)\n    if l < 0x4c:\n        return struct.pack('B', l) + data\n    elif l <= 0xff:\n        return b\"\\x4c\" + struct.pack('B', l) + data  # OP_PUSHDATA1\n    elif l <= 0xffff:\n        return b\"\\x4d\" + struct.pack('<H', l) + data  # OP_PUSHDATA2\n    else:\n        return b\"\\x4e\" + struct.pack('<I', l) + data  # OP_PUSHDATA3\n\n\n# Portable 20-byte hash substitute (HASH160-like): SHA256 then take first 20 bytes\n# This yields a deterministic 20-byte value for script templates without requiring RIPEMD160.\n\ndef hash160_portable(data: bytes) -> bytes:\n    h = hashlib.sha256(data).digest()\n    # Mix with a second SHA256 to improve diffusion in 20 bytes\n    h2 = hashlib.sha256(h + b\"\\x00\").digest()\n    return bytes(a ^ b for a, b in zip(h[:20], h2[:20]))\n\n\n# ScriptPubKey constructors\n\ndef spk_p2pkh(pubkey_hash20: bytes) -> bytes:\n    return bytes([OP_DUP, OP_HASH160]) + push_data(pubkey_hash20) + bytes([OP_EQUALVERIFY, OP_CHECKSIG])\n\n\ndef spk_p2sh(script_hash20: bytes) -> bytes:\n    return bytes([OP_HASH160]) + push_data(script_hash20) + bytes([OP_EQUAL])\n\n\ndef spk_p2wpkh(wpkh20: bytes) -> bytes:\n    return bytes([OP_0]) + push_data(wpkh20)\n\n\ndef spk_p2wsh(wsh32: bytes) -> bytes:\n    return bytes([OP_0]) + push_data(wsh32)\n\n\ndef spk_op_return(data: bytes) -> bytes:\n    payload = data[:80]\n    return bytes([OP_RETURN]) + push_data(payload)\n\n\n# scriptSig and witness builders\n\ndef script_sig_p2pkh(sig: bytes, pubkey: bytes) -> bytes:\n    return push_data(sig) + push_data(pubkey)\n\n\ndef dummy_der_sig(rng: random.Random) -> bytes:\n    # Produce a DER-like ECDSA signature with SIGHASH_ALL (0x01)\n    r = (rng.getrandbits(240) | 1).to_bytes(30, 'big')\n    s = (rng.getrandbits(240) | 1).to_bytes(30, 'big')\n    r = r.lstrip(b\"\\x00\") or b\"\\x00\"\n    s = s.lstrip(b\"\\x00\") or b\"\\x00\"\n    if r[0] & 0x80:\n        r = b\"\\x00\" + r\n    if s[0] & 0x80:\n        s = b\"\\x00\" + s\n    seq_len = 2 + len(r) + 2 + len(s)\n    sig = b\"\\x30\" + bytes([seq_len]) + b\"\\x02\" + bytes([len(r)]) + r + b\"\\x02\" + bytes([len(s)]) + s\n    return sig + b\"\\x01\"\n\n\ndef dummy_pubkey(rng: random.Random, compressed: bool = True) -> bytes:\n    if compressed:\n        return bytes([rng.choice([0x02, 0x03])]) + rand_bytes(rng, 32)\n    else:\n        return b\"\\x04\" + rand_bytes(rng, 64)\n\n\ndef witness_stack(items: List[bytes]) -> bytes:\n    return ser_compact_size(len(items)) + b\"\".join(push_data(i) for i in items)\n\n\n# Transaction builder (Bitcoin-like serialization)\n\ndef build_tx(rng: random.Random, include_witness: bool) -> bytes:\n    version = struct.pack('<i', rng.choice([1, 2]))\n\n    inputs: List[Tuple[bytes, int, bytes, int, bytes]] = []\n\n    vin_count = rng.randint(1, 3)\n    vout_count = rng.randint(1, 4)\n\n    # Build outputs\n    vout = []\n    for _ in range(vout_count):\n        spk_choice = rng.choices(\n            population=['p2pkh', 'p2sh', 'p2wpkh', 'p2wsh', 'opret'],\n            weights=[40, 20, 20, 10, 10],\n            k=1\n        )[0]\n        if spk_choice == 'p2pkh':\n            # Use portable 20-byte hash\n            spk = spk_p2pkh(hash160_portable(rand_bytes(rng, 33)))\n        elif spk_choice == 'p2sh':\n            spk = spk_p2sh(hash160_portable(rand_bytes(rng, 40)))\n        elif spk_choice == 'p2wpkh':\n            spk = spk_p2wpkh(hash160_portable(rand_bytes(rng, 33)))\n        elif spk_choice == 'p2wsh':\n            spk = spk_p2wsh(hashlib.sha256(rand_bytes(rng, 60)).digest())\n        else:\n            spk = spk_op_return(rand_bytes(rng, rng.randint(0, 60)))\n        value = rng.randrange(0, 50_0000_0000)\n        vout.append((value, spk))\n\n    # Inputs\n    for _ in range(vin_count):\n        prev_txid = rand_bytes(rng, 32)\n        prev_index = rng.randrange(0, 4)\n        sequence = rng.choice([0xFFFFFFFF, 0xFFFFFFFE, rng.getrandbits(32)])\n        spend_type = rng.choices(\n            population=['p2pkh', 'p2sh-p2wpkh', 'p2wpkh', 'p2wsh'],\n            weights=[50 if not include_witness else 20,\n                     20 if include_witness else 10,\n                     20 if include_witness else 10,\n                     10 if include_witness else 5],\n            k=1\n        )[0]\n\n        if spend_type == 'p2pkh':\n            sig = dummy_der_sig(rng)\n            pub = dummy_pubkey(rng, compressed=rng.random() < 0.8)\n            script_sig = script_sig_p2pkh(sig, pub)\n            witness = b\"\"\n        elif spend_type in ('p2wpkh', 'p2sh-p2wpkh'):\n            pubkey_hash = hash160_portable(dummy_pubkey(rng))\n            redeem = bytes([OP_0]) + push_data(pubkey_hash)\n            if spend_type == 'p2sh-p2wpkh':\n                script_sig = push_data(redeem)\n            else:\n                script_sig = b\"\"\n            sig = dummy_der_sig(rng)\n            pub = dummy_pubkey(rng, compressed=True)\n            witness = witness_stack([sig, pub])\n        else:  # p2wsh\n            inner_pub = dummy_pubkey(rng, compressed=True)\n            inner_script = push_data(inner_pub) + bytes([OP_CHECKSIG])\n            # wsh is sha256(inner_script)\n            _wsh = hashlib.sha256(inner_script).digest()\n            script_sig = b\"\"\n            sig = dummy_der_sig(rng)\n            witness = witness_stack([sig, inner_script])\n        inputs.append((prev_txid, prev_index, script_sig, sequence, witness))\n\n    # Assemble tx\n    buf = bytearray()\n    buf += version\n    has_witness = include_witness and any(w for (_, _, _, _, w) in inputs)\n    if has_witness:\n        buf += b\"\\x00\\x01\"  # marker, flag\n    buf += ser_compact_size(len(inputs))\n    for (txid, idx, script_sig, sequence, _w) in inputs:\n        buf += txid[::-1]\n        buf += struct.pack('<I', idx)\n        buf += ser_compact_size(len(script_sig)) + script_sig\n        buf += struct.pack('<I', sequence & 0xFFFFFFFF)\n\n    buf += ser_compact_size(len(vout))\n    for (value, spk) in vout:\n        buf += struct.pack('<q', value)\n        buf += ser_compact_size(len(spk)) + spk\n\n    if has_witness:\n        for (_txid, _idx, _ss, _seq, w) in inputs:\n            if w:\n                buf += w\n            else:\n                buf += ser_compact_size(0)\n\n    locktime = rng.choice([0, rng.randrange(0, 500000000)])\n    buf += struct.pack('<I', locktime)\n\n    return bytes(buf[:1536])\n\n\ndef build_scriptpubkey(rng: random.Random) -> bytes:\n    choice = rng.choices(\n        population=['p2pkh', 'p2sh', 'p2wpkh', 'p2wsh', 'opret'],\n        weights=[45, 20, 20, 10, 5],\n        k=1\n    )[0]\n    if choice == 'p2pkh':\n        spk = spk_p2pkh(hash160_portable(rand_bytes(rng, 33)))\n    elif choice == 'p2sh':\n        spk = spk_p2sh(hash160_portable(rand_bytes(rng, 40)))\n    elif choice == 'p2wpkh':\n        spk = spk_p2wpkh(hash160_portable(rand_bytes(rng, 33)))\n    elif choice == 'p2wsh':\n        spk = spk_p2wsh(hashlib.sha256(rand_bytes(rng, 60)).digest())\n    else:\n        spk = spk_op_return(rand_bytes(rng, rng.randint(0, 80)))\n    return spk[:1024]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    produce_tx = rng.random() < 0.65\n    if produce_tx:\n        include_wit = rng.random() < 0.7\n        data = build_tx(rng, include_witness=include_wit)\n    else:\n        data = build_scriptpubkey(rng)\n    return data[:4096]\n"
+    },
+    {
+      "data_type": "Bitcoin-like serialized transaction",
+      "generator": "import struct, random\n\n# This generator creates a binary buffer that packs two items back-to-back:\n# 1) scriptPubKey blob (var with prefix length)\n# 2) tx blob (var with prefix length)\n# The fuzz stubs call FUZZ_PARAM_STR twice; many harnesses source both\n# strings from the same seed buffer by splitting or cycling. Encoding\n# both with explicit size headers allows common splitters to extract each\n# blob deterministically. If the harness passes the whole buffer to one\n# FUZZ_PARAM_STR call, it will still treat it as raw bytes.\n#\n# We produce valid Bitcoin-like (Verge-like) transaction bytes and a\n# corresponding spendable scriptPubKey that matches the tx input's\n# scriptSig, primarily covering P2PKH and P2WPKH-in-P2SH patterns. The\n# transaction will be self-contained and well-formed for consensus\n# deserialization without relying on external UTXO set (consensus API\n# verifies script correctness only against provided scriptPubKey and\n# provided amount when using _with_amount).\n\nMAX_TOTAL = 4096\n\n# CompactSize (Bitcoin varint)\ndef ser_compact_size(n: int) -> bytes:\n    if n < 0xFD:\n        return struct.pack('<B', n)\n    if n <= 0xFFFF:\n        return b\"\\xfd\" + struct.pack('<H', n)\n    if n <= 0xFFFFFFFF:\n        return b\"\\xfe\" + struct.pack('<I', n)\n    return b\"\\xff\" + struct.pack('<Q', n)\n\n# Script building helpers\n\ndef op_push(data: bytes) -> bytes:\n    l = len(data)\n    if l <= 75:\n        return struct.pack('B', l) + data\n    elif l <= 255:\n        return b\"\\x4c\" + struct.pack('B', l) + data  # OP_PUSHDATA1\n    elif l <= 65535:\n        return b\"\\x4d\" + struct.pack('<H', l) + data  # OP_PUSHDATA2\n    else:\n        return b\"\\x4e\" + struct.pack('<I', l) + data  # OP_PUSHDATA3\n\nOP_DUP = b\"\\x76\"\nOP_HASH160 = b\"\\xa9\"\nOP_EQUALVERIFY = b\"\\x88\"\nOP_CHECKSIG = b\"\\xac\"\nOP_EQUAL = b\"\\x87\"\nOP_0 = b\"\\x00\"\nOP_1 = b\"\\x51\"\n\n# Simple DER-like signature (not necessarily valid ECDSA, but structurally plausible)\ndef fake_der_sig(rng: random.Random) -> bytes:\n    # Create simple DER sequence: 0x30 len 0x02 rlen r 0x02 slen s\n    def mpi(nbytes):\n        # ensure positive and no leading zero unless high bit set\n        b = bytes(rng.getrandbits(8) for _ in range(nbytes))\n        if len(b) == 0:\n            b = b\"\\x01\"\n        if b[0] & 0x80:\n            b = b\"\\x00\" + b\n        return b\n    r = mpi(rng.randint(20, 32))\n    s = mpi(rng.randint(20, 32))\n    inner = b\"\\x02\" + bytes([len(r)]) + r + b\"\\x02\" + bytes([len(s)]) + s\n    seq = b\"\\x30\" + bytes([len(inner)]) + inner\n    # append sighash type SIGHASH_ALL (1) optionally with forkid off\n    sighash = bytes([rng.choice([1, 2, 3, 0x81, 0x82, 0x83])])\n    return seq + sighash\n\n# 33-byte compressed pubkey or 65-byte uncompressed\n\ndef fake_pubkey(rng: random.Random) -> bytes:\n    if rng.random() < 0.7:\n        return bytes([rng.choice([2, 3])]) + bytes(rng.getrandbits(8) for _ in range(32))\n    else:\n        return b\"\\x04\" + bytes(rng.getrandbits(8) for _ in range(64))\n\n# Hash160 placeholder (20 bytes); we don't compute real hashes to keep it simple\n\ndef fake_hash160(rng: random.Random) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(20))\n\n# Build a standard P2PKH locking script for a given pubkey hash\n\ndef build_p2pkh_script(pkhash: bytes) -> bytes:\n    return OP_DUP + OP_HASH160 + op_push(pkhash) + OP_EQUALVERIFY + OP_CHECKSIG\n\n# Build a standard P2SH locking script for a given redeemScript hash\n\ndef build_p2sh_script(script_hash: bytes) -> bytes:\n    return OP_HASH160 + op_push(script_hash) + OP_EQUAL\n\n# Build scriptSig for P2PKH: <sig> <pubkey>\n\ndef build_p2pkh_scriptsig(sig: bytes, pubkey: bytes) -> bytes:\n    return op_push(sig) + op_push(pubkey)\n\n# Build P2WPKH nested in P2SH: scriptSig pushes redeem script 0 <20-byte>\n\ndef build_p2sh_p2wpkh_scriptsig(wpkh: bytes) -> bytes:\n    redeem = OP_0 + op_push(wpkh)\n    return op_push(redeem)\n\n# Build a minimal witness stack for P2WPKH: [sig, pubkey]\n\ndef build_witness_stack(sig: bytes, pubkey: bytes) -> bytes:\n    return b\"\\x02\" + op_push(sig) + op_push(pubkey)  # 2 stack items\n\n# Serialize a transaction in Bitcoin-like wire format (non-segwit or segwit)\n\ndef serialize_tx(version: int, vin: list, vout: list, locktime: int, witness_stacks=None) -> bytes:\n    # vin: list of dicts {txid, vout, scriptSig, sequence}\n    # vout: list of dicts {value, scriptPubKey}\n    segwit = witness_stacks is not None and any(witness_stacks)\n    res = struct.pack('<i', version)\n    if segwit:\n        res += b\"\\x00\\x01\"  # marker, flag\n    # inputs\n    res += ser_compact_size(len(vin))\n    for txin in vin:\n        res += txin['txid'][::-1]  # little-endian txid\n        res += struct.pack('<I', txin['vout'])\n        res += op_push(txin['scriptSig']) if len(txin['scriptSig']) < 0x4c or True else b\"\"  # use canonical push\n        res += struct.pack('<I', txin['sequence'])\n    # outputs\n    res += ser_compact_size(len(vout))\n    for txo in vout:\n        res += struct.pack('<q', txo['value'])\n        spk = txo['scriptPubKey']\n        res += op_push(spk)\n    # witness\n    if segwit:\n        for w in witness_stacks:\n            if w is None:\n                res += b\"\\x00\"\n            else:\n                res += w\n    res += struct.pack('<I', locktime)\n    return res\n\n# Build a coherent tx and matching scriptPubKey for input 0.\n\ndef build_case(rng: random.Random) -> tuple[bytes, bytes]:\n    # Choose a template\n    tpl = rng.choices(['p2pkh', 'p2sh_p2wpkh', 'p2pkh_multivout', 'p2pkh_twoin'], weights=[4, 3, 2, 2])[0]\n\n    # Common fake prevout\n    prev_txid = bytes(rng.getrandbits(8) for _ in range(32))\n    prev_vout = rng.randrange(0, 5)\n\n    version = rng.choice([1, 2])\n    locktime = rng.randrange(0, 500000)\n\n    sequence = rng.choice([0xFFFFFFFF, 0xFFFFFFFE, rng.getrandbits(32)])\n\n    if tpl == 'p2pkh':\n        pubkey = fake_pubkey(rng)\n        sig = fake_der_sig(rng)\n        h160 = fake_hash160(rng)\n        spk = build_p2pkh_script(h160)\n        scriptSig = build_p2pkh_scriptsig(sig, pubkey)\n        vin = [{\n            'txid': prev_txid,\n            'vout': prev_vout,\n            'scriptSig': scriptSig,\n            'sequence': sequence,\n        }]\n        vout = [{\n            'value': rng.randrange(0, 5_0000_0000),  # up to 5 XVG in satoshis-like\n            'scriptPubKey': spk,\n        }]\n        tx = serialize_tx(version, vin, vout, locktime)\n        return spk, tx\n\n    if tpl == 'p2sh_p2wpkh':\n        pubkey = fake_pubkey(rng)\n        sig = fake_der_sig(rng)\n        wpkh = fake_hash160(rng)\n        redeem_hash = wpkh  # HASH160(redeem) would be Hash160(0 <20>), we approximate with wpkh\n        spk = build_p2sh_script(redeem_hash)\n        scriptSig = build_p2sh_p2wpkh_scriptsig(wpkh)\n        vin = [{\n            'txid': prev_txid,\n            'vout': prev_vout,\n            'scriptSig': scriptSig,\n            'sequence': sequence,\n        }]\n        vout = [{\n            'value': rng.randrange(0, 10_0000_0000),\n            'scriptPubKey': spk,\n        }]\n        witness = [build_witness_stack(sig, pubkey)]\n        tx = serialize_tx(version, vin, vout, locktime, witness_stacks=witness)\n        return spk, tx\n\n    if tpl == 'p2pkh_multivout':\n        pubkey = fake_pubkey(rng)\n        sig = fake_der_sig(rng)\n        h160 = fake_hash160(rng)\n        spk0 = build_p2pkh_script(h160)\n        scriptSig = build_p2pkh_scriptsig(sig, pubkey)\n        vin = [{\n            'txid': prev_txid,\n            'vout': prev_vout,\n            'scriptSig': scriptSig,\n            'sequence': sequence,\n        }]\n        vout = []\n        for _ in range(rng.randint(2, 4)):\n            kind = rng.choice(['p2pkh', 'p2sh'])\n            if kind == 'p2pkh':\n                spk_out = build_p2pkh_script(fake_hash160(rng))\n            else:\n                spk_out = build_p2sh_script(fake_hash160(rng))\n            vout.append({'value': rng.randrange(0, 20_0000_0000), 'scriptPubKey': spk_out})\n        tx = serialize_tx(version, vin, vout, locktime)\n        return spk0, tx\n\n    # tpl == 'p2pkh_twoin'\n    pubkey0 = fake_pubkey(rng)\n    sig0 = fake_der_sig(rng)\n    h160_0 = fake_hash160(rng)\n    spk0 = build_p2pkh_script(h160_0)\n    scriptSig0 = build_p2pkh_scriptsig(sig0, pubkey0)\n\n    pubkey1 = fake_pubkey(rng)\n    sig1 = fake_der_sig(rng)\n    scriptSig1 = build_p2pkh_scriptsig(sig1, pubkey1)\n\n    vin = [\n        {'txid': prev_txid, 'vout': prev_vout, 'scriptSig': scriptSig0, 'sequence': sequence},\n        {'txid': bytes(rng.getrandbits(8) for _ in range(32)), 'vout': rng.randrange(0, 3), 'scriptSig': scriptSig1, 'sequence': sequence},\n    ]\n    vout = [\n        {'value': rng.randrange(0, 15_0000_0000), 'scriptPubKey': build_p2pkh_script(fake_hash160(rng))},\n        {'value': rng.randrange(0, 15_0000_0000), 'scriptPubKey': build_p2sh_script(fake_hash160(rng))},\n    ]\n    tx = serialize_tx(version, vin, vout, locktime)\n    return spk0, tx\n\n\ndef pack_two_blobs(spk: bytes, tx: bytes, rng: random.Random) -> bytes:\n    # Sometimes provide only spk or only tx to exercise stub splitting behavior\n    mode = rng.choices(['both', 'only_spk', 'only_tx'], weights=[6, 1, 2])[0]\n    if mode == 'only_spk':\n        blob = ser_compact_size(len(spk)) + spk\n    elif mode == 'only_tx':\n        blob = ser_compact_size(len(tx)) + tx\n    else:\n        blob = ser_compact_size(len(spk)) + spk + ser_compact_size(len(tx)) + tx\n    return blob\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    spk, tx = build_case(rng)\n    buf = pack_two_blobs(spk, tx, rng)\n    if len(buf) > MAX_TOTAL:\n        buf = buf[:MAX_TOTAL]\n    return buf\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1521,
+            "output_tokens": 182,
+            "total_tokens": 1703
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1099,
+            "output_tokens": 37,
+            "total_tokens": 1136
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1553,
+            "output_tokens": 1327,
+            "total_tokens": 2880
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4724,
+            "output_tokens": 2857,
+            "total_tokens": 7581
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2871,
+            "output_tokens": 264,
+            "total_tokens": 3135
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 201.55327677726746,
+    "scan_objects": 3.670442819595337,
+    "validate_objects": 0.33473944664001465,
+    "scan_functions": 29.12664222717285,
+    "synthesis": 77.00486087799072,
+    "fill": 0,
+    "classify": 6.573667287826538,
+    "build_generators": 84.84191393852234
+  }
+}

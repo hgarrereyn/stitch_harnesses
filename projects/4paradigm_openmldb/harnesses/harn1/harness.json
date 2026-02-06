@@ -1,0 +1,1390 @@
+{
+  "objects": [
+    {
+      "ptr_type": "openmldb::base::Timestamp *",
+      "aliases": [],
+      "definition": "struct Timestamp {\n    Timestamp() : ts_(0) {}\n    explicit Timestamp(int64_t ts) : ts_(ts < 0 ? 0 : ts) {}\n    Timestamp& operator+=(const Timestamp& t1) {\n        ts_ += t1.ts_;\n        return *this;\n    }\n    Timestamp& operator-=(const Timestamp& t1) {\n        ts_ -= t1.ts_;\n        return *this;\n    }\n    int64_t ts_;\n\n    friend std::ostream& operator<<(std::ostream& os, const Timestamp& ts) { return os << ts.ts_; }\n\n    friend bool operator==(const Timestamp& a, const Timestamp& b) { return a.ts_ == b.ts_; }\n};\n\n__attribute__((unused)) static const Timestamp operator+(const Timestamp& a,\n                                                         const Timestamp& b) {\n    return Timestamp(a.ts_ + b.ts_);\n}\n__attribute__((unused)) static const Timestamp operator-(const Timestamp& a,\n                                                         const Timestamp& b) {\n    return Timestamp(a.ts_ - b.ts_);\n}\n__attribute__((unused)) static const Timestamp operator/(const Timestamp& a,\n                                                         const int64_t b) {\n    return Timestamp(static_cast<int64_t>(a.ts_ / b));\n}\n__attribute__((unused)) static bool operator>(const Timestamp& a,\n                                              const Timestamp& b) {\n    return a.ts_ > b.ts_;\n}\n__attribute__((unused)) static bool operator<(const Timestamp& a,\n                                              const Timestamp& b) {\n    return a.ts_ < b.ts_;\n}\n__attribute__((unused)) static bool operator>=(const Timestamp& a,\n                                               const Timestamp& b) {\n    return a.ts_ >= b.ts_;\n}\n__attribute__((unused)) static bool operator<=(const Timestamp& a,\n                                               const Timestamp& b) {\n    return a.ts_ <= b.ts_;\n}\n__attribute__((unused)) static bool operator!=(const Timestamp& a,\n                                               const Timestamp& b) {\n    return a.ts_ != b.ts_;\n}",
+      "description": "Lightweight timestamp wrapper in namespace openmldb::base storing a 64-bit integer value (ts_) with saturation-to-zero for negative inputs. Provides arithmetic (+, -, / by int64) and comparison operators, stream output, and compound assignment. No ownership semantics or external resources.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "openmldb::base::Date *",
+      "aliases": [],
+      "definition": "struct Date {\n    Date() : date_(0) {}\n    explicit Date(int32_t date) : date_(date < 0 ? 0 : date) {}\n    Date(int32_t year, int32_t month, int32_t day) : date_(0) {\n        if (year < 1900 || year > 9999) {\n            return;\n        }\n        if (month < 1 || month > 12) {\n            return;\n        }\n        if (day < 1 || day > 31) {\n            return;\n        }\n        int32_t data = (year - 1900) << 16;\n        data = data | ((month - 1) << 8);\n        data = data | day;\n        date_ = data;\n    }\n    static bool Decode(int32_t date, int32_t* year, int32_t* month,\n                       int32_t* day) {\n        if (date < 0) {\n            return false;\n        }\n        *day = date & 0x0000000FF;\n        date = date >> 8;\n        *month = 1 + (date & 0x0000FF);\n        *year = 1900 + (date >> 8);\n        return true;\n    }\n\n    // | --- 16 bit -------------------------- | -- 8 bit ------------| --- 8 bit --------- |\n    // | year count since 1990 (starts from 0) | month(starts from 0) | day (starts from 1) |\n    int32_t date_;\n\n    friend std::ostream& operator<<(std::ostream& os, const Date& date) {\n        return os << date.date_;\n    }\n};\n\n__attribute__((unused)) static bool operator>(const Date& a, const Date& b) {\n    return a.date_ > b.date_;\n}\n__attribute__((unused)) static bool operator<(const Date& a, const Date& b) {\n    return a.date_ < b.date_;\n}\n__attribute__((unused)) static bool operator>=(const Date& a, const Date& b) {\n    return a.date_ >= b.date_;\n}\n__attribute__((unused)) static bool operator<=(const Date& a, const Date& b) {\n    return a.date_ <= b.date_;\n}\n__attribute__((unused)) static bool operator==(const Date& a, const Date& b) {\n    return a.date_ == b.date_;\n}\n__attribute__((unused)) static bool operator!=(const Date& a, const Date& b) {\n    return a.date_ != b.date_;\n}",
+      "description": "Compact date wrapper in namespace openmldb::base encoding year, month, and day into a 32-bit integer (date_). Constructors clamp negative inputs to zero and validate Y/M/D ranges; provides static Decode to extract fields, stream output, and comparison operators. Layout: [year since 1900:16][month 0-based:8][day 1-based:8].",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "openmldb::base::StringRef *",
+      "aliases": [],
+      "definition": "namespace openmldb {\nnamespace base {\n\nstruct StringRef {\n    StringRef() : size_(0), data_(nullptr) {}\n    StringRef(std::nullptr_t) : size_(0), data_(nullptr) {}  // NOLINT\n\n    StringRef(const char* str)  // NOLINT\n        : size_(strlen(str)), data_(str) {}\n    StringRef(uint32_t size, const char* data) : size_(size), data_(data) {}\n\n    StringRef(const std::string& str) // NOLINT\n        : size_(str.size()), data_(str.data()) {}\n\n    StringRef(std::string&& str) = delete;  // NOLINT\n\n    template <typename Char>\n    StringRef(std::basic_string_view<Char> v) : size_(v.size()), data_(v.data()) {}  // NOLINT\n\n    ~StringRef() {}\n\n    const inline bool IsNull() const { return nullptr == data_; }\n    const std::string ToString() const {\n        return size_ == 0 ? \"\" : std::string(data_, size_);\n    }\n\n    /// \\brief output the string with nullable information\n    ///\n    /// if StringRef refer to null, returns `NULL`\n    /// otherwise, returns `string(data_, size_)` with literal double quote (\") surrounded\n    std::string DebugString() const {\n        if (data_ == nullptr) {\n            return \"NULL\";\n        }\n\n        std::string out(\"\\\"\");\n        out.append(data_, size_);\n        out.append(\"\\\"\");\n\n        return out;\n    }\n\n    static int compare(const StringRef& a, const StringRef& b) {\n        const size_t min_len = (a.size_ < b.size_) ? a.size_ : b.size_;\n        int r = memcmp(a.data_, b.data_, min_len);\n        if (r == 0) {\n            if (a.size_ < b.size_) {\n                r = -1;\n            } else if (a.size_ > b.size_) {\n                r = +1;\n            }\n        }\n        return r;\n    }\n\n    uint32_t size_;\n    const char* data_;\n};\n\n__attribute__((unused)) static const StringRef operator+(const StringRef& a,\n                                                         const StringRef& b) {\n    StringRef str;\n    str.size_ = a.size_ + b.size_;\n    char* buffer = static_cast<char*>(malloc(str.size_ + 1));\n    str.data_ = buffer;\n    if (a.size_ > 0) {\n        memcpy(buffer, a.data_, a.size_);\n    }\n    if (b.size_ > 0) {\n        memcpy(buffer + a.size_, b.data_, b.size_);\n    }\n    buffer[str.size_] = '\\0';\n    return str;\n}\n\n__attribute__((unused)) static std::ostream& operator<<(std::ostream& os,\n                                                        const StringRef& a) {\n    os << a.ToString();\n    return os;\n}\n__attribute__((unused)) static bool operator==(const StringRef& a,\n                                               const StringRef& b) {\n    return 0 == StringRef::compare(a, b);\n}\n__attribute__((unused)) static bool operator!=(const StringRef& a,\n                                               const StringRef& b) {\n    return 0 != StringRef::compare(a, b);\n}\n__attribute__((unused)) static bool operator>=(const StringRef& a,\n                                               const StringRef& b) {\n    return StringRef::compare(a, b) >= 0;\n}\n__attribute__((unused)) static bool operator>(const StringRef& a,\n                                              const StringRef& b) {\n    return StringRef::compare(a, b) > 0;\n}\n__attribute__((unused)) static bool operator<=(const StringRef& a,\n                                               const StringRef& b) {\n    return StringRef::compare(a, b) <= 0;\n}\n__attribute__((unused)) static bool operator<(const StringRef& a,\n                                              const StringRef& b) {\n    return StringRef::compare(a, b) < 0;\n}\n\n}  // namespace base\n}  // namespace openmldb",
+      "description": "Lightweight nullable non-owning string view struct in namespace openmldb::base. It stores a size and a const char* pointer and can be constructed from C strings, size/data pairs, std::string, and basic_string_view. It does not own the memory except in the operator+ helper, which allocates a new buffer and stores its pointer in the returned StringRef; the struct itself provides no destructor logic to free such allocations. Provides comparison, conversion to std::string, and debug output. Users must ensure the referenced data remains valid for the lifetime of the StringRef, and must manage memory if using operator+ result.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "openmldb::base::MemoryChunk *",
+      "aliases": [],
+      "definition": "namespace openmldb {\nnamespace base {\nclass MemoryChunk {\n public:\n    MemoryChunk(MemoryChunk* next, size_t request_size)\n        : next_(next),\n          chuck_size_(request_size > DEFAULT_CHUCK_SIZE ? request_size : DEFAULT_CHUCK_SIZE),\n          allocated_size_(0),\n          mem_(new char[chuck_size_]) {\n    }\n    ~MemoryChunk() {\n        delete[] mem_;\n    }\n    inline size_t available_size() const { return chuck_size_ - allocated_size_; }\n    char* Alloc(size_t request_size) {\n        if (request_size > available_size()) {\n            return nullptr;\n        }\n        char* addr = mem_ + allocated_size_;\n        allocated_size_ += request_size;\n        return addr;\n    }\n    inline MemoryChunk* next() { return next_; }\n    enum { DEFAULT_CHUCK_SIZE = 4096 };\n\n private:\n    MemoryChunk* next_;\n    const size_t chuck_size_;\n    size_t allocated_size_;\n    char* const mem_;\n};\n}  // namespace base\n}  // namespace openmldb",
+      "description": "A simple contiguous bump-allocator chunk used by the memory pool. Holds an internal char buffer of fixed size, fulfills allocation requests sequentially until exhausted, and links to a previous chunk via next_. DEFAULT_CHUCK_SIZE is 4096 bytes. Not thread-safe; ownership and lifetime are managed by ByteMemoryPool.",
+      "direct_api_constructors": [
+        "openmldb::base::MemoryChunk::MemoryChunk"
+      ],
+      "owned_by": [
+        "openmldb::base::ByteMemoryPool"
+      ]
+    },
+    {
+      "ptr_type": "openmldb::base::ByteMemoryPool *",
+      "aliases": [],
+      "definition": "namespace openmldb {\nnamespace base {\nclass ByteMemoryPool {\n public:\n    explicit ByteMemoryPool(size_t init_size = MemoryChunk::DEFAULT_CHUCK_SIZE)\n        : chucks_(nullptr) {\n        ExpandStorage(init_size);\n    }\n    ~ByteMemoryPool() {\n        Reset();\n    }\n    char* Alloc(size_t request_size) {\n        if (nullptr == chucks_ || chucks_->available_size() < request_size) {\n            ExpandStorage(request_size);\n        }\n        return chucks_->Alloc(request_size);\n    }\n\n    // clear last chuck\n    // and delete other chucks\n    void Reset() {\n        auto chuck = chucks_;\n        while (chuck) {\n            chucks_ = chuck->next();\n            delete chuck;\n            chuck = chucks_;\n        }\n    }\n    void ExpandStorage(size_t request_size) {\n        chucks_ = new MemoryChunk(chucks_, request_size);\n    }\n\n private:\n    MemoryChunk* chucks_;\n};\n}  // namespace base\n}  // namespace openmldb",
+      "description": "A LIFO chain of MemoryChunk nodes providing a simple byte-oriented arena allocator. Alloc requests are satisfied from the head chunk; if insufficient space, a new MemoryChunk is pushed with at least the requested size (or DEFAULT_CHUCK_SIZE). Reset deletes all chunks. Not thread-safe; allocations are freed only by resetting/destroying the pool.",
+      "direct_api_constructors": [
+        "openmldb::base::ByteMemoryPool::ByteMemoryPool"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "openmldb::base::UDFContext *",
+      "aliases": [],
+      "definition": "namespace openmldb {\nnamespace base {\nconstexpr int OPENMLDB_UDF_LIBRARY_VERSION = 1;\n\nstruct UDFContext {\n    ::openmldb::base::ByteMemoryPool* pool;\n    void* ptr;\n};\n}  // namespace base\n}  // namespace openmldb",
+      "description": "Execution context passed to user-defined functions (UDFs) in OpenMLDB. It provides a memory pool for allocations during UDF execution and a generic user pointer for per-invocation or per-state data. The struct is fully defined here, but ownership semantics of fields are not documented in this header; typically, pool is managed by the engine and must not be freed by UDF code. The ptr field can be used by UDF implementations to stash custom state; lifecycle details are unknown from this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "openmldb::base::Timestamp::operator+=",
+      "signature": "openmldb::base::Timestamp& openmldb::base::Timestamp::operator+=(const openmldb::base::Timestamp& t1)",
+      "description": "Adds the given Timestamp's value (in ts_) to this Timestamp in place and returns a reference to this object. Use to accumulate durations or timestamps stored in the ts_ field.",
+      "requirements": [
+        "This must be called on a valid, initialized openmldb::base::Timestamp object.",
+        "Argument t1 must be a valid openmldb::base::Timestamp reference.",
+        "Result may overflow int64_t; no overflow checks are performed."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::Timestamp::operator-=",
+      "signature": "openmldb::base::Timestamp& openmldb::base::Timestamp::operator-=(const openmldb::base::Timestamp& t1)",
+      "description": "Subtracts the given Timestamp's value (ts_) from this Timestamp in place and returns a reference to this object. Use to decrement a timestamp or difference accumulator.",
+      "requirements": [
+        "This must be called on a valid, initialized openmldb::base::Timestamp object.",
+        "Argument t1 must be a valid openmldb::base::Timestamp reference.",
+        "Result may underflow/overflow int64_t; no range checks are performed."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator<<",
+      "signature": "std::ostream& operator<<(std::ostream& os, const openmldb::base::Timestamp& ts)",
+      "description": "Stream insertion for Timestamp; writes the underlying integer value (ts_) to the provided ostream. Useful for logging and debugging.",
+      "requirements": [
+        "os must be a valid std::ostream reference ready for output."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator<<",
+      "signature": "std::ostream& operator<<(std::ostream& os, const openmldb::base::Date& date)",
+      "description": "Stream insertion for Date; writes the packed 32-bit date_ integer to the provided ostream. Intended primarily for debugging or serialization of the raw field.",
+      "requirements": [
+        "os must be a valid std::ostream reference ready for output."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator==",
+      "signature": "bool operator==(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Equality comparison for Timestamp; returns true if the underlying ts_ values are equal.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator+",
+      "signature": "static const openmldb::base::Timestamp operator+(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Adds two Timestamps by summing their ts_ values and returns a new Timestamp containing the result.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects.",
+        "Potential int64_t overflow is not checked."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator-",
+      "signature": "static const openmldb::base::Timestamp operator-(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Subtracts two Timestamps by computing a.ts_ - b.ts_ and returns a new Timestamp containing the result.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects.",
+        "Potential int64_t overflow/underflow is not checked."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator/",
+      "signature": "static const openmldb::base::Timestamp operator/(const openmldb::base::Timestamp& a, const int64_t b)",
+      "description": "Divides a Timestamp by an integer divisor b using integer division on ts_ and returns a new Timestamp with the quotient.",
+      "requirements": [
+        "Argument a must be a valid openmldb::base::Timestamp object.",
+        "Divisor b must not be 0 to avoid division-by-zero undefined behavior.",
+        "Integer division truncates toward zero; no rounding is performed."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator>",
+      "signature": "static bool operator>(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Strictly-greater-than comparison for Timestamp based on ts_.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator<",
+      "signature": "static bool operator<(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Strictly-less-than comparison for Timestamp based on ts_.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator>=",
+      "signature": "static bool operator>=(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Greater-than-or-equal comparison for Timestamp based on ts_.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator<=",
+      "signature": "static bool operator<=(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Less-than-or-equal comparison for Timestamp based on ts_.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator!=",
+      "signature": "static bool operator!=(const openmldb::base::Timestamp& a, const openmldb::base::Timestamp& b)",
+      "description": "Inequality comparison for Timestamp based on ts_.",
+      "requirements": [
+        "Arguments a and b must be valid openmldb::base::Timestamp objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::Date::Decode",
+      "signature": "static bool openmldb::base::Date::Decode(int32_t date, int32_t* year, int32_t* month, int32_t* day)",
+      "description": "Decodes a packed 32-bit date representation into year, month, and day. Returns false if the input date is negative; otherwise writes decoded fields and returns true. The packing scheme stores (year-1900) in the upper 16 bits, (month-1) in the next 8 bits, and day in the lowest 8 bits.",
+      "requirements": [
+        "If date >= 0, pointers year, month, and day must be non-null and writable; the function dereferences them unconditionally in this case.",
+        "If date < 0, the function returns false and does not dereference the output pointers.",
+        "No validation is performed on decoded values beyond the bit unpacking; callers should validate ranges if needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::StringRef",
+      "signature": "openmldb::base::StringRef::StringRef()",
+      "description": "Default constructor; creates a null StringRef (size_ == 0, data_ == nullptr). Useful as a sentinel/empty value.",
+      "requirements": [
+        "No requirements. Result is a null/empty reference; it does not own any storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::StringRef",
+      "signature": "openmldb::base::StringRef::StringRef(std::nullptr_t)",
+      "description": "Constructs a null StringRef from nullptr (size_ == 0, data_ == nullptr).",
+      "requirements": [
+        "No requirements. Result is a null/empty reference; it does not own any storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::StringRef",
+      "signature": "openmldb::base::StringRef::StringRef(const char* str)",
+      "description": "Constructs a StringRef pointing at a C string without copying. size_ is set via strlen(str); data_ points to str. Intended to create a non-owning view over a null-terminated C string.",
+      "requirements": [
+        "str must be non-null.",
+        "str must point to a valid, null-terminated C string accessible to strlen.",
+        "The memory backing str must remain valid and unchanged (no reallocation) for the lifetime of the StringRef, since it does not copy or take ownership."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::StringRef",
+      "signature": "openmldb::base::StringRef::StringRef(uint32_t size, const char* data)",
+      "description": "Constructs a StringRef pointing at a raw character buffer of a given length without copying. Does not require a terminating NUL and does not take ownership.",
+      "requirements": [
+        "If size > 0, data must be non-null and point to at least size bytes of accessible memory.",
+        "If size == 0, data may be null.",
+        "The memory backing data must remain valid for the lifetime of the StringRef; the StringRef does not own or manage it."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::StringRef",
+      "signature": "openmldb::base::StringRef::StringRef(const std::string& str)",
+      "description": "Constructs a StringRef that refers to the contents of an existing std::string without copying. size_ = str.size(); data_ = str.data().",
+      "requirements": [
+        "The referenced std::string object must outlive the StringRef. Mutating the std::string in a way that can reallocate (e.g., push_back, resize beyond capacity) may invalidate the reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::~StringRef",
+      "signature": "openmldb::base::StringRef::~StringRef()",
+      "description": "Destructor; performs no ownership management. It does not free data_, as StringRef is a non-owning view.",
+      "requirements": [
+        "Callers must not expect the destructor to free or modify the underlying memory referenced by data_. Any memory management is the caller’s responsibility."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::IsNull",
+      "signature": "bool openmldb::base::StringRef::IsNull() const",
+      "description": "Returns true if data_ is nullptr, indicating a null reference (often representing SQL NULL or unset).",
+      "requirements": [
+        "No requirements. Safe to call on any StringRef instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::ToString",
+      "signature": "std::string openmldb::base::StringRef::ToString() const",
+      "description": "Returns a std::string copy of the referenced data. If size_ == 0, returns an empty string; otherwise constructs std::string(data_, size_).",
+      "requirements": [
+        "If size_ > 0, data_ must be non-null and point to at least size_ bytes of accessible memory. Otherwise behavior is undefined."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::DebugString",
+      "signature": "std::string openmldb::base::StringRef::DebugString() const",
+      "description": "Returns a human-readable representation: \"NULL\" if data_ == nullptr; otherwise the referenced bytes surrounded by double quotes. Useful for logging nullable strings.",
+      "requirements": [
+        "If size_ > 0 and data_ != nullptr, data_ must point to at least size_ bytes of accessible memory."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::StringRef::compare",
+      "signature": "static int openmldb::base::StringRef::compare(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Lexicographically compares two StringRef values using memcmp over the shorter length; if equal up to that length, compares sizes. Returns <0, 0, or >0 like strcmp.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and point to at least a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and point to at least b.size_ bytes.",
+        "Both data regions must be accessible for the compared lengths."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator+",
+      "signature": "const openmldb::base::StringRef operator+(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Concatenates two StringRef values into a newly allocated buffer (via malloc), returns a StringRef referring to that buffer, and appends a NUL terminator. Note: StringRef is non-owning, so ownership/lifetime of the allocated buffer is unclear; this implementation can leak memory.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and point to at least a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and point to at least b.size_ bytes.",
+        "On allocation failure (malloc returns nullptr), subsequent memcpys would be invalid; the function does not check for failure. Callers should be aware of potential undefined behavior in low-memory situations.",
+        "The returned StringRef refers to heap memory allocated with malloc; there is no automatic deallocation by StringRef. If the caller intends to manage this memory, it must do so manually (e.g., free(const_cast<char*>(result.data_)))—however, this is not documented in the API and may be unsafe."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator<<",
+      "signature": "std::ostream& openmldb::base::operator<<(std::ostream& os, const openmldb::base::StringRef& a)",
+      "description": "Stream insertion operator that writes a.ToString() to the output stream.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and valid for at least a.size_ bytes (same preconditions as ToString).",
+        "os must be a valid output stream."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator==",
+      "signature": "bool openmldb::base::operator==(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Equality operator; returns true iff compare(a, b) == 0.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and valid for a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and valid for b.size_ bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator!=",
+      "signature": "bool openmldb::base::operator!=(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Inequality operator; returns true iff compare(a, b) != 0.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and valid for a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and valid for b.size_ bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator>=",
+      "signature": "bool openmldb::base::operator>=(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Greater-or-equal operator based on lexicographic compare(a, b) >= 0.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and valid for a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and valid for b.size_ bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator>",
+      "signature": "bool openmldb::base::operator>(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Greater-than operator based on lexicographic compare(a, b) > 0.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and valid for a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and valid for b.size_ bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator<=",
+      "signature": "bool openmldb::base::operator<=(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Less-or-equal operator based on lexicographic compare(a, b) <= 0.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and valid for a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and valid for b.size_ bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::operator<",
+      "signature": "bool openmldb::base::operator<(const openmldb::base::StringRef& a, const openmldb::base::StringRef& b)",
+      "description": "Less-than operator based on lexicographic compare(a, b) < 0.",
+      "requirements": [
+        "If a.size_ > 0, a.data_ must be non-null and valid for a.size_ bytes.",
+        "If b.size_ > 0, b.data_ must be non-null and valid for b.size_ bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::available_size",
+      "signature": "size_t openmldb::base::MemoryChunk::available_size() const",
+      "description": "Returns the number of bytes remaining available in this MemoryChunk that can still be allocated via Alloc. Intended for checking whether a subsequent allocation request can be satisfied by this chunk.",
+      "requirements": [
+        "The MemoryChunk object must be a valid, live instance.",
+        "This call is read-only and does not modify the chunk state."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::Alloc",
+      "signature": "char* openmldb::base::MemoryChunk::Alloc(size_t request_size)",
+      "description": "Allocates request_size bytes from this MemoryChunk and returns a pointer to the start of the reserved region. If the requested size exceeds the chunk’s remaining capacity, returns nullptr. Allocation is a simple bump (no deallocation, no alignment guarantees beyond char alignment).",
+      "requirements": [
+        "request_size must be less than or equal to available_size() for the allocation to succeed; otherwise the function returns nullptr.",
+        "Caller must check for a nullptr return value to detect insufficient remaining capacity.",
+        "Returned memory is owned by the MemoryChunk and must not be freed by the caller.",
+        "The pointer remains valid until the MemoryChunk is destroyed or reset via the owning pool’s lifecycle.",
+        "No alignment beyond char alignment is guaranteed; if casting to other types, the caller is responsible for ensuring proper alignment.",
+        "Not thread-safe; external synchronization is required if accessed from multiple threads."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::next",
+      "signature": "openmldb::base::MemoryChunk* openmldb::base::MemoryChunk::next()",
+      "description": "Returns the pointer to the next MemoryChunk in the linked list, or nullptr if this is the last chunk.",
+      "requirements": [
+        "The MemoryChunk object must be a valid, live instance.",
+        "The returned pointer may be nullptr if there is no subsequent chunk.",
+        "Not thread-safe; external synchronization is required if accessed from multiple threads."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::Alloc",
+      "signature": "char* openmldb::base::ByteMemoryPool::Alloc(size_t request_size)",
+      "description": "Allocates request_size bytes from the byte-oriented memory pool. If the current head chunk lacks capacity, the pool expands by creating a new MemoryChunk large enough to satisfy the request, then returns a pointer to the allocated region.",
+      "requirements": [
+        "Caller must not free the returned pointer; memory is managed by the pool.",
+        "The returned pointer remains valid until ByteMemoryPool::Reset() is called or the pool is destroyed.",
+        "request_size may be any size_t value; the pool will attempt to expand storage as needed. Allocation may throw std::bad_alloc if underlying allocations fail.",
+        "Not thread-safe; callers must provide external synchronization if used concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::Reset",
+      "signature": "void openmldb::base::ByteMemoryPool::Reset()",
+      "description": "Releases all memory chunks owned by the pool, effectively clearing the pool. After Reset, the pool contains no chunks and previously returned pointers are invalid.",
+      "requirements": [
+        "All pointers previously returned by Alloc become invalid after Reset and must not be dereferenced.",
+        "Must not be called concurrently with other pool operations without external synchronization (not thread-safe).",
+        "After Reset, the next allocation will create a new chunk on demand."
+      ],
+      "error": null
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::ExpandStorage",
+      "signature": "void openmldb::base::ByteMemoryPool::ExpandStorage(size_t request_size)",
+      "description": "Prepends a new MemoryChunk to the pool’s chunk list. The new chunk’s size is max(request_size, MemoryChunk::DEFAULT_CHUCK_SIZE). Typically used internally by Alloc to ensure sufficient capacity.",
+      "requirements": [
+        "Intended for internal use; callers should prefer Alloc unless manual expansion is required.",
+        "request_size may be any size_t; a chunk of at least that size (or the default size) is allocated. Allocation may throw std::bad_alloc if memory cannot be obtained.",
+        "Not thread-safe; callers must provide external synchronization if used concurrently."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "openmldb::base::Timestamp::operator+=",
+      "inputs": [
+        {
+          "name": "ts",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "t1",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ts",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "t1",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// In-place add: requires valid Timestamp objects. No overflow checks per API.\n// Perform the operation on the provided objects; both are returned to the pool.\n(*ts) += (*t1);\n// Validation: We exercised the operator on initialized inputs; no ownership changes.\n// Both inputs are returned as outputs to keep them alive."
+    },
+    {
+      "name": "openmldb::base::Timestamp::operator-=",
+      "inputs": [
+        {
+          "name": "ts",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "t1",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ts",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "t1",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// In-place subtract: requires valid Timestamp objects. No underflow checks per API.\n(*ts) -= (*t1);\n// Validation: Operator executed with valid inputs; both objects remain owned by the pool."
+    },
+    {
+      "name": "operator<<",
+      "inputs": [
+        {
+          "name": "timestamp",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "date",
+          "type": "openmldb::base::Date *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "timestamp",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "date",
+          "type": "openmldb::base::Date *"
+        }
+      ],
+      "code": "// Stream insertion requires a valid ostream. Use a local ostringstream to capture output.\nstd::ostringstream oss;\n// Exercise both overloads to maximize coverage under the single target name.\noss << (*timestamp);\noss << ' ';\noss << (*date);\n// Ensure the stream remains good after insertions (property expected to hold for these operators).\nFUZZ_ASSERT(oss.good(), \"ostream should remain in a good state after Timestamp/Date insertion\");\n// Return input objects to the pool."
+    },
+    {
+      "name": "operator==",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Equality comparison based on ts_.\nbool eq = ((*a) == (*b));\n// Basic consistency: eq implies not unequal.\nFUZZ_ASSERT(eq == !((*a) != (*b)), \"== and != must be logical negations\");\n// Return inputs."
+    },
+    {
+      "name": "operator+",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Addition of two Timestamps; potential int64_t overflow is allowed by API.\nopenmldb::base::Timestamp sum = (*a) + (*b);\n// Sanity: result object is a value, no ownership transfer. Return inputs."
+    },
+    {
+      "name": "operator-",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Subtraction of two Timestamps; overflow/underflow permitted by API.\nopenmldb::base::Timestamp diff = (*a) - (*b);\n// No persistent allocations; return inputs."
+    },
+    {
+      "name": "operator/",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Division by non-zero divisor. Generate an int64_t and enforce non-zero.\nint64_t b = (int64_t)(*FUZZ_PARAM(long long));\nif (b == 0) { FUZZ_BAIL(); }\nopenmldb::base::Timestamp q = (*a) / b;\n// No persistent allocations; return input."
+    },
+    {
+      "name": "operator>",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Greater-than comparison.\nbool r = ((*a) > (*b));\n// Cross-check with <= for basic consistency.\nFUZZ_ASSERT(r == !((*a) <= (*b)), \"> must be the negation of <=\");\n// Return inputs."
+    },
+    {
+      "name": "operator<",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Less-than comparison.\nbool r = ((*a) < (*b));\nFUZZ_ASSERT(r == !((*a) >= (*b)), \"< must be the negation of >=\");\n// Return inputs."
+    },
+    {
+      "name": "operator>=",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Greater-or-equal comparison.\nbool r = ((*a) >= (*b));\nFUZZ_ASSERT(r == !((*a) < (*b)), \">= must be the negation of <\");\n// Return inputs."
+    },
+    {
+      "name": "operator<=",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Less-or-equal comparison.\nbool r = ((*a) <= (*b));\nFUZZ_ASSERT(r == !((*a) > (*b)), \"<= must be the negation of >\");\n// Return inputs."
+    },
+    {
+      "name": "operator!=",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::Timestamp *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Inequality comparison.\nbool ne = ((*a) != (*b));\nFUZZ_ASSERT(ne == !((*a) == (*b)), \"!= and == must be logical negations\");\n// Return inputs."
+    },
+    {
+      "name": "openmldb::base::Date::Decode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate an arbitrary packed date (may be negative per API contract).\nint32_t date = (int32_t)(*FUZZ_PARAM(int32_t));\n// Prepare non-null writable outputs to satisfy the requirement when date >= 0.\nint32_t year = 0, month = 0, day = 0;\nbool ok = openmldb::base::Date::Decode(date, &year, &month, &day);\n// Property checks: If ok, then date was non-negative and fields were written; if !ok, date must be negative.\nif (ok) {\n    FUZZ_ASSERT(date >= 0, \"Decode must return true only for non-negative date\");\n} else {\n    FUZZ_ASSERT(date < 0, \"Decode must return false only for negative date\");\n}\n// No objects allocated or retained; nothing to return."
+    },
+    {
+      "name": "openmldb::base::StringRef::StringRef",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "str",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Construct a persistent StringRef using only safe, lifetime-stable sources.\n// We avoid constructors that would reference ephemeral buffers.\n// Choose among: default(), nullptr, and const char* with static storage \"\".\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 3;\nopenmldb::base::StringRef *str = nullptr;\nif (mode == 0) {\n    // default ctor -> null ref\n    str = new openmldb::base::StringRef();\n} else if (mode == 1) {\n    // nullptr ctor -> null ref\n    str = new openmldb::base::StringRef(nullptr);\n} else {\n    // const char* ctor with a string literal, which has static lifetime\n    const char *lit = \"\";  // stable storage, size will be 0\n    str = new openmldb::base::StringRef(lit);\n}\n// No additional validation needed; all selected paths produce a safe, non-owning reference.\n// Validation: output is non-null and refers only to null or static storage, safe across fuzzer calls."
+    },
+    {
+      "name": "openmldb::base::StringRef::~StringRef",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Destructor is no-op; ensure we do not attempt to free underlying data_.\n// Intentionally do nothing here; object lifetime is handled by fuzzer runtime.\n// Validation: No side effects; safe for any StringRef state."
+    },
+    {
+      "name": "openmldb::base::StringRef::IsNull",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Sanitize per API: if size_ > 0 then data_ must be non-null; if violated, make it empty.\nif (s->size_ > 0 && s->data_ == nullptr) {\n    s->size_ = 0;\n}\n// Call IsNull; no strong property besides definition (data_ == nullptr)\nbool is_null = s->IsNull();\n// If size_==0 but data_!=nullptr, IsNull should be false\nif (s->size_ == 0 && s->data_ != nullptr && is_null) {\n    FUZZ_BAIL();\n}\n// Validation: input possibly normalized, function executed."
+    },
+    {
+      "name": "openmldb::base::StringRef::ToString",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Enforce preconditions: if size_ > 0 data_ must be non-null\nif (s->size_ > 0 && s->data_ == nullptr) {\n    // Make it empty to avoid UB\n    s->size_ = 0;\n}\nstd::string out = s->ToString();\n// Property: if size_==0, ToString() must be empty\nif (s->size_ == 0) {\n    FUZZ_ASSERT(out.empty(), \"ToString must be empty when size_==0\");\n}\n// Validation: preconditions enforced; ToString executed without UB."
+    },
+    {
+      "name": "openmldb::base::StringRef::DebugString",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize: if size_ > 0 ensure data_ non-null; otherwise make empty\nif (s->size_ > 0 && s->data_ == nullptr) {\n    s->size_ = 0;\n}\nstd::string dbg = s->DebugString();\n// Basic checks: when data_==nullptr, DebugString should be \"NULL\"\nif (s->data_ == nullptr) {\n    FUZZ_ASSERT(dbg == \"NULL\", \"DebugString should be 'NULL' when data_ is null\");\n}\n// Validation: preconditions satisfied; DebugString executed."
+    },
+    {
+      "name": "openmldb::base::StringRef::compare",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize inputs to satisfy access preconditions\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\nint r_ab = openmldb::base::StringRef::compare(*a, *b);\nint r_ba = openmldb::base::StringRef::compare(*b, *a);\n// Anti-symmetry property\nif ((r_ab > 0 && r_ba >= 0) || (r_ab < 0 && r_ba <= 0) || (r_ab == 0 && r_ba != 0)) {\n    FUZZ_BAIL();\n}\n// Consistency with equality\nbool eq = (openmldb::base::StringRef::compare(*a, *b) == 0);\nif (eq && (r_ab != 0 || r_ba != 0)) { FUZZ_BAIL(); }\n// Validation: inputs normalized; properties checked."
+    },
+    {
+      "name": "openmldb::base::operator+",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Precondition normalization for safe access\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\n// Execute concatenation. This allocates with malloc internally.\nopenmldb::base::StringRef c = (*a) + (*b);\n// Validate size and content when possible\nif (c.size_ != a->size_ + b->size_) {\n    FUZZ_BAIL();\n}\n// Free the allocated buffer to avoid leaking across fuzz iterations\nif (c.data_ != nullptr) {\n    // The implementation always null-terminates and uses malloc; free is appropriate here.\n    free(const_cast<char*>(c.data_));\n}\n// Do not return 'c' as output since its buffer is freed.\n// Validation: inputs preserved; allocation freed to prevent leaks."
+    },
+    {
+      "name": "openmldb::base::operator<<",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize input to avoid UB in ToString used by operator<<\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nstd::ostringstream oss;\noss << *a;  // may call ToString internally\nstd::string s = oss.str();\n// Basic property: when size_==0, output should be empty string\nif (a->size_ == 0) {\n    FUZZ_ASSERT(s.empty(), \"operator<< should produce empty string when size_==0\");\n}\n// Validation: safe streaming; input preserved."
+    },
+    {
+      "name": "openmldb::base::operator==",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize inputs\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\nbool eq = ((*a) == (*b));\nbool ne = ((*a) != (*b));\n// Consistency: eq is the negation of ne\nif (eq == ne) { FUZZ_BAIL(); }\n// Validation: operators exercised; inputs preserved."
+    },
+    {
+      "name": "openmldb::base::operator!=",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize inputs\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\nbool ne = ((*a) != (*b));\nbool eq = ((*a) == (*b));\nif (ne == eq) { FUZZ_BAIL(); }\n// Validation: inequality exercised; inputs preserved."
+    },
+    {
+      "name": "openmldb::base::operator>=",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize inputs\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\nbool ge = ((*a) >= (*b));\nbool lt = ((*a) < (*b));\n// Consistency: a>=b is equivalent to !(a<b)\nif (ge == lt) { FUZZ_BAIL(); }\n// Validation: relation consistency checked; inputs preserved."
+    },
+    {
+      "name": "openmldb::base::operator>",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize inputs\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\nbool gt = ((*a) > (*b));\nbool le = ((*a) <= (*b));\n// Consistency: a>b is equivalent to !(a<=b)\nif (gt == le) { FUZZ_BAIL(); }\n// Validation: relation consistency checked; inputs preserved."
+    },
+    {
+      "name": "openmldb::base::operator<=",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize inputs\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\nbool le = ((*a) <= (*b));\nbool gt = ((*a) > (*b));\nif (le == gt) { FUZZ_BAIL(); }\n// Validation: relation consistency checked; inputs preserved."
+    },
+    {
+      "name": "openmldb::base::operator<",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "openmldb::base::StringRef *"
+        },
+        {
+          "name": "b",
+          "type": "openmldb::base::StringRef *"
+        }
+      ],
+      "code": "// Normalize inputs\nif (a->size_ > 0 && a->data_ == nullptr) { a->size_ = 0; }\nif (b->size_ > 0 && b->data_ == nullptr) { b->size_ = 0; }\nbool lt = ((*a) < (*b));\nbool ge = ((*a) >= (*b));\nif (lt == ge) { FUZZ_BAIL(); }\n// Validation: relation consistency checked; inputs preserved."
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::available_size",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "openmldb::base::MemoryChunk *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "openmldb::base::MemoryChunk *"
+        }
+      ],
+      "code": "// Read-only query of remaining capacity, then optionally validate it by performing\n// a bounded allocation and checking the accounting property.\nsize_t before = chunk->available_size();\n// Optionally exercise the success path of Alloc to ensure available_size accounting is consistent.\nunsigned int chooser = *FUZZ_PARAM(unsigned int);\nif ((chooser & 1u) != 0u) {\n    // Request up to the available size; if before is 0, request 0.\n    size_t req = (before == 0u) ? 0u : ((size_t)(*FUZZ_PARAM(unsigned int)) % (before + 1u));\n    char* p = chunk->Alloc(req);\n    // Alloc must succeed if req <= available_size prior to the call.\n    FUZZ_ASSERT((req == 0u) ? (p != nullptr) : (p != nullptr), \"Alloc should succeed for request <= available_size\");\n    size_t after = chunk->available_size();\n    // available_size should decrease by exactly req bytes after a successful bump allocation.\n    FUZZ_ASSERT(after + req == before, \"available_size did not decrease by request size after Alloc\");\n}\n// Always keep the input chunk alive by returning it as an output.\n// Validation: The stub only reads/modifies via API calls; it asserts accounting invariants and returns chunk to the pool."
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::Alloc",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "openmldb::base::MemoryChunk *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "openmldb::base::MemoryChunk *"
+        }
+      ],
+      "code": "// Choose a request size that either fits within current availability or exceeds it\n// to exercise both success and failure paths.\nsize_t avail = chunk->available_size();\nunsigned int sel = *FUZZ_PARAM(unsigned int);\nbool want_fit = (sel & 1u) != 0u;\nsize_t req = 0u;\nif (want_fit) {\n    // Request in [0, avail]\n    req = (avail == 0u) ? 0u : ((size_t)(*FUZZ_PARAM(unsigned int)) % (avail + 1u));\n} else {\n    // Request strictly greater than avail to force failure path; cap the overflow to keep it small.\n    size_t over = (size_t)(*FUZZ_PARAM(unsigned int)) % 64u;\n    req = avail + 1u + over;\n}\nchar* p = chunk->Alloc(req);\nif (req <= avail) {\n    // Must succeed when capacity is sufficient\n    FUZZ_ASSERT(p != nullptr, \"Alloc should succeed when req <= available_size\");\n    // Optionally write within the allocated region to validate pointer usability.\n    if (req > 0u) {\n        std::string data = FUZZ_PARAM_STR();\n        size_t copy_len = data.size();\n        if (copy_len > req) { copy_len = req; }\n        if (copy_len > 0u) {\n            memcpy(p, data.data(), copy_len);\n        }\n    }\n} else {\n    // Must fail (return nullptr) when requesting more than remaining capacity\n    FUZZ_ASSERT(p == nullptr, \"Alloc should return nullptr when req > available_size\");\n}\n// Return the chunk as an output to keep it in the object pool.\n// Validation: Enforces success/failure based on available_size and restricts writes within [0, req]."
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::next",
+      "inputs": [
+        {
+          "name": "chunk",
+          "type": "openmldb::base::MemoryChunk *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "openmldb::base::MemoryChunk *"
+        }
+      ],
+      "code": "// Call next() to traverse the linked-list; the returned pointer may be nullptr.\nopenmldb::base::MemoryChunk* next_ptr = chunk->next();\n// We do not take ownership of next_ptr here; it is managed by the owning pool/structure.\n// Keep the input chunk alive by returning it.\n// Validation: Read-only call; no state changes or ownership transfers. next_ptr may be nullptr and is intentionally not exported as an output."
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::Alloc",
+      "inputs": [
+        {
+          "name": "pool",
+          "type": "openmldb::base::ByteMemoryPool *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pool",
+          "type": "openmldb::base::ByteMemoryPool *"
+        }
+      ],
+      "code": "// Request a bounded allocation from the pool. The pool should expand as needed and never return nullptr\n// unless an underlying allocation throws (which we avoid by keeping sizes small).\nsize_t req1 = (size_t)(*FUZZ_PARAM(unsigned int)) % 2048u; // keep per-call request modest\nchar* p1 = pool->Alloc(req1);\nFUZZ_ASSERT(p1 != nullptr, \"ByteMemoryPool::Alloc should not return nullptr; it expands storage on demand\");\nif (req1 > 0u) {\n    std::string s1 = FUZZ_PARAM_STR();\n    size_t n1 = s1.size();\n    if (n1 > req1) { n1 = req1; }\n    if (n1 > 0u) { memcpy(p1, s1.data(), n1); }\n}\n// Try another allocation to likely exercise the expand-on-insufficient-space path.\nsize_t req2 = 2048u; // bounded, can trigger a new chunk if current has little space left\nchar* p2 = pool->Alloc(req2);\nFUZZ_ASSERT(p2 != nullptr, \"ByteMemoryPool::Alloc should succeed and expand when necessary\");\nif (req2 > 0u) {\n    std::string s2 = FUZZ_PARAM_STR();\n    size_t n2 = s2.size();\n    if (n2 > req2) { n2 = req2; }\n    if (n2 > 0u) { memcpy(p2, s2.data(), n2); }\n}\n// Return the pool as output to keep it managed by the runtime.\n// Validation: Asserts non-null returns and confines writes within allocated sizes; leaves ownership to the pool."
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::Reset",
+      "inputs": [
+        {
+          "name": "pool",
+          "type": "openmldb::base::ByteMemoryPool *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pool",
+          "type": "openmldb::base::ByteMemoryPool *"
+        }
+      ],
+      "code": "// Reset releases all chunks; previously returned pointers become invalid. We do not touch any prior pointers here.\npool->Reset();\n// After Reset, Alloc should recreate storage on demand and succeed for modest requests.\nsize_t small = 64u;\nchar* p = pool->Alloc(small);\nFUZZ_ASSERT(p != nullptr, \"Alloc after Reset should create a new chunk and succeed for small requests\");\n// Optionally write a few bytes within bounds to validate the pointer.\nstd::string s = FUZZ_PARAM_STR();\nsize_t n = s.size();\nif (n > small) { n = small; }\nif (n > 0u) { memcpy(p, s.data(), n); }\n// Return the pool for continued use.\n// Validation: Ensures Reset clears the pool and that subsequent Alloc works; no dangling pointers are used post-reset."
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::ExpandStorage",
+      "inputs": [
+        {
+          "name": "pool",
+          "type": "openmldb::base::ByteMemoryPool *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pool",
+          "type": "openmldb::base::ByteMemoryPool *"
+        }
+      ],
+      "code": "// Expand storage explicitly with a bounded request size; actual chunk size is max(request, DEFAULT_CHUCK_SIZE).\nsize_t req = ((size_t)(*FUZZ_PARAM(unsigned int)) % 2048u) + 1u; // avoid zero to guarantee at least the default chunk\npool->ExpandStorage(req);\n// Verify the pool remains usable by allocating a small buffer.\nsize_t small = 32u;\nchar* p = pool->Alloc(small);\nFUZZ_ASSERT(p != nullptr, \"Alloc should succeed after explicit ExpandStorage\");\n// Lightly touch the allocation within bounds.\nstd::string s = FUZZ_PARAM_STR();\nsize_t n = s.size();\nif (n > small) { n = small; }\nif (n > 0u) { memcpy(p, s.data(), n); }\n// Return the pool to keep it alive.\n// Validation: Exercises manual expansion and subsequent allocation without assuming internal layout or ownership."
+    },
+    {
+      "name": "openmldb::base::MemoryChunk *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "chunk",
+          "type": "openmldb::base::MemoryChunk *"
+        }
+      ],
+      "code": "// Construct a standalone MemoryChunk with no next pointer to avoid ownership/leak issues.\n// request_size is bounded; actual internal size is max(request_size, DEFAULT_CHUCK_SIZE).\nsize_t req = (size_t)(*FUZZ_PARAM(unsigned int)) % 2048u;\nopenmldb::base::MemoryChunk* chunk = new openmldb::base::MemoryChunk(nullptr, req);\n// Validate basic invariants and exercise Alloc.\nsize_t before = chunk->available_size();\n// available_size should be at least req (since internal size is max(req, DEFAULT_CHUCK_SIZE)).\nFUZZ_ASSERT(before >= req, \"MemoryChunk available_size must be >= requested size at construction\");\n// Allocate up to the available size to verify bump accounting.\nsize_t alloc_req = (before == 0u) ? 0u : ((size_t)(*FUZZ_PARAM(unsigned int)) % (before + 1u));\nchar* p = chunk->Alloc(alloc_req);\n// For request within available capacity, allocation must succeed.\nFUZZ_ASSERT(p != nullptr, \"Alloc should succeed for request <= available_size\");\nsize_t after = chunk->available_size();\nFUZZ_ASSERT(after + alloc_req == before, \"available_size should decrease exactly by the requested size\");\n// Output must be non-null.\nFUZZ_ASSERT(chunk != nullptr, \"constructed MemoryChunk must be non-null\");\n// Validation: Constructs an isolated chunk, exercises Alloc, and ensures accounting invariants."
+    },
+    {
+      "name": "openmldb::base::Timestamp *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ts",
+          "type": "openmldb::base::Timestamp *"
+        }
+      ],
+      "code": "// Construct Timestamp with varied initialization paths.\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 2u;\nopenmldb::base::Timestamp* ts = nullptr;\nif (mode == 0u) {\n    // Default ctor -> ts_ == 0\n    ts = new openmldb::base::Timestamp();\n} else {\n    // Initialize from a random 64-bit value; negatives saturate to zero per ctor semantics.\n    long long v = *FUZZ_PARAM(long long);\n    ts = new openmldb::base::Timestamp((int64_t)v);\n}\n// Lightly exercise arithmetic to ensure object is live and usable.\nopenmldb::base::Timestamp tmp((int64_t)(*FUZZ_PARAM(long long)));\n(*ts) += tmp;  // in-place add\n(*ts) -= tmp;  // revert by subtracting the same amount\n// Division path: ensure non-zero divisor to avoid UB.\nlong long divv = *FUZZ_PARAM(long long);\nif (divv == 0) { divv = 1; }\nopenmldb::base::Timestamp q = (*ts) / (int64_t)divv;\n(void)q; // silence unused\n// Ensure output non-null\nFUZZ_ASSERT(ts != nullptr, \"constructed Timestamp must be non-null\");\n// Validation: Covers default and int64 ctor, basic operators, and guarantees non-null output."
+    },
+    {
+      "name": "openmldb::base::Date *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "date",
+          "type": "openmldb::base::Date *"
+        }
+      ],
+      "code": "// Construct Date via multiple constructors while respecting documented ranges when applicable.\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 3u;\nopenmldb::base::Date* date = nullptr;\nif (mode == 0u) {\n    // Default -> packed 0\n    date = new openmldb::base::Date();\n} else if (mode == 1u) {\n    // From packed int32 (may be negative; ctor clamps negative to 0)\n    int32_t packed = (int32_t)(*FUZZ_PARAM(int32_t));\n    date = new openmldb::base::Date(packed);\n} else {\n    // From Y/M/D with valid ranges to cover success path\n    int32_t year = 1900 + (int32_t)(*FUZZ_PARAM(unsigned int) % (9999 - 1900 + 1));\n    int32_t month = 1 + (int32_t)(*FUZZ_PARAM(unsigned int) % 12u);\n    int32_t day = 1 + (int32_t)(*FUZZ_PARAM(unsigned int) % 31u);\n    date = new openmldb::base::Date(year, month, day);\n}\n// Optionally decode when non-negative packed value is present.\nint32_t y = 0, m = 0, d = 0;\nbool ok = openmldb::base::Date::Decode(date->date_, &y, &m, &d);\nif (date->date_ >= 0) {\n    FUZZ_ASSERT(ok, \"Decode should succeed for non-negative packed date\");\n} else {\n    FUZZ_ASSERT(!ok, \"Decode should fail for negative packed date\");\n}\n// Ensure output non-null\nFUZZ_ASSERT(date != nullptr, \"constructed Date must be non-null\");\n// Validation: Exercises default, packed, and Y/M/D constructors; verifies Decode behavior relative to sign."
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "pool",
+          "type": "openmldb::base::ByteMemoryPool *"
+        }
+      ],
+      "code": "// Construct ByteMemoryPool with a bounded initial size.\nsize_t init = (size_t)(*FUZZ_PARAM(unsigned int)) % 2048u; // may be smaller than DEFAULT_CHUCK_SIZE\nopenmldb::base::ByteMemoryPool* pool = new openmldb::base::ByteMemoryPool(init);\n// Perform a couple of small allocations to exercise expansion and basic functionality.\nsize_t r1 = (size_t)(*FUZZ_PARAM(unsigned int)) % 512u;\nchar* p1 = pool->Alloc(r1);\nFUZZ_ASSERT(p1 != nullptr, \"Alloc should succeed and expand storage if needed\");\nif (r1 > 0u) {\n    std::string s1 = FUZZ_PARAM_STR();\n    size_t n1 = s1.size(); if (n1 > r1) n1 = r1; if (n1 > 0u) memcpy(p1, s1.data(), n1);\n}\nsize_t r2 = 1024u;\nchar* p2 = pool->Alloc(r2);\nFUZZ_ASSERT(p2 != nullptr, \"Second Alloc should also succeed; pool expands on demand\");\n// Ensure output non-null\nFUZZ_ASSERT(pool != nullptr, \"constructed ByteMemoryPool must be non-null\");\n// Validation: Creates a pool with bounded init size, validates allocations and implicit expansion."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "openmldb::base::Timestamp::operator+=",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::Timestamp::operator-=",
+      "data_types": []
+    },
+    {
+      "name": "operator<<",
+      "data_types": []
+    },
+    {
+      "name": "operator==",
+      "data_types": []
+    },
+    {
+      "name": "operator+",
+      "data_types": []
+    },
+    {
+      "name": "operator-",
+      "data_types": []
+    },
+    {
+      "name": "operator/",
+      "data_types": []
+    },
+    {
+      "name": "operator>",
+      "data_types": []
+    },
+    {
+      "name": "operator<",
+      "data_types": []
+    },
+    {
+      "name": "operator>=",
+      "data_types": []
+    },
+    {
+      "name": "operator<=",
+      "data_types": []
+    },
+    {
+      "name": "operator!=",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::Date::Decode",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::StringRef::StringRef",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::StringRef::~StringRef",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::StringRef::IsNull",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::StringRef::ToString",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::StringRef::DebugString",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::StringRef::compare",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator+",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator<<",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator==",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator!=",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator>=",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator>",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator<=",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::operator<",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::available_size",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::next",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::MemoryChunk *",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::Timestamp *",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::Date *",
+      "data_types": []
+    },
+    {
+      "name": "openmldb::base::MemoryChunk::Alloc",
+      "data_types": [
+        "arbitrary binary buffer"
+      ]
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::Alloc",
+      "data_types": [
+        "arbitrary binary buffer"
+      ]
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::Reset",
+      "data_types": [
+        "arbitrary binary buffer"
+      ]
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool::ExpandStorage",
+      "data_types": [
+        "arbitrary binary buffer"
+      ]
+    },
+    {
+      "name": "openmldb::base::ByteMemoryPool *",
+      "data_types": [
+        "arbitrary binary buffer"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary buffer",
+      "description": "An unconstrained byte sequence used as raw memory content. The data may contain any byte values (0x00–0xFF), is not required to be text or null-terminated, and is written into allocated buffers with length clamped to the allocation size."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary buffer",
+      "generator": "import random\nimport struct\nimport zlib\n\n# Generator for arbitrary binary buffers that will be copied into allocations by the fuzzers.\n# We aim to produce small-to-medium sized, varied, but valid byte sequences (no assumptions\n# about text encoding; may contain NULs). Keep size <= 4096.\n\n_MAX_SIZE = 4096\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\ndef _weighted_choice(rng: random.Random, choices):\n    # choices: list of (weight, value_fn)\n    total = sum(w for w, _ in choices)\n    pick = rng.uniform(0, total)\n    upto = 0.0\n    for w, fn in choices:\n        if upto + w >= pick:\n            return fn()\n        upto += w\n    return choices[-1][1]()\n\ndef _make_patterns(rng: random.Random) -> bytes:\n    patterns = []\n\n    # ASCII text chunks\n    if rng.random() < 0.7:\n        words = [b\"hello\", b\"world\", b\"openmldb\", b\"bytepool\", b\"chunk\", b\"alloc\", b\"reset\"]\n        s = b\" \".join(rng.choice(words) for _ in range(rng.randint(1, 12)))\n        patterns.append(s)\n\n    # Repeated single-byte runs\n    if rng.random() < 0.7:\n        bval = rng.randrange(256)\n        run = bytes([bval]) * rng.randint(1, 256)\n        patterns.append(run)\n\n    # Incrementing/decrementing sequences\n    if rng.random() < 0.5:\n        start = rng.randrange(256)\n        length = rng.randint(8, 256)\n        inc = rng.choice([1, -1])\n        seq = bytes(((start + i * inc) & 0xFF for i in range(length)))\n        patterns.append(seq)\n\n    # Structured headers (length + payload)\n    if rng.random() < 0.6:\n        payload_len = rng.randint(0, 512)\n        payload = _rand_bytes(rng, payload_len)\n        hdr = struct.pack('<I', payload_len)\n        patterns.append(hdr + payload)\n\n    # Embed checksummed block\n    if rng.random() < 0.4:\n        payload = _rand_bytes(rng, rng.randint(0, 512))\n        crc = zlib.crc32(payload) & 0xFFFFFFFF\n        block = b\"CRC\\x00\" + struct.pack('<I', crc) + payload\n        patterns.append(block)\n\n    # NULs and mixed NUL/non-NUL\n    if rng.random() < 0.6:\n        zeros = b\"\\x00\" * rng.randint(1, 128)\n        mix = bytearray(len(zeros))\n        for i in range(len(mix)):\n            mix[i] = 0 if rng.random() < 0.6 else rng.randrange(1, 256)\n        patterns.append(bytes(mix))\n\n    # Random chunk\n    patterns.append(_rand_bytes(rng, rng.randint(0, 1024)))\n\n    rng.shuffle(patterns)\n    out = b\"\".join(patterns)\n    # Optionally truncate or pad with random to target size class\n    target = _weighted_choice(rng, [\n        (2, lambda: rng.randint(0, 64)),\n        (3, lambda: rng.randint(65, 256)),\n        (3, lambda: rng.randint(257, 1024)),\n        (1, lambda: rng.randint(1025, min(2048, _MAX_SIZE)))\n    ])\n    if len(out) > target:\n        out = out[:target]\n    elif len(out) < target:\n        out += _rand_bytes(rng, target - len(out))\n    return out[:_MAX_SIZE]\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide a composite strategy to provide variety across calls with same seed changes\n    # due to internal randomness of the fuzz harness.\n    strategy = rng.randrange(4)\n\n    if strategy == 0:\n        # Single patterned blob\n        blob = _make_patterns(rng)\n        return blob\n    elif strategy == 1:\n        # Concatenate several smaller interesting chunks to simulate multiple writes\n        parts = []\n        total = 0\n        for _ in range(rng.randint(2, 6)):\n            p = _make_patterns(rng)[:rng.randint(0, 512)]\n            if total + len(p) > _MAX_SIZE:\n                break\n            parts.append(p)\n            total += len(p)\n        return b\"\".join(parts)\n    elif strategy == 2:\n        # Emphasize edge sizes: empty, small, near 4096\n        size = rng.choice([0, 1, 2, 3, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024, 2047, 2048, 3072, 4096])\n        size = min(size, _MAX_SIZE)\n        content = _make_patterns(rng)\n        if len(content) < size:\n            content += _rand_bytes(rng, size - len(content))\n        return content[:size]\n    else:\n        # Highly random but bounded\n        n = rng.randint(0, _MAX_SIZE)\n        return _rand_bytes(rng, n)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5692,
+            "output_tokens": 3419,
+            "total_tokens": 9111
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4004,
+            "output_tokens": 392,
+            "total_tokens": 4396
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6080,
+            "output_tokens": 9274,
+            "total_tokens": 15354
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 26178,
+            "output_tokens": 14283,
+            "total_tokens": 40461
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 17756,
+            "output_tokens": 3198,
+            "total_tokens": 20954
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11214,
+            "output_tokens": 200,
+            "total_tokens": 11414
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 348.16855359077454,
+    "scan_objects": 12.064862966537476,
+    "validate_objects": 0.9156978130340576,
+    "scan_functions": 0,
+    "synthesis": 209.28226947784424,
+    "fill": 89.01881957054138,
+    "classify": 16.275784492492676,
+    "build_generators": 20.60990023612976
+  }
+}

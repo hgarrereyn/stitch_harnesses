@@ -1,0 +1,373 @@
+{
+  "objects": [
+    {
+      "ptr_type": "PFFFT_Setup *",
+      "aliases": [],
+      "definition": "typedef struct PFFFT_Setup PFFFT_Setup;",
+      "description": "Opaque setup object that holds precomputed, read-only data (e.g., twiddle factors) for performing PFFFT transforms. It is shared-safe across threads because it contains only read-only state. The actual struct layout is intentionally hidden in the implementation.",
+      "direct_api_constructors": [
+        "pffft_new_setup"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pffft_direction_t *",
+      "aliases": [],
+      "definition": "typedef enum { PFFFT_FORWARD, PFFFT_BACKWARD } pffft_direction_t;",
+      "description": "Enumeration specifying the transform direction: forward FFT or backward (inverse) FFT. Used by transform and reorder functions.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pffft_transform_t *",
+      "aliases": [],
+      "definition": "typedef enum { PFFFT_REAL, PFFFT_COMPLEX } pffft_transform_t;",
+      "description": "Enumeration specifying the transform type configured for a setup: real-valued or complex-valued transforms.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "pffft_new_setup",
+      "signature": "PFFFT_Setup *pffft_new_setup(int N, pffft_transform_t transform);",
+      "description": "Allocate and initialize an opaque PFFFT_Setup that holds precomputed twiddle factors and parameters for transforms of size N and the given transform type (PFFFT_REAL or PFFFT_COMPLEX). The setup is read-only and can be shared across threads. Returns NULL if N is not supported (e.g., not decomposable as required or too large).",
+      "requirements": [
+        "N must be of the form N = (2^a) * (3^b) * (5^c) with a >= 5, b >= 0, c >= 0 (e.g., 32, 48, 64, 96, 128, 144, 160, ...).",
+        "Callers must check for a NULL return to handle unsupported sizes.",
+        "The returned PFFFT_Setup is read-only and may be shared by many threads.",
+        "The setup must be destroyed with pffft_destroy_setup when no longer needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_destroy_setup",
+      "signature": "void pffft_destroy_setup(PFFFT_Setup *);",
+      "description": "Destroy and free a PFFFT_Setup previously created by pffft_new_setup. Safe to call when you are done with all transforms using that setup.",
+      "requirements": [
+        "The argument must be a PFFFT_Setup pointer previously returned by pffft_new_setup (i.e., not an arbitrary pointer).",
+        "The setup must not be used after being destroyed."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_transform",
+      "signature": "void pffft_transform(PFFFT_Setup *setup, const float *input, float *output, float *work, pffft_direction_t direction);",
+      "description": "Perform a forward or backward Fourier transform using the given setup. The output is stored in an internal (implementation-efficient) order suitable for inverse transforms and convolution; use pffft_transform_ordered or pffft_zreorder to obtain interleaved complex order. Transforms are unscaled: backward(forward(x)) = N*x; callers typically scale the backward result by 1/N. The temporary work area should point to N floats (real) or 2*N floats (complex); if work is NULL, a stack buffer is used. input and output may alias.",
+      "requirements": [
+        "setup must be a valid PFFFT_Setup created for the intended transform type (PFFFT_REAL or PFFFT_COMPLEX) and the data length N.",
+        "All float* buffers (input, output, work when non-NULL) must be SIMD-aligned (16-byte alignment on x86 and PowerPC), as stated for all float pointers in this API.",
+        "If work is provided, it must reference space for N floats for real transforms or 2*N floats for complex transforms.",
+        "input and output may alias; this is explicitly allowed.",
+        "Direction must be either PFFFT_FORWARD or PFFFT_BACKWARD.",
+        "Callers should scale the PFFFT_BACKWARD result by 1/N if a unitary transform is desired."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_transform_ordered",
+      "signature": "void pffft_transform_ordered(PFFFT_Setup *setup, const float *input, float *output, float *work, pffft_direction_t direction);",
+      "description": "Perform a forward or backward transform like pffft_transform, but ensure that the output is in the canonical interleaved complex order. Equivalent to calling pffft_transform followed by pffft_zreorder. input and output may alias.",
+      "requirements": [
+        "setup must be a valid PFFFT_Setup created by pffft_new_setup for the data length and transform type.",
+        "All float* buffers (input, output, work when non-NULL) must be SIMD-aligned (16-byte alignment on x86 and PowerPC).",
+        "If work is provided, it must reference space for N floats for real transforms or 2*N floats for complex transforms.",
+        "input and output may alias; this is explicitly allowed.",
+        "Direction must be PFFFT_FORWARD or PFFFT_BACKWARD.",
+        "Backward transform results are unscaled; callers typically scale by 1/N if required."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_zreorder",
+      "signature": "void pffft_zreorder(PFFFT_Setup *setup, const float *input, float *output, pffft_direction_t direction);",
+      "description": "Reorder frequency-domain data between PFFFT’s internal ordering and canonical interleaved complex order. Call with direction=PFFFT_FORWARD after a forward pffft_transform to obtain standard order, and with direction=PFFFT_BACKWARD before a backward transform if data is in canonical order. For real transforms, DC and Nyquist terms are packed as F(0)+i*F(N/2+1) in the first entry. input and output should not alias.",
+      "requirements": [
+        "setup must be a valid PFFFT_Setup for the transform size/type of the data being reordered.",
+        "input and output must not alias (they must be distinct buffers).",
+        "All float* buffers must be SIMD-aligned (16-byte alignment on x86 and PowerPC).",
+        "direction must be PFFFT_FORWARD when converting internal-order forward-FFT output to canonical order; use PFFFT_BACKWARD for the reverse operation."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_zconvolve_accumulate",
+      "signature": "void pffft_zconvolve_accumulate(PFFFT_Setup *setup, const float *dft_a, const float *dft_b, float *dft_ab, float scaling);",
+      "description": "Multiply frequency components of two spectra and accumulate into a destination buffer in PFFFT’s internal frequency layout. Intended for convolution in the frequency domain. The inputs must be forward-transform outputs from pffft_transform and must not have been reordered by pffft_zreorder. Performs: dft_ab += (dft_a * dft_b) * scaling. The three pointers may alias.",
+      "requirements": [
+        "setup must be a valid PFFFT_Setup matching the transform size/type of the spectra.",
+        "dft_a and dft_b must be outputs of pffft_transform with direction=PFFFT_FORWARD and must not have been reordered by pffft_zreorder.",
+        "dft_ab must be in the same internal layout as produced by pffft_transform (i.e., not reordered).",
+        "dft_a, dft_b, and dft_ab may alias; this is explicitly allowed.",
+        "All float* buffers must be SIMD-aligned (16-byte alignment on x86 and PowerPC).",
+        "scaling is an arbitrary float multiplier; no specific constraints are documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_aligned_malloc",
+      "signature": "void *pffft_aligned_malloc(size_t nb_bytes);",
+      "description": "Allocate a memory block of nb_bytes with the proper SIMD-compatible alignment required by PFFFT (16-byte alignment on x86 and PowerPC). Use this to obtain correctly aligned float buffers for the transform APIs.",
+      "requirements": [
+        "nb_bytes specifies the number of bytes to allocate; must be large enough for the intended buffers.",
+        "The returned pointer must be freed with pffft_aligned_free.",
+        "Alignment is intended to satisfy the \"simd-compatible\" requirement (16-byte on x86/PowerPC)."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_aligned_free",
+      "signature": "void pffft_aligned_free(void *);",
+      "description": "Free memory allocated by pffft_aligned_malloc.",
+      "requirements": [
+        "The pointer must have been returned by pffft_aligned_malloc (or be NULL).",
+        "Do not use the memory after it has been freed."
+      ],
+      "error": null
+    },
+    {
+      "name": "pffft_simd_size",
+      "signature": "int pffft_simd_size(void);",
+      "description": "Return 4 or 1 depending on whether support for SSE/Altivec instructions was enabled when building pffft.c. Useful to query SIMD width capability at runtime.",
+      "requirements": [
+        "No arguments; callable at any time.",
+        "Interpret return value: 4 indicates SIMD support enabled; 1 indicates scalar fallback."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "pffft_new_setup",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "code": "// Choose a valid size N of the form N = 2^a * 3^b * 5^c, with a >= 5\n// Keep N modest to bound allocations (< 2048 floats for real; < 4096 for complex)\nunsigned int a = (unsigned int)(*FUZZ_PARAM(unsigned int) % 6) + 5;   // 5..10\nunsigned int b = (unsigned int)(*FUZZ_PARAM(unsigned int) % 4);       // 0..3\nunsigned int c = (unsigned int)(*FUZZ_PARAM(unsigned int) % 3);       // 0..2\nint N = 1;\nfor (unsigned int i = 0; i < a; ++i) N *= 2;\nfor (unsigned int i = 0; i < b; ++i) N *= 3;\nfor (unsigned int i = 0; i < c; ++i) N *= 5;\n// Randomly pick transform type (0: REAL, 1: COMPLEX)\nint tsel = (int)(*FUZZ_PARAM(unsigned int) & 1);\npffft_transform_t transform = tsel ? PFFFT_COMPLEX : PFFFT_REAL;\n// Create setup\nPFFFT_Setup *setup = pffft_new_setup(N, transform);\nif (!setup) {\n    // If N not supported, bail to let the fuzzer try another combo\n    FUZZ_BAIL();\n}\n// Track metadata for downstream stubs\nFUZZ_SET_ATTR_INT(setup, \"N\", N);\nFUZZ_SET_ATTR_INT(setup, \"transform\", (int)transform);\nFUZZ_SET_ATTR_INT(setup, \"alive\", 1);\n// setup is returned as an output (read-only, shareable)\n"
+    },
+    {
+      "name": "pffft_destroy_setup",
+      "inputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Validate that this setup originated from pffft_new_setup and is still alive\nint alive = FUZZ_GET_ATTR_INT(setup, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Destroy and mark as dead; do not return it as an output to the pool\npffft_destroy_setup(setup);\nFUZZ_SET_ATTR_INT(setup, \"alive\", 0);\n"
+    },
+    {
+      "name": "pffft_transform",
+      "inputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "code": "// Enforce setup validity and retrieve configuration\nint alive = FUZZ_GET_ATTR_INT(setup, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\nint N = FUZZ_GET_ATTR_INT(setup, \"N\");\nint tkind = FUZZ_GET_ATTR_INT(setup, \"transform\");\nif (N <= 0) { FUZZ_BAIL(); }\n// Compute buffer sizes in floats: real uses N, complex uses 2*N\nint elems = (tkind == (int)PFFFT_COMPLEX) ? (2 * N) : N;\nsize_t nbytes = (size_t)elems * sizeof(float);\n// Allocate aligned input/output buffers\nfloat *in  = (float *)pffft_aligned_malloc(nbytes);\nfloat *out = (float *)pffft_aligned_malloc(nbytes);\nif (!in || !out) { FUZZ_BAIL(); }\n// Optionally allocate a work buffer per API: N floats (real) or 2*N floats (complex)\nint use_work = (int)(*FUZZ_PARAM(unsigned int) & 1);\nfloat *work = 0;\nif (use_work) {\n    int work_elems = (tkind == (int)PFFFT_COMPLEX) ? (2 * N) : N;\n    work = (float *)pffft_aligned_malloc((size_t)work_elems * sizeof(float));\n    if (!work) { FUZZ_BAIL(); }\n}\n// Fill input with fuzz data deterministically bounded to our buffer size\nstd::string blob = FUZZ_PARAM_STR();\nsize_t copy = blob.size() < nbytes ? blob.size() : nbytes;\nmemcpy(in, blob.data(), copy);\nif (copy < nbytes) { memset(((unsigned char*)in) + copy, 0, nbytes - copy); }\n// Randomly choose direction (0: FORWARD, 1: BACKWARD)\npffft_direction_t dir = ((int)(*FUZZ_PARAM(unsigned int) & 1)) ? PFFFT_BACKWARD : PFFFT_FORWARD;\n// input and output may alias; exercise both paths by sometimes aliasing\nint alias = (int)(*FUZZ_PARAM(unsigned int) & 1);\nfloat *out_param = alias ? in : out;\n// Perform the transform; API requires aligned pointers which we ensured via pffft_aligned_malloc\npffft_transform(setup, in, out_param, work, dir);\n// Free any temporary buffers we allocated\nif (work) pffft_aligned_free(work);\npffft_aligned_free(out);\npffft_aligned_free(in);\n// setup is persistent and must be returned as an output"
+    },
+    {
+      "name": "pffft_transform_ordered",
+      "inputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "code": "// Validate setup and derive sizes\nint alive = FUZZ_GET_ATTR_INT(setup, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\nint N = FUZZ_GET_ATTR_INT(setup, \"N\");\nint tkind = FUZZ_GET_ATTR_INT(setup, \"transform\");\nif (N <= 0) { FUZZ_BAIL(); }\nint elems = (tkind == (int)PFFFT_COMPLEX) ? (2 * N) : N;\nsize_t nbytes = (size_t)elems * sizeof(float);\n// Allocate aligned input/output/work buffers\nfloat *in  = (float *)pffft_aligned_malloc(nbytes);\nfloat *out = (float *)pffft_aligned_malloc(nbytes);\nif (!in || !out) { FUZZ_BAIL(); }\nfloat *work = 0;\nint use_work = (int)(*FUZZ_PARAM(unsigned int) & 1);\nif (use_work) {\n    int work_elems = (tkind == (int)PFFFT_COMPLEX) ? (2 * N) : N;\n    work = (float *)pffft_aligned_malloc((size_t)work_elems * sizeof(float));\n    if (!work) { FUZZ_BAIL(); }\n}\n// Initialize input with fuzz data\nstd::string blob = FUZZ_PARAM_STR();\nsize_t copy = blob.size() < nbytes ? blob.size() : nbytes;\nmemcpy(in, blob.data(), copy);\nif (copy < nbytes) { memset(((unsigned char*)in) + copy, 0, nbytes - copy); }\n// Choose direction\npffft_direction_t dir = ((int)(*FUZZ_PARAM(unsigned int) & 1)) ? PFFFT_BACKWARD : PFFFT_FORWARD;\n// input and output may alias for ordered transform as well; exercise both modes\nint alias = (int)(*FUZZ_PARAM(unsigned int) & 1);\nfloat *out_param = alias ? in : out;\n// Call the ordered transform (ensures canonical interleaved order)\npffft_transform_ordered(setup, in, out_param, work, dir);\n// Cleanup\nif (work) pffft_aligned_free(work);\npffft_aligned_free(out);\npffft_aligned_free(in);\n// Return setup as output"
+    },
+    {
+      "name": "pffft_zreorder",
+      "inputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "code": "// Validate and size buffers\nint alive = FUZZ_GET_ATTR_INT(setup, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\nint N = FUZZ_GET_ATTR_INT(setup, \"N\");\nint tkind = FUZZ_GET_ATTR_INT(setup, \"transform\");\nif (N <= 0) { FUZZ_BAIL(); }\nint elems = (tkind == (int)PFFFT_COMPLEX) ? (2 * N) : N;\nsize_t nbytes = (size_t)elems * sizeof(float);\n// Allocate distinct aligned input and output (aliasing not allowed by API)\nfloat *in  = (float *)pffft_aligned_malloc(nbytes);\nfloat *out = (float *)pffft_aligned_malloc(nbytes);\nif (!in || !out) { FUZZ_BAIL(); }\n// Prepare in-buffer with plausible frequency data by performing a transform first in internal order\n{\n    float *time = (float *)pffft_aligned_malloc(nbytes);\n    if (!time) { FUZZ_BAIL(); }\n    std::string blob = FUZZ_PARAM_STR();\n    size_t copy = blob.size() < nbytes ? blob.size() : nbytes;\n    memcpy(time, blob.data(), copy);\n    if (copy < nbytes) { memset(((unsigned char*)time) + copy, 0, nbytes - copy); }\n    pffft_transform(setup, time, in, /*work*/0, PFFFT_FORWARD);\n    pffft_aligned_free(time);\n}\n// Randomly pick reorder direction according to API contract\npffft_direction_t dir = ((int)(*FUZZ_PARAM(unsigned int) & 1)) ? PFFFT_BACKWARD : PFFFT_FORWARD;\n// Perform reorder between internal and canonical order; input and output must not alias\npffft_zreorder(setup, in, out, dir);\n// Cleanup\npffft_aligned_free(out);\npffft_aligned_free(in);\n// Return setup"
+    },
+    {
+      "name": "pffft_zconvolve_accumulate",
+      "inputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "setup",
+          "type": "PFFFT_Setup *"
+        }
+      ],
+      "code": "// Validate setup and compute sizes\nint alive = FUZZ_GET_ATTR_INT(setup, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\nint N = FUZZ_GET_ATTR_INT(setup, \"N\");\nint tkind = FUZZ_GET_ATTR_INT(setup, \"transform\");\nif (N <= 0) { FUZZ_BAIL(); }\nint elems = (tkind == (int)PFFFT_COMPLEX) ? (2 * N) : N;\nsize_t nbytes = (size_t)elems * sizeof(float);\n// Allocate aligned frequency-domain buffers (internal layout). They may alias; we test various aliasing patterns.\nfloat *dft_a  = (float *)pffft_aligned_malloc(nbytes);\nfloat *dft_b  = (float *)pffft_aligned_malloc(nbytes);\nfloat *dft_ab = (float *)pffft_aligned_malloc(nbytes);\nif (!dft_a || !dft_b || !dft_ab) { FUZZ_BAIL(); }\nmemset(dft_ab, 0, nbytes); // accumulate into destination\n// Produce dft_a and dft_b via forward transforms to satisfy API preconditions (internal layout)\n{\n    float *time = (float *)pffft_aligned_malloc(nbytes);\n    if (!time) { FUZZ_BAIL(); }\n    std::string blob = FUZZ_PARAM_STR();\n    size_t copy = blob.size() < nbytes ? blob.size() : nbytes;\n    memcpy(time, blob.data(), copy);\n    if (copy < nbytes) { memset(((unsigned char*)time) + copy, 0, nbytes - copy); }\n    pffft_transform(setup, time, dft_a, /*work*/0, PFFFT_FORWARD);\n    // Second signal\n    blob = FUZZ_PARAM_STR();\n    copy = blob.size() < nbytes ? blob.size() : nbytes;\n    memcpy(time, blob.data(), copy);\n    if (copy < nbytes) { memset(((unsigned char*)time) + copy, 0, nbytes - copy); }\n    pffft_transform(setup, time, dft_b, /*work*/0, PFFFT_FORWARD);\n    pffft_aligned_free(time);\n}\n// Scaling factor can be any float\nfloat scaling = *(const float *)FUZZ_PARAM(float);\n// Randomly exercise allowed aliasing among inputs\nint mode = (int)(*FUZZ_PARAM(unsigned int) % 4);\nfloat *pa = dft_a;\nfloat *pb = dft_b;\nfloat *pc = dft_ab;\nif (mode == 1) { pb = dft_a; }         // b aliases a\nelse if (mode == 2) { pc = dft_a; }    // dest aliases a\nelse if (mode == 3) { pc = dft_b; }    // dest aliases b\n// Perform the convolution-accumulate in internal layout\npffft_zconvolve_accumulate(setup, pa, pb, pc, scaling);\n// Cleanup\npffft_aligned_free(dft_ab);\npffft_aligned_free(dft_b);\npffft_aligned_free(dft_a);\n// Return setup"
+    },
+    {
+      "name": "pffft_aligned_malloc",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ptr",
+          "type": "void *"
+        }
+      ],
+      "code": "// Choose a small allocation size (<= 2048 bytes) and ensure it's at least 16 for alignment room\nsize_t sz = (size_t)(*FUZZ_PARAM(unsigned int) % 2048u) + 16u;\nvoid *ptr = pffft_aligned_malloc(sz);\nif (!ptr) { FUZZ_BAIL(); }\n// Track metadata so aligned_free can validate provenance\nFUZZ_SET_ATTR_INT(ptr, \"size\", (int)sz);\nFUZZ_SET_ATTR_INT(ptr, \"aligned\", 16);\nFUZZ_SET_ATTR_INT(ptr, \"alive\", 1);\n// Return the allocated pointer to the pool as an output"
+    },
+    {
+      "name": "pffft_aligned_free",
+      "inputs": [
+        {
+          "name": "ptr",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Validate that this pointer came from pffft_aligned_malloc and is not already freed\nint alive = FUZZ_GET_ATTR_INT(ptr, \"alive\");\nint aligned = FUZZ_GET_ATTR_INT(ptr, \"aligned\");\nint size_meta = FUZZ_GET_ATTR_INT(ptr, \"size\");\nif (!alive || aligned != 16 || size_meta <= 0) { FUZZ_BAIL(); }\n// Free and mark dead; do not return pointer to pool\npffft_aligned_free(ptr);\nFUZZ_SET_ATTR_INT(ptr, \"alive\", 0);\n"
+    },
+    {
+      "name": "pffft_simd_size",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simple query; store result in global attrs for potential downstream decisions\nint simd = pffft_simd_size();\n// Property: implementation returns either 1 (scalar) or 4 (SSE/Altivec width)\nif (!(simd == 1 || simd == 4)) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT_GLOBAL(\"pffft_simd\", simd);\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "pffft_new_setup",
+      "data_types": []
+    },
+    {
+      "name": "pffft_destroy_setup",
+      "data_types": []
+    },
+    {
+      "name": "pffft_aligned_malloc",
+      "data_types": []
+    },
+    {
+      "name": "pffft_aligned_free",
+      "data_types": []
+    },
+    {
+      "name": "pffft_simd_size",
+      "data_types": []
+    },
+    {
+      "name": "pffft_transform",
+      "data_types": [
+        "raw binary float buffer"
+      ]
+    },
+    {
+      "name": "pffft_transform_ordered",
+      "data_types": [
+        "raw binary float buffer"
+      ]
+    },
+    {
+      "name": "pffft_zreorder",
+      "data_types": [
+        "raw binary float buffer"
+      ]
+    },
+    {
+      "name": "pffft_zconvolve_accumulate",
+      "data_types": [
+        "raw binary float buffer"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "raw binary float buffer",
+      "description": "Arbitrary bytes interpreted as a contiguous array of IEEE-754 single-precision floats. The buffer length is determined by the caller (N floats for real transforms, 2*N floats for complex transforms). Any byte sequence is accepted; unspecified bytes beyond provided data may be zero-padded."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "raw binary float buffer",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# This generator targets PFFFT fuzzers expecting FUZZ_PARAM_STR to provide\n# raw binary float buffers. We craft valid float arrays of sizes that are\n# typical for PFFFT: N must be (2^a)*(3^b)*(5^c) with a >= 5. The fuzzers\n# will size their buffers from setup (N and transform type). Our blob will be\n# memcpy'ed into those buffers and zero-padded if shorter, so we keep the blob\n# length equal to a plausible size in bytes to produce fully initialized data.\n#\n# Strategy\n# - Produce time-domain buffers of floats that are numerically well-behaved,\n#   covering various patterns: impulses, sinusoids with harmonic sums, ramps,\n#   noise, DC offsets, windowed tones, and denormal/NaN/Inf sprinkling.\n# - Support both real (N floats) and complex (2*N floats) by sometimes emitting\n#   interleaved real/imag pairs.\n# - Choose N from valid PFFFT sizes up to a reasonable cap, focusing on common\n#   powers: 32, 48, 64, 80, 96, 128, 144, 160, 192, 256, 320, 384, 480, 512,\n#   640, 768, 960, 1024. Keep total bytes <= 4096.\n# - Produce length that fits within 4096; prefer exactly matching a chosen N\n#   to eliminate zero padding most of the time.\n# - Deterministic randomness via seed.\n\nMAX_BYTES = 4096\n\n# Valid sizes N satisfying a >= 5 in 2^a * 3^b * 5^c, and keeping within limit\n# for complex case (2*N floats => 8*N bytes <= 4096 -> N <= 512).\n# For real case (4*N bytes <= 4096 -> N <= 1024).\nVALID_SIZES = [\n    32, 48, 64, 80, 96, 128, 144, 160, 192, 256, 288, 320, 384, 400, 432,\n    480, 512, 576, 640, 720, 768, 800, 864, 960, 1024\n]\n\n# Patterns for generating content\n\ndef _linspace(n: int, start: float, stop: float) -> List[float]:\n    if n <= 1:\n        return [start]\n    step = (stop - start) / (n - 1)\n    return [start + i * step for i in range(n)]\n\n\ndef _sine_wave(n: int, freq: float, phase: float = 0.0, amp: float = 1.0) -> List[float]:\n    # freq in cycles over N samples\n    twopi = 6.283185307179586\n    return [amp * (0.5 * (random.random() * 0 + 2) * 0 + 1) *  # keep deterministic shape\n            (0.0 + __import__('math').sin((twopi * freq * i / n) + phase)) for i in range(n)]\n\n\ndef _multi_tone(n: int, tones: List[Tuple[float, float]]) -> List[float]:\n    # tones: list of (freq, amp)\n    import math\n    out = [0.0] * n\n    for f, a in tones:\n        for i in range(n):\n            out[i] += a * math.sin(2 * math.pi * f * i / n)\n    # normalize to avoid clipping\n    maxabs = max(1e-12, max(abs(x) for x in out))\n    scale = 0.9 / maxabs\n    return [x * scale for x in out]\n\n\ndef _impulse(n: int, pos: int, amp: float = 1.0) -> List[float]:\n    out = [0.0] * n\n    if 0 <= pos < n:\n        out[pos] = amp\n    return out\n\n\ndef _ramp(n: int, start: float = -1.0, stop: float = 1.0) -> List[float]:\n    return _linspace(n, start, stop)\n\n\ndef _noise(n: int, amp: float = 0.5) -> List[float]:\n    return [amp * (random.random() * 2.0 - 1.0) for _ in range(n)]\n\n\ndef _windowed_tone(n: int, freq: float) -> List[float]:\n    import math\n    # Hann window\n    out = []\n    for i in range(n):\n        w = 0.5 - 0.5 * math.cos(2 * math.pi * i / (n - 1 if n > 1 else 1))\n        out.append(w * math.sin(2 * math.pi * freq * i / n))\n    return out\n\n\ndef _sprinkle_specials(arr: List[float], probability: float = 0.02) -> None:\n    # Insert occasional NaN/Inf/denormals to exercise code paths. Still valid IEEE-754.\n    import math\n    for i in range(len(arr)):\n        r = random.random()\n        if r < probability:\n            choice = random.randint(0, 4)\n            if choice == 0:\n                arr[i] = float('nan')\n            elif choice == 1:\n                arr[i] = float('inf')\n            elif choice == 2:\n                arr[i] = -float('inf')\n            elif choice == 3:\n                # denormal-ish tiny number\n                arr[i] = 1e-40 * (1 if random.random() < 0.5 else -1)\n            else:\n                arr[i] = 0.0\n\n\ndef _pack_floats(values: List[float]) -> bytes:\n    return struct.pack('<' + 'f' * len(values), *values)\n\n\ndef _gen_real(n: int) -> List[float]:\n    mode = random.randint(0, 7)\n    if mode == 0:\n        arr = _sine_wave(n, freq=random.choice([1, 2, 3, 5, 7, n // 8 or 1]), phase=random.random() * 6.28318, amp=1.0)\n    elif mode == 1:\n        tones = []\n        k = random.randint(2, 5)\n        for _ in range(k):\n            tones.append((random.randint(1, max(1, n // 4)), random.uniform(0.2, 1.0)))\n        arr = _multi_tone(n, tones)\n    elif mode == 2:\n        arr = _impulse(n, pos=random.randrange(n), amp=random.uniform(0.5, 2.0))\n    elif mode == 3:\n        arr = _ramp(n, start=random.uniform(-2, 0), stop=random.uniform(0, 2))\n    elif mode == 4:\n        arr = _noise(n, amp=random.uniform(0.1, 1.0))\n    elif mode == 5:\n        arr = [random.choice([0.0, 1.0, -1.0]) for _ in range(n)]\n    elif mode == 6:\n        arr = _windowed_tone(n, freq=random.randint(1, max(1, n // 6)))\n    else:\n        # DC offset +/-\n        dc = random.uniform(-1.5, 1.5)\n        arr = [dc for _ in range(n)]\n    _sprinkle_specials(arr, probability=0.01)\n    return arr\n\n\ndef _gen_complex(n: int) -> List[float]:\n    # Interleaved real/imag pairs, length 2*n floats\n    real = _gen_real(n)\n    imag_mode = random.randint(0, 3)\n    if imag_mode == 0:\n        imag = [0.0] * n\n    elif imag_mode == 1:\n        imag = _noise(n, amp=random.uniform(0.05, 0.7))\n    elif imag_mode == 2:\n        imag = _sine_wave(n, freq=random.randint(1, max(1, n // 5)), phase=random.random() * 6.28318, amp=0.7)\n    else:\n        imag = _ramp(n, start=-0.5, stop=0.5)\n    _sprinkle_specials(imag, probability=0.01)\n    interleaved = []\n    for r, im in zip(real, imag):\n        interleaved.append(r)\n        interleaved.append(im)\n    return interleaved\n\n\ndef _choose_size(is_complex: bool) -> int:\n    # Respect overall byte cap\n    candidates = []\n    for n in VALID_SIZES:\n        bytes_needed = (2 * n if is_complex else n) * 4\n        if bytes_needed <= MAX_BYTES:\n            candidates.append(n)\n    return random.choice(candidates)\n\n\ndef generate(seed: int) -> bytes:\n    random.seed(seed)\n    # Randomly choose to target real or complex; both are valid raw float buffers.\n    is_complex = bool(random.getrandbits(1))\n    n = _choose_size(is_complex)\n\n    if is_complex:\n        values = _gen_complex(n)\n    else:\n        values = _gen_real(n)\n\n    blob = _pack_floats(values)\n\n    # Occasionally prepend a tiny header-like marker that is still valid bytes for floats.\n    # This can create distinct patterns when memcpy'ed into larger buffers, but remains\n    # valid raw data. Keep infrequent and small.\n    if random.random() < 0.15:\n        marker = struct.pack('<I', 0xdeadbeef)\n        # ensure we don't exceed MAX_BYTES\n        max_extra = MAX_BYTES - len(blob)\n        if len(marker) <= max_extra:\n            blob = marker + blob\n\n    # Ensure size within cap\n    if len(blob) > MAX_BYTES:\n        blob = blob[:MAX_BYTES]\n    return blob\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2412,
+            "output_tokens": 250,
+            "total_tokens": 2662
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1990,
+            "output_tokens": 76,
+            "total_tokens": 2066
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2489,
+            "output_tokens": 2080,
+            "total_tokens": 4569
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5744,
+            "output_tokens": 5063,
+            "total_tokens": 10807
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5631,
+            "output_tokens": 162,
+            "total_tokens": 5793
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 154.16180109977722,
+    "scan_objects": 6.854290723800659,
+    "validate_objects": 0.41791701316833496,
+    "scan_functions": 31.935424327850342,
+    "synthesis": 70.20917510986328,
+    "fill": 0,
+    "classify": 4.273512363433838,
+    "build_generators": 40.470704078674316
+  }
+}

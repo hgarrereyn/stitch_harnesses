@@ -1,0 +1,281 @@
+{
+  "objects": [
+    {
+      "ptr_type": "::wtr::watcher::event *",
+      "aliases": [],
+      "definition": "struct event {\n\nprivate:\n  using Nanos = std::chrono::nanoseconds;\n  using Clock = std::chrono::system_clock;\n  using TimePoint = std::chrono::time_point<Clock>;\n\npublic:\n  using callback = std::function<void(event const &)>;\n\n  enum class effect_type {\n    rename,\n    modify,\n    create,\n    destroy,\n    owner,\n    other,\n  };\n\n  enum class path_type {\n    dir,\n    file,\n    hard_link,\n    sym_link,\n    watcher,\n    other,\n  };\n\n  std::filesystem::path path_name{};\n\n  enum effect_type effect_type {};\n\n  enum path_type path_type {};\n\n  long long effect_time{\n      std::chrono::duration_cast<Nanos>(TimePoint{Clock::now()}.time_since_epoch()).count()};\n\n  std::unique_ptr<event> associated{nullptr};\n\n  inline event() noexcept = default;\n\n  inline event(event const &from) noexcept\n      : path_name{from.path_name}, effect_type{from.effect_type}, path_type{from.path_type},\n        effect_time{from.effect_time},\n        associated{from.associated ? std::make_unique<event>(*from.associated) : nullptr} {};\n\n  inline event(std::filesystem::path const &path_name, enum effect_type effect_type,\n               enum path_type path_type) noexcept\n      : path_name{path_name}, effect_type{effect_type}, path_type{path_type} {};\n\n  inline event(event const &base, event &&associated) noexcept\n      : path_name{base.path_name}, effect_type{base.effect_type}, path_type{base.path_type},\n        associated{std::make_unique<event>(std::forward<event>(associated))} {};\n\n  inline ~event() noexcept = default;\n\n  inline auto operator=(event const &from) noexcept -> event const & {\n    this->path_name = from.path_name;\n    this->effect_type = from.effect_type;\n    this->path_type = from.path_type;\n    this->effect_time = from.effect_time;\n    this->associated = from.associated ? std::make_unique<event>(*from.associated) : nullptr;\n    return *this;\n  };\n\n  inline friend auto operator==(event const &l, event const &r) noexcept -> bool {\n    return l.path_name == r.path_name && l.effect_time == r.effect_time && l.path_type == r.path_type &&\n           l.effect_type == r.effect_type &&\n           (l.associated && r.associated ? *l.associated == *r.associated : !l.associated && !r.associated);\n  }\n\n  inline friend auto operator!=(event const &l, event const &r) noexcept -> bool { return !(l == r); }\n};",
+      "description": "Filesystem event record passed to user callbacks. Captures the affected path, its path_type, the effect_type, a timestamp (nanoseconds since epoch), and an optional associated event for paired operations (e.g., rename from->to). Provides deep-copy semantics for the associated event and comparisons including timestamp. Callback is std::function<void(event const&)>.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "::wtr::watcher::watch *"
+      ]
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::semabin *",
+      "aliases": [],
+      "definition": "class semabin {\npublic:\n  enum state { pending, released, error };\n\nprivate:\n  mutable std::atomic<state> is = pending;\n\npublic:\n#if defined(__linux__)\n\n  int const fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE);\n\n  inline auto release() noexcept -> state {\n    auto write_ev = [this]() {\n      if (eventfd_write(this->fd, 1) == 0)\n        return released;\n      else\n        return error;\n    };\n\n    if (this->is == released)\n      return released;\n    else\n      return this->is = write_ev();\n  }\n\n  inline auto state() const noexcept -> state {\n    auto read_ev = [this]() {\n      uint64_t _ = 0;\n      if (eventfd_read(this->fd, &_) == 0)\n        return released;\n      else if (errno == EAGAIN)\n        return pending;\n      else\n        return error;\n    };\n\n    if (this->is == pending)\n      return pending;\n    else\n      return this->is = read_ev();\n  }\n\n  inline ~semabin() noexcept { close(this->fd); }\n\n#elif defined(__APPLE__)\n\n  mutable dispatch_semaphore_t sem = dispatch_semaphore_create(0);\n\n  inline auto release() noexcept -> state {\n    auto exchange_when = pending;\n    auto was_exchanged = this->is.compare_exchange_strong(exchange_when, released, std::memory_order_release,\n                                                          std::memory_order_acquire);\n    if (was_exchanged) dispatch_semaphore_signal(this->sem);\n    return released;\n  }\n\n  inline auto state() const noexcept -> state { return this->is.load(std::memory_order_acquire); }\n\n  inline ~semabin() noexcept { this->release(); }\n\n#else\n\n  inline auto release() noexcept -> enum state { return this->is = released; }\n\n  inline auto state() const noexcept -> enum state { return this->is; }\n\n#endif\n};",
+      "description": "A small, cross-platform semaphore-like stop token used by adapters to control watcher lifetime. On Linux it wraps an eventfd (fd exposed for epoll); on macOS a dispatch_semaphore_t; elsewhere an atomic flag. Methods release() signals termination and state() polls current state.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "::wtr::watcher::watch *"
+      ]
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::ep *",
+      "aliases": [],
+      "definition": "struct ep {\n  static constexpr auto q_ulim = 64;\n  static constexpr auto wake_ms = -1;\n\n  int fd = -1;\n  epoll_event interests[q_ulim]{};\n};",
+      "description": "Helper for Linux adapters: an epoll handle plus a fixed-size array of epoll_event used as the interest list during epoll_wait loops. q_ulim is the per-wait maximum returned events; wake_ms is the timeout.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "::detail::wtr::watcher::adapter::fanotify::sysres *",
+        "::detail::wtr::watcher::adapter::inotify::sysres *"
+      ]
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::fanotify::ke_fa_ev *",
+      "aliases": [],
+      "definition": "struct ke_fa_ev {\n  static constexpr auto buf_len = 4096;\n  static constexpr auto c_ulim = buf_len / sizeof(fanotify_event_metadata);\n  static constexpr auto init_io_flags\n    = O_RDONLY\n    | O_CLOEXEC\n    | O_NONBLOCK;\n  static constexpr auto init_flags\n    = FAN_CLASS_NOTIF\n    | FAN_REPORT_FID\n    | FAN_REPORT_DIR_FID\n    | FAN_REPORT_NAME\n    | FAN_UNLIMITED_QUEUE\n    | FAN_UNLIMITED_MARKS\n    | FAN_NONBLOCK;\n  static constexpr auto recv_flags\n    = FAN_ONDIR\n    | FAN_CREATE\n    | FAN_MODIFY\n    | FAN_MOVE\n    | FAN_DELETE\n    | FAN_EVENT_ON_CHILD;\n\n  int fd = -1;\n  alignas(fanotify_event_metadata) char buf[buf_len]{0};\n};",
+      "description": "fanotify kernel event resources on Linux: listener fd and aligned buffer for batched fanotify_event_metadata; holds constants for initialization and receive masks.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "::detail::wtr::watcher::adapter::fanotify::sysres *"
+      ]
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::fanotify::sysres *",
+      "aliases": [],
+      "definition": "struct sysres {\n  result ok = result::e;\n  ke_fa_ev ke{};\n  semabin const &il{};\n  adapter::ep ep{};\n};",
+      "description": "Aggregates fanotify adapter system resources: current result status, fanotify event holder, reference to liveness semaphore (semabin), and the epoll wrapper. Used during event loop lifecycle.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::fanotify::Parsed *",
+      "aliases": [],
+      "definition": "struct Parsed {\n  ::wtr::watcher::event ev;\n  fanotify_event_metadata const *next = nullptr;\n  unsigned this_len = 0;\n};",
+      "description": "Temporary parse product for a fanotify event batch: the translated watcher::event, a pointer to the next metadata record in the read buffer, and the byte length consumed by the current parsed record(s).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::inotify::ke_in_ev *",
+      "aliases": [],
+      "definition": "struct ke_in_ev { \n  static constexpr unsigned one_ulim = sizeof(inotify_event) + NAME_MAX + 1;\n  static_assert(one_ulim % 8 == 0, \"alignment\");\n  static constexpr unsigned buf_len = 4096;\n  static_assert(buf_len > one_ulim * 8, \"capacity\");\n  static constexpr unsigned c_ulim = buf_len / sizeof(inotify_event);\n  static_assert(c_ulim == 256);\n  static constexpr unsigned recv_mask\n    = IN_CREATE\n    | IN_DELETE\n    | IN_DELETE_SELF\n    | IN_MODIFY\n    | IN_MOVE_SELF\n    | IN_MOVED_FROM\n    | IN_MOVED_TO;\n\n  int fd = -1;\n  ::wtr::watcher::event last_rename_ev{};\n  uint32_t last_rename_cookie = 0;\n  using paths = std::unordered_map<int, std::filesystem::path>;\n  paths dm{};\n  alignas(inotify_event) char ev_buf[buf_len]{0};\n  int rm_wd_buf[buf_len]{0};\n\n  static_assert(sizeof(ev_buf) % sizeof(inotify_event) == 0, \"alignment\");\n};",
+      "description": "inotify kernel event resources on Linux: inotify fd, rename pairing state (last event and cookie), map from watch descriptors to directory paths, aligned read buffer, and a temporary buffer for deferring WD removals. Contains masks and constants for parsing.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "::detail::wtr::watcher::adapter::inotify::sysres *"
+      ]
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::inotify::sysres *",
+      "aliases": [],
+      "definition": "struct sysres {\n  result ok = result::e;\n  ke_in_ev ke{};\n  semabin const &il{};\n  adapter::ep ep{};\n};",
+      "description": "Aggregates inotify adapter system resources: result status, inotify resources block, reference to liveness semaphore, and epoll wrapper.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::inotify::parsed *",
+      "aliases": [],
+      "definition": "struct parsed {\n  ::wtr::watcher::event ev;\n  inotify_event *next = nullptr;\n};",
+      "description": "Temporary parse result for an inotify buffer element: translated watcher::event and pointer to next inotify_event within the buffer.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "::detail::wtr::watcher::adapter::inotify::defer_dm_rm_wd *",
+      "aliases": [],
+      "definition": "struct defer_dm_rm_wd {\n  ke_in_ev &ke;\n  size_t back_idx = 0;\n\n  inline auto push(int wd) -> bool {\n    if (back_idx < ke.buf_len)\n      return ke.rm_wd_buf[back_idx++] = wd, true;\n    else\n      return false;\n  };\n\n  inline defer_dm_rm_wd(ke_in_ev &ke) : ke{ke} {};\n\n  inline ~defer_dm_rm_wd() {\n    for (size_t i = 0; i < back_idx; ++i) {\n      auto wd = ke.rm_wd_buf[i];\n      auto at = ke.dm.find(wd);\n      if (at != ke.dm.end()) ke.dm.erase(at);\n    }\n  };\n};",
+      "description": "Helper RAII object to defer removal of inotify watch-descriptor entries from the path map until after the current batch is processed. Collects WDs via push(), erases them in destructor.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "::wtr::watcher::watch *",
+      "aliases": [],
+      "definition": "class watch {\nprivate:\n  using sb = ::detail::wtr::watcher::semabin;\n  sb living{};\n  std::future<bool> watching{};\n\npublic:\n  inline watch(std::filesystem::path const &path, event::callback const &callback) noexcept\n      : watching{std::async(std::launch::async, [this, path, callback] {\n          using ::detail::wtr::watcher::adapter::watch;\n          auto ec = std::error_code{};\n          auto abs_path = std::filesystem::absolute(path, ec);\n          auto pre_ok = !ec && std::filesystem::is_directory(abs_path, ec) && !ec &&\n                        this->living.state() == sb::state::pending;\n          auto live_msg = (pre_ok ? \"s/self/live@\" : \"e/self/live@\") + abs_path.string();\n          callback({live_msg, event::effect_type::create, event::path_type::watcher});\n          auto post_ok = pre_ok && watch(abs_path, callback, this->living);\n          auto die_msg = (post_ok ? \"s/self/die@\" : \"e/self/die@\") + abs_path.string();\n          callback({die_msg, event::effect_type::destroy, event::path_type::watcher});\n          return pre_ok && post_ok;\n        })} {}\n\n  inline auto close() noexcept -> bool {\n    return this->living.release() != sb::state::error && this->watching.valid() && this->watching.get();\n  };\n\n  inline ~watch() noexcept { this->close(); }\n};",
+      "description": "Public asynchronous filesystem watcher facade. Starts watching on construction by launching an async task that selects the platform adapter and streams events to the provided callback. Emits watcher lifecycle events. close() signals termination via semabin and waits for completion. Destructor calls close().",
+      "direct_api_constructors": [
+        "::wtr::watcher::watch::watch(std::filesystem::path const &, ::wtr::watcher::event::callback const &)"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "wtr::watcher::to",
+      "signature": "template<class T, class... Ts> auto wtr::watcher::to(T) noexcept -> decltype(auto)",
+      "description": "Primary declaration of a generic conversion function template intended for user specialization outside this header. No definition is provided here.",
+      "requirements": [
+        "This declaration has no definition in the header; do not call/instantiate it unless you provide your own definition/specialization.",
+        "Only use when you supply a matching explicit specialization or definition; otherwise you will get a link error."
+      ],
+      "error": null
+    },
+    {
+      "name": "wtr::watcher::operator<<",
+      "signature": "template<class Char, class Traits> std::basic_ostream<Char,Traits>& wtr::watcher::operator<<(std::basic_ostream<Char,Traits>& into, enum ::wtr::event::effect_type from) noexcept",
+      "description": "Streams a textual name for effect_type into the given ostream. Uses to<std::basic_string<Char,Traits>>(from).",
+      "requirements": [
+        "into must be a valid stream reference.",
+        "No exceptions (noexcept). Unknown enum values stream as \"other\"."
+      ],
+      "error": null
+    },
+    {
+      "name": "wtr::watcher::watch::watch",
+      "signature": "wtr::watcher::watch::watch(std::filesystem::path const& path, wtr::watcher::event::callback const& callback) noexcept",
+      "description": "Constructor that starts an asynchronous filesystem watch on the given path and immediately dispatches a status event to the provided callback. It spawns an async task selecting an OS-specific adapter to monitor the absolute form of path, then sends a “live” watcher event on start and a “die” watcher event on termination. The watch runs until the object is closed or destroyed.",
+      "requirements": [
+        "callback must be callable as void(wtr::watcher::event const&) (i.e., event::callback)",
+        "For a successful run, path should refer to an existing directory (constructor still invokes callback with an error-status watcher event if validation fails)",
+        "Callback may be invoked from a background thread and must be safe to call in that context",
+        "The watch object must remain alive to keep the background watch running"
+      ],
+      "error": null
+    },
+    {
+      "name": "wtr::watcher::watch::close",
+      "signature": "bool wtr::watcher::watch::close() noexcept",
+      "description": "Stops the asynchronous watch, waits for the background task to finish, and returns whether the watch shut down successfully. This is the only blocking operation; it signals the internal semaphore, then joins the async task (future::get). Subsequent calls after the first successful get will return false due to an invalidated future.",
+      "requirements": [
+        "May block until the background watch task completes",
+        "Safe to call once to request shutdown; repeated calls will return false because the future is no longer valid",
+        "Returns true only if signaling succeeded and the background task reported success"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "wtr::watcher::watch::watch",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "watch",
+          "type": "::wtr::watcher::watch *"
+        }
+      ],
+      "code": "// Choose a valid directory path: prefer the parent directory of a fuzz-created file; fall back to CWD\nconst char *rand_file = FUZZ_PARAM_FILENAME();\nstd::filesystem::path dir = std::filesystem::path(rand_file).parent_path();\nstd::error_code ec{};\nif (dir.empty() || !std::filesystem::is_directory(dir, ec)) {\n  dir = std::filesystem::current_path();\n}\n// Construct a minimal, thread-safe callback. It must be callable as void(event const&)\n// and be safe from a background thread.\nauto events_seen = std::make_shared<std::atomic<int>>(0);\n::wtr::watcher::event::callback cb = [events_seen](::wtr::watcher::event const &ev) noexcept {\n  // Basic, non-throwing processing to exercise callback path; avoid blocking.\n  (void)ev;\n  events_seen->fetch_add(1, std::memory_order_relaxed);\n};\n// Start the asynchronous watch. This immediately launches a background task and\n// invokes the callback with a watcher lifecycle event.\n::wtr::watcher::watch *watch = new ::wtr::watcher::watch(dir, cb);\n// Track lifecycle for downstream stubs. The watch remains alive until explicitly closed.\nFUZZ_SET_ATTR_INT(watch, \"closed\", 0);\nFUZZ_SET_ATTR_PTR(watch, \"events_seen_ptr\", static_cast<void *>(events_seen.get()));\n// Validation: the object must be non-null and now owns the callback and its state.\nFUZZ_ASSERT(watch != nullptr, \"watch construction must return a valid object\");"
+    },
+    {
+      "name": "wtr::watcher::watch::close",
+      "inputs": [
+        {
+          "name": "watch",
+          "type": "::wtr::watcher::watch *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "watch",
+          "type": "::wtr::watcher::watch *"
+        }
+      ],
+      "code": "// Enforce that input is valid\nFUZZ_ASSERT(watch != nullptr, \"watch must be a valid pointer\");\n// First call should initiate shutdown and may block briefly until the background task completes.\nbool ok = watch->close();\n// Track and assert idempotent semantics: subsequent calls should return false.\nint already_closed = FUZZ_GET_ATTR_INT(watch, \"closed\");\nif (already_closed) {\n  // If we have already observed a successful close, close() must now return false.\n  FUZZ_ASSERT(!ok, \"close() must return false after the first successful shutdown\");\n} else {\n  // Record first successful close (best-effort; if ok==false, leave state as not-closed)\n  if (ok) {\n    FUZZ_SET_ATTR_INT(watch, \"closed\", 1);\n  }\n}\n// Keep the object in the pool; it remains valid post-close though further close() should be false.\n// Validation: object remains non-null and tracked as closed when ok was true."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "wtr::watcher::to",
+      "reason": "The function template has only a declaration with no definition; instantiating it would cause a link error without a user-provided specialization."
+    },
+    {
+      "name": "wtr::watcher::operator<<",
+      "reason": "This operator depends on to<std::basic_string<...>>(effect_type); without a provided specialization for to it cannot be safely instantiated and would fail to link."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "wtr::watcher::watch::close",
+      "data_types": []
+    },
+    {
+      "name": "wtr::watcher::watch::watch",
+      "data_types": [
+        "filesystem path",
+        "filename with random file data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path",
+      "description": "A string representing a filesystem path to a directory or file. Accepts absolute or relative paths. May include platform-specific separators and components (e.g., '.', '..'). In this context it is used to point to a directory to watch."
+    },
+    {
+      "data_type": "filename with random file data",
+      "description": "A filename referring to a created file that contains arbitrary random fuzz data. The filename itself follows a generic pattern, while the content of the file is fuzz-generated. Here it is used to derive its parent directory path; the file’s contents are not read by the function."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# We need to generate valid bytes for FUZZ_PARAM_FILENAME / FUZZ_PARAM_STR that\n# represent a filesystem path. The fuzzer stub prefers the parent directory of the\n# provided filename. We'll generate paths that are likely to exist on common systems\n# and include variations (absolute/relative, dot-components, symlinks where possible),\n# but we must not perform any I/O. We simply craft strings. The harness will create\n# the file at the returned path; it then uses parent_path() and falls back to CWD if\n# not a directory.\n#\n# Strategy:\n# - Return a path string to a file inside a directory that likely exists.\n# - Choose among common existing directories depending on platform.\n# - Mix absolute and relative variants, add components like '.', '..', and unicode.\n# - Ensure the final target is a filename (so parent_path() is a directory candidate).\n# - Keep total length <= 4096 bytes.\n# - Seeded randomness via the provided seed.\n\nCOMMON_DIRS_POSIX: List[str] = [\n    \"/tmp\",\n    \"/var/tmp\",\n    \"/dev/shm\",\n    \"/usr/tmp\",\n    \"/\",\n    \"/home\",\n    \"/proc\",\n    \"/sys\",\n]\n\nCOMMON_DIRS_WINDOWS: List[str] = [\n    r\"C:\\\\Windows\\\\Temp\",\n    r\"C:\\\\Temp\",\n    r\"C:\\\\Users\",\n    r\"C:\\\\\",\n]\n\nUNICODE_PARTS = [\n    \"Δpath\",\n    \"спутник\",\n    \"ファイル\",\n    \"日期\",\n    \"fîle\",\n]\n\nSAFE_FILENAME_CHARS = string.ascii_letters + string.digits + \"-_\"\n\n\ndef _rand_filename(rng: random.Random, min_len=3, max_len=16) -> str:\n    base = ''.join(rng.choice(SAFE_FILENAME_CHARS) for _ in range(rng.randint(min_len, max_len)))\n    # choose from common file-like extensions to be friendly\n    ext_choices = [\".log\", \".txt\", \".data\", \".bin\", \".cfg\", \"\"]\n    ext = rng.choice(ext_choices)\n    return base + ext\n\n\ndef _join(parts: List[str], sep: str) -> str:\n    # Avoid duplicate separators\n    cleaned = []\n    for p in parts:\n        if not p:\n            continue\n        if cleaned and (cleaned[-1].endswith(sep) or p.startswith(sep)):\n            cleaned.append(p.strip(sep))\n        else:\n            cleaned.append(p)\n    s = sep.join(cleaned)\n    # Ensure drive or root handling stays correct on Windows\n    return s\n\n\ndef _build_posix_path(rng: random.Random) -> str:\n    base = rng.choice(COMMON_DIRS_POSIX)\n    sep = \"/\"\n\n    # Optional components\n    parts = [base]\n\n    # Insert some dot components probabilistically\n    for _ in range(rng.randint(0, 2)):\n        parts.append(rng.choice([\".\", \"..\"]))\n\n    # Add 0-3 random directory names, possibly unicode\n    for _ in range(rng.randint(0, 3)):\n        if rng.random() < 0.3:\n            parts.append(rng.choice(UNICODE_PARTS))\n        else:\n            parts.append(''.join(rng.choice(SAFE_FILENAME_CHARS) for _ in range(rng.randint(2, 10))))\n\n    # Add trailing dot component sometimes\n    if rng.random() < 0.2:\n        parts.append(\".\")\n\n    filename = _rand_filename(rng)\n    parts.append(filename)\n\n    path = _join(parts, sep)\n\n    # Sometimes produce a relative path by stripping the leading slash and adding ./ or ../\n    if rng.random() < 0.3 and path.startswith(\"/\"):\n        rel_prefix = rng.choice([\"./\", \"../\", \"../../\"])  # common relative prefixes\n        path = rel_prefix + path.lstrip(\"/\")\n\n    return path\n\n\ndef _build_windows_path(rng: random.Random) -> str:\n    base = rng.choice(COMMON_DIRS_WINDOWS)\n    sep = \"\\\\\"\n    parts = [base]\n\n    # Optionally add dot components (Windows tolerates . and .. in paths)\n    for _ in range(rng.randint(0, 2)):\n        parts.append(rng.choice([\".\", \"..\"]))\n\n    # Add 0-3 random directory names\n    for _ in range(rng.randint(0, 3)):\n        if rng.random() < 0.3:\n            # Keep unicode but avoid characters illegal on Windows filenames\n            parts.append(rng.choice([\"路径\", \"資料\", \"データ\", \"данные\", \"über\"]))\n        else:\n            parts.append(''.join(rng.choice(SAFE_FILENAME_CHARS) for _ in range(rng.randint(2, 10))))\n\n    filename = _rand_filename(rng)\n    parts.append(filename)\n    path = _join(parts, sep)\n\n    # Sometimes return a relative path variant\n    if rng.random() < 0.3:\n        rel_prefix = rng.choice([\".\\\\\", \"..\\\\\", \"..\\\\..\\\\\"])\n        # strip drive like C:\\ if present for relative form\n        stripped = path\n        if len(stripped) >= 3 and stripped[1] == ':' and stripped[2] in ('\\\\', '/'):\n            stripped = stripped[3:]\n        path = rel_prefix + stripped.lstrip('\\\\/')\n\n    return path\n\n\ndef _maybe_variant(rng: random.Random, path: str) -> str:\n    # Create variants that may influence parent_path and absolute resolution\n    # - Add trailing separators\n    # - Add redundant separators\n    # - Mix of '.' or '..' at end\n    if rng.random() < 0.2:\n        if os.name == 'nt':\n            path = path.replace('\\\\\\\\', '\\\\')\n            path = path + ('\\\\' if not path.endswith(('\\\\', '/')) else '')\n        else:\n            path = path.replace('//', '/')\n            path = path + ('/' if not path.endswith('/') else '')\n    if rng.random() < 0.2:\n        tail = rng.choice([\".\", \"..\"])\n        if os.name == 'nt':\n            sep = '\\\\'\n        else:\n            sep = '/'\n        path = path + (sep if not path.endswith(sep) else '') + tail\n    return path\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose platform family to target; also sometimes cross-target to exercise parser portability\n    target_windows = (os.name == 'nt')\n    if rng.random() < 0.3:\n        target_windows = not target_windows\n\n    if target_windows:\n        path = _build_windows_path(rng)\n    else:\n        path = _build_posix_path(rng)\n\n    path = _maybe_variant(rng, path)\n\n    # Ensure size <= 4096 bytes\n    if len(path.encode('utf-8')) > 4096:\n        # truncate conservatively at a separator boundary\n        if os.name == 'nt':\n            sep = '\\\\'\n        else:\n            sep = '/'\n        parts = path.split(sep)\n        trimmed = []\n        total = 0\n        for i, p in enumerate(parts):\n            add = (sep if trimmed else '') + p\n            if total + len(add.encode('utf-8')) > 4000:  # leave headroom\n                break\n            trimmed.append(p)\n            total += len(add.encode('utf-8'))\n        path = sep.join(trimmed)\n        if not path:\n            path = \".\" + sep + _rand_filename(rng)\n\n    return path.encode('utf-8')\n"
+    },
+    {
+      "data_type": "filename with random file data",
+      "generator": "import os\nimport random\nimport secrets\nimport string\nfrom typing import List\n\n# Generates a filename and file contents buffer suitable for a fuzzer that\n# expects FUZZ_PARAM_FILENAME to point to a valid file. The target code only\n# uses parent_path() and checks is_directory() on that parent. To maximize\n# coverage, we embed: a valid directory hierarchy, Unicode/odd characters,\n# long names, and create the final leaf as a regular file so its parent is a\n# directory. The bytes returned encode a small container format that common\n# fuzz harnesses understand: ASCII path string followed by a NUL, then the\n# file payload bytes. Harness will create the file at that path with payload.\n# If the harness just needs a path string, it can split at the first NUL.\n\n# Container format (all in returned bytes):\n#   path_bytes + b\"\\x00\" + file_payload\n# Constraints: total length <= 4096 bytes\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_\"\nUNICODE_FRAGMENTS: List[str] = [\n    \"Δ\", \"漢\", \"é\", \"ß\", \"ø\", \"🐍\", \"スペース\", \"Σ\", \"µ\", \"рос\",\n]\nSPECIAL_FRAGMENTS = [\" . \", \"..\", \"-dot-\", \"__\", \"-\", \" \"]\n\ndef _rand_name(rng: random.Random, max_len: int = 32) -> str:\n    # Mix of safe ascii, specials, and occasional unicode\n    parts: List[str] = []\n    n_parts = rng.randint(1, 3)\n    for _ in range(n_parts):\n        choice = rng.random()\n        if choice < 0.65:\n            k = rng.randint(3, min(16, max_len))\n            parts.append(''.join(rng.choice(SAFE_CHARS) for _ in range(k)))\n        elif choice < 0.85:\n            parts.append(rng.choice(SPECIAL_FRAGMENTS))\n        else:\n            parts.append(rng.choice(UNICODE_FRAGMENTS))\n    name = ''.join(parts).strip()\n    # Avoid empty or reserved names\n    if not name or name in {\".\", \"..\"}:\n        name = \"f\" + ''.join(rng.choice(SAFE_CHARS) for _ in range(7))\n    # Trim to budget\n    return name[:max_len] if max_len > 0 else name\n\ndef _build_path(rng: random.Random) -> str:\n    # Choose a base directory that is almost always a valid existing directory\n    candidates = [os.getcwd(), os.path.expanduser(\"~\"), \"/tmp\", \".\"]\n    base = rng.choice([c for c in candidates if c])\n\n    # Optionally add 0-3 subdirectories to explore parent_path() behavior\n    depth = rng.randint(0, 3)\n    comps: List[str] = [base]\n    for _ in range(depth):\n        comps.append(_rand_name(rng, 20))\n\n    # Ensure the last component will be a regular file; caller/harness will\n    # create the file. Include diverse extensions.\n    exts = [\"\", \".log\", \".tmp\", \".dat\", \".📄\", \".长名\", \".txt\"]\n    leaf = _rand_name(rng, 28) + rng.choice(exts)\n    comps.append(leaf)\n\n    # Join with OS separator\n    path = comps[0]\n    for c in comps[1:]:\n        path = os.path.join(path, c)\n    return path\n\ndef _rand_payload(rng: random.Random, max_total: int, path_bytes_len: int) -> bytes:\n    # Leave room for NUL separator\n    budget = max(0, max_total - path_bytes_len - 1)\n    # Produce interesting yet generic file content (though not read by target)\n    # Mix of text, binary, and structured-like blobs\n    segments: List[bytes] = []\n\n    # Small headers that resemble common formats\n    magic_pool = [\n        b\"\\x89PNG\\r\\n\\x1a\\n\", b\"%PDF-1.7\\n\", b\"PK\\x03\\x04\", b\"GIF89a\", b\"\\xff\\xd8\\xff\\xe0JFIF\\x00\",\n        b\"\\x7fELF\\x02\\x01\\x01\", b\"SQLite format 3\\x00\", b\"{\\\"k\\\":\", b\"<xml>\",\n    ]\n    if budget > 0 and rng.random() < 0.7:\n        segments.append(rng.choice(magic_pool))\n\n    # Random ASCII/UTF-8 text\n    if budget > 16 and rng.random() < 0.8:\n        text_len = rng.randint(8, min(256, budget))\n        text = ''.join(rng.choice(string.printable) for _ in range(text_len)).encode('utf-8', 'ignore')\n        segments.append(text)\n\n    # Some unicode\n    if budget > 16 and rng.random() < 0.5:\n        uni = ''.join(rng.choice(UNICODE_FRAGMENTS) for _ in range(rng.randint(1, 16)))\n        segments.append(uni.encode('utf-8'))\n\n    # Random binary chunk\n    if budget > 0:\n        bin_len = rng.randint(0, max(0, budget - sum(len(s) for s in segments)))\n        if bin_len > 0:\n            segments.append(secrets.token_bytes(bin_len))\n\n    payload = b''.join(segments)\n    # Final clamp\n    return payload[:budget]\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Construct a path that points to a file (leaf). Parent directory should\n    # be a valid existing directory in most runs.\n    path = _build_path(rng)\n\n    # Encode as UTF-8 path bytes\n    path_bytes = path.encode('utf-8', 'surrogatepass')\n\n    # Ensure total size <= 4096\n    max_total = 4096\n    if len(path_bytes) + 1 > max_total:\n        # Trim path conservatively from the left (keep tail/filename diversity)\n        keep = max_total - 1\n        path_bytes = path_bytes[-keep:]\n\n    payload = _rand_payload(rng, max_total, len(path_bytes))\n\n    # Return container: path\\0payload\n    return path_bytes + b\"\\x00\" + payload\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 21527,
+            "output_tokens": 4154,
+            "total_tokens": 25681
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 21105,
+            "output_tokens": 62,
+            "total_tokens": 21167
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 64695,
+            "output_tokens": 8286,
+            "total_tokens": 72981
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7749,
+            "output_tokens": 3287,
+            "total_tokens": 11036
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5666,
+            "output_tokens": 169,
+            "total_tokens": 5835
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 329.1101839542389,
+    "scan_objects": 51.79726314544678,
+    "validate_objects": 2.894634485244751,
+    "scan_functions": 134.59066104888916,
+    "synthesis": 101.3831160068512,
+    "fill": 0,
+    "classify": 4.696789741516113,
+    "build_generators": 33.74703240394592
+  }
+}

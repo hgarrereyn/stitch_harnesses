@@ -1,0 +1,205 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct fuse_operations *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque FUSE operations structure referenced by this header. It is only forward-referenced via pointers; no definition is provided here. Not defined in this header, so details about its fields are unknown.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct fuse_args *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque structure for FUSE argument parsing, referenced only as a pointer. Not defined in this header; details are unknown.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct stat *",
+      "aliases": [],
+      "definition": "",
+      "description": "POSIX file status structure from sys/stat.h, referenced only as a pointer parameter. Not defined in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "cache_wrap",
+      "signature": "struct fuse_operations *cache_wrap(struct fuse_operations *oper);",
+      "description": "Wraps an existing FUSE operations table with caching behavior and returns a pointer to the wrapped operations. Typical usage is to prepare your struct fuse_operations, then pass it to this function before mounting the filesystem so that file attribute/path lookups can be cached.",
+      "requirements": [
+        "oper must point to a valid, initialized struct fuse_operations whose function pointers (as used by the filesystem) are set appropriately.",
+        "The returned pointer is expected to remain valid for the lifetime of the filesystem session (ownership/lifetime specifics are unknown due to missing documentation).",
+        "Caller must use the returned operations pointer when starting FUSE; passing the original unwrapped pointer will bypass caching."
+      ],
+      "error": null
+    },
+    {
+      "name": "cache_parse_options",
+      "signature": "int cache_parse_options(struct fuse_args *args);",
+      "description": "Parses command-line options relevant to the caching layer from a FUSE argument vector. Intended to be called during initialization to consume cache-related options before starting FUSE.",
+      "requirements": [
+        "args must point to a valid, initialized struct fuse_args as defined by libfuse (typically created with fuse_opt_parse/fuse_main-like setup).",
+        "Return value semantics (0 on success vs. negative on error) are unknown; caller should check the returned int and handle nonzero values cautiously due to missing documentation.",
+        "This function may modify args in-place (common for libfuse option parsing); callers should not treat args as const."
+      ],
+      "error": null
+    },
+    {
+      "name": "cache_add_attr",
+      "signature": "void cache_add_attr(const char *path, const struct stat *stbuf, uint64_t wrctr);",
+      "description": "Adds or updates a cached attribute entry (struct stat) for the given filesystem path, associated with a write counter value. Typically used after obtaining fresh attributes to prime/update the cache.",
+      "requirements": [
+        "path must be a valid, NUL-terminated string representing a filesystem path.",
+        "stbuf must be a non-NULL pointer to a valid struct stat populated with the file’s attributes.",
+        "wrctr is a write-counter value; its expected range/semantics are not documented here. Using the value returned by cache_get_write_ctr is likely intended, but exact requirements are unknown.",
+        "The path should correspond to a single file or directory in the mounted filesystem; behavior for non-existent paths is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "cache_invalidate",
+      "signature": "void cache_invalidate(const char *path);",
+      "description": "Invalidates any cached entry associated with the specified path. Use when the underlying file/directory at path has changed, to force subsequent operations to refresh attributes.",
+      "requirements": [
+        "path must be a valid, NUL-terminated string representing a filesystem path.",
+        "If no cache entry exists for path, behavior is unspecified (assumed to be a no-op, but not documented).",
+        "Should be called when the caller knows the cached data is stale; no guarantees are documented about synchronization with concurrent lookups."
+      ],
+      "error": null
+    },
+    {
+      "name": "cache_get_write_ctr",
+      "signature": "uint64_t cache_get_write_ctr(void);",
+      "description": "Returns a write counter value used by the caching layer, likely to tag cache entries or detect staleness. Often paired with cache_add_attr’s wrctr parameter.",
+      "requirements": [
+        "No arguments required.",
+        "Semantics of the counter (e.g., monotonicity, wraparound, per-thread vs. global) are not documented; callers should treat it as an opaque token suitable for passing to cache_add_attr.",
+        "Thread-safety of this function is unknown from the header; callers in multithreaded contexts should assume standard atomicity is not guaranteed unless documented elsewhere."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "cache_invalidate",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid, NUL-terminated path string to invalidate\nstd::string path_s = FUZZ_PARAM_STR();\nif (path_s.size() == 0) { FUZZ_BAIL(); }\nconst char *path = path_s.c_str();\n\n// Invoke the target API\ncache_invalidate(path);\n\n// Validation: Ensures non-empty NUL-terminated path; API is invoked without additional assumptions."
+    },
+    {
+      "name": "cache_get_write_ctr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simply obtain the write counter; semantics are opaque so we do not assert properties here\nuint64_t ctr = cache_get_write_ctr();\n(void)ctr; // suppress unused warning\n\n// Validation: Function is side-effect free from our perspective; we just ensure it can be called."
+    },
+    {
+      "name": "cache_add_attr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid, NUL-terminated path string\nstd::string path_s = FUZZ_PARAM_STR();\nif (path_s.size() == 0) { FUZZ_BAIL(); }\nconst char *path = path_s.c_str();\n\n// Build a plausible struct stat without using FUZZ_PARAM(struct stat) which is unsupported.\n// We zero-initialize, then fill a subset of common POSIX fields to look sane.\nstruct stat sb = {};\n\n// Choose a plausible file type/mode: either regular file 0644 or directory 0755\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nif ((pick & 1u) == 0u) {\n    // 0100644 -> regular file with 0644 perms\n    sb.st_mode = 0100644;\n} else {\n    // 0040755 -> directory with 0755 perms\n    sb.st_mode = 0040755;\n}\n\n// Ensure link count at least 1\nsb.st_nlink = 1;\n\n// Size bounded to keep values small and reasonable\nsb.st_size = static_cast<decltype(sb.st_size)>(*FUZZ_PARAM(unsigned int) % 2048u);\n\n// Set a common block size and derive block count conservatively\n// (512-byte blocks is conventional for st_blocks)\n{\n    auto sz = static_cast<unsigned long long>(sb.st_size);\n    unsigned long long blocks = (sz + 511ull) / 512ull;\n    // Assign with implicit conversion to st_blocks' type\n    sb.st_blocks = static_cast<decltype(sb.st_blocks)>(blocks);\n}\n\n// Use a typical page-sized block size if available in this build\nsb.st_blksize = sb.st_blksize ? sb.st_blksize : 4096;\n\n// Populate a few more identifiers with small values\nsb.st_uid = static_cast<decltype(sb.st_uid)>(*FUZZ_PARAM(unsigned int) % 32768u);\nsb.st_gid = static_cast<decltype(sb.st_gid)>(*FUZZ_PARAM(unsigned int) % 32768u);\n\n// Generate a write-counter token (opaque semantics)\nuint64_t wrctr = (uint64_t)(*FUZZ_PARAM(unsigned long long));\n\n// Invoke the target API with a non-NULL, plausibly-populated stat buffer\ncache_add_attr(path, &sb, wrctr);\n\n// Validation: Enforced non-empty path and constructed a sane-looking struct stat with non-zero mode and nlink; wrctr treated as opaque."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "cache_wrap",
+      "reason": "Requires a valid, initialized struct fuse_operations table with function pointers, which cannot be safely constructed or validated under the current fuzzer constraints."
+    },
+    {
+      "name": "cache_parse_options",
+      "reason": "Requires a valid, initialized struct fuse_args from libfuse, which cannot be safely constructed or validated under the current fuzzer constraints."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "cache_get_write_ctr",
+      "data_types": []
+    },
+    {
+      "name": "cache_invalidate",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "cache_add_attr",
+      "data_types": [
+        "filesystem path string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path string",
+      "description": "A NUL-terminated string representing a filesystem path. May include absolute or relative paths, directories or files, and typical POSIX path characters including '/', '.', and alphanumerics. Empty strings are invalid for these APIs."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path string",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator focuses on producing valid, interesting POSIX path strings\n# suitable for FUZZ_PARAM_STR() in the provided fuzzer stubs. The functions\n# under test expect non-empty, NUL-terminated path strings. We provide\n# a variety of plausible paths covering:\n# - absolute and relative paths\n# - directories and files\n# - dot/parent components\n# - hidden files\n# - varying depths and lengths\n# - characters common in POSIX filenames (excluding NUL)\n#\n# No binary struct data is needed; the stubs synthesize struct stat internally.\n# The output is a single buffer intended to be consumed by FUZZ_PARAM_STR,\n# which the harness treats as a NUL-terminated C string.\n\nMAX_TOTAL_LEN = 4096\n\n_safe_name_chars = string.ascii_letters + string.digits + \"-_.,+@%#=(){}!$^~\"\n\n_common_dirs = [\n    \"/\",\n    \"/tmp\",\n    \"/var/tmp\",\n    \"/home/user\",\n    \"/etc\",\n    \"./\",\n    \".\",\n    \"..\",\n]\n\n_common_basenames = [\n    \"file\",\n    \"config\",\n    \"data\",\n    \"cache\",\n    \"index\",\n    \"README\",\n    \".hidden\",\n    \"..dotdot\",\n    \".\",\n    \"..\",\n]\n\n_extensions = [\"\", \".txt\", \".log\", \".cfg\", \".dat\", \".bin\"]\n\n\ndef _rand_name(rng: random.Random, min_len: int = 1, max_len: int = 20) -> str:\n    n = rng.randint(min_len, max_len)\n    # Avoid names that are just NUL or empty; ensure non-empty and not containing '/'\n    s = ''.join(rng.choice(_safe_name_chars) for _ in range(n))\n    # Occasionally pick . or .. explicitly to exercise special components\n    if rng.random() < 0.1:\n        s = rng.choice([\".\", \"..\", \".hidden\", \".config\"])\n    return s\n\n\ndef _rand_path(rng: random.Random) -> str:\n    # Select an overall style\n    style = rng.choice([\n        \"absolute\",\n        \"relative\",\n        \"cwddot\",\n        \"parented\",\n        \"hidden\",\n        \"deep\",\n        \"shallow\",\n        \"tricky\",\n    ])\n\n    # Control depth\n    if style == \"deep\":\n        depth = rng.randint(4, 12)\n        start = \"/\" if rng.random() < 0.7 else \"\"\n    elif style in (\"absolute\",):\n        depth = rng.randint(1, 6)\n        start = \"/\"\n    elif style in (\"relative\", \"cwddot\", \"parented\", \"hidden\", \"tricky\", \"shallow\"):\n        depth = rng.randint(1, 5)\n        start = \"\"\n    else:\n        depth = rng.randint(1, 4)\n        start = \"\"\n\n    components: List[str] = []\n\n    # Optionally seed with a common dir\n    if rng.random() < 0.35:\n        base = rng.choice(_common_dirs)\n        if base == \"/\":\n            start = \"/\"\n        elif base in (\".\", \"./\"):\n            components.append(\".\")\n        elif base == \"..\":\n            components.append(\"..\")\n        else:\n            # split and extend without empty segments\n            parts = [p for p in base.split('/') if p]\n            start = \"/\" if base.startswith('/') else start\n            components.extend(parts)\n\n    # Build remaining components\n    while len(components) < depth:\n        name = _rand_name(rng)\n        # Hidden style: often start components with a dot\n        if style == \"hidden\" and rng.random() < 0.7:\n            if not name.startswith('.'):\n                name = \".\" + name[: max(1, len(name) - 1)]\n        # Parent traversal style\n        if style == \"parented\" and rng.random() < 0.3:\n            name = rng.choice([\"..\", \".\"]) if rng.random() < 0.8 else name\n        components.append(name)\n\n    # Possibly make the last component a file with extension\n    if rng.random() < 0.8:\n        ext = rng.choice(_extensions)\n        # Use a common basename sometimes\n        if rng.random() < 0.4:\n            base = rng.choice(_common_basenames)\n        else:\n            base = _rand_name(rng)\n        # Keep special components as-is\n        if base not in (\".\", \"..\"):\n            components[-1] = base + ext\n        else:\n            components[-1] = base\n\n    # Insert some ./ pieces for tricky style\n    if style == \"tricky\":\n        for i in range(len(components)):\n            if rng.random() < 0.2:\n                components[i] = \"./\" + components[i]\n\n    # Join\n    path = (\"/\" if start == \"/\" else \"\").join([\"\" if start == \"/\" else \"\"])  # no-op for clarity\n    if start == \"/\":\n        path = \"/\" + \"/\".join([c for c in components if c != \"\"])\n    else:\n        path = \"/\".join([c for c in components if c != \"\"])\n\n    # Occasionally return just \"/\" or a very short path\n    if rng.random() < 0.05:\n        path = \"/\"\n    elif rng.random() < 0.05:\n        path = rng.choice([\".\", \"..\", \"./file\", \"../file\"])  # still valid strings\n\n    # Ensure non-empty and no embedded NUL; truncate to MAX_TOTAL_LEN-1 so adding NUL fits\n    if not path:\n        path = \"/tmp/f\"\n    path = path.replace(\"\\x00\", \"\")\n    if len(path) > MAX_TOTAL_LEN - 1:\n        path = path[: MAX_TOTAL_LEN - 1]\n    return path\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose how many path samples to concatenate. Many fuzz harnesses\n    # read only one FUZZ_PARAM_STR per test case; however, concatenating\n    # multiple NUL-terminated strings allows the harness to pull multiple\n    # independent strings from the same buffer if needed. The provided\n    # stubs request a single string each, but this remains compatible.\n    count = rng.randint(1, 5)\n\n    parts: List[bytes] = []\n    for _ in range(count):\n        p = _rand_path(rng)\n        # Ensure C-string termination for each segment\n        parts.append(p.encode('utf-8') + b\"\\x00\")\n\n    blob = b\"\".join(parts)\n    if len(blob) > MAX_TOTAL_LEN:\n        blob = blob[:MAX_TOTAL_LEN]\n    # Guarantee at least one non-empty NUL-terminated string\n    if not blob:\n        blob = b\"/tmp/f\\x00\"\n    return blob\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 809,
+            "output_tokens": 175,
+            "total_tokens": 984
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 387,
+            "output_tokens": 35,
+            "total_tokens": 422
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 841,
+            "output_tokens": 1202,
+            "total_tokens": 2043
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10275,
+            "output_tokens": 4005,
+            "total_tokens": 14280
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2662,
+            "output_tokens": 105,
+            "total_tokens": 2767
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 159.38223242759705,
+    "scan_objects": 6.027796983718872,
+    "validate_objects": 0.19733190536499023,
+    "scan_functions": 19.353057146072388,
+    "synthesis": 109.98019981384277,
+    "fill": 0,
+    "classify": 2.454679250717163,
+    "build_generators": 21.36850094795227
+  }
+}

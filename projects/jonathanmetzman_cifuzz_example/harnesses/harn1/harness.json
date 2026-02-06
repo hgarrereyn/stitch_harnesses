@@ -1,0 +1,159 @@
+{
+  "objects": [
+    {
+      "ptr_type": "size_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom types (structs, enums, typedefs, or classes) are defined in this header. size_t is a standard library type and not defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "std::string *",
+      "aliases": [
+        "::std::basic_string<char> *"
+      ],
+      "definition": "",
+      "description": "std::string is referenced as a parameter type but is part of the C++ standard library, not defined in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "There are no user-defined types to document. The only API symbol is a free function: size_t DoStuff(const std::string &str);",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "DoStuff",
+      "signature": "size_t DoStuff(const std::string &str);",
+      "description": "Performs an operation on the provided string and returns a size_t result. The exact behavior is not documented in the header; based on the name and signature, it likely computes a value derived from the input (e.g., size/metric/processing result). Input is not modified (const reference). Suitable for general use where a deterministic size_t outcome from a std::string is needed. Specific semantics of the return value are unknown from this header.",
+      "requirements": [
+        "The argument must be a valid, initialized std::string object.",
+        "The function does not modify the input string (const reference).",
+        "No constraints on string content or length are documented.",
+        "The meaning and range of the returned size_t are unspecified in this header; callers should not assume a particular interpretation."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "DoStuff",
+      "inputs": [
+        {
+          "name": "str",
+          "type": "std::string *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "str",
+          "type": "std::string *"
+        }
+      ],
+      "code": "// Use a persistent std::string* from the pool as required by the API (valid, initialized)\n// Snapshot the content to validate const-correctness (function must not mutate input)\nstd::string original = *str;\n\n// Call the target function with a const reference to the string\nsize_t result = DoStuff(*str);\n\n// Property: DoStuff must not modify the input string (const ref contract)\nFUZZ_ASSERT(*str == original, \"DoStuff must not modify input string\");\n\n// Optionally stash the last result for downstream correlation; truncated to int for attribute storage\nFUZZ_SET_ATTR_INT(str, \"last_DoStuff\", (int)(result & 0x7fffffff));\n\n// Output handling:\n// - Return the input string back to the pool by listing it as an output.\n// - The size_t result is ephemeral and not managed by the object pool; we do not export it as an output.\n\n// Validation summary:\n// - Inputs: one valid std::string*; no mutation performed.\n// - Outputs: the same std::string* is returned to avoid dropping ownership; result handled ephemerally."
+    },
+    {
+      "name": "std::string *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "out",
+          "type": "std::string *"
+        }
+      ],
+      "code": "// Construct a valid, initialized std::string* for downstream use.\n// No inputs are required; we synthesize content using the fuzzer runtime.\n\n// Generate arbitrary content (may include non-printable bytes). Size is [1, 4096].\nstd::string raw = FUZZ_PARAM_STR();\n\n// Constrain size for performance as recommended (< 2048 bytes per call).\nif (raw.size() > 2048) {\n    raw.resize(2048);\n}\n\n// Optionally diversify layout characteristics: sometimes reserve extra capacity, sometimes shrink_to_fit.\n// Note: FUZZ_PARAM macros are compile-time expanded; use them once per branch decision, not in loops.\nunsigned int mode = *FUZZ_PARAM(unsigned int);\nstd::string built;\nif ((mode % 3) == 0) {\n    // Reserve a bit more to exercise capacity vs size paths.\n    size_t extra = (size_t)(*FUZZ_PARAM(unsigned int) % 64);\n    built.reserve(raw.size() + extra);\n    built.assign(raw.data(), raw.size());\n} else if ((mode % 3) == 1) {\n    // Build via repeated appends to exercise growth.\n    built.clear();\n    size_t cut = raw.size() ? (size_t)(*FUZZ_PARAM(unsigned int) % raw.size()) : 0;\n    // Ensure at least 1 byte appended to keep non-empty invariant from FUZZ_PARAM_STR.\n    size_t first = cut ? cut : std::min<size_t>(raw.size(), 1);\n    built.append(raw.data(), first);\n    built.append(raw.data() + first, raw.size() - first);\n} else {\n    // Direct construct.\n    built = raw;\n    if ((*FUZZ_PARAM(unsigned int) & 1u) == 1u) {\n        // Exercise shrink_to_fit path (may or may not actually shrink depending on implementation).\n        built.shrink_to_fit();\n    }\n}\n\n// Allocate the std::string on the heap and hand ownership to the fuzzer runtime via outputs.\nstd::string *out = nullptr;\ntry {\n    out = new std::string(built);\n} catch (...) {\n    // If allocation fails or any unexpected exception occurs, bail to keep the fuzzer state consistent.\n    FUZZ_BAIL();\n}\n\n// Attach useful metadata for downstream stubs.\nFUZZ_SET_ATTR_INT(out, \"len\", (int)(out->size() & 0x7fffffff));\nFUZZ_SET_ATTR_INT(out, \"empty\", out->empty() ? 1 : 0);\n// Heuristic: mark whether content appears ASCII-printable (quick check on a prefix to limit cost).\nint ascii_flag = 1;\nsize_t inspect = std::min<size_t>(out->size(), 256);\nfor (size_t i = 0; i < inspect; ++i) {\n    unsigned char c = (unsigned char)(*out)[i];\n    if (!(c == 9 || c == 10 || c == 13 || (c >= 32 && c <= 126))) { ascii_flag = 0; break; }\n}\nFUZZ_SET_ATTR_INT(out, \"likely_ascii_prefix\", ascii_flag);\n\n// Validation summary:\n// - Ensures a valid, initialized std::string* is produced and never null.\n// - Bounds content size to <= 2048 bytes for performance and sets useful attributes for downstream use."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "DoStuff",
+      "data_types": []
+    },
+    {
+      "name": "std::string *",
+      "data_types": []
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary byte string",
+      "description": "A generic buffer of bytes with no required encoding or structure. May contain any values including NULs and non-printable bytes. Length can vary; no constraints on content, encoding, or format are assumed."
+    }
+  ],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 747,
+            "output_tokens": 184,
+            "total_tokens": 931
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 325,
+            "output_tokens": 18,
+            "total_tokens": 343
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 758,
+            "output_tokens": 448,
+            "total_tokens": 1206
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4011,
+            "output_tokens": 1718,
+            "total_tokens": 5729
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2999,
+            "output_tokens": 1899,
+            "total_tokens": 4898
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2192,
+            "output_tokens": 89,
+            "total_tokens": 2281
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 98.6845076084137,
+    "scan_objects": 3.8691048622131348,
+    "validate_objects": 0.33762431144714355,
+    "scan_functions": 10.94214129447937,
+    "synthesis": 31.411884784698486,
+    "fill": 33.18319892883301,
+    "classify": 18.884471654891968,
+    "build_generators": 0.055437564849853516
+  }
+}

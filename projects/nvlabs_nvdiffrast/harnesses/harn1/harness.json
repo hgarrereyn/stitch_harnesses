@@ -1,0 +1,143 @@
+{
+  "objects": [
+    {
+      "ptr_type": "TextureKernelParams *",
+      "aliases": [],
+      "definition": "struct TextureKernelParams\n{\n    const float*    tex[TEX_MAX_MIP_LEVEL];         // Incoming texture buffer with mip levels.\n    const float*    uv;                             // Incoming texcoord buffer.\n    const float*    uvDA;                           // Incoming uv pixel diffs or NULL.\n    const float*    mipLevelBias;                   // Incoming mip level bias or NULL.\n    const float*    dy;                             // Incoming output gradient.\n    float*          out;                            // Outgoing texture data.\n    float*          gradTex[TEX_MAX_MIP_LEVEL];     // Outgoing texture gradients with mip levels.\n    float*          gradUV;                         // Outgoing texcoord gradient.\n    float*          gradUVDA;                       // Outgoing texcoord pixel differential gradient.\n    float*          gradMipLevelBias;               // Outgoing mip level bias gradient.\n    int             enableMip;                      // If true, we have uv_da and/or mip_level_bias input(s), and a mip tensor.\n    int             filterMode;                     // One of the TEX_MODE_ constants.\n    int             boundaryMode;                   // One of the TEX_BOUNDARY_MODE_ contants.\n    int             texConst;                       // If true, texture is known to be constant.\n    int             mipLevelLimit;                  // Mip level limit coming from the op.\n    int             channels;                       // Number of texture channels.\n    int             imgWidth;                       // Image width.\n    int             imgHeight;                      // Image height.\n    int             texWidth;                       // Texture width.\n    int             texHeight;                      // Texture height.\n    int             texDepth;                       // Texture depth.\n    int             n;                              // Minibatch size.\n    int             mipLevelMax;                    // Maximum mip level index. Zero if mips disabled.\n    int             mipLevelOut;                    // Mip level being calculated in builder kernel.\n};",
+      "description": "Kernel parameter bundle for nvdiffrast texture sampling/building CUDA kernels. Holds pointers to input/output tensors (base and mip levels), gradients, and configuration such as filtering mode, boundary handling, dimensions, channel count, and mip settings. Used as a POD struct passed to CUDA kernels; no constructors/destructors defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "raiseMipSizeError",
+      "signature": "void raiseMipSizeError(const TextureKernelParams& p);",
+      "description": "Reports an error related to invalid or inconsistent mipmap sizing for a texture sampling operation. Intended to be called when the TextureKernelParams describe a texture/mip configuration that violates expected size relationships. Likely throws via the framework’s error macros (e.g., NVDR_CHECK) and does not return on failure. Usage: invoke after validating texture dimensions and computed mip sizes to surface a clear diagnostic.",
+      "requirements": [
+        "p must reference a valid, initialized TextureKernelParams structure.",
+        "The fields in p relevant to texture/mipmap sizing (e.g., texWidth, texHeight, mipLevelMax, enableMip, tex[] pointers) should be set to reflect the problematic state being reported.",
+        "Caller should not expect a return value; this function is intended to raise/throw on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "calculateMipInfo",
+      "signature": "int calculateMipInfo(TextureKernelParams& p, int* mipOffsets);",
+      "description": "Computes mipmap-related information for texture sampling based on the given TextureKernelParams and writes per-level offsets into mipOffsets. Modifies p to record derived mip settings (e.g., maximum mip level or output level). Returns an integer result (exact meaning unknown from this header; commonly the number of mip levels or the total texel count across levels). Usage: call after populating p with base texture properties to prepare texture sampling/kernels that use mipmaps.",
+      "requirements": [
+        "p must reference a valid, initialized TextureKernelParams structure with dimensions (texWidth, texHeight, texDepth) and other fields set consistently for the texture to be used.",
+        "mipOffsets must be a non-null pointer to writable memory large enough to store offsets for all mip levels that may be computed (up to TEX_MAX_MIP_LEVEL entries).",
+        "Caller must handle the returned int; the precise interpretation (e.g., number of levels vs. total size) is unknown from this header and should be verified against the implementation or higher-level documentation.",
+        "Because p is non-const, the caller must be prepared for p’s mip-related fields (e.g., mipLevelMax, mipLevelOut) to be modified."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "calculateMipInfo",
+      "inputs": [
+        {
+          "name": "p",
+          "type": "TextureKernelParams *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "p",
+          "type": "TextureKernelParams *"
+        }
+      ],
+      "code": "// Prepare a consistent TextureKernelParams for mip computation and allocate mipOffsets.\n// We treat TEX_MAX_MIP_LEVEL as 16 for harnessing purposes and clamp all derived levels accordingly.\nTextureKernelParams &par = *p;\nconst int kMaxLevels = 16; // conservative upper bound to keep buffers small and within <2KB budget\n\n// Initialize all pointer fields to null; calculateMipInfo should rely only on sizes/mip config.\nfor (int i = 0; i < kMaxLevels; ++i) { par.tex[i] = nullptr; par.gradTex[i] = nullptr; }\npar.uv = nullptr; par.uvDA = nullptr; par.mipLevelBias = nullptr; par.dy = nullptr;\npar.out = nullptr; par.gradUV = nullptr; par.gradUVDA = nullptr; par.gradMipLevelBias = nullptr;\n\n// Derive small, valid geometry and configuration.\nunsigned int rndA = *FUZZ_PARAM(unsigned int);\nunsigned int rndB = *FUZZ_PARAM(unsigned int) ^ 0x9e3779b9u; // mix to avoid identical values\nunsigned int rndC = *FUZZ_PARAM(unsigned int) ^ 0x85ebca6bu;\n\npar.channels  = 1 + (int)(rndA % 4);              // 1..4\npar.n         = 1 + (int)(rndB % 4);              // 1..4 minibatch\npar.texWidth  = 1 + (int)(rndA % 1024);           // keep small for performance\npar.texHeight = 1 + (int)(rndB % 1024);\npar.texDepth  = 1;                                // 2D textures\npar.imgWidth  = par.texWidth;                     // align image dims to texture dims for consistency\npar.imgHeight = par.texHeight;\npar.enableMip = (int)(rndC & 1u);                 // enable/disable mipmaps\npar.filterMode   = (int)(rndA % 3);               // small range of modes\npar.boundaryMode = (int)(rndB % 3);\npar.texConst     = (int)(rndC & 1u);\n\n// Compute theoretical number of mip levels for the base size and clamp to kMaxLevels.\nint maxDim = par.texWidth;\nif (par.texHeight > maxDim) maxDim = par.texHeight;\nif (par.texDepth  > maxDim) maxDim = par.texDepth;\nint levels = 1; // include base level 0\nint cur = maxDim;\nwhile (cur > 1 && levels < kMaxLevels) { cur = (cur + 1) / 2; ++levels; }\n\n// Respect an external mip level limit; clamp to [1, kMaxLevels].\npar.mipLevelLimit = (int)(rndA % kMaxLevels); // limit expressed as max index or cap on levels by implementation; we clamp below\n\n// Initialize mip fields to a conservative, self-consistent state prior to the call.\nif (par.enableMip) {\n    int clampedLevels = levels; // already <= kMaxLevels\n    // Interpret mipLevelLimit as a cap on the number of levels and convert to max index.\n    if (par.mipLevelLimit > 0 && par.mipLevelLimit + 1 < clampedLevels) clampedLevels = par.mipLevelLimit + 1;\n    par.mipLevelMax = clampedLevels - 1;          // max index\n    par.mipLevelOut = (int)(rndB % (par.mipLevelMax + 1));\n} else {\n    par.mipLevelMax = 0;                          // no mips\n    par.mipLevelOut = 0;\n}\n\n// Allocate writable buffer for per-level offsets (size = kMaxLevels ints).\nint mipOffsetsBuf[kMaxLevels];\nint *mipOffsets = mipOffsetsBuf;\n\n// Call the target function.\nint ret = calculateMipInfo(par, mipOffsets);\n\n// Basic safety validation: ensure the updated mip configuration cannot overflow our fixed buffer.\nif (par.enableMip) {\n    if (par.mipLevelMax < 0 || par.mipLevelMax >= kMaxLevels) { FUZZ_BAIL(); }\n} else {\n    if (par.mipLevelMax != 0) { FUZZ_BAIL(); }\n}\n\n// Persist derived info for downstream stubs.\nFUZZ_SET_ATTR_INT(p, \"mip_max\", par.mipLevelMax);\nFUZZ_SET_ATTR_INT(p, \"mip_enabled\", par.enableMip);\nFUZZ_SET_ATTR_INT(p, \"ret_calculateMipInfo\", ret);\n\n// Output: return the (possibly modified) params object to the pool.\n// Validation: The stub bounds mip level computation to kMaxLevels, allocates a matching offsets buffer,\n// and bails if calculateMipInfo reports a configuration that would exceed those bounds."
+    },
+    {
+      "name": "TextureKernelParams *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "p",
+          "type": "TextureKernelParams *"
+        }
+      ],
+      "code": "// Construct a valid, self-consistent TextureKernelParams instance with small allocations.\n// This stub focuses on creating a usable params object while keeping allocations <2KB.\n// No inputs are consumed; the created object is returned via output 'p'.\n\nconst unsigned int rA = *FUZZ_PARAM(unsigned int);\nconst unsigned int rB = *FUZZ_PARAM(unsigned int) ^ 0x9e3779b9u;\nconst unsigned int rC = *FUZZ_PARAM(unsigned int) ^ 0x85ebca6bu;\n\n// Create the params object (caller/runtime will own and eventually free it).\nTextureKernelParams *tmp = new TextureKernelParams();\nTextureKernelParams &par = *tmp;\n\n// Conservative constant to index arrays; matches other harness code.\nconst int kMaxLevels = 16;\n\n// Initialize pointer arrays to null.\nfor (int i = 0; i < kMaxLevels; ++i) { par.tex[i] = nullptr; par.gradTex[i] = nullptr; }\npar.uv = nullptr; par.uvDA = nullptr; par.mipLevelBias = nullptr; par.dy = nullptr;\npar.out = nullptr; par.gradUV = nullptr; par.gradUVDA = nullptr; par.gradMipLevelBias = nullptr;\n\n// Choose small, consistent geometry to keep memory and compute modest.\npar.channels  = 1 + (int)(rA % 3);                 // 1..3 channels (caps memory)\npar.n         = 1 + (int)(rB % 2);                 // 1..2 minibatch\npar.texWidth  = 1 + (int)(rA % 8);                 // 1..8\npar.texHeight = 1 + (int)(rB % 8);                 // 1..8\npar.texDepth  = 1;                                  // 2D textures\npar.imgWidth  = par.texWidth;                       // align image dims to texture dims\npar.imgHeight = par.texHeight;\npar.filterMode   = (int)(rA % 3);\npar.boundaryMode = (int)(rB % 3);\npar.texConst     = (int)(rC & 1u);\npar.enableMip    = (int)(rC & 1u);\n\n// Compute theoretical mip level count for the chosen base resolution.\nint maxDim = par.texWidth;\nif (par.texHeight > maxDim) maxDim = par.texHeight;\nif (par.texDepth  > maxDim) maxDim = par.texDepth;\nint levels = 1; // always include base level\nint cur = maxDim;\nwhile (cur > 1 && levels < kMaxLevels) { cur = (cur + 1) / 2; ++levels; }\n\n// Apply a conservative limit on levels to bound memory; keep at most 2 levels.\npar.mipLevelLimit = (int)(rA % 2);                  // interpret as cap on number of levels minus one\nint allowedLevels = levels;\nif (allowedLevels > 2) allowedLevels = 2;           // hard cap for small allocations\nif (par.mipLevelLimit + 1 < allowedLevels) allowedLevels = par.mipLevelLimit + 1;\n\nif (par.enableMip) {\n    par.mipLevelMax = allowedLevels - 1;            // max index\n    if (par.mipLevelMax < 0) par.mipLevelMax = 0;\n    par.mipLevelOut = (int)(rB % (par.mipLevelMax + 1));\n} else {\n    par.mipLevelMax = 0;\n    par.mipLevelOut = 0;\n}\n\n// Allocate minimal base-level texture and output buffers to form a usable instance.\n// Keep allocations <2KB: with width/height<=8, channels<=3, n<=2 this stays small.\nconst int baseW = par.texWidth;\nconst int baseH = par.texHeight;\nconst int C = par.channels;\nconst int N = par.n; // not explicitly multiplied into buffer sizes here to keep memory small\n\n// Base level tex and out buffers (size per-sample * 1 sample). Downstream stubs may reinterpret sizes.\nsize_t baseElems = (size_t)baseW * (size_t)baseH * (size_t)C;\nif (baseElems == 0 || baseElems > 512) { // hard cap: 512 floats = 2KB\n    // Should not happen given our ranges; bail if violated.\n    FUZZ_BAIL();\n}\nfloat *texL0 = new float[baseElems];\nfloat *outL0 = new float[baseElems];\nif (!texL0 || !outL0) { FUZZ_BAIL(); }\npar.tex[0] = texL0;\npar.out    = outL0;\n\n// Optionally allocate one additional mip level if enabled and allowed.\nif (par.enableMip && par.mipLevelMax >= 1) {\n    int w1 = (baseW + 1) / 2; if (w1 < 1) w1 = 1;\n    int h1 = (baseH + 1) / 2; if (h1 < 1) h1 = 1;\n    size_t lvl1Elems = (size_t)w1 * (size_t)h1 * (size_t)C;\n    if (lvl1Elems == 0 || lvl1Elems > 512) { FUZZ_BAIL(); }\n    float *texL1 = new float[lvl1Elems];\n    if (!texL1) { FUZZ_BAIL(); }\n    par.tex[1] = texL1;\n}\n\n// Track metadata for downstream users about sizes and configuration.\nFUZZ_SET_ATTR_INT(tmp, \"channels\", par.channels);\nFUZZ_SET_ATTR_INT(tmp, \"width\", par.texWidth);\nFUZZ_SET_ATTR_INT(tmp, \"height\", par.texHeight);\nFUZZ_SET_ATTR_INT(tmp, \"mip_enabled\", par.enableMip);\nFUZZ_SET_ATTR_INT(tmp, \"mip_max\", par.mipLevelMax);\n\n// Property assertions to guard invariants the API expects.\nFUZZ_ASSERT(par.texWidth  >= 1 && par.texHeight >= 1, \"Texture dims must be >=1\");\nFUZZ_ASSERT(par.channels  >= 1 && par.channels <= 4,  \"Channels must be between 1 and 4\");\nif (!par.enableMip) { FUZZ_ASSERT(par.mipLevelMax == 0, \"No mips implies mipLevelMax == 0\"); }\nif (par.enableMip)  { FUZZ_ASSERT(par.mipLevelMax >= 0 && par.mipLevelMax < kMaxLevels, \"mipLevelMax in range\"); }\n\n// Output the constructed object to the pool.\nTextureKernelParams *p = tmp;\n\n// Validation summary: The stub allocates a new TextureKernelParams, initializes all fields,\n// enforces small, consistent dimensions, bounds mip levels, allocates minimal buffers for base (and optional level-1) tex and out,\n// and records attributes for downstream consumers. It bails on any size or allocation inconsistency."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "raiseMipSizeError",
+      "reason": "This function is intended to unconditionally raise/abort on error, which would terminate the fuzzing process and cannot be safely exercised in a harness."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "calculateMipInfo",
+      "data_types": []
+    },
+    {
+      "name": "TextureKernelParams *",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1851,
+            "output_tokens": 528,
+            "total_tokens": 2379
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1429,
+            "output_tokens": 24,
+            "total_tokens": 1453
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1869,
+            "output_tokens": 1044,
+            "total_tokens": 2913
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4635,
+            "output_tokens": 3229,
+            "total_tokens": 7864
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4447,
+            "output_tokens": 3497,
+            "total_tokens": 7944
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 215.3344578742981,
+    "scan_objects": 13.707379579544067,
+    "validate_objects": 0.24709010124206543,
+    "scan_functions": 48.39856719970703,
+    "synthesis": 92.8964581489563,
+    "fill": 60.0295946598053,
+    "classify": 0.05462384223937988,
+    "build_generators": 0.00006866455078125
+  }
+}

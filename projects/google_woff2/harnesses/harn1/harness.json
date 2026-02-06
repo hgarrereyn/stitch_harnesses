@@ -1,0 +1,633 @@
+{
+  "objects": [
+    {
+      "ptr_type": "woff2::WOFF2Out *",
+      "aliases": [],
+      "definition": "class WOFF2Out {\n public:\n  virtual ~WOFF2Out(void) {}\n\n  // Append n bytes of data from buf.\n  // Return true if all written, false otherwise.\n  virtual bool Write(const void *buf, size_t n) = 0;\n\n  // Write n bytes of data from buf at offset.\n  // Return true if all written, false otherwise.\n  virtual bool Write(const void *buf, size_t offset, size_t n) = 0;\n\n  virtual size_t Size() = 0;\n};",
+      "description": "Abstract output interface for WOFF2 decoding. Supports appending and random-access writes as well as querying the current output size. Implementations enforce size limits (default suggested max is kDefaultMaxSize).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "woff2::WOFF2StringOut *",
+      "aliases": [],
+      "definition": "class WOFF2StringOut : public WOFF2Out {\n public:\n  // Create a writer that writes its data to buf.\n  // buf->size() will grow to at most max_size\n  // buf may be sized (e.g. using EstimateWOFF2FinalSize) or empty.\n  explicit WOFF2StringOut(std::string *buf);\n\n  bool Write(const void *buf, size_t n) override;\n  bool Write(const void *buf, size_t offset, size_t n) override;\n  size_t Size() override { return offset_; }\n  size_t MaxSize() { return max_size_; }\n  void SetMaxSize(size_t max_size);\n private:\n  std::string *buf_;\n  size_t max_size_;\n  size_t offset_;\n};",
+      "description": "Concrete WOFF2Out that writes to and grows a std::string buffer up to a configurable maximum. Tracks a current write offset to support appends and random-access writes.",
+      "direct_api_constructors": [
+        "woff2::WOFF2StringOut::WOFF2StringOut(std::string *)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "woff2::WOFF2MemoryOut *",
+      "aliases": [],
+      "definition": "class WOFF2MemoryOut : public WOFF2Out {\n public:\n  // Create a writer that writes its data to buf.\n  WOFF2MemoryOut(uint8_t* buf, size_t buf_size);\n\n  bool Write(const void *buf, size_t n) override;\n  bool Write(const void *buf, size_t offset, size_t n) override;\n  size_t Size() override { return offset_; }\n private:\n  uint8_t* buf_;\n  size_t buf_size_;\n  size_t offset_;\n};",
+      "description": "Concrete WOFF2Out that writes into a fixed-size memory buffer supplied by the caller. Supports bounded random-access writes; the size cannot grow beyond buf_size.",
+      "direct_api_constructors": [
+        "woff2::WOFF2MemoryOut::WOFF2MemoryOut(uint8_t*, size_t)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "woff2::WOFF2Params *",
+      "aliases": [],
+      "definition": "struct WOFF2Params {\n  WOFF2Params() : extended_metadata(\"\"), brotli_quality(11),\n                  allow_transforms(true) {}\n\n  std::string extended_metadata;\n  int brotli_quality;\n  bool allow_transforms;\n};",
+      "description": "Parameter bundle for WOFF2 encoding. Holds optional extended metadata string to embed, Brotli compression quality (default 11), and whether table transform optimizations are allowed.",
+      "direct_api_constructors": [
+        "woff2::WOFF2Params::WOFF2Params()"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "woff2::WOFF2Out::Write",
+      "signature": "virtual bool woff2::WOFF2Out::Write(const void* buf, size_t n) = 0;",
+      "description": "Appends n bytes from buf to the end of the output stream used during WOFF2 decoding. Returns true if all bytes are written, false otherwise. Intended for producers that stream sequential output.",
+      "requirements": [
+        "buf must point to at least n readable bytes when n > 0.",
+        "May fail (return false) if the implementation refuses to grow beyond its limit (by default often kDefaultMaxSize for implementations that enforce it).",
+        "Calling code should check the boolean return and stop or handle failure if false.",
+        "The current output size can be queried via Size()."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2Out::Write",
+      "signature": "virtual bool woff2::WOFF2Out::Write(const void* buf, size_t offset, size_t n) = 0;",
+      "description": "Writes n bytes from buf into the output at the specified offset. Supports random-access updates (e.g., to patch tables or checksums) during WOFF2 decoding. Returns true if all bytes are written, false otherwise.",
+      "requirements": [
+        "buf must point to at least n readable bytes when n > 0.",
+        "offset must be within the implementation’s allowable range; writing may extend the output if supported by the implementation.",
+        "May fail (return false) if the write would exceed the implementation’s size limits (commonly capped by kDefaultMaxSize for growing buffers).",
+        "Calling code should check the boolean return and handle failure if false."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2Out::Size",
+      "signature": "virtual size_t woff2::WOFF2Out::Size() = 0;",
+      "description": "Returns the current logical size of the output produced so far. Useful for building dependent tables (e.g., loca) while writing glyph data.",
+      "requirements": [
+        "No arguments; can be called at any time defined by the concrete implementation.",
+        "Returned size is implementation-defined; callers should not assume it reflects allocated capacity—only the logical written size."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2StringOut::WOFF2StringOut",
+      "signature": "explicit woff2::WOFF2StringOut::WOFF2StringOut(std::string* buf);",
+      "description": "Constructs an expanding, in-memory output that writes into the provided std::string. The string grows as data is written, up to a maximum size (default kDefaultMaxSize).",
+      "requirements": [
+        "buf must be non-null and remain valid for the lifetime of the WOFF2StringOut instance.",
+        "buf may be pre-sized or empty before construction.",
+        "The buffer will grow to at most the current MaxSize()."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2StringOut::Write",
+      "signature": "bool woff2::WOFF2StringOut::Write(const void* buf, size_t n) override;",
+      "description": "Appends n bytes from buf to the underlying std::string, expanding it as needed up to MaxSize(). Returns true if the append completes; false if it would exceed MaxSize() or on failure.",
+      "requirements": [
+        "buf must point to at least n readable bytes when n > 0.",
+        "The total size after appending must not exceed MaxSize(); otherwise the function returns false.",
+        "Caller must check the boolean return and handle failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2StringOut::Write",
+      "signature": "bool woff2::WOFF2StringOut::Write(const void* buf, size_t offset, size_t n) override;",
+      "description": "Writes n bytes from buf at the specified offset within the underlying std::string, expanding the string as needed up to MaxSize(). Returns true if the write completes; false otherwise.",
+      "requirements": [
+        "buf must point to at least n readable bytes when n > 0.",
+        "If offset + n exceeds the current size, the string may expand; the resulting size must not exceed MaxSize().",
+        "Caller must check the boolean return and handle failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2StringOut::Size",
+      "signature": "size_t woff2::WOFF2StringOut::Size() override;",
+      "description": "Returns the current logical size (in bytes) of the data written to the underlying std::string.",
+      "requirements": [
+        "No arguments; can be called at any time during output generation."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2StringOut::MaxSize",
+      "signature": "size_t woff2::WOFF2StringOut::MaxSize();",
+      "description": "Returns the current maximum allowed size for the expanding string buffer. By default this is kDefaultMaxSize (128 MiB) unless changed via SetMaxSize().",
+      "requirements": [
+        "No arguments. Returned value represents a limit that subsequent writes must respect."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2StringOut::SetMaxSize",
+      "signature": "void woff2::WOFF2StringOut::SetMaxSize(size_t max_size);",
+      "description": "Sets the maximum allowed size for the expanding string buffer. Writes that would exceed this limit will fail.",
+      "requirements": [
+        "max_size sets a hard limit on growth; callers should choose a value large enough to accommodate expected output.",
+        "Changing the limit after data has been written does not shrink existing data; it only affects future writes."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::WOFF2MemoryOut",
+      "signature": "woff2::WOFF2MemoryOut::WOFF2MemoryOut(uint8_t* buf, size_t buf_size);",
+      "description": "Constructs a fixed-size output that writes into a caller-provided memory buffer of size buf_size bytes. The output cannot grow beyond buf_size.",
+      "requirements": [
+        "buf must be non-null and point to a writable buffer of at least buf_size bytes.",
+        "buf must remain valid for the lifetime of the WOFF2MemoryOut instance.",
+        "buf_size defines the maximum output size; writes that exceed it should fail."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::Write",
+      "signature": "bool woff2::WOFF2MemoryOut::Write(const void* buf, size_t n) override;",
+      "description": "Appends n bytes from buf to the fixed-size buffer, advancing the internal offset. Returns true on success; false if the write would exceed buf_size or on failure.",
+      "requirements": [
+        "buf must point to at least n readable bytes when n > 0.",
+        "The append must not cause the written size to exceed buf_size; otherwise the function returns false.",
+        "Caller must check the boolean return and handle failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::Write",
+      "signature": "bool woff2::WOFF2MemoryOut::Write(const void* buf, size_t offset, size_t n) override;",
+      "description": "Writes n bytes from buf into the fixed-size buffer starting at offset. Returns true on success; false if offset + n exceeds buf_size or on failure.",
+      "requirements": [
+        "buf must point to at least n readable bytes when n > 0.",
+        "offset + n must be <= buf_size; otherwise the function returns false.",
+        "Caller must check the boolean return and handle failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::Size",
+      "signature": "size_t woff2::WOFF2MemoryOut::Size() override;",
+      "description": "Returns the current logical number of bytes written to the fixed-size buffer.",
+      "requirements": [
+        "No arguments; can be called at any time during output generation."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::MaxWOFF2CompressedSize",
+      "signature": "size_t woff2::MaxWOFF2CompressedSize(const uint8_t* data, size_t length);",
+      "description": "Computes an upper bound on the size of the WOFF2-compressed form of a font given its TTF/OTF bytes. Use this to pre-allocate an output buffer before compression.",
+      "requirements": [
+        "data must point to length bytes of readable font data.",
+        "length is the size in bytes of the input font data.",
+        "Returned value is an upper bound; the actual compressed size will be <= this value."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::MaxWOFF2CompressedSize",
+      "signature": "size_t woff2::MaxWOFF2CompressedSize(const uint8_t* data, size_t length, const std::string& extended_metadata);",
+      "description": "Computes an upper bound on the WOFF2-compressed size for the given font bytes, accounting for additional extended metadata to be embedded.",
+      "requirements": [
+        "data must point to length bytes of readable font data.",
+        "length is the size in bytes of the input font data.",
+        "extended_metadata is the metadata blob to include; its size contributes to the bound.",
+        "Returned value is an upper bound; the actual compressed size will be <= this value."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::ConvertTTFToWOFF2",
+      "signature": "bool woff2::ConvertTTFToWOFF2(const uint8_t* data, size_t length, uint8_t* result, size_t* result_length);",
+      "description": "Compresses a TTF/OTF font into WOFF2 format into result. *result_length must initially specify the capacity of result (ideally from MaxWOFF2CompressedSize) and is set on return to the actual compressed size. Returns true on successful compression.",
+      "requirements": [
+        "data must point to length bytes of readable font data.",
+        "result must point to a writable buffer of at least *result_length bytes on entry.",
+        "result_length must be non-null; on success it is updated to the actual number of bytes written.",
+        "Callers should size result using MaxWOFF2CompressedSize() for the given input to avoid failure due to insufficient space.",
+        "Caller must check the boolean return."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::ConvertTTFToWOFF2",
+      "signature": "bool woff2::ConvertTTFToWOFF2(const uint8_t* data, size_t length, uint8_t* result, size_t* result_length, const woff2::WOFF2Params& params);",
+      "description": "Compresses a TTF/OTF font into WOFF2 format with additional parameters (e.g., Brotli quality, extended metadata, transforms). *result_length is the capacity on entry and is set to the actual compressed size on return. Returns true on success.",
+      "requirements": [
+        "data must point to length bytes of readable font data.",
+        "result must point to a writable buffer of at least *result_length bytes on entry.",
+        "result_length must be non-null; on success it is updated to the actual number of bytes written.",
+        "params controls compression behavior (fields: extended_metadata, brotli_quality, allow_transforms).",
+        "Callers should size result using MaxWOFF2CompressedSize() (overload aware of metadata) to avoid insufficient space.",
+        "Caller must check the boolean return."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::ComputeWOFF2FinalSize",
+      "signature": "size_t woff2::ComputeWOFF2FinalSize(const uint8_t* data, size_t length);",
+      "description": "Computes the size in bytes of the decompressed (final) SFNT/TTF font represented by the WOFF2 input. Returns 0 on error.",
+      "requirements": [
+        "data must point to length bytes of readable WOFF2 data.",
+        "length is the size in bytes of the input WOFF2 file.",
+        "Caller should treat a return value of 0 as an error."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::ConvertWOFF2ToTTF",
+      "signature": "bool woff2::ConvertWOFF2ToTTF(uint8_t* result, size_t result_length, const uint8_t* data, size_t length);",
+      "description": "DEPRECATED. Decompresses a WOFF2 font into a caller-provided buffer containing the final TTF/SFNT bytes. result_length must exactly match the size determined by ComputeWOFF2FinalSize(). Returns true on successful decompression.",
+      "requirements": [
+        "result must point to a writable buffer of exactly result_length bytes.",
+        "result_length should be the value returned by ComputeWOFF2FinalSize(data, length).",
+        "data must point to length bytes of readable WOFF2 data.",
+        "Caller must check the boolean return and handle failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "woff2::ConvertWOFF2ToTTF",
+      "signature": "bool woff2::ConvertWOFF2ToTTF(const uint8_t* data, size_t length, woff2::WOFF2Out* out);",
+      "description": "Preferred API. Decompresses a WOFF2 font and writes the resulting TTF/SFNT bytes to the provided WOFF2Out. Succeeds even if the totalSfntSize field in the WOFF2 header is incorrect. Returns true on success.",
+      "requirements": [
+        "data must point to length bytes of readable WOFF2 data.",
+        "out must be non-null and ready to accept writes; its Write methods will be called and must honor their contracts.",
+        "Caller must check the boolean return and handle failure."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "woff2::WOFF2Out::Write",
+      "inputs": [
+        {
+          "name": "out",
+          "type": "woff2::WOFF2Out *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "type": "woff2::WOFF2Out *"
+        }
+      ],
+      "code": "// Exercise both Write overloads using random choice, honoring buffer readability and size constraints.\n// Input 'out' is an abstract sink; we only use its virtual API and do not destroy it.\nstd::string src = FUZZ_PARAM_STR();\nconst uint8_t* buf = reinterpret_cast<const uint8_t*>(src.data());\nsize_t src_len = src.size();\n// Keep writes modest for fuzzer performance\nsize_t cap = src_len < 1024 ? src_len : (size_t)1024;\nunsigned choice = *FUZZ_PARAM(unsigned int);\nif ((choice & 1u) == 0u) {\n    // Append form: choose n within [0, cap]\n    size_t n = (cap == 0) ? 0 : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cap + 1));\n    // If n > 0, 'buf' points to at least n bytes due to cap\n    bool ok = out->Write(buf, n);\n    (void)ok; // Allowed to fail depending on implementation limits\n} else {\n    // Random-access form: choose offset and n, with n within [0, cap], and offset biased to current Size()\n    size_t n = (cap == 0) ? 0 : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cap + 1));\n    size_t cur = out->Size();\n    // Bias offset to be near current size; still may exceed implementation limits which is fine\n    size_t off_bias = cur + ((size_t)(*FUZZ_PARAM(unsigned int)) % (size_t)256);\n    size_t offset = (choice & 2u) ? (off_bias) : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cur + 1));\n    bool ok = out->Write(buf, offset, n);\n    (void)ok;\n}\n// Track observed size for downstream stubs\nFUZZ_SET_ATTR_INT(out, \"size\", (int)out->Size());"
+    },
+    {
+      "name": "woff2::WOFF2Out::Size",
+      "inputs": [
+        {
+          "name": "out",
+          "type": "woff2::WOFF2Out *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "type": "woff2::WOFF2Out *"
+        }
+      ],
+      "code": "// Query and record the current logical size. No side effects on ownership.\nsize_t sz = out->Size();\nFUZZ_SET_ATTR_INT(out, \"size\", (int)sz);\n(void)sz;"
+    },
+    {
+      "name": "woff2::WOFF2StringOut::WOFF2StringOut",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "code": "// Construct a WOFF2StringOut over a heap-allocated std::string that will remain valid for the object's lifetime.\n// We keep allocations small for fuzzer performance.\nstd::string* backing = new std::string();\nwoff2::WOFF2StringOut* str_out = new woff2::WOFF2StringOut(backing);\n// Remember the backing buffer pointer for potential downstream checks\nFUZZ_SET_ATTR_PTR(str_out, \"backing_str\", (void*)backing);\n// Record initial max size if queried later via MaxSize()\nFUZZ_SET_ATTR_INT(str_out, \"size\", (int)str_out->Size());"
+    },
+    {
+      "name": "woff2::WOFF2StringOut::Write",
+      "inputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "code": "// Exercise both WOFF2StringOut::Write overloads while respecting readable buffer constraints.\nstd::string src = FUZZ_PARAM_STR();\nconst uint8_t* buf = reinterpret_cast<const uint8_t*>(src.data());\nsize_t src_len = src.size();\nsize_t cap = src_len < 1024 ? src_len : (size_t)1024;\nunsigned choice = *FUZZ_PARAM(unsigned int);\nif ((choice & 1u) == 0u) {\n    size_t n = (cap == 0) ? 0 : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cap + 1));\n    bool ok = str_out->Write(buf, n);\n    (void)ok;\n} else {\n    size_t n = (cap == 0) ? 0 : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cap + 1));\n    size_t cur = str_out->Size();\n    size_t off_bias = cur + ((size_t)(*FUZZ_PARAM(unsigned int)) % (size_t)256);\n    size_t offset = (choice & 2u) ? (off_bias) : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cur + 1));\n    bool ok = str_out->Write(buf, offset, n);\n    (void)ok;\n}\nFUZZ_SET_ATTR_INT(str_out, \"size\", (int)str_out->Size());"
+    },
+    {
+      "name": "woff2::WOFF2StringOut::Size",
+      "inputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "code": "size_t sz = str_out->Size();\nFUZZ_SET_ATTR_INT(str_out, \"size\", (int)sz);\n(void)sz;"
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::Write",
+      "inputs": [
+        {
+          "name": "mem_out",
+          "type": "woff2::WOFF2MemoryOut *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mem_out",
+          "type": "woff2::WOFF2MemoryOut *"
+        }
+      ],
+      "code": "// Exercise both append and random-access writes; the implementation will reject writes beyond buffer capacity.\nstd::string src = FUZZ_PARAM_STR();\nconst uint8_t* buf = reinterpret_cast<const uint8_t*>(src.data());\nsize_t src_len = src.size();\nsize_t cap = src_len < 1024 ? src_len : (size_t)1024;\nunsigned choice = *FUZZ_PARAM(unsigned int);\nif ((choice & 1u) == 0u) {\n    size_t n = (cap == 0) ? 0 : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cap + 1));\n    bool ok = mem_out->Write(buf, n);\n    (void)ok;\n} else {\n    size_t n = (cap == 0) ? 0 : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cap + 1));\n    // Try offsets both within and possibly beyond current size to explore failure cases.\n    size_t cur = mem_out->Size();\n    size_t off_bias = cur + ((size_t)(*FUZZ_PARAM(unsigned int)) % (size_t)256);\n    size_t offset = (choice & 2u) ? (off_bias) : ((size_t)(*FUZZ_PARAM(unsigned int)) % (cur + 1));\n    bool ok = mem_out->Write(buf, offset, n);\n    (void)ok;\n}\nFUZZ_SET_ATTR_INT(mem_out, \"size\", (int)mem_out->Size());"
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::Size",
+      "inputs": [
+        {
+          "name": "mem_out",
+          "type": "woff2::WOFF2MemoryOut *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mem_out",
+          "type": "woff2::WOFF2MemoryOut *"
+        }
+      ],
+      "code": "size_t sz = mem_out->Size();\nFUZZ_SET_ATTR_INT(mem_out, \"size\", (int)sz);\n(void)sz;"
+    },
+    {
+      "name": "woff2::MaxWOFF2CompressedSize",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Compute upper bound on compressed size; exercise both overloads.\nstd::string font = FUZZ_PARAM_STR();\nconst uint8_t* data = reinterpret_cast<const uint8_t*>(font.data());\nsize_t length = font.size();\nunsigned choice = *FUZZ_PARAM(unsigned int);\nif ((choice & 1u) == 0u) {\n    size_t bound = woff2::MaxWOFF2CompressedSize(data, length);\n    (void)bound;\n} else {\n    std::string meta = FUZZ_PARAM_STR();\n    size_t bound = woff2::MaxWOFF2CompressedSize(data, length, meta);\n    (void)bound;\n}"
+    },
+    {
+      "name": "woff2::ConvertTTFToWOFF2",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise both ConvertTTFToWOFF2 overloads. Ensure result buffer has at least some capacity; may be insufficient which is allowed.\nstd::string ttf = FUZZ_PARAM_STR();\nconst uint8_t* in_data = reinterpret_cast<const uint8_t*>(ttf.data());\nsize_t in_len = ttf.size();\n// Compute an upper bound for capacity, but cap allocation for fuzzer performance.\nsize_t est_no_meta = woff2::MaxWOFF2CompressedSize(in_data, in_len);\nsize_t capacity = est_no_meta > (size_t)2048 ? (size_t)2048 : est_no_meta;\nif (capacity == 0) {\n    capacity = (size_t)1; // ensure non-zero buffer to attempt encoding\n}\nstd::vector<uint8_t> buf(capacity);\nsize_t out_len = capacity;\nunsigned choice = *FUZZ_PARAM(unsigned int);\nif ((choice & 1u) == 0u) {\n    bool ok = woff2::ConvertTTFToWOFF2(in_data, in_len, buf.data(), &out_len);\n    (void)ok;\n} else {\n    // Build params with random fields\n    woff2::WOFF2Params params;\n    std::string meta = FUZZ_PARAM_STR();\n    // Keep metadata modest to avoid huge bounds\n    if (meta.size() > 1024) meta.resize(1024);\n    params.extended_metadata = meta;\n    params.brotli_quality = (int)(*FUZZ_PARAM(unsigned int) % 12); // commonly 0..11\n    params.allow_transforms = ((*FUZZ_PARAM(unsigned int) & 1u) != 0u);\n    // Recompute a bound aware of metadata, still cap to 2048\n    size_t est_meta = woff2::MaxWOFF2CompressedSize(in_data, in_len, params.extended_metadata);\n    size_t cap2 = est_meta > (size_t)2048 ? (size_t)2048 : est_meta;\n    if (cap2 == 0) cap2 = (size_t)1;\n    buf.assign(cap2, 0);\n    out_len = cap2;\n    bool ok = woff2::ConvertTTFToWOFF2(in_data, in_len, buf.data(), &out_len, params);\n    (void)ok;\n}"
+    },
+    {
+      "name": "woff2::ComputeWOFF2FinalSize",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Compute the decompressed size of a WOFF2 input; treat 0 as an error but do not assert.\nstd::string w2 = FUZZ_PARAM_STR();\nconst uint8_t* data = reinterpret_cast<const uint8_t*>(w2.data());\nsize_t len = w2.size();\nsize_t final_sz = woff2::ComputeWOFF2FinalSize(data, len);\n(void)final_sz;"
+    },
+    {
+      "name": "woff2::ConvertWOFF2ToTTF",
+      "inputs": [
+        {
+          "name": "out",
+          "type": "woff2::WOFF2Out *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "type": "woff2::WOFF2Out *"
+        }
+      ],
+      "code": "// Exercise both ConvertWOFF2ToTTF overloads. The 'out' object is returned unchanged to the pool.\nstd::string w2 = FUZZ_PARAM_STR();\nconst uint8_t* data = reinterpret_cast<const uint8_t*>(w2.data());\nsize_t len = w2.size();\nunsigned choice = *FUZZ_PARAM(unsigned int);\nif ((choice & 1u) == 0u) {\n    // Preferred streaming API\n    bool ok = woff2::ConvertWOFF2ToTTF(data, len, out);\n    (void)ok;\n} else {\n    // Deprecated API: need exact final size; bail if too large to keep allocations small\n    size_t final_sz = woff2::ComputeWOFF2FinalSize(data, len);\n    if (final_sz == 0) { FUZZ_BAIL(); }\n    if (final_sz > (size_t)2048) { FUZZ_BAIL(); }\n    std::vector<uint8_t> buf(final_sz);\n    bool ok = woff2::ConvertWOFF2ToTTF(buf.data(), final_sz, data, len);\n    (void)ok;\n}\n// Track how much was written into 'out' (best-effort via Size)\nFUZZ_SET_ATTR_INT(out, \"size\", (int)out->Size());"
+    },
+    {
+      "name": "woff2::WOFF2StringOut::MaxSize",
+      "inputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "code": "// Query current maximum allowed size and record it for later state-aware stubs.\nsize_t max_sz = str_out->MaxSize();\n// Store as int attribute; clamp to 32-bit signed max without including headers.\nint max_sz_i = (max_sz > (size_t)0x7fffffff) ? (int)0x7fffffff : (int)max_sz;\nFUZZ_SET_ATTR_INT(str_out, \"max_size\", max_sz_i);\n(void)max_sz;"
+    },
+    {
+      "name": "woff2::WOFF2StringOut::SetMaxSize",
+      "inputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "str_out",
+          "type": "woff2::WOFF2StringOut *"
+        }
+      ],
+      "code": "// Choose a new max size relative to the current logical size to exercise both success and failure paths.\nsize_t cur = str_out->Size();\nsize_t delta = (size_t)(*FUZZ_PARAM(unsigned int)) % (size_t)1024;\n// Randomly allow setting a limit lower than current size; per API this doesn't shrink existing data,\n// it only constrains future writes, which is valid.\nsize_t new_max = ((*FUZZ_PARAM(unsigned int) & 1u) != 0u) ? (cur + delta)\n                                                         : (cur > delta ? (cur - delta) : (size_t)0);\nstr_out->SetMaxSize(new_max);\n// Track the configured max size for downstream checks (clamped to int attribute space).\nint new_max_i = (new_max > (size_t)0x7fffffff) ? (int)0x7fffffff : (int)new_max;\nFUZZ_SET_ATTR_INT(str_out, \"max_size\", new_max_i);\n// Also refresh the observed size attribute for completeness.\nFUZZ_SET_ATTR_INT(str_out, \"size\", (int)str_out->Size());"
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::WOFF2MemoryOut",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mem_out",
+          "type": "woff2::WOFF2MemoryOut *"
+        }
+      ],
+      "code": "// Construct a fixed-size memory writer with a small heap-allocated buffer.\nsize_t buf_size = ((size_t)(*FUZZ_PARAM(unsigned int)) % (size_t)1536) + (size_t)1; // at least 1 byte\nuint8_t* backing = new uint8_t[buf_size];\n// Initialize with deterministic random bytes to avoid accidental dependency on uninitialized memory.\nfor (size_t i = 0; i < buf_size; ++i) {\n    backing[i] = (uint8_t)((*FUZZ_PARAM(unsigned int)) & 0xFF);\n}\nwoff2::WOFF2MemoryOut* mem_out = new woff2::WOFF2MemoryOut(backing, buf_size);\n// Record buffer pointer and size for downstream stubs; clamp size attribute to int range.\nFUZZ_SET_ATTR_PTR(mem_out, \"backing_buf\", (void*)backing);\nint buf_size_i = (buf_size > (size_t)0x7fffffff) ? (int)0x7fffffff : (int)buf_size;\nFUZZ_SET_ATTR_INT(mem_out, \"buf_size\", buf_size_i);\nFUZZ_SET_ATTR_INT(mem_out, \"size\", (int)mem_out->Size());"
+    },
+    {
+      "name": "woff2::WOFF2Out *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "out",
+          "type": "woff2::WOFF2Out *"
+        }
+      ],
+      "code": "// Construct a concrete WOFF2Out and return it via the output variable 'out'.\n// Randomly choose between a growing string-backed sink and a fixed-size memory sink.\nunsigned choice = *FUZZ_PARAM(unsigned int);\nwoff2::WOFF2Out* base = nullptr;\nif ((choice & 1u) == 0u) {\n    // String-backed implementation: backing std::string must outlive the writer.\n    std::string* backing = new std::string();\n    woff2::WOFF2StringOut* s = new woff2::WOFF2StringOut(backing);\n    base = static_cast<woff2::WOFF2Out*>(s);\n    // Attach metadata on the base pointer for downstream reasoning.\n    FUZZ_SET_ATTR_INT(base, \"kind\", 1); // 1 == string-backed\n    FUZZ_SET_ATTR_PTR(base, \"backing_str\", (void*)backing);\n    FUZZ_SET_ATTR_INT(base, \"size\", (int)base->Size());\n} else {\n    // Fixed-size memory-backed implementation.\n    size_t buf_size = ((size_t)(*FUZZ_PARAM(unsigned int)) % (size_t)1536) + (size_t)1; // [1,1536]\n    uint8_t* backing = new uint8_t[buf_size];\n    // Initialize memory to deterministic bytes to satisfy readable/writable expectations.\n    for (size_t i = 0; i < buf_size; ++i) {\n        backing[i] = (uint8_t)((*FUZZ_PARAM(unsigned int)) & 0xFF);\n    }\n    woff2::WOFF2MemoryOut* m = new woff2::WOFF2MemoryOut(backing, buf_size);\n    base = static_cast<woff2::WOFF2Out*>(m);\n    FUZZ_SET_ATTR_INT(base, \"kind\", 2); // 2 == fixed-memory-backed\n    FUZZ_SET_ATTR_PTR(base, \"backing_buf\", (void*)backing);\n    int buf_size_i = (buf_size > (size_t)0x7fffffff) ? (int)0x7fffffff : (int)buf_size;\n    FUZZ_SET_ATTR_INT(base, \"buf_size\", buf_size_i);\n    FUZZ_SET_ATTR_INT(base, \"size\", (int)base->Size());\n}\n// Define the output variable; ensure it is non-null.\nif (base == nullptr) { FUZZ_BAIL(); }\nwoff2::WOFF2Out* out = base;\n// Postcondition: 'out' is owned by the fuzzer runtime; we do not delete it here.\n// Attributes annotate backing kind and resources for safe downstream use."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "woff2::WOFF2Out::Size",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2StringOut::WOFF2StringOut",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2StringOut::Size",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::Size",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2StringOut::MaxSize",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2StringOut::SetMaxSize",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::WOFF2MemoryOut",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2Out *",
+      "data_types": []
+    },
+    {
+      "name": "woff2::WOFF2Out::Write",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "woff2::WOFF2StringOut::Write",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "woff2::WOFF2MemoryOut::Write",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "woff2::MaxWOFF2CompressedSize",
+      "data_types": [
+        "TTF/OTF font bytes",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "woff2::ConvertTTFToWOFF2",
+      "data_types": [
+        "TTF/OTF font bytes",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "woff2::ComputeWOFF2FinalSize",
+      "data_types": [
+        "WOFF2 font bytes"
+      ]
+    },
+    {
+      "name": "woff2::ConvertWOFF2ToTTF",
+      "data_types": [
+        "WOFF2 font bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "An unconstrained byte buffer with no required encoding or structure. May contain any sequence of bytes and is used as raw input data or payload for write operations."
+    },
+    {
+      "data_type": "TTF/OTF font bytes",
+      "description": "Raw bytes of a TrueType (TTF) or OpenType (OTF) SFNT font file. Expected to follow the SFNT structure with tables like 'head', 'maxp', 'glyf', etc. Used as input for WOFF2 compression."
+    },
+    {
+      "data_type": "WOFF2 font bytes",
+      "description": "Raw bytes of a WOFF2-compressed font file as defined by the WOFF2 specification, including the WOFF2 header and Brotli-compressed table data. Used as input for decompression or size computation."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces interesting arbitrary binary strings to exercise:\n# - WOFF2Out/WOFF2StringOut/WOFF2MemoryOut Write() with both append and offset forms\n# - MaxWOFF2CompressedSize (expects TTF/OTF bytes) and ConvertTTFToWOFF2 encoders\n# While the fuzzer accepts arbitrary bytes, providing realistic TTF/OTF-like inputs\n# increases the chance of reaching deeper code paths. We generate a variety of\n# valid or near-valid SFNT/TrueType-like byte sequences of small size.\n\n# Limits\nMAX_TOTAL = 4096\n\n# Helpers to build big-endian fields\n\ndef be16(x: int) -> bytes:\n    return struct.pack(\">H\", x & 0xFFFF)\n\ndef be32(x: int) -> bytes:\n    return struct.pack(\">I\", x & 0xFFFFFFFF)\n\n# Compute TrueType checksum as per spec (sum of big-endian 32-bit words, modulo 2^32)\n# Pads table data to 4-byte boundary with zeroes.\n\ndef tt_checksum(data: bytes) -> int:\n    n = len(data)\n    pad = (4 - (n % 4)) % 4\n    s = 0\n    for i in range(0, n + pad, 4):\n        chunk = data[i:i+4]\n        if len(chunk) < 4:\n            chunk = chunk + b\"\\x00\" * (4 - len(chunk))\n        s = (s + struct.unpack(\">I\", chunk)[0]) & 0xFFFFFFFF\n    return s\n\n# Build a minimal, consistent TrueType font with required tables: head, maxp, loca, glyf, hhea, hmtx, cmap.\n# We construct one simple glyph (empty or a small contour), short or long loca depending on glyph data size.\n# This is not a full-featured font but should be structurally valid enough for many parsers/encoders.\n\ndef build_minimal_ttf(seed: int, try_complex: bool) -> bytes:\n    rng = random.Random(seed)\n\n    # Table builders return bytes; later we will compute offsets and checksums.\n    # head: version 1.0, magic number 0x5F0F3CF5, unitsPerEm 2048, indexToLocFormat 0/1 set later\n    def build_head(index_to_loc_format: int, checksum_adjustment: int = 0) -> bytes:\n        version = be32(0x00010000)\n        fontRevision = be32(0x00010000)\n        checkSumAdjustment = be32(checksum_adjustment)\n        magicNumber = be32(0x5F0F3CF5)\n        flags = be16(0x000B)\n        unitsPerEm = be16(2048)\n        created = be32(0) + be32(0)\n        modified = be32(0) + be32(0)\n        xMin = be16(0)\n        yMin = be16(0)\n        xMax = be16(0)\n        yMax = be16(0)\n        macStyle = be16(0)\n        lowestRecPPEM = be16(8)\n        fontDirectionHint = be16(2)\n        indexToLocFormat_be = be16(index_to_loc_format)\n        glyphDataFormat = be16(0)\n        return (\n            version + fontRevision + checkSumAdjustment + magicNumber + flags + unitsPerEm +\n            created + modified + xMin + yMin + xMax + yMax + macStyle + lowestRecPPEM +\n            fontDirectionHint + indexToLocFormat_be + glyphDataFormat\n        )\n\n    # maxp: for TrueType version 1.0\n    def build_maxp(numGlyphs: int) -> bytes:\n        return (\n            be32(0x00010000) + be16(numGlyphs) +\n            be16(1) + be16(1) + be16(0) + be16(0) + be16(0) + be16(0) + be16(0) +\n            be16(0) + be16(0) + be16(0) + be16(0) + be16(0) + be16(0) + be16(0)\n        )\n\n    # hhea: minimal metrics for 1 glyph\n    def build_hhea() -> bytes:\n        ascender = 800\n        descender = -200 & 0xFFFF\n        lineGap = 200\n        advanceWidthMax = 512\n        minLeftSideBearing = 0\n        minRightSideBearing = 0\n        xMaxExtent = 512\n        caretSlopeRise = 1\n        caretSlopeRun = 0\n        reserved = b\"\\x00\\x00\" * 5\n        metricDataFormat = be16(0)\n        numberOfHMetrics = be16(1)\n        return (\n            be32(0x00010000) + be16(ascender) + be16(descender) + be16(lineGap) +\n            be16(advanceWidthMax) + be16(minLeftSideBearing) + be16(minRightSideBearing) +\n            be16(xMaxExtent) + be16(caretSlopeRise) + be16(caretSlopeRun) + reserved +\n            metricDataFormat + numberOfHMetrics\n        )\n\n    # hmtx: one long metric for 1 glyph\n    def build_hmtx() -> bytes:\n        advanceWidth = 512\n        lsb = 0\n        return be16(advanceWidth) + be16(lsb)\n\n    # cmap: format 4 or 0 (choose randomly). Provide mapping for glyph id 0 only.\n    def build_cmap() -> bytes:\n        if rng.random() < 0.5:\n            # format 0 with 256 bytes\n            glyphIdArray = bytes([0] * 256)\n            subtable = be16(0) + be16(262) + be16(0) + glyphIdArray\n            # cmap header: version, numTables=1, encoding (platform 3, encoding 1 for Unicode)\n            header = be16(0) + be16(1) + be16(3) + be16(1) + be32(12)\n            return header + subtable\n        else:\n            # format 4 minimal mapping for BMP range [0,0] -> glyph 0\n            segCount = 1\n            segCountX2 = be16(segCount * 2)\n            searchRange = be16(2)\n            entrySelector = be16(0)\n            rangeShift = be16(0)\n            endCount = be16(0)\n            reservedPad = be16(0)\n            startCount = be16(0)\n            idDelta = be16(0)\n            idRangeOffset = be16(0)\n            # length: 14 + 2*segCount*4\n            length = 14 + 8\n            subtable = (\n                be16(4) + be16(length) + be16(0) +\n                segCountX2 + searchRange + entrySelector + rangeShift +\n                endCount + reservedPad + startCount + idDelta + idRangeOffset\n            )\n            header = be16(0) + be16(1) + be16(3) + be16(1) + be32(12)\n            return header + subtable\n\n    # Simple glyph: either empty (no contours) or a tiny rectangle\n    def build_glyf_and_loca(use_long_loca: bool):\n        glyphs: List[bytes] = []\n        if rng.random() < 0.5:\n            # empty glyph (numContours = 0)\n            g0 = be16(0) + be16(0) + be16(0) + be16(0) + be16(0)\n        else:\n            # one contour with 4 points (tiny box)\n            numContours = 1\n            xMin, yMin, xMax, yMax = 0, 0, 10, 10\n            header = be16(numContours) + be16(xMin) + be16(yMin) + be16(xMax) + be16(yMax)\n            endPtsOfContours = be16(3)\n            instructionLength = be16(0)\n            flags = bytes([\n                0x01 | 0x02,  # on-curve, x-short\n                0x01 | 0x12,  # on-curve, y-short, repeat\n                0x01 | 0x00,  # on-curve\n                0x01 | 0x10,  # on-curve, y-short\n            ])\n            # Coordinates as deltas per flags: keep tiny\n            x = bytes([5, 0, 0, 0])\n            y = bytes([0, 5, 0, 0])\n            g0 = header + endPtsOfContours + instructionLength + flags + x + y\n        # Align to 4 bytes\n        pad = (4 - (len(g0) % 4)) % 4\n        g0 += b\"\\x00\" * pad\n        glyphs.append(g0)\n\n        glyf = b\"\".join(glyphs)\n        # loca depends on indexToLocFormat\n        if use_long_loca:\n            offsets = [0, len(glyf)]\n            loca = b\"\".join(be32(o) for o in offsets)\n        else:\n            # short loca uses offsets divided by 2\n            offsets = [0, len(glyf) // 2]\n            loca = b\"\".join(be16(o) for o in offsets)\n        return glyf, loca\n\n    # Decide loca format based on random and glyph size\n    use_long = rng.random() < 0.5\n    glyf0, loca0 = build_glyf_and_loca(use_long)\n\n    # Build other tables\n    maxp = build_maxp(1)\n    hhea = build_hhea()\n    hmtx = build_hmtx()\n    cmap = build_cmap()\n\n    # head requires checksum adjustment later; build with placeholder\n    head = build_head(1 if use_long else 0, 0)\n\n    # Assemble table directory\n    tables = {\n        b\"head\": head,\n        b\"maxp\": maxp,\n        b\"hhea\": hhea,\n        b\"hmtx\": hmtx,\n        b\"cmap\": cmap,\n        b\"loca\": loca0,\n        b\"glyf\": glyf0,\n    }\n\n    # Compute table records with 4-byte aligned offsets\n    tags = sorted(tables.keys())\n    numTables = len(tags)\n    # sfnt header\n    searchRange = 1\n    entrySelector = 0\n    while (1 << (entrySelector + 1)) <= numTables:\n        entrySelector += 1\n    searchRange = (1 << entrySelector) * 16\n    rangeShift = numTables * 16 - searchRange\n\n    directory = be32(0x00010000) + be16(numTables) + be16(searchRange) + be16(entrySelector) + be16(rangeShift)\n\n    # Placeholder for table records\n    records = []\n    offset = 12 + numTables * 16\n    # align helper\n    def align4(x: int) -> int:\n        return (x + 3) & ~3\n\n    # Compute checksums and record entries; offsets filled after alignment pass\n    # We'll first plan sizes and offsets\n    planned = {}\n    cur = offset\n    for tag in tags:\n        cur = align4(cur)\n        planned[tag] = cur\n        cur += align4(len(tables[tag]))\n\n    # Build records\n    for tag in tags:\n        data = tables[tag]\n        checksum = tt_checksum(data)\n        rec = tag + be32(checksum) + be32(planned[tag]) + be32(len(data))\n        records.append(rec)\n\n    out = [directory] + records\n\n    # Append table data at the exact planned offsets, adding padding as needed\n    cursor = 12 + numTables * 16\n    for tag in tags:\n        # pad to 4-byte boundary\n        pad_len = (4 - (cursor % 4)) % 4\n        if pad_len:\n            out.append(b\"\\x00\" * pad_len)\n            cursor += pad_len\n        # verify planned offset\n        assert cursor == planned[tag]\n        data = tables[tag]\n        out.append(data)\n        cursor += len(data)\n        # pad table to 4-byte boundary\n        pad_len = (4 - (len(data) % 4)) % 4\n        if pad_len:\n            out.append(b\"\\x00\" * pad_len)\n            cursor += pad_len\n\n    font = b\"\".join(out)\n\n    # Fix head.checkSumAdjustment so that the whole font checksum becomes 0xB1B0AFBA\n    # (as per TrueType spec)\n    whole_sum = tt_checksum(font)\n    adj = (0xB1B0AFBA - whole_sum) & 0xFFFFFFFF\n\n    # Patch head table: checkSumAdjustment is at offset within head table (bytes 8..11)\n    # Find head offset\n    head_index = tags.index(b\"head\")\n    # Directory starts at 12; record i starts at 12 + i*16\n    head_rec_off = 12 + head_index * 16\n    head_table_offset = struct.unpack(\">I\", font[head_rec_off + 8: head_rec_off + 12])[0]\n\n    font = bytearray(font)\n    font[head_table_offset + 8: head_table_offset + 12] = be32(adj)\n    return bytes(font)\n\n# Other interesting payload families for Write() sinks and metadata:\n\ndef random_ascii(rng: random.Random, n: int) -> bytes:\n    letters = [\n        ord('a'), ord('A'), ord('0'), ord('\\n'), ord(' '), ord('\\t'), ord('\\x00')\n    ]\n    return bytes(rng.choice(letters) for _ in range(n))\n\ndef repeated_blocks(rng: random.Random, size: int) -> bytes:\n    block_sizes = [1, 2, 3, 4, 8, 16, 64]\n    block = bytes(rng.getrandbits(8) for _ in range(rng.choice(block_sizes)))\n    reps = max(1, size // max(1, len(block)))\n    data = (block * reps)[:size]\n    return data\n\ndef small_woff2_magic(rng: random.Random) -> bytes:\n    # Minimal WOFF2 header-like bytes to tick file-type sniffers: 'wOF2' + size fields\n    sig = b\"wOF2\"\n    # length, reserved, totalSfntSize, totalCompressedSize, major/minor, meta lengths etc.\n    tail = be32(rng.randrange(16, 256)) + be32(0) + be32(rng.randrange(16, 512)) + be32(rng.randrange(16, 512)) + b\"\\x00\\x01\\x00\\x00\" + be32(0) + be32(0) + be32(0)\n    return (sig + tail)[:min(64, MAX_TOTAL)]\n\n# Top-level generator\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a family of inputs with weighted probabilities.\n    choice = rng.random()\n    if choice < 0.50:\n        # Build a small but structurally valid TTF (best for ConvertTTFToWOFF2/Max size)\n        try_complex = rng.random() < 0.5\n        data = build_minimal_ttf(seed ^ 0xA5A55A5A, try_complex)\n    elif choice < 0.65:\n        # WOFF2-like magic header to drive WOFF2 analysis paths (used as generic data in writes or metadata)\n        data = small_woff2_magic(rng)\n    elif choice < 0.80:\n        # Repeated blocks for Write() sink exploration\n        size = rng.randrange(0, min(2048, MAX_TOTAL))\n        data = repeated_blocks(rng, size)\n    else:\n        # Random ASCII/control mix (useful for metadata and generic buffers)\n        size = rng.randrange(0, min(2048, MAX_TOTAL))\n        data = random_ascii(rng, size)\n\n    # Ensure size cap and return bytes\n    return bytes(data[:MAX_TOTAL])\n"
+    },
+    {
+      "data_type": "WOFF2 font bytes",
+      "generator": "import random\nimport struct\n\n# Generator for compact WOFF2 byte streams. Produces many distinct variations\n# while staying within spec-ish constraints expected by the stubs.\n\nSIG_WOFF2 = 0x774F4632  # 'wOF2'\nSIG_TTF = 0x00010000\nSIG_OTTO = 0x4F54544F  # 'OTTO'\n\n\ndef _u16(x: int) -> bytes:\n    return struct.pack(\">H\", x & 0xFFFF)\n\n\ndef _u32(x: int) -> bytes:\n    return struct.pack(\">I\", x & 0xFFFFFFFF)\n\n\ndef _uvarint(n: int) -> bytes:\n    # Unsigned base-128 big-endian varint (WOFF2)\n    if n == 0:\n        return b\"\\x00\"\n    chunks = []\n    while n:\n        chunks.append(n & 0x7F)\n        n >>= 7\n    out = bytearray()\n    for i in range(len(chunks) - 1, -1, -1):\n        b = chunks[i]\n        if i != 0:\n            b |= 0x80\n        out.append(b)\n    return bytes(out)\n\n\ndef _brotli_minimal_stream(kind: int) -> bytes:\n    # Predefined tiny brotli streams (not payload-dependent). Different choices\n    # give the fuzzer different compressed sizes and headers.\n    # These are small streams accepted by decoders; we choose among a few.\n    # We do not attempt full correctness of decompressed data, only container-level validity.\n    variants = [\n        b\"\\x06\\x00\",                      # empty stream\n        b\"\\x0b\\x00\",                      # tiny stream variant\n        b\"\\x1b\\x00\",                      # another tiny header-only\n        b\"\\x03\\x00\",                      # short window\n        b\"\\x0c\\x00\",                      # short block\n    ]\n    return variants[kind % len(variants)]\n\n\ndef _make_woff2_header(total_length: int, total_sfnt_size: int, num_tables: int, flavor: int,\n                        total_compressed_size: int, meta_len=0, priv_len=0,\n                        major=1, minor=0) -> bytearray:\n    hdr = bytearray()\n    hdr += _u32(SIG_WOFF2)             # signature\n    hdr += _u32(flavor)                # flavor\n    hdr += _u32(total_length)          # length (patched later)\n    hdr += _u16(num_tables)            # numTables\n    hdr += _u16(0)                     # reserved\n    hdr += _u32(total_sfnt_size)       # totalSfntSize\n    hdr += _u32(total_compressed_size) # totalCompressedSize\n    hdr += _u16(major)                 # majorVersion\n    hdr += _u16(minor)                 # minorVersion\n    hdr += _u32(0)                     # metaOffset\n    hdr += _u32(meta_len)              # metaLength\n    hdr += _u32(0)                     # metaOrigLength\n    hdr += _u32(0)                     # privOffset\n    hdr += _u32(priv_len)              # privLength\n    return hdr\n\n\ndef _dir_entry(tag: bytes, orig_len: int, transform=False, xform_len=None) -> bytes:\n    # flags: [transform bit << 5] | tag_index (63 => explicit tag follows)\n    flags = ((1 if transform else 0) << 5) | 63\n    out = bytearray([flags])\n    out += tag\n    out += _uvarint(orig_len)\n    if transform:\n        out += _uvarint(0 if xform_len is None else xform_len)\n    return bytes(out)\n\n\ndef _rand_tag(rnd: random.Random) -> bytes:\n    # Choose from common tags and random 4-char uppercase tags to diversify\n    common = [b\"head\", b\"name\", b\"OS/2\", b\"cmap\", b\"hhea\", b\"maxp\", b\"hmtx\", b\"post\", b\"loca\", b\"glyf\", b\"CFF \"]\n    if rnd.random() < 0.7:\n        return rnd.choice(common)\n    else:\n        return bytes([rnd.randrange(65, 91) for _ in range(4)])\n\n\ndef _pick_flavor(rnd: random.Random) -> int:\n    return SIG_TTF if rnd.random() < 0.8 else SIG_OTTO\n\n\ndef _build_font_variant(rnd: random.Random) -> bytes:\n    # Choose number of tables: mostly 0 or 1 to keep small, sometimes 2-3.\n    num_tables = rnd.choices([0, 1, 2, 3], weights=[3, 4, 2, 1])[0]\n\n    # Choose SFNT flavor\n    flavor = _pick_flavor(rnd)\n\n    # Build directory block\n    directory = bytearray()\n    directory += _uvarint(num_tables)\n\n    # For SFNT sizing: header 12 + 16*num_tables + sum(padded table lengths)\n    offset_first = 12 + 16 * num_tables\n    table_lengths = []\n    tags = []\n\n    for _ in range(num_tables):\n        tag = _rand_tag(rnd)\n        # Choose plausible original length in [20, 256] and ensure DWORD padding calculation is stable\n        orig_len = rnd.randrange(20, 257)\n        transform = False\n        directory += _dir_entry(tag, orig_len, transform)\n        tags.append(tag)\n        table_lengths.append(orig_len)\n\n    padded_sum = sum((l + 3) & ~3 for l in table_lengths)\n    total_sfnt = offset_first + padded_sum\n\n    # Compressed tables block: choose among several tiny brotli streams; concatenate per table\n    tables_block = bytearray()\n    for i in range(max(1, num_tables)):  # ensure non-empty block for robustness\n        tables_block += _brotli_minimal_stream(rnd.randrange(0, 5))\n    total_compressed_size = len(tables_block)\n\n    header = _make_woff2_header(0, total_sfnt, num_tables, flavor, total_compressed_size,\n                                major=1, minor=0)\n    body = bytearray()\n    body += directory\n    body += tables_block\n    total_len = len(header) + len(body)\n    header[8:12] = _u32(total_len)\n    return bytes(header + body)\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    # Produce a mix of variants per call, seeded for repeatability while ensuring\n    # across seeds we have high diversity.\n    # We also add slight stochastic mixing inside a seed to avoid only-2 outputs.\n    variants = []\n    variants.append(_build_font_variant(rnd))\n    # Occasionally build a second variant and pick one to diversify even within a seed\n    if rnd.random() < 0.5:\n        variants.append(_build_font_variant(rnd))\n    return rnd.choice(variants)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1979,
+            "output_tokens": 821,
+            "total_tokens": 2800
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1557,
+            "output_tokens": 240,
+            "total_tokens": 1797
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2231,
+            "output_tokens": 3666,
+            "total_tokens": 5897
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 19395,
+            "output_tokens": 7519,
+            "total_tokens": 26914
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 32238,
+            "output_tokens": 3646,
+            "total_tokens": 35884
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7319,
+            "output_tokens": 357,
+            "total_tokens": 7676
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 426.5790660381317,
+    "scan_objects": 5.139331817626953,
+    "validate_objects": 0.7673735618591309,
+    "scan_functions": 60.41737222671509,
+    "synthesis": 140.64681315422058,
+    "fill": 65.8565022945404,
+    "classify": 6.2959885597229,
+    "build_generators": 147.45477676391602
+  }
+}

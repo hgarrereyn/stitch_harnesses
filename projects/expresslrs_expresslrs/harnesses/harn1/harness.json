@@ -1,0 +1,264 @@
+{
+  "objects": [
+    {
+      "ptr_type": "LPF *",
+      "aliases": [],
+      "definition": "class LPF\n{\npublic:\n    int32_t SmoothDataINT;\n    int32_t SmoothDataFP;\n    int32_t Beta = 3;     // Length = 16\n    int32_t FP_Shift = 5; //Number of fractional bits\n    bool NeedReset = true;  // wait for the first data to upcoming.\n\n    LPF(int Beta_, int FP_Shift_)\n    {\n        Beta = Beta_;\n        FP_Shift = FP_Shift_;\n    }\n\n    LPF(int Beta_)\n    {\n        Beta = Beta_;\n    }\n\n    LPF()\n    {\n        Beta = 3;\n        FP_Shift = 5;\n    }\n\n    int32_t ICACHE_RAM_ATTR update(int32_t Indata)\n    {\n        if (NeedReset)\n        {\n            init(Indata);\n            return SmoothDataINT;\n        }\n\n        int RawData;\n        RawData = Indata;\n        RawData <<= FP_Shift; // Shift to fixed point\n        SmoothDataFP = (SmoothDataFP << Beta) - SmoothDataFP;\n        SmoothDataFP += RawData;\n        SmoothDataFP >>= Beta;\n        // Don't do the following shift if you want to do further\n        // calculations in fixed-point using SmoothData\n        SmoothDataINT = SmoothDataFP >> FP_Shift;\n        return SmoothDataINT;\n    }\n\n    void ICACHE_RAM_ATTR reset()\n    {\n        NeedReset = true;\n    }\n\n\n    void ICACHE_RAM_ATTR init(int32_t Indata)\n    {\n        NeedReset = false;\n\n        SmoothDataINT = Indata;\n        SmoothDataFP = SmoothDataINT << FP_Shift;\n    }\n\n    int32_t value() const { return SmoothDataINT; }\n};",
+      "description": "A simple fixed-point low-pass filter class. Maintains internal fixed-point accumulator (SmoothDataFP) and integer output (SmoothDataINT). Parameters Beta (shift-based smoothing factor, 2^Beta window) and FP_Shift (fractional bits) control filtering. Methods: update applies the filter to a new sample, init seeds internal state from the first input, reset marks state to be reinitialized on next update, value returns last integer output. ICACHE_RAM_ATTR suggests placement in fast instruction RAM on some embedded platforms (e.g., ESP8266/ESP32). Construction: default Beta=3, FP_Shift=5; overloaded constructors allow setting Beta and optionally FP_Shift. Destruction: trivial; no dynamic resources. Usage: call update with int32 samples; call reset before first use or between sequences to re-seed on next update.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "LPF::update",
+      "signature": "int32_t ICACHE_RAM_ATTR update(int32_t Indata)",
+      "description": "Updates the fixed-point low-pass filter with a new input sample and returns the current smoothed value as a 32-bit integer. On the first call after construction or reset, it seeds the filter state with Indata via init() and returns that value. Subsequent calls apply a simple IIR low-pass using internal parameters Beta (filter length exponent) and FP_Shift (fractional bits). Intended for fast, integer-only smoothing on embedded targets.",
+      "requirements": [
+        "This is a non-static member function; the LPF instance must be constructed before calling.",
+        "Indata must be representable as int32_t.",
+        "To avoid signed 32-bit overflow, Indata << FP_Shift and intermediate computations should remain within int32_t range (caller should choose input magnitudes/Beta/FP_Shift accordingly).",
+        "No explicit thread-safety; do not call concurrently from multiple threads/ISRs unless externally synchronized."
+      ],
+      "error": null
+    },
+    {
+      "name": "LPF::reset",
+      "signature": "void ICACHE_RAM_ATTR reset()",
+      "description": "Marks the filter to be reinitialized on the next update() call. It does not change the returned value immediately; rather, the next update(Indata) will call init(Indata) internally and re-seed the filter.",
+      "requirements": [
+        "This is a non-static member function; the LPF instance must be constructed before calling.",
+        "After reset(), call update() (or init()) before relying on value()."
+      ],
+      "error": null
+    },
+    {
+      "name": "LPF::init",
+      "signature": "void ICACHE_RAM_ATTR init(int32_t Indata)",
+      "description": "Initializes (seeds) the filter state with the provided input value. Sets both the integer and fixed-point internal states based on Indata and FP_Shift, and clears the reset flag. Useful for explicitly seeding before the first update().",
+      "requirements": [
+        "This is a non-static member function; the LPF instance must be constructed before calling.",
+        "Indata must be representable as int32_t.",
+        "To avoid signed 32-bit overflow, (Indata << FP_Shift) should fit within int32_t."
+      ],
+      "error": null
+    },
+    {
+      "name": "LPF::value",
+      "signature": "int32_t value() const",
+      "description": "Returns the current smoothed value as a 32-bit integer. This reflects the last update/init state.",
+      "requirements": [
+        "Call init() or update() at least once before calling value(); otherwise the returned value may be uninitialized/undefined.",
+        "This is a const, non-static member function; the LPF instance must be constructed and remain alive during the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "deferExecutionMicros",
+      "signature": "void deferExecutionMicros(unsigned long us, std::function<void()> f)",
+      "description": "Schedules a function object f to be executed after a delay specified in microseconds. Implementation details are not shown; typical use is to defer work to occur at/after a target time on embedded platforms.",
+      "requirements": [
+        "us is an unsigned long delay in microseconds; valid range is whatever fits in unsigned long for the platform.",
+        "f must be a valid callable object; it should remain valid until execution and be safe to invoke without parameters.",
+        "Behavior on exceptions thrown by f is unknown (not documented).",
+        "Exact timing source and scheduling semantics are unknown (not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "executeDeferredFunction",
+      "signature": "void executeDeferredFunction(unsigned long now)",
+      "description": "Processes and executes a previously deferred function when its scheduled time has arrived, using the provided current time value. Exact scheduling semantics are not shown.",
+      "requirements": [
+        "now is the current time in microseconds as an unsigned long, using the same timebase as used by deferExecutionMicros (inferred from naming).",
+        "Call this in the context where deferred functions should run (e.g., main loop/ISR) according to your platform; exact calling requirements are not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "deferExecutionMillis",
+      "signature": "static inline void deferExecutionMillis(unsigned long ms, std::function<void()> f)",
+      "description": "Convenience wrapper that defers execution in milliseconds by calling deferExecutionMicros(ms * 1000, f). Use when specifying delays in milliseconds instead of microseconds.",
+      "requirements": [
+        "ms is an unsigned long delay in milliseconds; ms * 1000 must fit in unsigned long to avoid overflow before conversion to microseconds.",
+        "f must be a valid callable object suitable for deferExecutionMicros.",
+        "Relies on deferExecutionMicros being available and correctly implemented."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "LPF::reset",
+      "inputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "code": "// reset() marks the filter to reinitialize on next update(); no other constraints.\nlpf->reset();\n// After reset, consumers must not rely on value() until init()/update() occurs\nFUZZ_SET_ATTR_INT(lpf, \"initialized\", 0);\n\n// Validation: Stub simply calls reset and updates an attribute so later stubs can enforce correct usage of value()."
+    },
+    {
+      "name": "LPF::value",
+      "inputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "code": "// Enforce that value() is only used after init() or update()\nint initialized = FUZZ_GET_ATTR_INT(lpf, \"initialized\");\nif (!initialized) { FUZZ_BAIL(); }\n\nint32_t v = lpf->value();\n// Property: value() returns SmoothDataINT\nFUZZ_ASSERT(v == lpf->SmoothDataINT, \"LPF::value must return SmoothDataINT\");\n\n// Validation: Guarded against uninitialized access; asserted API invariant."
+    },
+    {
+      "name": "LPF::update",
+      "inputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "code": "// Enforce parameters to avoid undefined behavior/overflow in internal shifts\nint fp = lpf->FP_Shift;\nint beta = lpf->Beta;\nif (fp < 0 || fp > 30) { FUZZ_BAIL(); }\nif (beta < 0 || beta > 16) { FUZZ_BAIL(); }\nint total_shift = fp + beta;\nif (total_shift > 30) { FUZZ_BAIL(); }\n\n// Bound input magnitude so that (Indata << FP_Shift) stays within int32_t\nint32_t max_abs = (int32_t)(0x7fffffff >> fp);\nif (max_abs <= 0) { FUZZ_BAIL(); }\n// Generate a symmetric value in [-max_abs, max_abs] using array form correctly\nconst uint32_t (*rnd2)[2] = FUZZ_PARAM(uint32_t[2]);\nuint64_t rnd64 = ((uint64_t)(*rnd2)[0] << 32) | (uint64_t)(*rnd2)[1];\nuint64_t range = (uint64_t)max_abs * 2ull + 1ull;\nint32_t indata = (int32_t)((int64_t)(rnd64 % range) - (int64_t)max_abs);\n\n// If the filter is already initialized, further constrain internal state to avoid UB:\n// - avoid shifting negative SmoothDataFP (signed left shift of negative is UB)\n// - ensure (SmoothDataFP << Beta) and the intermediate sum fit in int32 before >> Beta\nint initialized = FUZZ_GET_ATTR_INT(lpf, \"initialized\");\nif (initialized) {\n    int32_t s = lpf->SmoothDataFP;\n    if (s < 0) { FUZZ_BAIL(); }\n    // Ensure (s << beta) fits in int32_t without overflow\n    if (beta > 0 && s > (int32_t)(0x7fffffff >> beta)) { FUZZ_BAIL(); }\n    // Check intermediate sum ((s << beta) - s + (indata << fp)) stays in int32_t\n    int64_t term = ((int64_t)s << beta) - (int64_t)s; // safe because s >= 0 and shift-bounded above\n    int64_t raw = ((int64_t)indata) << fp;            // safe because indata bounded above\n    int64_t sum = term + raw;\n    if (sum > (int64_t)0x7fffffff || sum < (int64_t)-0x80000000LL) { FUZZ_BAIL(); }\n}\n\nint32_t ret = lpf->update(indata);\n// Property: value() must reflect the same SmoothDataINT returned by update()\nFUZZ_ASSERT(ret == lpf->value(), \"LPF::update return must equal LPF::value()\");\n// Mark instance as initialized for downstream value()/update() usage\nFUZZ_SET_ATTR_INT(lpf, \"initialized\", 1);\n\n// Validation: Inputs and internal state constrained to prevent UB/overflow; object state updated and preserved as output."
+    },
+    {
+      "name": "LPF::init",
+      "inputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "code": "// Enforce shift constraints to avoid overflow in (Indata << FP_Shift)\nint fp = lpf->FP_Shift;\nif (fp < 0 || fp > 30) { FUZZ_BAIL(); }\nint32_t max_abs = (int32_t)(0x7fffffff >> fp);\nif (max_abs <= 0) { FUZZ_BAIL(); }\n\n// Generate a symmetric seed value in [-max_abs, max_abs]\nconst uint32_t (*rnd2)[2] = FUZZ_PARAM(uint32_t[2]);\nuint64_t rnd64 = ((uint64_t)(*rnd2)[0] << 32) | (uint64_t)(*rnd2)[1];\nuint64_t range = (uint64_t)max_abs * 2ull + 1ull;\nint32_t indata = (int32_t)((int64_t)(rnd64 % range) - (int64_t)max_abs);\n\nlpf->init(indata);\n// After init, value() should equal the seed value\nFUZZ_ASSERT(lpf->value() == indata, \"LPF::value must equal seed after init()\");\nFUZZ_SET_ATTR_INT(lpf, \"initialized\", 1);\n\n// Validation: Seed bounded to ensure (seed << FP_Shift) fits; state marked initialized and preserved as output."
+    },
+    {
+      "name": "LPF *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "lpf",
+          "type": "LPF *"
+        }
+      ],
+      "code": "// Construct an LPF instance with parameters chosen to satisfy downstream constraints\n// Constraints from existing stubs:\n//  - 0 <= FP_Shift <= 30\n//  - 0 <= Beta <= 16\n//  - FP_Shift + Beta <= 30\n\nunsigned int beta_u = *FUZZ_PARAM(unsigned int) % 17;   // 0..16\nunsigned int fp_u   = *FUZZ_PARAM(unsigned int) % 31;   // 0..30\nif (beta_u + fp_u > 30) { fp_u = 30 - beta_u; }\nint beta = (int)beta_u;\nint fp   = (int)fp_u;\n\nif (beta < 0 || beta > 16) { FUZZ_BAIL(); }\nif (fp < 0 || fp > 30) { FUZZ_BAIL(); }\nif (beta + fp > 30) { FUZZ_BAIL(); }\n\nLPF *tmp = nullptr;\ntry {\n    tmp = new LPF(beta, fp);\n} catch (...) {\n    FUZZ_BAIL();\n}\nif (!tmp) { FUZZ_BAIL(); }\n\n// Freshly constructed LPF should require initialization via update()/init()\nFUZZ_SET_ATTR_INT(tmp, \"initialized\", 0);\n// Record construction parameters for potential downstream checks\nFUZZ_SET_ATTR_INT(tmp, \"beta\", beta);\nFUZZ_SET_ATTR_INT(tmp, \"fp_shift\", fp);\n\n// Property checks about constructor effects\nFUZZ_ASSERT(tmp->Beta == beta && tmp->FP_Shift == fp, \"LPF ctor must set Beta/FP_Shift\");\nFUZZ_ASSERT(tmp->NeedReset == true, \"LPF must start in reset state\");\n\nLPF *lpf = tmp;\n\n// Validation: Creates a valid LPF with safe parameters and marks it uninitialized for later seeding; ownership returned via output."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "deferExecutionMicros",
+      "reason": "The function is undefined in the harness environment and fails to link due to missing implementation."
+    },
+    {
+      "name": "executeDeferredFunction",
+      "reason": "The function is undefined in the harness environment and fails to link due to missing implementation."
+    },
+    {
+      "name": "deferExecutionMillis",
+      "reason": "Relies on deferExecutionMicros which is not provided in the harness environment, causing unresolved symbols at link time."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "LPF::reset",
+      "data_types": []
+    },
+    {
+      "name": "LPF::value",
+      "data_types": []
+    },
+    {
+      "name": "LPF::update",
+      "data_types": []
+    },
+    {
+      "name": "LPF::init",
+      "data_types": []
+    },
+    {
+      "name": "LPF *",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1139,
+            "output_tokens": 632,
+            "total_tokens": 1771
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 717,
+            "output_tokens": 50,
+            "total_tokens": 767
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1188,
+            "output_tokens": 1845,
+            "total_tokens": 3033
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 13140,
+            "output_tokens": 8323,
+            "total_tokens": 21463
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5314,
+            "output_tokens": 1555,
+            "total_tokens": 6869
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 457.4756054878235,
+    "scan_objects": 25.65398859977722,
+    "validate_objects": 0.36945533752441406,
+    "scan_functions": 31.32491970062256,
+    "synthesis": 358.14914441108704,
+    "fill": 41.9119713306427,
+    "classify": 0.06531548500061035,
+    "build_generators": 0.00006723403930664062
+  }
+}

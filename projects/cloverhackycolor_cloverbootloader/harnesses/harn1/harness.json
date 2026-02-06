@@ -1,0 +1,184 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No structs, enums, typedefs, or classes are defined in this header. It only declares C functions operating on wchar_t strings. As a placeholder, note that there are no custom data types to document.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "wcslen_fixed",
+      "signature": "size_t wcslen_fixed(const wchar_t *s);",
+      "description": "Returns the length, in wide characters, of the null-terminated wide string s, excluding the terminating L'\\0'. Intended as a fixed/portable variant of wcslen; comments in the header suggest these wide-string utilities may treat data as UTF-32 even when wchar_t is 16-bit, but exact encoding semantics are not documented.",
+      "requirements": [
+        "s must be a non-null pointer to a null-terminated wide string (wchar_t*).",
+        "The pointed-to memory must be readable up to and including the first terminating L'\\0'.",
+        "Behavior for non-terminated buffers is undefined and may overread.",
+        "Return value is the number of wide characters before the terminator; no error reporting is specified."
+      ],
+      "error": null
+    },
+    {
+      "name": "wcsncmp_fixed",
+      "signature": "int wcsncmp_fixed(const wchar_t *s1, const wchar_t * s2, size_t n);",
+      "description": "Lexicographically compares up to n wide characters of the null-terminated wide strings s1 and s2. Semantics mirror standard wcsncmp (negative/zero/positive result), with this \"fixed\" variant intended for consistent behavior across platforms; the header notes these utilities may expect UTF-32 code units even when wchar_t is 16-bit, but exact normalization or case rules are not documented.",
+      "requirements": [
+        "s1 and s2 must be non-null pointers to readable wide strings (wchar_t*).",
+        "Each input must be readable up to at least n wide characters or until a terminating L'\\0' is encountered, whichever comes first.",
+        "n is the maximum number of wide characters to compare; it may be zero.",
+        "The strings should be null-terminated if their length is less than n; otherwise reading up to n wide characters must be valid.",
+        "Return value follows standard comparison semantics (<0, 0, >0); no separate error indicator is provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "wcsstr_fixed",
+      "signature": "wchar_t* wcsstr_fixed(const wchar_t* haystack, const wchar_t* needle);",
+      "description": "Finds the first occurrence of the wide-string needle in the wide-string haystack and returns a pointer to the beginning of the match within haystack, or NULL if not found. Intended as a fixed/portable variant of wcsstr; the header comments suggest these utilities may operate on UTF-32 code units even where wchar_t is 16-bit, but exact encoding handling is not specified.",
+      "requirements": [
+        "haystack must be a non-null pointer to a null-terminated wide string (wchar_t*).",
+        "needle must be a non-null pointer to a null-terminated wide string (wchar_t*).",
+        "Returned pointer, if non-NULL, points into haystack; the lifetime of haystack must outlive use of the returned pointer.",
+        "If needle is an empty string (L\"\"), behavior is expected to mirror standard wcsstr (returns haystack), but exact behavior is not explicitly documented.",
+        "No error parameter or exception is specified; NULL indicates no match."
+      ],
+      "error": null
+    },
+    {
+      "name": "xcode_utf_fixed_tests",
+      "signature": "void xcode_utf_fixed_tests(void);",
+      "description": "Runs internal tests for the xcode_utf_fixed utilities. Intended for validation or self-test; no inputs and no return value. Specific test coverage and reporting are not documented.",
+      "requirements": [
+        "May be called without arguments at any time; no preconditions are documented.",
+        "Side effects may include logging or assertions; exact behavior and error reporting are not specified."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "wcslen_fixed",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a valid, readable, null-terminated wide string and call wcslen_fixed.\n// We ensure the buffer is within reasonable bounds and properly terminated to avoid overread.\nstd::string seed = FUZZ_PARAM_STR();\nsize_t max_wc = 512; // keep allocations < 2048 bytes even on 4-byte wchar_t\nsize_t k = (*FUZZ_PARAM(unsigned int) % (max_wc + 1));\n// Always allocate at least 1 for the terminator\nif (k == 0) { k = 1; }\nstd::vector<wchar_t> ws(k + 1);\n// Fill wide chars from seed bytes to produce varied code units while remaining deterministic for given seed\nfor (size_t i = 0; i < k; ++i) {\n    unsigned char b0 = static_cast<unsigned char>(seed[i % seed.size()]);\n    unsigned char b1 = static_cast<unsigned char>(seed[(i + 1) % seed.size()]);\n    wchar_t v = static_cast<wchar_t>(((unsigned int)b1 << 8) ^ (unsigned int)b0);\n    ws[i] = v ? v : L'A'; // avoid accidental early terminators in the body\n}\nws[k] = L'\\0';\nsize_t len = wcslen_fixed(ws.data());\n// Validate the function did not read past our constructed terminator\nFUZZ_ASSERT(len <= k, \"wcslen_fixed length exceeds constructed buffer length\");"
+    },
+    {
+      "name": "wcsncmp_fixed",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate two valid, readable, null-terminated wide strings and a bound n.\n// Ensure both buffers are readable for at least n wide chars to satisfy API preconditions.\nstd::string s1b = FUZZ_PARAM_STR();\nstd::string s2b = FUZZ_PARAM_STR();\nsize_t n = (*FUZZ_PARAM(unsigned int) % 513); // compare up to 512 code units\nsize_t min_body = n; // ensure at least n readable code units before the terminator\nsize_t k1 = (*FUZZ_PARAM(unsigned int) % 512);\nsize_t k2 = (*FUZZ_PARAM(unsigned int) % 512);\nif (k1 < min_body) k1 = min_body;\nif (k2 < min_body) k2 = min_body;\nstd::vector<wchar_t> w1(k1 + 1);\nstd::vector<wchar_t> w2(k2 + 1);\nfor (size_t i = 0; i < k1; ++i) {\n    unsigned char b0 = static_cast<unsigned char>(s1b[i % s1b.size()]);\n    unsigned char b1 = static_cast<unsigned char>(s1b[(i + 3) % s1b.size()]);\n    wchar_t v = static_cast<wchar_t>(((unsigned int)b1 << 8) ^ (unsigned int)b0);\n    w1[i] = v ? v : L'B';\n}\nfor (size_t i = 0; i < k2; ++i) {\n    unsigned char b0 = static_cast<unsigned char>(s2b[i % s2b.size()]);\n    unsigned char b1 = static_cast<unsigned char>(s2b[(i + 5) % s2b.size()]);\n    wchar_t v = static_cast<wchar_t>(((unsigned int)b1 << 8) ^ (unsigned int)b0);\n    w2[i] = v ? v : L'C';\n}\nw1[k1] = L'\\0';\nw2[k2] = L'\\0';\nint r12 = wcsncmp_fixed(w1.data(), w2.data(), n);\nint r21 = wcsncmp_fixed(w2.data(), w1.data(), n);\n// Property: antisymmetry like standard wcsncmp\nFUZZ_ASSERT((r12 == 0 && r21 == 0) || (r12 < 0 && r21 > 0) || (r12 > 0 && r21 < 0), \"wcsncmp_fixed antisymmetry violated\");"
+    },
+    {
+      "name": "wcsstr_fixed",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct haystack and needle as valid, null-terminated wide strings.\n// Handle empty-needle case explicitly to exercise that path.\nstd::string hb = FUZZ_PARAM_STR();\nstd::string nb = FUZZ_PARAM_STR();\nsize_t hlen = (*FUZZ_PARAM(unsigned int) % 512) + 1; // ensure at least 1 code unit before terminator\nsize_t nlen_choice = (*FUZZ_PARAM(unsigned int) % 4); // 1-in-4 chance to make needle empty\nsize_t nlen = (nlen_choice == 0) ? 0 : ((*FUZZ_PARAM(unsigned int) % 64) + 1);\nstd::vector<wchar_t> hay(hlen + 1);\nstd::vector<wchar_t> ned(std::max<size_t>(nlen, 0) + 1);\nfor (size_t i = 0; i < hlen; ++i) {\n    unsigned char b0 = static_cast<unsigned char>(hb[i % hb.size()]);\n    unsigned char b1 = static_cast<unsigned char>(hb[(i + 7) % hb.size()]);\n    wchar_t v = static_cast<wchar_t>(((unsigned int)b1 << 8) ^ (unsigned int)b0);\n    hay[i] = v ? v : L'D';\n}\nhay[hlen] = L'\\0';\nfor (size_t i = 0; i < nlen; ++i) {\n    unsigned char b0 = static_cast<unsigned char>(nb[i % nb.size()]);\n    unsigned char b1 = static_cast<unsigned char>(nb[(i + 11) % nb.size()]);\n    wchar_t v = static_cast<wchar_t>(((unsigned int)b1 << 8) ^ (unsigned int)b0);\n    ned[i] = v ? v : L'E';\n}\nned[nlen] = L'\\0';\nwchar_t* p = wcsstr_fixed(hay.data(), ned.data());\nif (nlen == 0) {\n    // For empty needle, expect haystack per standard semantics\n    FUZZ_ASSERT(p == hay.data(), \"wcsstr_fixed should return haystack for empty needle\");\n} else if (p != nullptr) {\n    // Validate that p lies within hay's bounds and matches needle\n    FUZZ_ASSERT(p >= hay.data() && p <= hay.data() + hlen, \"wcsstr_fixed returned pointer outside haystack\");\n    // Check the match region equals needle up to nlen\n    for (size_t i = 0; i < nlen; ++i) {\n        if (p + i > hay.data() + hlen) { FUZZ_BAIL(); }\n        if (p[i] != ned[i]) { FUZZ_BAIL(); }\n    }\n} else {\n    // NULL means no match; no additional checks needed\n}\n"
+    },
+    {
+      "name": "xcode_utf_fixed_tests",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Invoke the library's internal self-tests. No inputs, no outputs.\n// Assumes the routine is fast and safe to call per API notes.\nxcode_utf_fixed_tests();"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "xcode_utf_fixed_tests",
+      "data_types": []
+    },
+    {
+      "name": "wcslen_fixed",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "wcsncmp_fixed",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "wcsstr_fixed",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary byte string",
+      "description": "A buffer of arbitrary bytes with no required encoding or structure. May contain any values including null bytes. In these stubs, the raw bytes are consumed and mapped deterministically into wide characters; the data is not required to be valid text or follow any specific format."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary byte string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# We need to generate an arbitrary byte string that the fuzz harness maps into wchar_t sequences.\n# The stubs use FUZZ_PARAM_STR multiple times; each call receives an independent buffer, but\n# the fuzzer framework will seed them from the same initial bytes we return. To make this initial\n# buffer useful across all stubs:\n# - Include several sections with varied byte patterns (ASCII, high bytes, zeros, repeats, ramps,\n#   Unicode-like sequences, surrogate-looking pairs, mixed endian pairs), so that when the harness\n#   constructs wchar_t values by XORing and shifting pairs of bytes, it gets diverse non-zero values\n#   and also controllable zeros at times.\n# - Keep size <= 4096 bytes.\n# - Deterministic given seed, but with randomness to explore variety across runs.\n\nASCII_BLOCK = (\n    b\"abcdefghijklmnopqrstuvwxyz\"\n    b\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"\n    b\"0123456789\"\n    b\" _-:/.,;!@#$%^&*()+={}[]<>?|'\\\"\\\\\\n\\r\\t\"\n)\n\n# Some multi-byte UTF-8 sequences, including BMP and non-BMP when interpreted as UTF-8.\nUTF8_BLOCK = (\n    \"\\u00A9 \\u00AE \\u03B1\\u03B2\\u03B3 \\u0410\\u0411\\u0412 \"\n    \"\\u20AC \\u2603 \\u2764 \\u0E01\\u0E02\\u0E03 \"\n    \"\\U0001F600\\U0001F642\\U0001F680\"\n).encode(\"utf-8\")\n\n# Create surrogate-like pairs and high bytes to influence wide char construction.\ndef make_high_byte_block() -> bytes:\n    # Alternating high/low bytes and zero bytes to create patterns that, when combined as\n    # ((b1 << 8) ^ b0), yield varied ranges and also some zeros when b1<<8 == b0.\n    out = bytearray()\n    for hb in (0x00, 0x01, 0x7F, 0x80, 0xA5, 0xC3, 0xE1, 0xFF):\n        for lb in (0x00, 0x01, 0x10, 0x55, 0xAA, 0xFE, 0xFF):\n            out.append(hb)\n            out.append(lb)\n    return bytes(out)\n\n# Repeating single-byte runs encourage long equal wchar_t sequences after mapping.\ndef make_runs(byte_val: int, length: int) -> bytes:\n    return bytes([byte_val]) * length\n\n# Ramps help produce strictly increasing/decreasing sequences.\ndef make_ramp(start: int, step: int, count: int) -> bytes:\n    return bytes(((start + i * step) & 0xFF for i in range(count)))\n\n# Insert occasional zeros to allow the harness to sometimes create L'\\0' before it intentionally avoids it.\ndef sparse_zeros(count: int, gap: int) -> bytes:\n    out = bytearray()\n    for i in range(count):\n        out.extend(make_ramp(i, 13, gap - 1))\n        out.append(0)\n    return bytes(out)\n\n# Build segments likely to trigger interesting behavior in wcsstr and wcsncmp by embedding repeated motifs\n# and overlaps so that needles may or may not appear in haystacks depending on seed.\ndef motif_block(motif: bytes, repeats: int, pad: bytes) -> bytes:\n    return (motif + pad) * repeats + motif\n\ndef shuffle_chunks(rnd: random.Random, chunks: List[bytes]) -> List[bytes]:\n    idx = list(range(len(chunks)))\n    rnd.shuffle(idx)\n    return [chunks[i] for i in idx]\n\n# Ensure final length capped <= 4096\nMAX_LEN = 4096\nMIN_LEN = 128\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    chunks: List[bytes] = []\n\n    # Core building blocks\n    chunks.append(ASCII_BLOCK)\n    chunks.append(UTF8_BLOCK)\n    chunks.append(make_high_byte_block())\n\n    # Repeats and ramps\n    chunks.append(make_runs(0x00, rnd.randint(8, 64)))  # explicit zero runs\n    chunks.append(make_runs(0xFF, rnd.randint(16, 96)))\n    chunks.append(make_runs(0x7F, rnd.randint(16, 96)))\n    chunks.append(make_ramp(rnd.randint(0, 255), rnd.choice([1, 3, 5, 7, 11]), 128))\n    chunks.append(make_ramp(rnd.randint(0, 255), -rnd.choice([1, 2, 4, 8]), 128))\n\n    # Sparse zeros to occasionally create terminators in derived wchar_t mapping (harness tries to avoid early zeros)\n    chunks.append(sparse_zeros(12, rnd.randint(4, 12)))\n\n    # Motifs beneficial for substring search and comparisons\n    motifA = b\"ABCD\" * 4\n    motifB = b\"\\x00\\xAA\\x00\\xAA\"  # alternating with zeros\n    motifC = b\"xyzXYZ\" * 3\n    padA = b\"-\" * rnd.randint(3, 9)\n    padB = bytes([0xFF]) * rnd.randint(2, 6)\n    padC = make_ramp(0x10, 0x10, rnd.randint(4, 12))\n    chunks.append(motif_block(motifA, rnd.randint(2, 6), padA))\n    chunks.append(motif_block(motifB, rnd.randint(2, 6), padB))\n    chunks.append(motif_block(motifC, rnd.randint(2, 6), padC))\n\n    # Include some 2-byte pairs that, when combined as ((b1<<8)^b0), yield common letters/numbers\n    # Solve for b0 given desired v and chosen b1.\n    def mk_pairs_for_values(values: List[int], b1: int) -> bytes:\n        out = bytearray()\n        for v in values:\n            b0 = (v ^ (b1 << 8)) & 0xFF\n            out.append(b0)\n            out.append(b1 & 0xFF)\n        return bytes(out)\n\n    target_vals = [ord('A'), ord('B'), ord('C'), ord('a'), ord('z'), ord('0'), ord('9'), 0x0100, 0x03B1]\n    chunks.append(mk_pairs_for_values(target_vals, 0x12))\n    chunks.append(mk_pairs_for_values(target_vals, 0x34))\n\n    # Add some random noise blocks to diversify across seeds, but keep deterministic\n    for _ in range(5):\n        size = rnd.randint(64, 256)\n        block = bytes(rnd.getrandbits(8) for _ in range(size))\n        chunks.append(block)\n\n    # Shuffle chunks to vary layout per seed\n    chunks = shuffle_chunks(rnd, chunks)\n\n    # Concatenate and trim/pad to a reasonable total length\n    data = b\"\".join(chunks)\n\n    # Target length biased between 512 and 3072, capped at 4096\n    target_len = rnd.randint(512, 3072)\n    if target_len > MAX_LEN:\n        target_len = MAX_LEN\n\n    # If too long, truncate; if too short, extend with additional patterned data\n    if len(data) > MAX_LEN:\n        data = data[:MAX_LEN]\n    elif len(data) < max(MIN_LEN, target_len):\n        # Extend with alternating noise and ramps to reach target\n        need = max(MIN_LEN, target_len) - len(data)\n        # Compose in chunks until satisfied\n        tail = bytearray()\n        while len(tail) < need:\n            choice = rnd.randrange(4)\n            if choice == 0:\n                tail.extend(bytes(rnd.getrandbits(8) for _ in range(min(256, need - len(tail)))))\n            elif choice == 1:\n                tail.extend(make_ramp(rnd.randint(0, 255), rnd.choice([1, 5, 9, 13]), min(256, need - len(tail))))\n            elif choice == 2:\n                tail.extend(make_runs(rnd.randint(0, 255), min(128, need - len(tail))))\n            else:\n                tail.extend(sparse_zeros(rnd.randint(2, 6), rnd.randint(3, 10)))\n        data += bytes(tail[:need])\n\n    # Final hard cap\n    data = data[:MAX_LEN]\n\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 893,
+            "output_tokens": 80,
+            "total_tokens": 973
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 471,
+            "output_tokens": 36,
+            "total_tokens": 507
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 925,
+            "output_tokens": 1458,
+            "total_tokens": 2383
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4506,
+            "output_tokens": 3198,
+            "total_tokens": 7704
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3474,
+            "output_tokens": 134,
+            "total_tokens": 3608
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 143.25121998786926,
+    "scan_objects": 4.1644299030303955,
+    "validate_objects": 0.18802618980407715,
+    "scan_functions": 31.79331946372986,
+    "synthesis": 69.4356164932251,
+    "fill": 0,
+    "classify": 3.4682209491729736,
+    "build_generators": 34.20094323158264
+  }
+}

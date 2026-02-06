@@ -1,0 +1,1191 @@
+{
+  "objects": [
+    {
+      "ptr_type": "uid_t *",
+      "aliases": [],
+      "definition": "using uid_t = int;",
+      "description": "Windows-only alias making uid_t an int. A user identifier type like POSIX uid_t. On non-Windows, the system header provides uid_t, so this definition is not active.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "gid_t *",
+      "aliases": [],
+      "definition": "using gid_t = int;",
+      "description": "Windows-only alias making gid_t an int. A group identifier type like POSIX gid_t. On non-Windows, the system header provides gid_t, so this definition is not active.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ssize_t *",
+      "aliases": [],
+      "definition": "#if defined(_WIN64)\ntypedef signed __int64 ssize_t;\n#else\ntypedef int ssize_t;\n#endif",
+      "description": "Windows compatibility typedef for ssize_t, mapping to signed __int64 on 64-bit and int on 32-bit. Note: subsequently redefined to SSIZE_T when _MSC_VER is defined (see alias below).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ssize_t *",
+      "aliases": [
+        "SSIZE_T"
+      ],
+      "definition": "#ifdef _MSC_VER\n#include <BaseTsd.h>\n#define ssize_t SSIZE_T\n#endif",
+      "description": "On MSVC, ssize_t is defined as a macro alias to SSIZE_T (from BaseTsd.h). This line effectively makes ssize_t an alias to the Windows SSIZE_T type.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "et::Packet *",
+      "aliases": [],
+      "definition": "namespace et {\n/**\n * @brief Represents a length-encoded protocol packet with optional encryption.\n */\nclass Packet {\n public:\n  /** @brief Constructs an empty, decrypted packet. */\n  Packet() : encrypted(false), header(255) {}\n  /**\n   * @brief Builds an unencrypted packet from the given header/payload tuple.\n   */\n  Packet(uint8_t _header, const string& _payload)\n      : encrypted(false), header(_header), payload(_payload) {}\n  /**\n   * @brief Allows callers to explicitly set the encrypted flag when\n   * constructing.\n   */\n  Packet(bool _encrypted, uint8_t _header, const string& _payload)\n      : encrypted(_encrypted), header(_header), payload(_payload) {}\n  /**\n   * @brief Deserializes a packet from its raw byte representation.\n   */\n  explicit Packet(const string& serializedPacket) {\n    encrypted = serializedPacket[0];\n    header = serializedPacket[1];\n    payload = serializedPacket.substr(2);\n  }\n\n  /**\n   * @brief Decrypts the payload if the encrypted flag is set.\n   * @param cryptoHandler Handler used to decrypt the blob.\n   */\n  void decrypt(shared_ptr<CryptoHandler> cryptoHandler) {\n    if (encrypted) {\n      encrypted = false;\n      payload = cryptoHandler->decrypt(payload);\n    } else {\n      STFATAL << \"Tried to decrypt a packet that wasn't encrypted\";\n    }\n  }\n\n  /**\n   * @brief Encrypts the payload and tags the packet as encrypted.\n   * @param cryptoHandler Handler used to encrypt the blob.\n   */\n  void encrypt(shared_ptr<CryptoHandler> cryptoHandler) {\n    if (encrypted) {\n      STFATAL << \"Tried to encrypt a packet that was already encrypted\";\n    } else {\n      encrypted = true;\n      payload = cryptoHandler->encrypt(payload);\n    }\n  }\n\n  /** @brief Returns true if the payload is currently encrypted. */\n  bool isEncrypted() const { return encrypted; }\n  /** @brief Retrieves the application-specific header byte. */\n  uint8_t getHeader() const { return header; }\n  /** @brief Returns the stored payload (decrypted if needed). */\n  string getPayload() const { return payload; }\n\n  /** @brief Returns the serialized byte count including the header. */\n  ssize_t length() const { return HEADER_SIZE + payload.length(); }\n\n  /**\n   * @brief Serializes the header byte and payload into the packet wire format.\n   * @return Byte string ready to be sent over the network.\n   */\n  string serialize() const {\n    string s = \"00\" + payload;\n    s[0] = uint8_t(encrypted);\n    s[1] = header;\n    return s;\n  }\n\n protected:\n  /** @brief Size of the non-payload portion of the serialized packet. */\n  static const int HEADER_SIZE = 2;\n  /** @brief Tracks whether the payload has been encrypted. */\n  bool encrypted;\n  /** @brief Application-specific packet type value stored as a byte. */\n  uint8_t header;\n\n  /** @brief Message body, encrypted or decrypted depending on the flag. */\n  string payload;\n};\n}  // namespace et",
+      "description": "Concrete message container in namespace et that wraps a header byte and a string payload, with an \"encrypted\" flag and helpers to encrypt/decrypt via a CryptoHandler. Provides serialization format: first byte = encrypted flag (0/1), second byte = header, remaining bytes = payload. HEADER_SIZE is 2. Construction: default empty, from header+payload, from explicit encrypted flag, or from serialized bytes. No ownership beyond its own fields. Unknown details about CryptoHandler are external to this header.",
+      "direct_api_constructors": [
+        "et::Packet::Packet()",
+        "et::Packet::Packet(uint8_t,const string&)",
+        "et::Packet::Packet(bool,uint8_t,const string&)",
+        "et::Packet::Packet(const string&)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "et::SocketHandler *",
+      "aliases": [],
+      "definition": "namespace et {\n/**\n * @brief Provides an abstract API for socket reads/writes and lifecycle\n * management.\n */\nclass SocketHandler {\n public:\n  /** @brief Ensures derived handlers can clean up platform-specific resources.\n   */\n  virtual ~SocketHandler() {}\n\n  /**\n   * @brief Returns true when the kernel reports data ready to read on a\n   * descriptor.\n   */\n  virtual bool hasData(int fd) = 0;\n  /**\n   * @brief Reads up to count bytes from fd.\n   */\n  virtual ssize_t read(int fd, void* buf, size_t count) = 0;\n  /**\n   * @brief Writes up to count bytes to fd.\n   */\n  virtual ssize_t write(int fd, const void* buf, size_t count) = 0;\n\n  /**\n   * @brief Reads exactly `count` bytes, retrying on EAGAIN until the buffer\n   * fills.\n   * @param timeout Whether to enforce the internal transfer timeout while\n   * waiting.\n   */\n  void readAll(int fd, void* buf, size_t count, bool timeout);\n  /**\n   * @brief Attempts to write the full buffer and returns -1 on timeout/failure.\n   * @return Total bytes written or -1 when the socket deadlocks.\n   */\n  int writeAllOrReturn(int fd, const void* buf, size_t count);\n  /**\n   * @brief Attempts to write all bytes, throwing if the operation times out or\n   * fails.\n   */\n  void writeAllOrThrow(int fd, const void* buf, size_t count, bool timeout);\n\n  /**\n   * @brief Reads a length-prefixed protobuf from the socket.\n   * @tparam T Protobuf message type.\n   * @throws std::runtime_error on invalid length or parse failure.\n   */\n  template <typename T>\n  inline T readProto(int fd, bool timeout) {\n    T t;\n    int64_t length;\n    readAll(fd, &length, sizeof(int64_t), timeout);\n    if (length < 0 || length > 128 * 1024 * 1024) {\n      // If the message is <= 0 or too big, assume this is a bad packet and\n      // throw\n      string s = string(\"Invalid size (<0 or >128 MB): \") + to_string(length);\n      throw std::runtime_error(s.c_str());\n    }\n    if (length == 0) {\n      return t;\n    }\n    string s(length, '\\0');\n    readAll(fd, &s[0], length, timeout);\n    if (!t.ParseFromString(s)) {\n      throw std::runtime_error(\"Invalid proto\");\n    }\n    return t;\n  }\n\n  /**\n   * @brief Serializes and writes a length-prefixed protobuf message.\n   */\n  template <typename T>\n  inline void writeProto(int fd, const T& t, bool timeout) {\n    string s;\n    if (!t.SerializeToString(&s)) {\n      STFATAL << \"Serialization of \" << t.GetTypeName() << \" failed!\";\n    }\n    int64_t length = s.length();\n    if (length < 0 || length > 128 * 1024 * 1024) {\n      STFATAL << \"Invalid proto length: \" << length << \" For proto \"\n              << t.GetTypeName();\n    }\n    writeAllOrThrow(fd, &length, sizeof(int64_t), timeout);\n    if (length > 0) {\n      writeAllOrThrow(fd, &s[0], length, timeout);\n    }\n  }\n\n  /**\n   * @brief Reads a length-prefixed binary packet and deserializes it.\n   * @returns false when the packet length is zero (empty message).\n   */\n  inline bool readPacket(int fd, Packet* packet) {\n    int64_t length;\n    readAll(fd, (char*)&length, sizeof(int64_t), false);\n    if (length < 0 || length > 128 * 1024 * 1024) {\n      // If the message is < 0 or too big, assume this is a bad packet and throw\n      string s(\"Invalid size (<0 or >128 MB): \");\n      s += std::to_string(length);\n      throw std::runtime_error(s.c_str());\n    }\n    if (length == 0) {\n      return false;\n    }\n    string s(length, '\\0');\n    readAll(fd, &s[0], length, false);\n    *packet = Packet(s);\n    return true;\n  }\n\n  /**\n   * @brief Serializes and writes a packet with a leading length prefix.\n   */\n  inline void writePacket(int fd, const Packet& packet) {\n    string s = packet.serialize();\n    int64_t length = s.length();\n    if (length < 0 || length > 128 * 1024 * 1024) {\n      STFATAL << \"Invalid message length: \" << length;\n    }\n    writeAllOrThrow(fd, (const char*)&length, sizeof(int64_t), false);\n    if (length) {\n      writeAllOrThrow(fd, &s[0], length, false);\n    }\n  }\n\n  /** @brief Sends a base64-encoded version of the provided buffer. */\n  void writeB64(int fd, const char* buf, size_t count);\n  /** @brief Reads a fixed amount of base64-encoded data and decodes it. */\n  void readB64(int fd, char* buf, size_t count);\n  /**\n   * @brief Reads an explicitly encoded length string and decodes it into @p\n   * out.\n   * @param encodedLength Byte count of the supplied base64 string.\n   */\n  void readB64EncodedLength(int fd, string* out, size_t encodedLength);\n\n  /**\n   * @brief Opens a connection to the specified endpoint.\n   * @return File descriptor representing the socket (or -1 on failure).\n   */\n  virtual int connect(const SocketEndpoint& endpoint) = 0;\n  /**\n   * @brief Starts listening on the endpoint and returns the active listen fds.\n   */\n  virtual set<int> listen(const SocketEndpoint& endpoint) = 0;\n  /**\n   * @brief Returns any fds associated with the endpoint (listening or\n   * otherwise).\n   */\n  virtual set<int> getEndpointFds(const SocketEndpoint& endpoint) = 0;\n  /**\n   * @brief Accepts a pending connection on the given listening fd.\n   */\n  virtual int accept(int fd) = 0;\n  /**\n   * @brief Stops accepting new connections on the given endpoint.\n   */\n  virtual void stopListening(const SocketEndpoint& endpoint) = 0;\n  /** @brief Closes the supplied socket descriptor. */\n  virtual void close(int fd) = 0;\n  /** @brief Returns all currently active (read/write) sockets. */\n  virtual vector<int> getActiveSockets() = 0;\n};\n}  // namespace et",
+      "description": "Abstract base class in namespace et that defines the socket I/O and lifecycle interface. Provides pure virtual primitives for hasData/read/write/connect/listen/getEndpointFds/accept/stopListening/close/getActiveSockets, plus concrete helpers for full-buffer reads/writes, protobuf and Packet serialization, and base64 helpers. Intended to be subclassed by platform-specific handlers. Construction is via derived classes; destruction through virtual destructor. Thread-safety and timeout semantics are partially defined by method comments; further details are not present in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "et::TcpSocketHandler *",
+      "aliases": [],
+      "definition": "namespace et {\n/**\n * @brief Implements IPv4/IPv6 socket operations built on top of\n * UnixSocketHandler.\n */\nclass TcpSocketHandler : public UnixSocketHandler {\n public:\n  TcpSocketHandler();\n  virtual ~TcpSocketHandler() {}\n\n  /**\n   * @brief Resolves the hostname/port and connects non-blockingly to the\n   * server.\n   */\n  virtual int connect(const SocketEndpoint& endpoint);\n  /**\n   * @brief Binds and listens on all IP addresses for the given port.\n   */\n  virtual set<int> listen(const SocketEndpoint& endpoint);\n  /**\n   * @brief Returns the listening socket fds associated with a port.\n   */\n  virtual set<int> getEndpointFds(const SocketEndpoint& endpoint);\n  /**\n   * @brief Stops listening on the requested port and closes all related fds.\n   */\n  virtual void stopListening(const SocketEndpoint& endpoint);\n\n protected:\n  /** @brief Tracks all listening sockets created per TCP port. */\n  map<int, set<int>> portServerSockets;\n\n  /**\n   * @brief Performs additional TCP-specific socket configuration\n   * (NODELAY/linger).\n   */\n  virtual void initSocket(int fd);\n};\n}  // namespace et",
+      "description": "TCP socket handler class implementing IPv4/IPv6 operations on top of UnixSocketHandler. Provides non-blocking connect, listen, query of listening file descriptors, and stop-listening. Maintains a map from TCP port to the set of listening socket fds. Details of UnixSocketHandler and SocketEndpoint are external and not defined here.",
+      "direct_api_constructors": [
+        "et::TcpSocketHandler::TcpSocketHandler"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "close",
+      "signature": "int close(int fd)",
+      "description": "Windows-only shim that maps POSIX close() to WinSock closesocket(). Defined only when compiling with MSVC; on other platforms the system close() from unistd.h is used. Returns the result from closesocket(). Intended for closing socket descriptors on Windows.",
+      "requirements": [
+        "Available only when _MSC_VER is defined (MSVC build).",
+        "fd must be a valid WinSock socket handle obtained from socket/accept/etc.",
+        "WinSock must be initialized (e.g., via WSAStartup) before use.",
+        "On failure, the return value is SOCKET_ERROR and extended error info is set in WSAGetLastError; callers should handle this accordingly."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetErrno",
+      "signature": "int GetErrno()",
+      "description": "Normalizes/returns the last error code. On Windows, translates selected WinSock errors (WSA*) to their POSIX equivalents; otherwise returns errno. Intended to provide a consistent errno-like value across platforms.",
+      "requirements": [
+        "On Windows, may log fatal for unmapped WSA errors encountered during translation.",
+        "Call after a failing system/WinSock call to obtain the last error code."
+      ],
+      "error": null
+    },
+    {
+      "name": "SetErrno",
+      "signature": "void SetErrno(int e)",
+      "description": "Sets the thread-local last error. On Windows, sets the WinSock last error via WSASetLastError; otherwise assigns errno = e.",
+      "requirements": [
+        "Provide a valid error code appropriate for the platform (WinSock WSA* codes on Windows; POSIX errno values elsewhere)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::operator<<",
+      "signature": "std::ostream& et::operator<<(std::ostream& os, const et::SocketEndpoint& se)",
+      "description": "Stream insertion operator for et::SocketEndpoint (a protobuf message). Writes the endpoint’s name (if present), followed by \":<port>\" if a port is present.",
+      "requirements": [
+        "se should be a valid et::SocketEndpoint; has_name() and has_port() are used to check field presence.",
+        "os must be a valid stream; the function appends to its current position."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::split",
+      "signature": "template <typename Out> void et::split(const std::string& s, char delim, Out result)",
+      "description": "Splits a string by a single-character delimiter and outputs tokens to an iterator-like output sink (e.g., back_inserter to a container).",
+      "requirements": [
+        "Out must be an output iterator accepting std::string values (e.g., std::back_insert_iterator<std::vector<std::string>>).",
+        "No trimming is performed; empty tokens can be produced if delimiters are adjacent or at edges."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::split",
+      "signature": "std::vector<std::string> et::split(const std::string& s, char delim)",
+      "description": "Convenience overload that splits a string by a single-character delimiter and returns the tokens as a vector of strings.",
+      "requirements": [
+        "No trimming is performed; empty tokens can be produced if delimiters are adjacent or at edges."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::replace",
+      "signature": "bool et::replace(std::string& str, const std::string& from, const std::string& to)",
+      "description": "Replaces the first occurrence of substring 'from' in 'str' with 'to'. Returns true if a replacement occurred, false otherwise. Modifies str in place.",
+      "requirements": [
+        "str is modified in place; callers must pass a mutable string reference.",
+        "If 'from' is not found, no modification occurs and false is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::replaceAll",
+      "signature": "int et::replaceAll(std::string& str, const std::string& from, const std::string& to)",
+      "description": "Replaces all non-overlapping occurrences of substring 'from' in 'str' with 'to'. Returns the number of replacements performed. Modifies str in place.",
+      "requirements": [
+        "If 'from' is empty, no replacements are performed and 0 is returned.",
+        "str is modified in place; callers must pass a mutable string reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::stringToProto",
+      "signature": "template <typename T> T et::stringToProto(const std::string& s)",
+      "description": "Deserializes a protobuf message of type T from its binary string representation using T::ParseFromString. On parse failure, logs a fatal error with a stack trace. Returns the parsed message by value.",
+      "requirements": [
+        "T must be default-constructible and provide bool ParseFromString(const std::string&).",
+        "s must contain a valid serialized protobuf for type T; otherwise the process may log fatal and terminate."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::protoToString",
+      "signature": "template <typename T> std::string et::protoToString(const T& t)",
+      "description": "Serializes a protobuf message to its binary string representation using t.SerializeToString. On serialization failure, logs a fatal error with a stack trace. Returns the serialized bytes.",
+      "requirements": [
+        "T must provide bool SerializeToString(std::string*).",
+        "t must be in a serializable state; otherwise the process may log fatal and terminate."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::waitOnSocketData",
+      "signature": "bool et::waitOnSocketData(int fd)",
+      "description": "Blocks up to 1 second waiting for data to become available for reading on the given file descriptor using select(). Returns true if data is available; returns false on timeout or if interrupted by a signal (EINTR). Logs a fatal error for other select() failures.",
+      "requirements": [
+        "fd must be a valid, open file descriptor (socket or selectable FD) >= 0.",
+        "Caller should be prepared for a false return due to timeout or EINTR and may retry.",
+        "On certain platforms, select() on non-sockets may be unsupported."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::genRandomAlphaNum",
+      "signature": "std::string et::genRandomAlphaNum(int len)",
+      "description": "Generates a random alphanumeric string of length len using libsodium randombytes_uniform() over [0-61]. Characters include 0-9, A-Z, a-z.",
+      "requirements": [
+        "len must be >= 0; negative values result in invalid behavior when constructing the string.",
+        "The function may rely on libsodium’s random number generator; initialization requirements depend on the linked libsodium version (not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::GetTempDirectory",
+      "signature": "std::string et::GetTempDirectory()",
+      "description": "Returns the system temporary directory path as a string. On Windows, uses GetTempPathW and converts to UTF-8; on non-Windows, returns _PATH_TMP.",
+      "requirements": [
+        "On Windows, requires the WinAPI to be available; buffer is sized to 65536 characters.",
+        "Returned path may or may not end with a path separator depending on platform behavior; callers should normalize if needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::HandleTerminate",
+      "signature": "void et::HandleTerminate()",
+      "description": "Installs a custom std::terminate handler that logs uncaught exceptions (with stack trace where available). A simple guard prevents recursive installation within the same thread of execution.",
+      "requirements": [
+        "Should be called once during program initialization to install the handler; repeated concurrent calls are not synchronized.",
+        "If an uncaught exception reaches terminate, the handler logs details and the process will terminate."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::InterruptSignalHandler",
+      "signature": "void et::InterruptSignalHandler(int signum)",
+      "description": "Signal handler intended for interrupts (e.g., SIGINT). Logs a message and exits the process with the signal number as the exit code.",
+      "requirements": [
+        "If used as a POSIX signal handler, it must be registered via signal()/sigaction() by the caller.",
+        "The handler calls ::exit(signum), which terminates the process and runs normal cleanup handlers; this may not be async-signal-safe."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::TerminateSignalHandler",
+      "signature": "void et::TerminateSignalHandler(int signum)",
+      "description": "Signal handler intended for termination signals (e.g., SIGTERM). Logs a message and exits the process with the signal number as the exit code.",
+      "requirements": [
+        "If used as a POSIX signal handler, it must be registered via signal()/sigaction() by the caller.",
+        "The handler calls ::exit(signum), which terminates the process and runs normal cleanup handlers; this may not be async-signal-safe."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator==",
+      "signature": "bool operator==(const google::protobuf::MessageLite& msg_a, const google::protobuf::MessageLite& msg_b)",
+      "description": "Equality operator for protobuf MessageLite objects. Returns true if both messages have the same type name and their SerializeAsString() outputs compare equal; otherwise false. Note: equality depends on serialized form, which may be affected by non-deterministic field ordering (e.g., map fields) unless deterministic serialization is used.",
+      "requirements": [
+        "msg_a and msg_b must be valid MessageLite objects; SerializeAsString() must be callable on both."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator!=",
+      "signature": "bool operator!=(const google::protobuf::MessageLite& msg_a, const google::protobuf::MessageLite& msg_b)",
+      "description": "Inequality operator for protobuf MessageLite objects. Returns true if type names differ or if the serialized bytes via SerializeAsString() differ; otherwise false. See notes on potential non-determinism in serialization for certain field types.",
+      "requirements": [
+        "msg_a and msg_b must be valid MessageLite objects; SerializeAsString() must be callable on both."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::Packet::Packet",
+      "signature": "et::Packet::Packet()",
+      "description": "Default constructor. Creates an empty, decrypted Packet with header initialized to 255 and an empty payload. Useful as a placeholder that can be populated later.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "et::Packet::Packet",
+      "signature": "et::Packet::Packet(uint8_t _header, const string& _payload)",
+      "description": "Constructs an unencrypted Packet with the given header byte and payload string. Intended for building plaintext packets before optional encryption.",
+      "requirements": [
+        "_header is a byte value (type uint8_t).",
+        "_payload may contain arbitrary bytes; its content is not validated.",
+        "Resulting packet starts with encrypted flag set to false."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::Packet::Packet",
+      "signature": "et::Packet::Packet(bool _encrypted, uint8_t _header, const string& _payload)",
+      "description": "Constructs a Packet allowing the caller to explicitly set whether the payload is marked as encrypted. Use when you already know the encryption state of the provided payload.",
+      "requirements": [
+        "_header is a byte value (type uint8_t).",
+        "If _encrypted is true, the provided _payload should already be in the encrypted form expected by the CryptoHandler that will be used to decrypt it (inferred from usage).",
+        "If _encrypted is false, _payload is treated as plaintext."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::Packet::Packet",
+      "signature": "explicit et::Packet::Packet(const string& serializedPacket)",
+      "description": "Deserializes a Packet from its raw wire format: first byte = encrypted flag, second byte = header, remaining bytes = payload. No validation is performed on sizes or values.",
+      "requirements": [
+        "serializedPacket must be at least 2 bytes long; accessing fewer bytes results in undefined behavior.",
+        "Byte 0 is interpreted as the encrypted flag (nonzero treated as true).",
+        "Byte 1 is the header byte.",
+        "Bytes from index 2 to end are taken verbatim as the payload.",
+        "If the encrypted flag is true, the payload is expected to be in the encrypted form consumable by the CryptoHandler used later (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::Packet::decrypt",
+      "signature": "void et::Packet::decrypt(shared_ptr<CryptoHandler> cryptoHandler)",
+      "description": "Decrypts the payload using the provided CryptoHandler if the packet is currently marked as encrypted. On success, marks the packet as decrypted and replaces the payload with the plaintext.",
+      "requirements": [
+        "Must only be called when isEncrypted() is true; calling when false triggers a fatal error path (terminates).",
+        "cryptoHandler must be a valid, non-null handler compatible with the payload format; it must provide decrypt(string) -> string.",
+        "The decrypt operation is expected to succeed for the current payload; errors/exceptions from CryptoHandler are not handled here (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::Packet::encrypt",
+      "signature": "void et::Packet::encrypt(shared_ptr<CryptoHandler> cryptoHandler)",
+      "description": "Encrypts the payload using the provided CryptoHandler and marks the packet as encrypted. The payload is replaced with the ciphertext.",
+      "requirements": [
+        "Must only be called when isEncrypted() is false; calling when true triggers a fatal error path (terminates).",
+        "cryptoHandler must be a valid, non-null handler compatible with the payload format; it must provide encrypt(string) -> string.",
+        "The encrypt operation is expected to succeed for the current payload; errors/exceptions from CryptoHandler are not handled here (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::Packet::isEncrypted",
+      "signature": "bool et::Packet::isEncrypted() const",
+      "description": "Returns whether the payload is currently marked as encrypted.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "et::Packet::getHeader",
+      "signature": "uint8_t et::Packet::getHeader() const",
+      "description": "Returns the packet's application-specific header byte.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "et::Packet::getPayload",
+      "signature": "string et::Packet::getPayload() const",
+      "description": "Returns the stored payload as-is. Note: if isEncrypted() is true, this returns ciphertext; call decrypt() first to obtain plaintext.",
+      "requirements": [
+        "If plaintext is required, callers should ensure the packet is not encrypted (call decrypt() when isEncrypted() is true)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::Packet::length",
+      "signature": "ssize_t et::Packet::length() const",
+      "description": "Returns the serialized size in bytes: 2-byte header section plus the current payload length.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "et::Packet::serialize",
+      "signature": "string et::Packet::serialize() const",
+      "description": "Serializes the packet into its wire format: byte 0 = encrypted flag (0/1), byte 1 = header, bytes 2..N-1 = payload. Suitable for sending over the network.",
+      "requirements": [
+        "Payload may contain arbitrary bytes and is written verbatim after the two header bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::~SocketHandler",
+      "signature": "virtual ~SocketHandler();",
+      "description": "Virtual destructor allowing derived SocketHandler implementations to clean up platform-specific resources during object destruction. Intended to be invoked automatically when a SocketHandler is deleted through a base pointer.",
+      "requirements": [
+        "Object must be fully constructed before destruction (standard C++ requirement).",
+        "Derived classes should ensure any platform-specific resources (e.g., file descriptors, sockets) are released in their destructors."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::hasData",
+      "signature": "virtual bool hasData(int fd) = 0;",
+      "description": "Checks whether the kernel reports that the given file descriptor has data available to read. Typically used to avoid blocking reads.",
+      "requirements": [
+        "fd must be a valid, open file descriptor referencing a readable socket or stream.",
+        "Caller should be prepared for either result and handle readiness races (data may change immediately after the check).",
+        "Behavior on invalid fd or closed descriptor is implementation-defined/unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::read",
+      "signature": "virtual ssize_t read(int fd, void* buf, size_t count) = 0;",
+      "description": "Reads up to count bytes from the file descriptor into the provided buffer. Mirrors POSIX read semantics for sockets.",
+      "requirements": [
+        "fd must be a valid, open file descriptor that is readable.",
+        "buf must be non-null if count > 0 and must have capacity for at least count bytes.",
+        "Return value semantics and error reporting follow the implementation; negative return typically indicates error (unknown specifics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::write",
+      "signature": "virtual ssize_t write(int fd, const void* buf, size_t count) = 0;",
+      "description": "Writes up to count bytes from the provided buffer to the file descriptor. Mirrors POSIX write semantics for sockets.",
+      "requirements": [
+        "fd must be a valid, open file descriptor that is writable.",
+        "buf must be non-null if count > 0 and must reference at least count bytes of initialized memory.",
+        "Return value semantics and error reporting follow the implementation; negative return typically indicates error (unknown specifics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::readAll",
+      "signature": "void readAll(int fd, void* buf, size_t count, bool timeout);",
+      "description": "Reads exactly count bytes from fd into buf, retrying (e.g., on EAGAIN) until the buffer is filled. May enforce an internal transfer timeout if timeout is true. Throws behavior is not explicitly documented here; see callers for usage.",
+      "requirements": [
+        "fd must be a valid, open, readable descriptor producing at least count bytes.",
+        "buf must be non-null and have capacity for at least count bytes.",
+        "Function may block until count bytes are read unless an internal timeout is enforced; exact timeout semantics are unknown.",
+        "Caller should handle potential exceptions or error handling as implemented elsewhere (unknown from header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::writeAllOrReturn",
+      "signature": "int writeAllOrReturn(int fd, const void* buf, size_t count);",
+      "description": "Attempts to write the entire buffer to fd. Returns the total bytes written on success, or -1 if the operation times out or otherwise fails (e.g., deadlock).",
+      "requirements": [
+        "fd must be a valid, open, writable descriptor.",
+        "buf must be non-null if count > 0 and reference at least count bytes of initialized data.",
+        "Caller must handle a return value of -1 to detect timeout/failure and avoid assuming partial progress."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::writeAllOrThrow",
+      "signature": "void writeAllOrThrow(int fd, const void* buf, size_t count, bool timeout);",
+      "description": "Writes all count bytes to fd, throwing an exception if the operation times out or fails. May enforce an internal transfer timeout when timeout is true.",
+      "requirements": [
+        "fd must be a valid, open, writable descriptor.",
+        "buf must be non-null if count > 0 and reference at least count bytes of initialized data.",
+        "Caller must be prepared to catch exceptions on timeout/failure; exact exception type(s) are not specified in the header (unknown).",
+        "Exact timeout semantics controlled by timeout parameter are not specified (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::readProto",
+      "signature": "template <typename T>\nT readProto(int fd, bool timeout);",
+      "description": "Reads a length-prefixed protobuf message from fd. The function reads a 64-bit length (int64_t), validates it (must be 0..128 MiB), then reads that many bytes and parses into a default-constructed T using T::ParseFromString. Throws std::runtime_error on invalid length or parse failure. If length is 0, returns a default-constructed T.",
+      "requirements": [
+        "fd must be a valid, open, readable descriptor providing data framed as: int64_t length followed by length bytes.",
+        "Length must be in the range [0, 134,217,728]; otherwise std::runtime_error is thrown.",
+        "T must be default-constructible and provide methods: bool ParseFromString(const std::string&), std::string GetTypeName() (the latter used only in related writeProto logging).",
+        "Caller should be prepared to catch std::runtime_error on invalid size or parse failure.",
+        "The timeout flag controls whether an internal transfer timeout is enforced during reads; exact semantics are unspecified (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::writeProto",
+      "signature": "template <typename T>\nvoid writeProto(int fd, const T& t, bool timeout);",
+      "description": "Serializes the protobuf message t to a string, validates the length (0..128 MiB), writes a 64-bit length prefix (int64_t), then writes the payload. Uses writeAllOrThrow, and logs a fatal error (STFATAL) on serialization failure or invalid length.",
+      "requirements": [
+        "fd must be a valid, open, writable descriptor.",
+        "T must support bool SerializeToString(std::string*), std::string GetTypeName() and be serializable.",
+        "Serialized length must be in the range [0, 134,217,728]; otherwise a fatal log is emitted (process may abort depending on STFATAL behavior).",
+        "Caller should be prepared for writeAllOrThrow to throw on timeout/failure.",
+        "The timeout flag controls whether an internal transfer timeout is enforced during writes; exact semantics are unspecified (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::readPacket",
+      "signature": "bool readPacket(int fd, Packet* packet);",
+      "description": "Reads a length-prefixed binary packet: first reads a 64-bit length (int64_t), validates it (0..128 MiB), then reads that many bytes and constructs a Packet from the data. Returns false when the length is zero (empty message). Throws std::runtime_error on invalid size.",
+      "requirements": [
+        "fd must be a valid, open, readable descriptor providing data framed as: int64_t length followed by length bytes.",
+        "packet must be non-null and point to a valid Packet object to receive the result.",
+        "Length must be in the range [0, 134,217,728]; lengths outside this range cause std::runtime_error.",
+        "Caller must handle a return value of false indicating an empty message."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::writePacket",
+      "signature": "void writePacket(int fd, const Packet& packet);",
+      "description": "Serializes packet to a string, validates the length (0..128 MiB), writes a 64-bit length prefix (int64_t), and then writes the serialized bytes using writeAllOrThrow. Logs a fatal error (STFATAL) on invalid message length.",
+      "requirements": [
+        "fd must be a valid, open, writable descriptor.",
+        "packet.serialize() must return a string whose size is in [0, 134,217,728]; otherwise a fatal log occurs (process may abort depending on STFATAL behavior).",
+        "Caller should be prepared for writeAllOrThrow to throw on write timeout/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::writeB64",
+      "signature": "void writeB64(int fd, const char* buf, size_t count);",
+      "description": "Sends a base64-encoded representation of the provided binary buffer over fd. The header declares the API; implementation details (line wrapping, padding, streaming format) are not shown.",
+      "requirements": [
+        "fd must be a valid, open, writable descriptor.",
+        "buf must be non-null if count > 0 and reference at least count bytes.",
+        "Caller should not assume any particular base64 variant or chunking behavior; specifics are unknown from the header."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::readB64",
+      "signature": "void readB64(int fd, char* buf, size_t count);",
+      "description": "Reads a fixed amount of base64-encoded data from fd and decodes it into buf. The exact framing and how the fixed amount is determined are not shown in the header.",
+      "requirements": [
+        "fd must be a valid, open, readable descriptor.",
+        "buf must be non-null and have capacity for at least count bytes of decoded data.",
+        "The exact mapping between encoded byte count and decoded count is not specified; caller should ensure count matches the expected decoded size (unknown details)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::readB64EncodedLength",
+      "signature": "void readB64EncodedLength(int fd, std::string* out, size_t encodedLength);",
+      "description": "Reads a base64 string of exactly encodedLength bytes from fd and decodes it into out. Intended for cases where the base64 length is explicitly known/provided.",
+      "requirements": [
+        "fd must be a valid, open, readable descriptor.",
+        "out must be non-null and point to a valid std::string to receive decoded data.",
+        "encodedLength must match the exact number of base64-encoded bytes available on the stream; behavior if mismatched is unspecified (unknown).",
+        "No assumption is stated about base64 variant or padding; specifics are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::connect",
+      "signature": "virtual int connect(const SocketEndpoint& endpoint) = 0;",
+      "description": "Opens a connection to the specified endpoint and returns a socket file descriptor, or -1 on failure. The concrete implementation handles transport details.",
+      "requirements": [
+        "endpoint must describe a valid, connectable destination for the implementation (e.g., TCP address/port, domain socket).",
+        "Caller must check for a return value of -1 to detect failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::listen",
+      "signature": "virtual std::set<int> listen(const SocketEndpoint& endpoint) = 0;",
+      "description": "Starts listening on the provided endpoint and returns the active listening file descriptor(s). May return multiple fds depending on implementation (e.g., IPv4 and IPv6).",
+      "requirements": [
+        "endpoint must describe a valid listening target for the implementation.",
+        "Caller should handle zero or more returned fds and manage them appropriately."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::getEndpointFds",
+      "signature": "virtual std::set<int> getEndpointFds(const SocketEndpoint& endpoint) = 0;",
+      "description": "Returns any file descriptors currently associated with the given endpoint, including listening or other related descriptors.",
+      "requirements": [
+        "endpoint must identify an endpoint known to the implementation.",
+        "Returned set may be empty if no fds are associated."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::accept",
+      "signature": "virtual int accept(int fd) = 0;",
+      "description": "Accepts a pending incoming connection on the listening socket fd and returns a new connection file descriptor. The exact error/timeout behavior is implementation-defined.",
+      "requirements": [
+        "fd must be a valid listening socket file descriptor obtained from listen().",
+        "Caller must check the return value for failure (e.g., -1) and handle transient errors (unknown specifics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::stopListening",
+      "signature": "virtual void stopListening(const SocketEndpoint& endpoint) = 0;",
+      "description": "Stops accepting new connections on the specified endpoint. Typically closes or deregisters listening descriptors associated with the endpoint.",
+      "requirements": [
+        "endpoint must refer to an endpoint previously passed to listen() or known to the implementation."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::close",
+      "signature": "virtual void close(int fd) = 0;",
+      "description": "Closes the supplied socket file descriptor and releases associated resources.",
+      "requirements": [
+        "fd must be a file descriptor currently owned by this handler or otherwise safe to close.",
+        "After close, fd must not be used by the caller."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::SocketHandler::getActiveSockets",
+      "signature": "virtual std::vector<int> getActiveSockets() = 0;",
+      "description": "Returns a list of all currently active (read/write) socket file descriptors managed by the handler.",
+      "requirements": [
+        "Caller should not assume the returned list remains valid after subsequent operations; snapshot semantics only.",
+        "The vector may be empty if no active sockets are present."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::TcpSocketHandler::TcpSocketHandler",
+      "signature": "et::TcpSocketHandler::TcpSocketHandler()",
+      "description": "Constructor for TcpSocketHandler. Initializes a handler that implements IPv4/IPv6 TCP socket operations on top of UnixSocketHandler. Usage: instantiate before calling connect/listen/getEndpointFds/stopListening.",
+      "requirements": [
+        "Object must be constructed before any member function is called.",
+        "No explicit construction parameters; any required lower-level initialization is handled internally or by the UnixSocketHandler base class (details unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::TcpSocketHandler::~TcpSocketHandler",
+      "signature": "virtual et::TcpSocketHandler::~TcpSocketHandler()",
+      "description": "Virtual destructor for TcpSocketHandler. Ensures proper cleanup via base class and allows safe polymorphic deletion. Usage: destroy directly or via a base-class pointer to UnixSocketHandler.",
+      "requirements": [
+        "If deleted through a base-class pointer, the destructor will be invoked polymorphically.",
+        "Resources associated with the instance will be released according to its implementation (specifics unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::TcpSocketHandler::connect",
+      "signature": "virtual int et::TcpSocketHandler::connect(const SocketEndpoint& endpoint)",
+      "description": "Resolves the hostname/port in endpoint and initiates a non-blocking TCP connection to the server. Built on UnixSocketHandler with additional TCP-specific setup. Usage: provide a valid SocketEndpoint (host/IP and port); check the return value to determine status (exact semantics unknown).",
+      "requirements": [
+        "endpoint must represent a resolvable host/IP and a valid TCP port.",
+        "Operation is non-blocking; caller must be prepared to handle asynchronous connection completion or readiness (details of signaling/FD retrieval unknown).",
+        "Caller must inspect the returned int for success/failure according to this library’s conventions (exact return contract not documented here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::TcpSocketHandler::listen",
+      "signature": "virtual set<int> et::TcpSocketHandler::listen(const SocketEndpoint& endpoint)",
+      "description": "Binds and starts listening on all IP addresses for the TCP port indicated by endpoint. Returns the set of listening socket file descriptors. Usage: call with a SocketEndpoint specifying the desired port (and optionally address family); use the returned FDs with event loops or accept logic (details unknown).",
+      "requirements": [
+        "endpoint must specify a valid TCP port. Host/address may be ignored in favor of binding to all interfaces (per description).",
+        "Binding to privileged ports may require elevated privileges on some systems.",
+        "Caller must handle the returned set<int> appropriately (e.g., store or poll); semantics of empty set indicate failure or no sockets created (exact error reporting unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::TcpSocketHandler::getEndpointFds",
+      "signature": "virtual set<int> et::TcpSocketHandler::getEndpointFds(const SocketEndpoint& endpoint)",
+      "description": "Returns the listening socket FDs associated with the TCP port described by endpoint. Usage: query after listen to retrieve or re-fetch the active listening FDs for that port.",
+      "requirements": [
+        "endpoint must refer to a port previously passed to listen; otherwise the returned set may be empty (exact behavior unknown).",
+        "Caller must handle an empty set as a possible outcome (e.g., not listening or already stopped)."
+      ],
+      "error": null
+    },
+    {
+      "name": "et::TcpSocketHandler::stopListening",
+      "signature": "virtual void et::TcpSocketHandler::stopListening(const SocketEndpoint& endpoint)",
+      "description": "Stops listening on the TCP port described by endpoint and closes all related listening FDs tracked by the handler. Usage: call when the service should cease accepting connections on that port.",
+      "requirements": [
+        "endpoint must refer to a port that the handler is currently listening on; otherwise the call may be a no-op (exact behavior unknown).",
+        "After this call, previously returned listening FDs for the port become invalid and must not be used."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "GetErrno",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Just fetch the normalized last-error value. This is safe regardless of platform.\nint e = GetErrno();\n// Property: it must be an integer; no stronger guarantee available here.\n(void)e; // suppress unused warnings"
+    },
+    {
+      "name": "SetErrno",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a platform-appropriate-looking error code.\n// We bound to a small positive space to avoid out-of-range constants on either platform.\nint e = (int)(*FUZZ_PARAM(unsigned int) % 256u);\nif (e == 0) { e = 1; } // avoid setting success\n// Set the thread-local last error. On Windows this maps to WSASetLastError; elsewhere to errno.\nSetErrno(e);"
+    },
+    {
+      "name": "et::operator<<",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise streaming of a SocketEndpoint. We synthesize a valid proto to ensure has_* checks work.\net::SocketEndpoint se;\n// Randomly set fields to cover branches where name/port may or may not be present.\nunsigned int flags = *FUZZ_PARAM(unsigned int);\nif (flags & 1u) {\n  std::string name = FUZZ_PARAM_STR();\n  se.set_name(name);\n}\nif (flags & 2u) {\n  int port = (int)(*FUZZ_PARAM(unsigned int) % 65536u);\n  se.set_port(port);\n}\n// Stream into a standard ostringstream sink.\nstd::ostringstream os;\nos << se;\n// Validate stream remains good (append-only contract); if not, bail.\nif (!os.good()) { FUZZ_BAIL(); }"
+    },
+    {
+      "name": "et::split",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Template Out variant: produce tokens via an output iterator sink.\nstd::string s = FUZZ_PARAM_STR();\nchar delim = (char)(*FUZZ_PARAM(unsigned int) & 0xFF);\nstd::vector<std::string> tokens;\n// Out must accept std::string; use back_inserter to a vector<string>.\net::split(s, delim, std::back_inserter(tokens));\n// Basic sanity: concatenating tokens with delim should not exceed original size + (#tokens-1)\n// (no strict assertion; just exercise function). (void)tokens;"
+    },
+    {
+      "name": "et::replace",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Replace first occurrence.\nstd::string str = FUZZ_PARAM_STR();\nstd::string from = FUZZ_PARAM_STR();\nstd::string to = FUZZ_PARAM_STR();\n// Call replace; if 'from' not present, function should return false and not modify str.\nbool changed = et::replace(str, from, to);\n// If changed, enforce that str now contains at least one 'to' occurrence.\nif (changed) {\n  if (str.find(to) == std::string::npos) { FUZZ_BAIL(); }\n}"
+    },
+    {
+      "name": "et::replaceAll",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Replace all non-overlapping occurrences.\nstd::string str = FUZZ_PARAM_STR();\nstd::string from = FUZZ_PARAM_STR();\nstd::string to = FUZZ_PARAM_STR();\nint n = et::replaceAll(str, from, to);\n// Contract checks:\nif (from.empty()) {\n  // If 'from' is empty, API specifies no replacements (0 returned).\n  FUZZ_ASSERT(n == 0, \"replaceAll must return 0 when 'from' is empty\");\n} else if (n > 0) {\n  // If we replaced something, ensure 'to' now appears.\n  if (str.find(to) == std::string::npos) { FUZZ_BAIL(); }\n}\n(void)n;"
+    },
+    {
+      "name": "et::stringToProto",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a concrete protobuf type: et::SocketEndpoint.\n// Build a valid instance, serialize it, then round-trip through stringToProto to avoid fatal logging.\net::SocketEndpoint in;\nunsigned int flags = *FUZZ_PARAM(unsigned int);\nif (flags & 1u) { in.set_name(FUZZ_PARAM_STR()); }\nif (flags & 2u) { in.set_port((int)(*FUZZ_PARAM(unsigned int) % 65536u)); }\nstd::string bytes;\nif (!in.SerializeToString(&bytes)) { FUZZ_BAIL(); }\n// Now parse from its binary representation via the target template.\net::SocketEndpoint out = et::stringToProto<et::SocketEndpoint>(bytes);\n// Property: serialized forms of in and out should match for deterministic fields.\nstd::string in_ser, out_ser;\nif (!in.SerializeToString(&in_ser) || !out.SerializeToString(&out_ser)) { FUZZ_BAIL(); }\nFUZZ_ASSERT(in_ser == out_ser, \"Round-trip proto serialization mismatch\");"
+    },
+    {
+      "name": "et::protoToString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a concrete protobuf type: et::SocketEndpoint.\n// Build a valid instance and serialize it using the target template.\net::SocketEndpoint se;\nunsigned int flags = *FUZZ_PARAM(unsigned int);\nif (flags & 1u) { se.set_name(FUZZ_PARAM_STR()); }\nif (flags & 2u) { se.set_port((int)(*FUZZ_PARAM(unsigned int) % 65536u)); }\nstd::string bytes = et::protoToString(se);\n// Basic sanity: non-empty message may still serialize to empty if no fields set; just ensure call succeeded.\n(void)bytes;"
+    },
+    {
+      "name": "et::genRandomAlphaNum",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random alphanumeric string with bounded length for performance.\nint len = (int)(*FUZZ_PARAM(unsigned int) % 1025u); // 0..1024\nstd::string s = et::genRandomAlphaNum(len);\n// Verify size contract.\nFUZZ_ASSERT((int)s.size() == len, \"genRandomAlphaNum returned incorrect length\");\n// Verify all chars are within expected set [0-9A-Za-z]. If not, bail because the API contract was violated.\nfor (char c : s) {\n  bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');\n  if (!ok) { FUZZ_BAIL(); }\n}"
+    },
+    {
+      "name": "et::GetTempDirectory",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fetch the temp directory path.\nstd::string tmp = et::GetTempDirectory();\n// Basic sanity: result may be empty on some misconfigured systems, but should be a string.\n(void)tmp;"
+    },
+    {
+      "name": "et::HandleTerminate",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Install the terminate handler once. The implementation guards against recursive install.\net::HandleTerminate();"
+    },
+    {
+      "name": "operator==",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Compare two protobuf messages for equality based on serialized form and type.\net::SocketEndpoint a;\net::SocketEndpoint b;\n// Randomize content to cover equal/unequal paths.\nunsigned int f = *FUZZ_PARAM(unsigned int);\nif (f & 1u) a.set_name(FUZZ_PARAM_STR());\nif (f & 2u) a.set_port((int)(*FUZZ_PARAM(unsigned int) % 65536u));\nif (f & 4u) b.set_name(FUZZ_PARAM_STR());\nif (f & 8u) b.set_port((int)(*FUZZ_PARAM(unsigned int) % 65536u));\n// Invoke the operator and ensure symmetry and reflexivity properties.\nbool eq_ab = (a == b);\nbool eq_ba = (b == a);\nFUZZ_ASSERT(eq_ab == eq_ba, \"operator== must be symmetric\");\nFUZZ_ASSERT(a == a, \"operator== must be reflexive\");"
+    },
+    {
+      "name": "operator!=",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Compare two protobuf messages for inequality based on serialized form and type.\net::SocketEndpoint a;\net::SocketEndpoint b;\nunsigned int f = *FUZZ_PARAM(unsigned int);\nif (f & 1u) a.set_name(FUZZ_PARAM_STR());\nif (f & 2u) a.set_port((int)(*FUZZ_PARAM(unsigned int) % 65536u));\nif (f & 4u) b.set_name(FUZZ_PARAM_STR());\nif (f & 8u) b.set_port((int)(*FUZZ_PARAM(unsigned int) % 65536u));\n// Invoke the operator and ensure consistency with operator==.\nbool ne_ab = (a != b);\nbool eq_ab = (a == b);\nFUZZ_ASSERT(ne_ab == !eq_ab, \"operator!= must be logical negation of operator==\");"
+    },
+    {
+      "name": "et::Packet::Packet",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "code": "// Choose a constructor path to maximize coverage while respecting constraints\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 4;\n\n// Common fuzzable pieces\nstd::string payload = FUZZ_PARAM_STR();\nuint8_t header = static_cast<uint8_t>(*FUZZ_PARAM(unsigned int) & 0xFF);\nbool enc_flag = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n\n// Ensure a valid serialized buffer (>=2 bytes) when needed\nstd::string serialized = FUZZ_PARAM_STR();\nif (serialized.size() < 2) {\n  // Bring it into compliance with the ctor precondition instead of bailing\n  serialized.push_back('\\0');\n  serialized.push_back('\\0');\n}\n\net::Packet *packet = nullptr;\nif (mode == 0) {\n  // Default constructor: empty, decrypted, header=255\n  packet = new et::Packet();\n} else if (mode == 1) {\n  // Constructor with header+payload: implicitly unencrypted\n  packet = new et::Packet(header, payload);\n} else if (mode == 2) {\n  // Constructor with explicit encrypted flag\n  packet = new et::Packet(enc_flag, header, payload);\n} else {\n  // Deserialize from raw wire format; guarantee size>=2 above\n  packet = new et::Packet(serialized);\n}\n\n// Provide the newly created Packet to the object pool via outputs"
+    },
+    {
+      "name": "et::Packet::isEncrypted",
+      "inputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "code": "// Accessor; keep packet alive by returning it as an output\nbool enc = packet->isEncrypted();\n\n// Validate serialization reflects the encryption flag\nstd::string s = packet->serialize();\nFUZZ_ASSERT(s.size() >= 2, \"Serialized Packet must be at least 2 bytes\");\nFUZZ_ASSERT(static_cast<unsigned char>(s[0]) == (enc ? 1 : 0), \"serialize()[0] must match isEncrypted()\");\n\n// Validation: Ensures serialize() structure is consistent with isEncrypted(); packet is returned to the pool intact."
+    },
+    {
+      "name": "et::Packet::getHeader",
+      "inputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "code": "// Accessor; verify serialization reflects header\nuint8_t hdr = packet->getHeader();\nstd::string s = packet->serialize();\nFUZZ_ASSERT(s.size() >= 2, \"Serialized Packet must be at least 2 bytes\");\nFUZZ_ASSERT(static_cast<uint8_t>(s[1]) == hdr, \"serialize()[1] must equal getHeader()\");\n\n// Validation: Confirms header accessor agrees with serialized form; object lifetime preserved by returning packet."
+    },
+    {
+      "name": "et::Packet::getPayload",
+      "inputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "code": "// Accessor; returns verbatim bytes (ciphertext if encrypted)\nstd::string pl = packet->getPayload();\n\n// Cross-check size invariants with length() and serialize()\nssize_t len = packet->length();\nFUZZ_ASSERT(len >= 2, \"Packet length() must be >= header size (2)\");\nFUZZ_ASSERT(static_cast<size_t>(len) == static_cast<size_t>(2) + pl.size(), \"length() must equal 2 + payload.size()\");\n\nstd::string s = packet->serialize();\nFUZZ_ASSERT(s.size() == static_cast<size_t>(len), \"serialize().size() must equal length()\");\n// Payload region in serialization should equal getPayload()\nFUZZ_ASSERT(s.substr(2) == pl, \"Serialized payload must match getPayload()\");\n\n// Validation: Verifies payload accessor coherence with length() and serialize(); packet is returned unchanged."
+    },
+    {
+      "name": "et::Packet::length",
+      "inputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "code": "// Verify length agrees with payload and serialization\nssize_t len = packet->length();\nFUZZ_ASSERT(len >= 2, \"Packet length() must be >= 2\");\nstd::string pl = packet->getPayload();\nFUZZ_ASSERT(static_cast<size_t>(len) == static_cast<size_t>(2) + pl.size(), \"length() must equal 2 + payload.size()\");\nstd::string s = packet->serialize();\nFUZZ_ASSERT(s.size() == static_cast<size_t>(len), \"serialize().size() must equal length()\");\n\n// Validation: Ensures length() is consistent with payload size and serialized form; packet is output to keep it alive."
+    },
+    {
+      "name": "et::Packet::serialize",
+      "inputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "packet",
+          "type": "et::Packet *"
+        }
+      ],
+      "code": "// Serialize and validate structural invariants\nstd::string s = packet->serialize();\nFUZZ_ASSERT(s.size() >= 2, \"Serialized Packet must be at least 2 bytes\");\nFUZZ_ASSERT(s.size() == static_cast<size_t>(packet->length()), \"serialize().size() must equal length()\");\nFUZZ_ASSERT(static_cast<unsigned char>(s[0]) == (packet->isEncrypted() ? 1 : 0), \"First byte should match isEncrypted()\");\nFUZZ_ASSERT(static_cast<uint8_t>(s[1]) == packet->getHeader(), \"Second byte should match getHeader()\");\n\n// Optional round-trip check: constructing from the bytes should reproduce fields\n{\n  et::Packet roundtrip(s);\n  FUZZ_ASSERT(roundtrip.isEncrypted() == packet->isEncrypted(), \"Roundtrip isEncrypted must match\");\n  FUZZ_ASSERT(roundtrip.getHeader() == packet->getHeader(), \"Roundtrip header must match\");\n  FUZZ_ASSERT(roundtrip.getPayload() == packet->getPayload(), \"Roundtrip payload must match\");\n  FUZZ_ASSERT(static_cast<size_t>(roundtrip.length()) == s.size(), \"Roundtrip length must equal serialized size\");\n}\n\n// Validation: Confirms serialize() format and a round-trip reconstruction yield consistent state; packet returned to pool."
+    },
+    {
+      "name": "et::SocketHandler::~SocketHandler",
+      "inputs": [
+        {
+          "name": "handler",
+          "type": "et::SocketHandler *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Ensure the SocketHandler instance was fully constructed before destruction.\n// We expect constructor stubs for concrete subclasses to set this attribute.\nint constructed = FUZZ_GET_ATTR_INT(handler, \"constructed\");\nif (!constructed) {\n    // If we cannot guarantee proper construction, avoid invoking the dtor.\n    FUZZ_BAIL();\n}\n\n// Invoke the virtual destructor through a base pointer; this lets derived\n// implementations clean up platform resources safely.\ndelete handler;\n\n// No outputs: the object has been destroyed and must not be reused.\n// Validation: The stub verifies construction via an attribute and deletes the\n// object exactly once, preventing double-free/use-after-free issues."
+    },
+    {
+      "name": "et::TcpSocketHandler::TcpSocketHandler",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "tcp",
+          "type": "et::TcpSocketHandler *"
+        }
+      ],
+      "code": "// Construct a new TcpSocketHandler instance.\net::TcpSocketHandler* tcp = new et::TcpSocketHandler();\n// Validate allocation succeeded (new should throw on failure, but assert for safety)\nFUZZ_ASSERT(tcp != nullptr, \"TcpSocketHandler allocation failed\");\n// Mark object state for downstream stubs (e.g., to guard destructor calls)\nFUZZ_SET_ATTR_INT(tcp, \"alive\", 1);\n// Provide tcp as an output so the fuzzer runtime can manage its lifetime\n// and feed it to member-function stubs (if any become harnessable)."
+    },
+    {
+      "name": "et::TcpSocketHandler::~TcpSocketHandler",
+      "inputs": [
+        {
+          "name": "tcp",
+          "type": "et::TcpSocketHandler *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce single-destruction via attribute; if already destroyed, bail to\n// avoid double free. If attribute is absent, treat as alive by default.\nint alive = FUZZ_GET_ATTR_INT(tcp, \"alive\");\nif (alive == 0) { FUZZ_BAIL(); }\n// Mark as dead prior to delete to avoid re-entrancy issues if attributes are read post-call.\nFUZZ_SET_ATTR_INT(tcp, \"alive\", 0);\n// Invoke the virtual destructor via delete on the concrete pointer.\ndelete tcp;\n// No outputs returned; the object is destroyed and must not be reused."
+    },
+    {
+      "name": "et::SocketHandler *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "handler",
+          "type": "et::SocketHandler *"
+        }
+      ],
+      "code": "// Produce a concrete implementation and upcast to the abstract base pointer.\net::TcpSocketHandler* concrete = new et::TcpSocketHandler();\nFUZZ_ASSERT(concrete != nullptr, \"TcpSocketHandler allocation failed\");\n\n// Upcast to the target type for downstream use.\net::SocketHandler* handler = static_cast<et::SocketHandler*>(concrete);\n\n// Mark construction so the base-class destructor stub can validate ownership/state.\nFUZZ_SET_ATTR_INT(handler, \"constructed\", 1);\n// Optionally track liveness; some stubs may consult it.\nFUZZ_SET_ATTR_INT(handler, \"alive\", 1);\n\n// Validation summary: We construct a concrete TcpSocketHandler and expose it as\n// an et::SocketHandler*. Attributes ensure the destructor stub can safely delete\n// exactly once via the base pointer."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "close",
+      "reason": "This shim is MSVC/WinSock-specific and may close real descriptors or be unavailable on non-Windows builds, making it unsafe and non-deterministic to fuzz."
+    },
+    {
+      "name": "et::waitOnSocketData",
+      "reason": "It blocks up to one second and may log fatal errors on invalid fds, which is incompatible with fast, safe fuzzing."
+    },
+    {
+      "name": "et::InterruptSignalHandler",
+      "reason": "It unconditionally calls exit(signum), terminating the fuzzer process."
+    },
+    {
+      "name": "et::TerminateSignalHandler",
+      "reason": "It unconditionally calls exit(signum), terminating the fuzzer process."
+    },
+    {
+      "name": "et::Packet::decrypt",
+      "reason": "Requires a shared_ptr<CryptoHandler>, which is not available in the provided object set and cannot be constructed or mocked within the stub constraints."
+    },
+    {
+      "name": "et::Packet::encrypt",
+      "reason": "Requires a shared_ptr<CryptoHandler>, which is not available in the provided object set and cannot be constructed or mocked within the stub constraints."
+    },
+    {
+      "name": "et::SocketHandler::hasData",
+      "reason": "Method is pure virtual and requires a concrete subclass and valid OS file descriptor, which cannot be safely provided by the harness."
+    },
+    {
+      "name": "et::SocketHandler::read",
+      "reason": "Method is pure virtual and performing real I/O on a valid descriptor is required, which the fuzzer cannot safely guarantee."
+    },
+    {
+      "name": "et::SocketHandler::write",
+      "reason": "Method is pure virtual and requires a concrete implementation and valid writable descriptor, which the harness cannot provide."
+    },
+    {
+      "name": "et::SocketHandler::readAll",
+      "reason": "Implementation depends on the virtual read method and may block; without a concrete subclass and real fd it cannot be exercised safely."
+    },
+    {
+      "name": "et::SocketHandler::writeAllOrReturn",
+      "reason": "Implementation depends on the virtual write method and may block; without a concrete subclass and real fd it cannot be exercised safely."
+    },
+    {
+      "name": "et::SocketHandler::writeAllOrThrow",
+      "reason": "Implementation depends on the virtual write method and may block/throw; without a concrete subclass and real fd it cannot be exercised safely."
+    },
+    {
+      "name": "et::SocketHandler::readProto",
+      "reason": "Template uses readAll and parsing on real stream data; it requires a working subclass and valid fd, which the harness cannot supply."
+    },
+    {
+      "name": "et::SocketHandler::writeProto",
+      "reason": "Template uses writeAllOrThrow and serialization to a real fd; it requires a working subclass and valid fd, which the harness cannot supply."
+    },
+    {
+      "name": "et::SocketHandler::readPacket",
+      "reason": "Relies on readAll and real socket framing; needs a concrete subclass and valid fd which are unavailable in the harness."
+    },
+    {
+      "name": "et::SocketHandler::writePacket",
+      "reason": "Relies on writeAllOrThrow to a real fd; needs a concrete subclass and valid fd which are unavailable in the harness."
+    },
+    {
+      "name": "et::SocketHandler::writeB64",
+      "reason": "Function body is not provided here and would depend on the virtual write path; without a concrete subclass and real fd it cannot be exercised."
+    },
+    {
+      "name": "et::SocketHandler::readB64",
+      "reason": "Function body is not provided here and would depend on the virtual read path; without a concrete subclass and real fd it cannot be exercised."
+    },
+    {
+      "name": "et::SocketHandler::readB64EncodedLength",
+      "reason": "Function body is not provided here and would depend on the virtual read path; without a concrete subclass and real fd it cannot be exercised."
+    },
+    {
+      "name": "et::SocketHandler::connect",
+      "reason": "Method is pure virtual and requires a SocketEndpoint and real networking; the harness cannot provide a valid endpoint or concrete implementation."
+    },
+    {
+      "name": "et::SocketHandler::listen",
+      "reason": "Method is pure virtual and requires a SocketEndpoint and OS resources; the harness cannot safely provide these."
+    },
+    {
+      "name": "et::SocketHandler::getEndpointFds",
+      "reason": "Method is pure virtual and requires a SocketEndpoint and internal handler state; the harness lacks a concrete implementation."
+    },
+    {
+      "name": "et::SocketHandler::accept",
+      "reason": "Method is pure virtual and requires a valid listening fd from listen(), which the harness cannot supply."
+    },
+    {
+      "name": "et::SocketHandler::stopListening",
+      "reason": "Method is pure virtual and requires a valid SocketEndpoint with prior listen state, which the harness cannot ensure."
+    },
+    {
+      "name": "et::SocketHandler::close",
+      "reason": "Method is pure virtual and requires ownership of a real OS fd; the harness cannot safely provide this."
+    },
+    {
+      "name": "et::SocketHandler::getActiveSockets",
+      "reason": "Method is pure virtual and depends on internal state of a concrete subclass managing real sockets, which the harness does not have."
+    },
+    {
+      "name": "et::TcpSocketHandler::connect",
+      "reason": "Cannot construct the required SocketEndpoint argument; its type is not provided in the available objects, so the call cannot be compiled or meaningfully exercised."
+    },
+    {
+      "name": "et::TcpSocketHandler::listen",
+      "reason": "Cannot construct the required SocketEndpoint argument; its type is not provided in the available objects, so the call cannot be compiled or meaningfully exercised."
+    },
+    {
+      "name": "et::TcpSocketHandler::getEndpointFds",
+      "reason": "Cannot construct the required SocketEndpoint argument; its type is not provided in the available objects, so the call cannot be compiled or meaningfully exercised."
+    },
+    {
+      "name": "et::TcpSocketHandler::stopListening",
+      "reason": "Cannot construct the required SocketEndpoint argument; its type is not provided in the available objects, so the call cannot be compiled or meaningfully exercised."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "GetErrno",
+      "data_types": []
+    },
+    {
+      "name": "SetErrno",
+      "data_types": []
+    },
+    {
+      "name": "et::genRandomAlphaNum",
+      "data_types": []
+    },
+    {
+      "name": "et::GetTempDirectory",
+      "data_types": []
+    },
+    {
+      "name": "et::HandleTerminate",
+      "data_types": []
+    },
+    {
+      "name": "et::Packet::isEncrypted",
+      "data_types": []
+    },
+    {
+      "name": "et::Packet::getHeader",
+      "data_types": []
+    },
+    {
+      "name": "et::Packet::getPayload",
+      "data_types": []
+    },
+    {
+      "name": "et::Packet::length",
+      "data_types": []
+    },
+    {
+      "name": "et::Packet::serialize",
+      "data_types": []
+    },
+    {
+      "name": "et::SocketHandler::~SocketHandler",
+      "data_types": []
+    },
+    {
+      "name": "et::TcpSocketHandler::TcpSocketHandler",
+      "data_types": []
+    },
+    {
+      "name": "et::TcpSocketHandler::~TcpSocketHandler",
+      "data_types": []
+    },
+    {
+      "name": "et::SocketHandler *",
+      "data_types": []
+    },
+    {
+      "name": "et::operator<<",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "et::split",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "et::replace",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "et::replaceAll",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "et::stringToProto",
+      "data_types": [
+        "protobuf binary"
+      ]
+    },
+    {
+      "name": "et::protoToString",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "operator==",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "operator!=",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "et::Packet::Packet",
+      "data_types": [
+        "generic string",
+        "binary packet wire"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "generic string",
+      "description": "An arbitrary byte string with no required encoding or character set. May contain any bytes including NUL. Used wherever functions accept or manipulate unconstrained std::string data (e.g., names, tokens, substrings)."
+    },
+    {
+      "data_type": "protobuf binary",
+      "description": "A byte string containing a serialized Google Protocol Buffers message for a specific .proto type. In this context, it is the binary serialization of et::SocketEndpoint produced by SerializeToString and consumable by ParseFromString."
+    },
+    {
+      "data_type": "binary packet wire",
+      "description": "Raw bytes in the et::Packet wire format: first byte is an encrypted flag (0/1), second byte is a header byte, and remaining bytes form the payload. Minimum length is 2 bytes."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "generic string",
+      "generator": "import random\nimport struct\nimport itertools\n\n# This generator targets the generic string inputs used by the fuzz stubs.\n# The stubs consume multiple FUZZ_PARAM_STR() values and a few unsigned ints.\n# We provide a single bytes buffer that the fuzzing harness will chunk to\n# satisfy each FUZZ_PARAM_STR / FUZZ_PARAM(unsigned int) request in order.\n#\n# Goals:\n# - Provide a mix of strings: empty, small ASCII, Unicode-like UTF-8, binary with NULs\n#   and length>=2 to satisfy et::Packet(serialized) precondition.\n# - Include plausible hostnames and ports embedded in strings for SocketEndpoint-related tests.\n# - Include patterns to exercise split/replace/replaceAll logic (delimiters, repeated substrings).\n# - Keep total size <= 4096 bytes.\n#\n# Encoding format for the output buffer (self-delimiting simple framing):\n# [count32][item1_len32][item1_bytes]...[itemN_len32][itemN_bytes]\n# Followed by a sequence of 32-bit unsigned ints to satisfy FUZZ_PARAM(unsigned int) draws.\n# Many fuzzing harnesses ignore such framing and just slice; however, since we\n# cannot control the harness, we focus on providing a single contiguous buffer\n# that contains rich, varied content from which FUZZ_PARAM_STR/FUZZ_PARAM(unsigned int)\n# can extract data consistently. The buffer is constructed to be interesting even\n# when read as raw spans.\n\nMAX_TOTAL = 4096\n\nASCII_WORDS = [\n    b\"\",  # empty\n    b\"a\",\n    b\"0\",\n    b\"test\",\n    b\"hello\",\n    b\"world\",\n    b\"name\",\n    b\"from\",\n    b\"to\",\n    b\"aaaaa\",\n    b\"abcabcabc\",\n    b\"replace_me\",\n    b\"split,values,with,commas\",\n    b\"split::values::with::colons\",\n    b\"leading-\",\n    b\"-trailing\",\n    b\"--adjacent--delims--\",\n    b\"UPPERlower123\",\n    b\"CaseSensitive\",\n    b\"192.168.0.1\",\n    b\"localhost\",\n    b\"example.com\",\n    b\"\",\n]\n\nUTF8_STRINGS = [\n    \"προβλήτα\".encode(\"utf-8\"),\n    \"こんにちは\".encode(\"utf-8\"),\n    \"😀😃😄😁\".encode(\"utf-8\"),\n    \"naïve café\".encode(\"utf-8\"),\n    \"ключ\".encode(\"utf-8\"),\n]\n\nBINARY_CHUNKS = [\n    b\"\\x00\\x01\\x02\\x03\",\n    b\"\\xFF\\xFE\\xFD\\xFC\",\n    b\"\\x00\" * 8,\n    b\"\\x7F\\x00A\\x00B\\x00\",  # includes NULs\n]\n\n# Some serialized Packet-like buffers (first byte enc flag, second header, rest payload)\n# Ensure size>=2\nPACKET_LIKE = [\n    bytes([0, 0]),\n    bytes([1, 0x42]) + b\"ciphertext\",\n    bytes([0, 0xFF]) + b\"payload\",\n    bytes([0, 1]) + b\"\",  # minimal 2 bytes + empty payload\n]\n\n# Strings helpful for replace/replaceAll behavior\nREPLACE_PAIRS = [\n    (b\"aaaa\", b\"aa\", b\"b\"),\n    (b\"abcabcabc\", b\"abc\", b\"x\"),\n    (b\"nochange\", b\"zzz\", b\"y\"),\n    (b\"edge\", b\"\", b\"n/a\"),  # empty from\n    (b\"xxx\", b\"x\", b\"xx\"),   # expansion\n    (b\"xxxx\", b\"xx\", b\"x\"),   # contraction\n]\n\n# Delimiter bytes to exercise split\nDELIMS = [ord(c) for c in [\",\", \":\", \" \", \"\\t\", \"-\", \"_\", \"/\", \"|\", \"\\x00\", \"\\xFF\"]]\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_tokens(rng: random.Random) -> list[bytes]:\n    toks = []\n    # Base pool\n    toks.extend(ASCII_WORDS)\n    toks.extend(UTF8_STRINGS)\n    toks.extend(BINARY_CHUNKS)\n    toks.extend(PACKET_LIKE)\n\n    # Build derived strings\n    # Host:port patterns\n    hosts = [b\"localhost\", b\"example.com\", b\"[::1]\", b\"192.168.1.10\"]\n    ports = [b\"0\", b\"1\", b\"22\", b\"80\", b\"443\", b\"65535\"]\n    for h in hosts:\n        for p in ports:\n            toks.append(h + b\":\" + p)\n\n    # Repetition and mixed delimiters\n    for d in [b\",\", b\"::\", b\"--\", b\"|\"]:\n        toks.append(d.join([b\"a\", b\"b\", b\"\", b\"c\"]))\n        toks.append(d * 3 + b\"middle\" + d * 2)\n\n    # Random length >= 2 for Packet(serialized) safety\n    for _ in range(6):\n        ln = rng.randint(2, 48)\n        toks.append(_rand_bytes(rng, ln))\n\n    # Include crafted replace scenarios\n    for s, f, t in REPLACE_PAIRS:\n        toks.extend([s, f, t])\n\n    # Add strings containing all delimiters\n    all_delims = bytes(DELIMS)\n    toks.append(all_delims)\n\n    # Ensure variety of small, medium, large\n    toks.append(b\"A\" * 1)\n    toks.append(b\"B\" * 64)\n    toks.append(b\"C\" * 256)\n\n    return toks\n\n\ndef _make_uints(rng: random.Random, count: int) -> list[int]:\n    vals = []\n    # Bias toward interesting bit patterns and valid port ranges\n    interesting = [\n        0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256,\n        512, 1023, 1024, 2048, 4095, 4096, 65535, 65536,\n        0xFFFFFFFF,\n    ]\n    # Random ports\n    for _ in range(10):\n        interesting.append(rng.randint(0, 65535))\n    # Random general values\n    for _ in range(10):\n        interesting.append(rng.getrandbits(32))\n\n    # Shuffle and take needed\n    rng.shuffle(interesting)\n    vals.extend(interesting[:max(count, 32)])\n\n    # Ensure some flags cover combinations for stubs using & masks\n    flags = [\n        0,\n        1, 2, 3,\n        4, 8, 12,\n        0xAAAAAAAA,\n        0x55555555,\n        0xFFFFFFFF,\n    ]\n    vals.extend(flags)\n\n    # More randomness\n    for _ in range(max(0, count - len(vals))):\n        vals.append(rng.getrandbits(32))\n\n    return vals\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    tokens = _make_tokens(rng)\n\n    # Shuffle tokens but ensure we preserve at least a few guaranteed-length>=2\n    rng.shuffle(tokens)\n\n    # Assemble framed section\n    out = bytearray()\n\n    # We will build a count-limited list so total size <= MAX_TOTAL.\n    # Reserve some space for uints at the end (e.g., 64 uints -> 256 bytes)\n    reserve_uint_bytes = 512\n    max_payload = MAX_TOTAL - 8 - reserve_uint_bytes  # 8 for count field and some slack\n\n    framed = bytearray()\n    count = 0\n    for tok in tokens:\n        entry = struct.pack('<I', len(tok)) + tok\n        if len(framed) + len(entry) > max_payload:\n            break\n        framed += entry\n        count += 1\n\n    out += struct.pack('<I', count)\n    out += framed\n\n    # Append a delimiter marker for robustness (optional)\n    # Then append a block of unsigned ints for FUZZ_PARAM(unsigned int)\n    uints = _make_uints(rng, 64)\n    uint_block = bytearray()\n    for v in uints:\n        uint_block += struct.pack('<I', v & 0xFFFFFFFF)\n\n    # Truncate if needed to keep <= MAX_TOTAL\n    remaining = MAX_TOTAL - len(out)\n    if len(uint_block) > remaining:\n        uint_block = uint_block[:remaining - (remaining % 4)]  # keep aligned\n\n    out += uint_block\n\n    return bytes(out)\n"
+    },
+    {
+      "data_type": "protobuf binary",
+      "generator": "import random\nfrom typing import List\n\n# We need to generate a valid protobuf binary for et::SocketEndpoint\n# as used by the fuzzer stub. The stub only ever accesses two fields:\n# - optional string name\n# - optional int32 port (masked to [0, 65535])\n# We don't have the exact field numbers, but common patterns for endpoints are:\n#   name: field number 1, type string  -> tag = (1 << 3) | 2 = 10\n#   port: field number 2, type int32   -> tag = (2 << 3) | 0 = 16\n# We'll construct protobuf wire format manually using these conventional tags.\n# This yields bytes that ParseFromString for the same .proto definition will accept.\n\n# Protobuf varint encoding helpers\n\ndef _encode_varint(value: int) -> bytes:\n    \"\"\"Encode a non-negative integer as protobuf varint.\"\"\"\n    if value < 0:\n        # For int32 negative values, protobuf uses two's complement in varint.\n        # But we only generate non-negative values here.\n        value &= (1 << 64) - 1\n    out = bytearray()\n    while True:\n        to_write = value & 0x7F\n        value >>= 7\n        if value:\n            out.append(to_write | 0x80)\n        else:\n            out.append(to_write)\n            break\n    return bytes(out)\n\n\ndef _encode_length_delimited(data: bytes) -> bytes:\n    return _encode_varint(len(data)) + data\n\n\ndef _random_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    length = rng.randint(min_len, max_len)\n    # Use a range of printable ASCII including spaces and punctuation to probe replace/split behaviors elsewhere\n    alphabet = (\n        \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\" \\\n        \" -._/:@[](),;!$&'*=+?%\\\"\\\\\\n\\t\"\n    )\n    return ''.join(rng.choice(alphabet) for _ in range(length))\n\n\ndef _build_socket_endpoint(name: str | None, port: int | None) -> bytes:\n    # Tags: name = field 1, wire type 2 (length-delimited) => 0x0A\n    #       port = field 2, wire type 0 (varint)            => 0x10\n    out = bytearray()\n    if name is not None:\n        name_bytes = name.encode('utf-8')\n        out.append(0x0A)\n        out += _encode_length_delimited(name_bytes)\n    if port is not None:\n        out.append(0x10)\n        # int32 is varint; keep within 0..65535 as in stub\n        if port < 0:\n            port = 0\n        if port > 0xFFFFFFFF:\n            port &= 0xFFFFFFFF\n        out += _encode_varint(port)\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide presence of fields to exercise combinations similar to the fuzzer flags\n    # 0: neither (empty message), 1: name only, 2: port only, 3: both\n    mode = rng.choice([0, 1, 2, 3, 3, 3])  # bias toward both fields\n\n    name: str | None = None\n    port: int | None = None\n\n    if mode & 1:\n        # Choose varied lengths to hit small/medium/edge cases\n        name_len_choice = rng.random()\n        if name_len_choice < 0.2:\n            name = \"\"  # empty string\n        elif name_len_choice < 0.6:\n            name = _random_ascii(rng, 1, 8)\n        elif name_len_choice < 0.9:\n            name = _random_ascii(rng, 9, 64)\n        else:\n            # longer but keep total under 4096 bytes\n            name = _random_ascii(rng, 128, 1024)\n\n    if mode & 2:\n        # Generate ports across interesting values\n        ports: List[int] = [0, 1, 22, 80, 443, 1024, 2048, 65535]\n        if rng.random() < 0.6:\n            port = rng.choice(ports)\n        else:\n            port = rng.randint(0, 65535)\n\n    msg = _build_socket_endpoint(name, port)\n\n    # Ensure size limit\n    if len(msg) > 4096:\n        # If too large due to name length, truncate name thoughtfully and rebuild\n        if name is not None:\n            # Keep encoded length within limit\n            max_name_len = max(0, 4000)  # safe cap\n            name = name[:max_name_len]\n            msg = _build_socket_endpoint(name, port)\n        # As a last resort, fall back to minimal message\n        if len(msg) > 4096:\n            msg = _build_socket_endpoint(\"\", port if port is not None else 0)\n\n    return msg\n"
+    },
+    {
+      "data_type": "binary packet wire",
+      "generator": "import random\nfrom typing import List\n\n# Data type: et::Packet wire format\n# Bytes: [0]=encrypted flag (0/1), [1]=header (uint8), [2:]=payload (arbitrary)\n# Fuzzer stub uses FUZZ_PARAM_STR for payload and serialized. Our generator\n# should return a bytes object that is an interesting serialized Packet buffer.\n\n_ALNUM = b\"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\"\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    # Produce arbitrary but printable-biased bytes; include some non-printables too\n    # to exercise binary payloads.\n    if n <= 0:\n        return b\"\"\n    out = bytearray()\n    for _ in range(n):\n        t = rng.random()\n        if t < 0.75:\n            out.append(_ALNUM[rng.randrange(len(_ALNUM))])\n        elif t < 0.9:\n            out.append(rng.randrange(32, 127))  # common printable ASCII\n        else:\n            out.append(rng.randrange(0, 256))   # full byte range\n    return bytes(out)\n\n\ndef _make_serialized_packet(rng: random.Random) -> bytes:\n    # Choose variants to toggle behaviors in Packet:\n    # - encrypted flag 0/1\n    # - header values: 0, 1, 255, random\n    # - payload sizes: 0, small, medium, near limit for our 4096 cap\n    header_choices = [0, 1, 255, rng.randrange(0, 256)]\n    header = header_choices[rng.randrange(len(header_choices))] & 0xFF\n\n    enc = 1 if rng.random() < 0.5 else 0\n\n    # Payload strategies\n    strategies = [\n        (0, b\"\"),\n        (1, b\"A\" * 1),\n        (2, b\"\".join([b\"\",])),  # another empty path\n        (3, None),  # random small\n        (4, None),  # random medium\n        (5, None),  # random large but within 4096 total\n        (6, b\"\\x00\\x00\\x00\"),  # embedded nulls\n        (7, b\"header:test;enc:%d\" % enc),\n        (8, b\"\\xff\\x01\\x02\\x03\"),\n        (9, b\"The quick brown fox jumps over the lazy dog\"),\n    ]\n    kind, preset = strategies[rng.randrange(len(strategies))]\n\n    if preset is not None:\n        payload = preset\n    else:\n        if kind == 3:\n            length = rng.randrange(1, 16)\n        elif kind == 4:\n            length = rng.randrange(16, 256)\n        else:  # kind == 5\n            # Keep total length <= 4096. We have 2 header bytes already.\n            length = rng.randrange(256, 4096 - 2)\n        payload = _rand_bytes(rng, length)\n\n    # Optionally simulate ciphertext-like payload when enc==1 by making it more random\n    if enc == 1 and rng.random() < 0.5:\n        payload = bytes(rng.randrange(0, 256) for _ in range(len(payload)))\n\n    # Build wire format\n    out = bytearray()\n    out.append(enc & 1)\n    out.append(header)\n    out.extend(payload)\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Mix seed path with variant selection to provide diversity across calls\n    variant = rng.randrange(0, 10)\n\n    # 70% of the time produce a valid serialized packet to satisfy the Packet(serialized) ctor.\n    # 30% of the time produce a plausible payload for the other ctors (used by FUZZ_PARAM_STR too).\n    if rng.random() < 0.7:\n        buf = _make_serialized_packet(rng)\n        # Ensure minimum size >= 2 as required by the deserializing constructor\n        if len(buf) < 2:\n            buf = buf + b\"\\x00\\x00\"\n        # Cap total size defensively\n        return buf[:4096]\n    else:\n        # Return a payload string used by Packet(header, payload) paths.\n        # Include interesting edge cases and random content.\n        choices: List[bytes] = [\n            b\"\",  # empty payload\n            b\"\\x00\",  # single NUL\n            b\"\\xff\" * 8,\n            b\"payload\",\n            b\"JSON:{\\\"k\\\":\\\"v\\\"}\",\n            b\"\\x00\\x01\\x02\\x03\\x04\",\n            _rand_bytes(rng, rng.randrange(1, 512)),\n        ]\n        return choices[variant % len(choices)][:4096]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8112,
+            "output_tokens": 3535,
+            "total_tokens": 11647
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6424,
+            "output_tokens": 446,
+            "total_tokens": 6870
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8582,
+            "output_tokens": 11455,
+            "total_tokens": 20037
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 46277,
+            "output_tokens": 12225,
+            "total_tokens": 58502
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 16911,
+            "output_tokens": 1123,
+            "total_tokens": 18034
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 13628,
+            "output_tokens": 307,
+            "total_tokens": 13935
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 363.7271213531494,
+    "scan_objects": 29.613555431365967,
+    "validate_objects": 17.21635866165161,
+    "scan_functions": 0,
+    "synthesis": 209.90121412277222,
+    "fill": 58.487958669662476,
+    "classify": 6.774795770645142,
+    "build_generators": 41.732272148132324
+  }
+}

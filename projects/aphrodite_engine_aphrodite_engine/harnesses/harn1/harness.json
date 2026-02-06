@@ -1,0 +1,175 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No structs, enums, typedefs, or classes are defined in the provided headers. Macros, free functions, and templates are present only. This placeholder indicates that there are no custom data types to document.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "next_pow_2",
+      "signature": "inline constexpr uint32_t next_pow_2(uint32_t const num)",
+      "description": "Returns the next power of two greater than or equal to num for 32-bit unsigned inputs. For num <= 1 it returns num; otherwise it computes using a bit-width aware shift. Intended for use in sizing buffers or aligning capacities to powers of two.",
+      "requirements": [
+        "num is a 32-bit unsigned integer value (uint32_t).",
+        "Behavior relies on compiler support for __builtin_clz.",
+        "For very large inputs near UINT32_MAX, the computed shift may overflow a 32-bit result; overflow behavior is unspecified in this header (range guarantees are unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "div_ceil",
+      "signature": "template <typename A, typename B>\nstatic inline constexpr auto div_ceil(A a, B b)",
+      "description": "Computes the mathematical ceiling of a/b using integer-like arithmetic: (a + b - 1) / b. Useful for chunking or tiling where a remainder requires an extra unit. Returns an auto-deduced type from the expression.",
+      "requirements": [
+        "b must be non-zero to avoid division by zero.",
+        "Types A and B must support the operations +, -, and / with the given operands and produce a well-formed expression at compile time.",
+        "For signed integer types, the semantics follow C++ integer division/truncation toward zero; behavior for negative values depends on language rules and is not further specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "round_to_previous_multiple_of",
+      "signature": "template <typename T>\ninline constexpr T round_to_previous_multiple_of(T a, T b)",
+      "description": "Rounds a down to the greatest multiple of b that is less than or equal to a. If a is already a multiple of b, returns a. Implemented using modulo and integer division.",
+      "requirements": [
+        "The caller is responsible for making sure that b is non-zero (as stated in the comment).",
+        "Type T must support %, /, *, and == operations compatible with the expression used.",
+        "For signed types, behavior with negative values follows C++ operator semantics and is not further specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "round_to_next_multiple_of",
+      "signature": "template <typename T>\ninline constexpr T round_to_next_multiple_of(T a, T b)",
+      "description": "Rounds a up to the smallest multiple of b that is greater than or equal to a. If a is already a multiple of b, returns a. Useful for capacity alignment and padding.",
+      "requirements": [
+        "The caller is responsible for making sure that b is non-zero (as stated in the comment).",
+        "Type T must support %, /, *, +, and == operations compatible with the expression used.",
+        "For signed types, behavior with negative values follows C++ operator semantics and is not further specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "aphrodite::aphrodite_is_batch_invariant",
+      "signature": "inline bool aphrodite::aphrodite_is_batch_invariant()",
+      "description": "Returns true if the environment variable APHRODITE_BATCH_INVARIANT is set to a non-zero value, false otherwise. The value is computed once and cached on first call, so subsequent calls are fast and do not reflect environment changes made after the first call.",
+      "requirements": [
+        "Relies on getenv and std::atoi; the first call initializes an internal cached value which persists for the process lifetime.",
+        "Changes to the APHRODITE_BATCH_INVARIANT environment variable after the first call will not be observed."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "next_pow_2",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random 32-bit unsigned input\nuint32_t num = *FUZZ_PARAM(uint32_t);\n\n// Invoke the target function\nuint32_t res = next_pow_2(num);\n\n// Validate documented invariant for small inputs: if num <= 1, the result must equal num\nif (num <= 1u) {\n    FUZZ_ASSERT(res == num, \"next_pow_2(num<=1) must return num\");\n}\n\n// For inputs where overflow cannot occur (num in [2, 2^31]), verify power-of-two and monotonicity properties\n// Next power of two fits in 32 bits up to 2^31.\nif (num > 1u && num <= 0x80000000u) {\n    // res must be a power of two and >= num\n    FUZZ_ASSERT(res != 0u, \"next_pow_2 result should be non-zero in non-overflow range\");\n    FUZZ_ASSERT((res & (res - 1u)) == 0u, \"next_pow_2 result should be a power of two\");\n    FUZZ_ASSERT(res >= num, \"next_pow_2 result should be >= input\");\n}\n\n// No outputs to return; this function is pure and has no persistent objects."
+    },
+    {
+      "name": "div_ceil",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate with unsigned 32-bit integers\nuint32_t a_u = *FUZZ_PARAM(uint32_t);\nuint32_t b_u = *FUZZ_PARAM(uint32_t);\n// Enforce non-zero divisor per requirement\nif (b_u == 0u) { b_u = 1u; }\n\n// Call template with concrete unsigned types\nauto r_u = div_ceil<uint32_t, uint32_t>(a_u, b_u);\n\n// Also exercise signed 32-bit behavior (including negatives)\nint32_t a_s = *FUZZ_PARAM(int32_t);\nint32_t b_s = *FUZZ_PARAM(int32_t);\nif (b_s == 0) { b_s = 1; }\n\nauto r_s = div_ceil<int32_t, int32_t>(a_s, b_s);\n\n// No strict assertions for signed semantics (they follow C++ division rules); this call primarily\n// exercises template instantiation paths and non-zero divisor constraint."
+    },
+    {
+      "name": "round_to_previous_multiple_of",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Unsigned instantiation: enforce non-zero b and validate strong invariants\nuint32_t a_u = *FUZZ_PARAM(uint32_t);\nuint32_t b_u = *FUZZ_PARAM(uint32_t);\nif (b_u == 0u) { b_u = 1u; }\n\nuint32_t prev_u = round_to_previous_multiple_of<uint32_t>(a_u, b_u);\n// For unsigned, the result must be a multiple of b and not exceed a\nFUZZ_ASSERT(b_u != 0u, \"b must be non-zero\");\nFUZZ_ASSERT(prev_u % b_u == 0u, \"previous multiple must be divisible by b\");\nFUZZ_ASSERT(prev_u <= a_u, \"previous multiple must be <= a\");\n\n// Signed instantiation: allow negative values; only enforce non-zero divisor\nint32_t a_s = *FUZZ_PARAM(int32_t);\nint32_t b_s = *FUZZ_PARAM(int32_t);\nif (b_s == 0) { b_s = 1; }\n\nvolatile int32_t prev_s = round_to_previous_multiple_of<int32_t>(a_s, b_s);\n// Avoid strict assertions for signed negatives; semantics depend on C++ operator behavior."
+    },
+    {
+      "name": "round_to_next_multiple_of",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Unsigned instantiation: enforce non-zero b and validate strong invariants\nuint32_t a_u = *FUZZ_PARAM(uint32_t);\nuint32_t b_u = *FUZZ_PARAM(uint32_t);\nif (b_u == 0u) { b_u = 1u; }\n\nuint32_t next_u = round_to_next_multiple_of<uint32_t>(a_u, b_u);\n// For unsigned, the result must be a multiple of b and not less than a\nFUZZ_ASSERT(b_u != 0u, \"b must be non-zero\");\nFUZZ_ASSERT(next_u % b_u == 0u, \"next multiple must be divisible by b\");\nFUZZ_ASSERT(next_u >= a_u, \"next multiple must be >= a\");\n\n// Signed instantiation: allow negative values; only enforce non-zero divisor\nint32_t a_s = *FUZZ_PARAM(int32_t);\nint32_t b_s = *FUZZ_PARAM(int32_t);\nif (b_s == 0) { b_s = 1; }\n\nvolatile int32_t next_s = round_to_next_multiple_of<int32_t>(a_s, b_s);\n// Avoid strict assertions for signed negatives; semantics depend on C++ operator behavior."
+    },
+    {
+      "name": "aphrodite::aphrodite_is_batch_invariant",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call twice to exercise caching behavior. The function caches on first call.\nbool v1 = aphrodite::aphrodite_is_batch_invariant();\nbool v2 = aphrodite::aphrodite_is_batch_invariant();\n\n// Per requirements, subsequent calls should return the same cached value within the process.\nFUZZ_ASSERT(v1 == v2, \"aphrodite_is_batch_invariant must be cache-consistent within process\");"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "next_pow_2",
+      "data_types": []
+    },
+    {
+      "name": "div_ceil",
+      "data_types": []
+    },
+    {
+      "name": "round_to_previous_multiple_of",
+      "data_types": []
+    },
+    {
+      "name": "round_to_next_multiple_of",
+      "data_types": []
+    },
+    {
+      "name": "aphrodite::aphrodite_is_batch_invariant",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1124,
+            "output_tokens": 80,
+            "total_tokens": 1204
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 702,
+            "output_tokens": 48,
+            "total_tokens": 750
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1169,
+            "output_tokens": 1695,
+            "total_tokens": 2864
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4500,
+            "output_tokens": 2787,
+            "total_tokens": 7287
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 84.43302822113037,
+    "scan_objects": 2.9999234676361084,
+    "validate_objects": 0.3657541275024414,
+    "scan_functions": 29.079031229019165,
+    "synthesis": 51.91889548301697,
+    "fill": 0,
+    "classify": 0.0685567855834961,
+    "build_generators": 0.00008082389831542969
+  }
+}

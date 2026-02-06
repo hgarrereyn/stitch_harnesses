@@ -1,0 +1,378 @@
+{
+  "objects": [
+    {
+      "ptr_type": "utils::Lockfile *",
+      "aliases": [],
+      "definition": "namespace utils {\n\nclass Lockfile {\npublic:\n  typedef std::pair<std::string, pid_t> process_type;\n\n  bool                is_locked() const                 { return m_locked; }\n  bool                is_stale();\n\n  // If the path is empty no lock file will be created, although\n  // is_locked() will return true.\n  bool                try_lock();\n  bool                unlock();\n\n  const std::string&  path() const                      { return m_path; }\n  void                set_path(const std::string& path) { m_path = path; }\n\n  std::string         locked_by_as_string() const;\n  process_type        locked_by() const;\n\nprivate:\n  std::string         m_path;\n  bool                m_locked{};\n};\n\n}\n",
+      "description": "RAII-like helper class for creating and managing a simple lockfile for a given filesystem path. It tracks an internal locked state and, when a non-empty path is set, attempts to place a lock by writing host and PID info to a file. Not guaranteed to be atomic. Key operations: try_lock() to acquire, unlock() to release, is_locked() to query, is_stale() to detect stale locks, and locked_by()/locked_by_as_string() to identify the process recorded in the lockfile. Construction/destruction behavior is not specified here; locking is explicit via try_lock().",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "utils::Lockfile::process_type *",
+      "aliases": [],
+      "definition": "typedef std::pair<std::string, pid_t> process_type;",
+      "description": "Alias type defined inside utils::Lockfile representing the recorded owner of a lockfile: a pair of hostname (std::string) and process id (pid_t).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "utils::Lockfile *"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "utils::Lockfile::is_locked",
+      "signature": "bool utils::Lockfile::is_locked() const",
+      "description": "Returns the current locked state of this Lockfile instance. Intended to be checked after calling try_lock() or unlock(). Does not imply a filesystem lock exists; when the path is empty, try_lock() sets this state without creating a file.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "utils::Lockfile::is_stale",
+      "signature": "bool utils::Lockfile::is_stale()",
+      "description": "Checks whether the existing lock is considered stale. Details of how staleness is determined are not documented in this header. Likely inspects the lock file (if any) and the recorded pid/host to decide if the lock owner is no longer active.",
+      "requirements": [
+        "Behavior depends on the configured path; if no path is set or no lock file exists, the outcome is unknown based on this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::Lockfile::try_lock",
+      "signature": "bool utils::Lockfile::try_lock()",
+      "description": "Attempts to acquire the lock. If a non-empty path is set, this will attempt to create/write a lock file that saves the hostname and pid. Not guaranteed to be atomic. If the path is empty, no file is created but the instance’s locked state is set to true.",
+      "requirements": [
+        "If a real filesystem lock file is desired, call set_path() with a non-empty path before try_lock().",
+        "Do not rely on atomicity; callers must tolerate races with other processes.",
+        "The format of the lock file includes hostname and pid; callers that inspect it should expect that content."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::Lockfile::unlock",
+      "signature": "bool utils::Lockfile::unlock()",
+      "description": "Releases the lock previously acquired by try_lock(). If a non-empty path was used for locking, this likely removes or updates the lock file; exact semantics are not documented here.",
+      "requirements": [
+        "Intended to be called after a successful try_lock(); behavior if not currently locked is not specified in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::Lockfile::path",
+      "signature": "const std::string& utils::Lockfile::path() const",
+      "description": "Returns the currently configured lock file path. An empty string means no lock file will be created when try_lock() is called.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "utils::Lockfile::set_path",
+      "signature": "void utils::Lockfile::set_path(const std::string& path)",
+      "description": "Sets the filesystem path for the lock file. When set to an empty string, try_lock() will not create a lock file but will still mark the instance as locked.",
+      "requirements": [
+        "Set a non-empty path before try_lock() if a lock file should be created on disk."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::Lockfile::locked_by_as_string",
+      "signature": "std::string utils::Lockfile::locked_by_as_string() const",
+      "description": "Returns a human-readable string describing who holds the lock, based on data saved in the lock file (hostname and pid).",
+      "requirements": [
+        "Requires a valid lock file at the configured path containing hostname and pid; behavior/format if the file is missing or unreadable is not specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::Lockfile::locked_by",
+      "signature": "utils::Lockfile::process_type utils::Lockfile::locked_by() const",
+      "description": "Returns the lock owner information as a pair of (hostname, pid) read from the lock file.",
+      "requirements": [
+        "Requires a valid lock file at the configured path containing hostname and pid; behavior if the file is missing or unreadable is not specified here."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "utils::Lockfile::is_locked",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Query current locked state and mirror it into attributes for downstream stubs.\nbool is_locked_now = lock->is_locked();\nFUZZ_SET_ATTR_INT(lock, \"locked\", is_locked_now ? 1 : 0);\n// Also refresh path-related attributes for consistency.\nconst std::string &p = lock->path();\nFUZZ_SET_ATTR_INT(lock, \"has_path\", p.empty() ? 0 : 1);\nFUZZ_SET_ATTR_STR(lock, \"path\", p.c_str());\n// Validation: Non-null input preserved; attributes updated to reflect observed state."
+    },
+    {
+      "name": "utils::Lockfile::is_stale",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Ensure a path configuration exists to exercise both file-backed and empty-path behavior.\nint has_path_attr = FUZZ_GET_ATTR_INT(lock, \"has_path\");\nif (!has_path_attr) {\n    unsigned int mode = *FUZZ_PARAM(unsigned int) % 3u;\n    if (mode == 0u) {\n        // Explicitly set empty path: no file will be used.\n        lock->set_path(std::string());\n    } else if (mode == 1u) {\n        // Use a fuzz-provided filename that points to a real file with random data.\n        lock->set_path(std::string(FUZZ_PARAM_FILENAME()));\n    } else {\n        // Use an arbitrary string which may or may not refer to a real file.\n        lock->set_path(FUZZ_PARAM_STR());\n    }\n}\n// Call the target function.\nbool stale = lock->is_stale();\n// Track staleness info and current path for later decisions.\nconst std::string &p = lock->path();\nFUZZ_SET_ATTR_INT(lock, \"stale\", stale ? 1 : 0);\nFUZZ_SET_ATTR_INT(lock, \"has_path\", p.empty() ? 0 : 1);\nFUZZ_SET_ATTR_STR(lock, \"path\", p.c_str());\n// Validation: Input preserved; attributes updated; no undefined preconditions violated."
+    },
+    {
+      "name": "utils::Lockfile::try_lock",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Randomize path state to cover both empty-path and file-backed locking scenarios.\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 4u;\nif (mode == 0u) {\n    // Keep existing path as-is.\n} else if (mode == 1u) {\n    // Empty path means in-memory locked state without creating a file.\n    lock->set_path(std::string());\n} else if (mode == 2u) {\n    // Use a valid temporary filename pointing to existing random data.\n    lock->set_path(std::string(FUZZ_PARAM_FILENAME()));\n} else {\n    // Arbitrary string path (may or may not exist on disk).\n    lock->set_path(FUZZ_PARAM_STR());\n}\n// Attempt to acquire the lock.\nbool acquired = lock->try_lock();\n// Persist observed state and configuration for subsequent stubs.\nbool is_locked_now = lock->is_locked();\nconst std::string &p = lock->path();\nFUZZ_SET_ATTR_INT(lock, \"locked\", is_locked_now ? 1 : 0);\nFUZZ_SET_ATTR_INT(lock, \"has_path\", p.empty() ? 0 : 1);\nFUZZ_SET_ATTR_STR(lock, \"path\", p.c_str());\n// Note: We do not assert acquired==is_locked_now due to unspecified semantics under races.\n// Validation: Input preserved; attributes track locked state and current path after try_lock."
+    },
+    {
+      "name": "utils::Lockfile::unlock",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Enforce intended usage: unlock should follow a successful try_lock.\nint was_locked = FUZZ_GET_ATTR_INT(lock, \"locked\");\nif (!was_locked) { FUZZ_BAIL(); }\n// Call the target function to release the lock.\nbool released = lock->unlock();\n// Update attributes to reflect new state.\nbool is_locked_now = lock->is_locked();\nconst std::string &p = lock->path();\nFUZZ_SET_ATTR_INT(lock, \"locked\", is_locked_now ? 1 : 0);\nFUZZ_SET_ATTR_INT(lock, \"has_path\", p.empty() ? 0 : 1);\nFUZZ_SET_ATTR_STR(lock, \"path\", p.c_str());\n// Validation: Precondition enforced via attribute; input preserved; state updated."
+    },
+    {
+      "name": "utils::Lockfile::path",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Retrieve the current path; record attributes for later stubs.\nconst std::string &p = lock->path();\nFUZZ_SET_ATTR_INT(lock, \"has_path\", p.empty() ? 0 : 1);\nFUZZ_SET_ATTR_STR(lock, \"path\", p.c_str());\n// Validation: No side effects; input preserved; attributes mirror observed path."
+    },
+    {
+      "name": "utils::Lockfile::set_path",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Generate a candidate path covering: empty, valid existing file, and arbitrary string.\nstd::string candidate;\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 3u;\nif (mode == 0u) {\n    candidate = std::string();\n} else if (mode == 1u) {\n    candidate = std::string(FUZZ_PARAM_FILENAME());\n} else {\n    candidate = FUZZ_PARAM_STR();\n}\n// Set the path and mirror it into attributes.\nlock->set_path(candidate);\nconst std::string &p = lock->path();\nFUZZ_SET_ATTR_INT(lock, \"has_path\", p.empty() ? 0 : 1);\nFUZZ_SET_ATTR_STR(lock, \"path\", p.c_str());\n// If a lock was previously believed to be held, conservatively recheck and sync state.\nbool is_locked_now = lock->is_locked();\nFUZZ_SET_ATTR_INT(lock, \"locked\", is_locked_now ? 1 : 0);\n// Validation: Input preserved; path constraints exercised across multiple cases."
+    },
+    {
+      "name": "utils::Lockfile::locked_by_as_string",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Ensure a path is present so the function can attempt to read owner info.\nif (!FUZZ_GET_ATTR_INT(lock, \"has_path\")) {\n    // Prefer a real file to maximize code paths that parse contents.\n    lock->set_path(std::string(FUZZ_PARAM_FILENAME()));\n    const std::string &p_set = lock->path();\n    FUZZ_SET_ATTR_INT(lock, \"has_path\", p_set.empty() ? 0 : 1);\n    FUZZ_SET_ATTR_STR(lock, \"path\", p_set.c_str());\n}\n// Invoke the target and discard the human-readable result; side effects are none.\nstd::string desc = lock->locked_by_as_string();\n// Track that we queried ownership; useful for later decisions if needed.\nFUZZ_SET_ATTR_INT(lock, \"queried_locked_by\", 1);\n// Validation: Input preserved; precondition (path presence) ensured; no ownership leaks."
+    },
+    {
+      "name": "utils::Lockfile::locked_by",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Ensure a path is present to allow reading of owner tuple from the lock file.\nif (!FUZZ_GET_ATTR_INT(lock, \"has_path\")) {\n    lock->set_path(std::string(FUZZ_PARAM_FILENAME()));\n    const std::string &p_set = lock->path();\n    FUZZ_SET_ATTR_INT(lock, \"has_path\", p_set.empty() ? 0 : 1);\n    FUZZ_SET_ATTR_STR(lock, \"path\", p_set.c_str());\n}\n// Invoke the target; capture owner tuple.\nutils::Lockfile::process_type owner = lock->locked_by();\n// Optionally persist the PID length or a simple checksum via attributes to avoid storing non-ptr types.\n// We can at least mark that owner was queried.\nFUZZ_SET_ATTR_INT(lock, \"queried_locked_by\", 1);\n// Validation: Input preserved; precondition (path presence) ensured; no additional outputs required."
+    },
+    {
+      "name": "utils::Lockfile *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "utils::Lockfile *"
+        }
+      ],
+      "code": "// Construct a new Lockfile instance and configure its path to exercise both\n// empty-path and file-backed behaviors, then optionally acquire the lock.\n// Output: non-null utils::Lockfile* placed into `lock`.\n\nutils::Lockfile *tmp = new (std::nothrow) utils::Lockfile();\nif (!tmp) { FUZZ_BAIL(); }\n\n// Randomize initial path configuration:\n//  - empty string: no file creation on try_lock\n//  - real filename with random data: likely existing path\n//  - arbitrary string: may or may not exist\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 3u;\nif (mode == 0u) {\n    tmp->set_path(std::string());\n} else if (mode == 1u) {\n    tmp->set_path(std::string(FUZZ_PARAM_FILENAME()));\n} else {\n    tmp->set_path(FUZZ_PARAM_STR());\n}\n\n// Optionally attempt to acquire the lock to initialize internal state.\nunsigned int do_lock = *FUZZ_PARAM(unsigned int) & 1u;\nif (do_lock) {\n    (void)tmp->try_lock();\n}\n\n// Persist attributes for downstream stubs to respect API expectations.\nconst std::string &p = tmp->path();\nFUZZ_SET_ATTR_INT(tmp, \"has_path\", p.empty() ? 0 : 1);\nFUZZ_SET_ATTR_STR(tmp, \"path\", p.c_str());\nbool is_locked_now = tmp->is_locked();\nFUZZ_SET_ATTR_INT(tmp, \"locked\", is_locked_now ? 1 : 0);\n\n// Assign output. The fuzzer runtime will take ownership.\nutils::Lockfile *lock = tmp;\n\n// Validation: Ensures non-null output, path/locked attributes recorded for safe downstream use."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "utils::Lockfile::is_locked",
+      "data_types": []
+    },
+    {
+      "name": "utils::Lockfile::unlock",
+      "data_types": []
+    },
+    {
+      "name": "utils::Lockfile::path",
+      "data_types": []
+    },
+    {
+      "name": "utils::Lockfile::is_stale",
+      "data_types": [
+        "filesystem path string",
+        "filename with random file data"
+      ]
+    },
+    {
+      "name": "utils::Lockfile::try_lock",
+      "data_types": [
+        "filesystem path string",
+        "filename with random file data"
+      ]
+    },
+    {
+      "name": "utils::Lockfile::set_path",
+      "data_types": [
+        "filesystem path string",
+        "filename with random file data"
+      ]
+    },
+    {
+      "name": "utils::Lockfile::locked_by_as_string",
+      "data_types": [
+        "filename with random file data"
+      ]
+    },
+    {
+      "name": "utils::Lockfile::locked_by",
+      "data_types": [
+        "filename with random file data"
+      ]
+    },
+    {
+      "name": "utils::Lockfile *",
+      "data_types": [
+        "filesystem path string",
+        "filename with random file data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path string",
+      "description": "A string intended to represent a filesystem path. It may be empty, point to a non-existent path, an existing file, or a directory. No specific encoding is required beyond being a generic path string."
+    },
+    {
+      "data_type": "filename with random file data",
+      "description": "A filename referencing a file populated with arbitrary random bytes by the fuzzer. Callers typically open/read this path and interpret its contents according to their own formats. The filename itself follows a generic pattern; the interesting part is the file contents being random."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path string",
+      "generator": "import os\nimport random\nimport struct\nimport sys\nfrom typing import List\n\n# This generator produces bytes that the fuzzing runtime will expose via\n# FUZZ_PARAM_STR and FUZZ_PARAM_FILENAME to exercise utils::Lockfile path usage.\n# Goals:\n# - Provide realistic filesystem path strings: absolute/relative, existing/non-existing,\n#   directories/files, with edge cases (spaces, unicode-ish, special names).\n# - Provide plausible lockfile contents when FUZZ_PARAM_FILENAME is read as a file,\n#   containing hostname and pid text so locked_by()/is_stale() style parsers can find data.\n# - Multiple concatenated entries so the fuzzer can consume several FUZZ_PARAM_* calls.\n# - Keep total size <= 4096 bytes.\n#\n# Format of produced buffer:\n# Repeated records: [1 byte kind][2 bytes big-endian length][payload bytes]\n# kind:\n#   0x01 => path string (FUZZ_PARAM_STR)\n#   0x02 => filename + file content blob (FUZZ_PARAM_FILENAME)\n# Payload for kind 0x01: UTF-8 path string bytes\n# Payload for kind 0x02: NUL-separated: path \"\\0\" file-content-bytes\n# The harness typically maps FUZZ_PARAM_FILENAME to a temp file with provided bytes;\n# giving both a path-like name and realistic content helps trigger code paths.\n\nMAX_TOTAL = 4096\n\nABS_BASES = [\n    \"/tmp\", \"/var/tmp\", \"/dev/shm\", \"/\", \"/home/user\", \"/run\", \"/var/lock\",\n]\nREL_BASES = [\n    \".\", \"..\", \"./sub\", \"../up\", \"./.hidden\", \"build/out\", \"./lockdir\",\n]\nCOMPONENTS = [\n    \"lock\", \"lockfile\", \"app.lock\", \"pid.lock\", \"session.lck\", \"LCK..1234\",\n    \"file with spaces\", \"unicode_π\", \"name,with,commas\", \"semi;colon\", \"colon:name\",\n    \"dot.\", \"..dot\", \".hidden\", \"NUL_not_allowed\", \"CON\", \"AUX\", \"PRN\",\n]\nEXTS = [\"\", \".lock\", \".lck\", \".pid\", \".txt\", \".dat\"]\nSEP = \"/\"\n\nHOSTS = [\n    \"localhost\", \"host\", \"worker-01\", \"db.example.com\", \"my-machine\", \"😀-node\",\n]\n\ndef _rand_path(rng: random.Random) -> str:\n    # Mix absolute/relative, with chances for directories and nested components.\n    if rng.random() < 0.55:\n        base = rng.choice(ABS_BASES)\n        parts = [base]\n    else:\n        base = rng.choice(REL_BASES)\n        parts = [base]\n    depth = rng.randint(0, 3)\n    for _ in range(depth):\n        comp = rng.choice(COMPONENTS)\n        if rng.random() < 0.4:\n            comp += rng.choice(EXTS)\n        parts.append(comp)\n    # Sometimes choose just base or empty for empty-path behavior.\n    if rng.random() < 0.1:\n        return \"\"  # empty path to exercise in-memory lock\n    p = SEP.join(filter(lambda s: s is not None, parts))\n    # Occasionally ensure ends with directory-like component\n    if rng.random() < 0.2:\n        p = p + SEP\n    return p\n\ndef _lockfile_content(rng: random.Random) -> bytes:\n    # Create content resembling \"hostname pid\" plus variations and extra lines.\n    host = rng.choice(HOSTS)\n    pid = str(rng.randint(1, 1_000_000))\n    lines: List[str] = []\n    fmt = rng.choice([\n        \"{host} {pid}\",\n        \"{host}\\n{pid}\",\n        \"owner={host} pid={pid}\",\n        \"{pid}@{host}\",\n        \"host={host}\\npid={pid}\",\n    ])\n    lines.append(fmt.format(host=host, pid=pid))\n    # Add some extra data sometimes\n    if rng.random() < 0.5:\n        lines.append(f\"timestamp={rng.randint(1, 2**31-1)}\")\n    if rng.random() < 0.3:\n        lines.append(\"note=lockfile for tests\")\n    # Trailing newline variability\n    text = \"\\n\".join(lines)\n    if rng.random() < 0.7:\n        text += \"\\n\"\n    # Sometimes add binary junk to ensure robustness while staying mostly valid.\n    if rng.random() < 0.2:\n        junk = bytes(rng.getrandbits(8) for _ in range(rng.randint(1, 16)))\n        return text.encode(\"utf-8\", errors=\"ignore\") + junk\n    return text.encode(\"utf-8\", errors=\"ignore\")\n\ndef _make_filename_record(rng: random.Random) -> bytes:\n    # Provide a plausible filename and content. Use a simple name; harness will map to temp file.\n    # Make sure path looks file-like (not ending with slash) and is non-empty.\n    base = _rand_path(rng)\n    if not base or base.endswith(SEP):\n        # Attach a filename\n        fname = rng.choice([\"lock\", \"lockfile\", \"file\"]) + rng.choice(EXTS or [\"\"])\n        if base:\n            base = base + fname\n        else:\n            base = fname\n    # Avoid overly long paths\n    base = base[:200]\n    content = _lockfile_content(rng)\n    payload = base.encode(\"utf-8\", errors=\"ignore\") + b\"\\x00\" + content\n    return b\"\\x02\" + struct.pack(\">H\", len(payload)) + payload\n\ndef _make_path_record(rng: random.Random) -> bytes:\n    p = _rand_path(rng)\n    # Ensure variety including some simple known paths\n    if rng.random() < 0.15:\n        p = rng.choice([\"\", \"/var/lock/app.lock\", \"/tmp/app.lock\", \"relative.lock\", \"./.lock\"]) \\\n            or p\n    payload = p.encode(\"utf-8\", errors=\"ignore\")\n    return b\"\\x01\" + struct.pack(\">H\", len(payload)) + payload\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    out = bytearray()\n\n    # Decide how many records to emit. Ensure a mix of both kinds.\n    n = rng.randint(4, 10)\n    kinds = []\n    # Ensure at least one of each\n    kinds.append(0x01)\n    kinds.append(0x02)\n    for _ in range(n - 2):\n        kinds.append(0x02 if rng.random() < 0.55 else 0x01)\n    rng.shuffle(kinds)\n\n    for k in kinds:\n        if k == 0x02:\n            rec = _make_filename_record(rng)\n        else:\n            rec = _make_path_record(rng)\n        if len(out) + len(rec) > MAX_TOTAL:\n            break\n        out.extend(rec)\n\n    # Fallback: ensure at least one record\n    if not out:\n        out.extend(_make_path_record(rng))\n\n    return bytes(out)\n"
+    },
+    {
+      "data_type": "filename with random file data",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# Generator for utils::Lockfile-related fuzzers.\n# The fuzz stubs heavily use FUZZ_PARAM_FILENAME and FUZZ_PARAM_STR for paths.\n# We therefore generate buffers that can serve as:\n#  - A path string (ASCII/UTF-8) for FUZZ_PARAM_STR cases.\n#  - A serialized file bundle for FUZZ_PARAM_FILENAME cases, where the harness\n#    points to a file containing random data. Since we cannot create files, we\n#    instead focus on paths-as-strings that are interesting, and also include\n#    plausible lockfile contents that the library might parse if those bytes\n#    are written by the fuzzer runtime into a file.\n#\n# Format we emit (bytes): a UTF-8 path string, optionally followed by sample\n# lockfile content separated by a NUL. This gives the harness a chance to use\n# the first chunk as FUZZ_PARAM_STR and the entire blob as FUZZ_PARAM_FILENAME\n# file contents if it mirrors the bytes into a temp file.\n#\n# The lockfile is expected to store hostname and pid. Common simple formats:\n#  - \"hostname pid\\n\"\n#  - \"hostname\\npid\\n\"\n#  - JSON-like or key=val lines\n# We'll produce several variants to exercise parsing paths.\n\nMAX_SIZE = 4096\n\nHOSTS = [\n    \"localhost\",\n    \"ip6-localhost\",\n    \"example.com\",\n    \"devbox\",\n    \"workstation-01\",\n    \"ܔunicode-host\",\n]\n\nDIRS = [\n    \"/tmp\",\n    \"/var/tmp\",\n    \"/var/lock\",\n    \"/run/lock\",\n    \".\",\n    \"..\",\n]\n\nFILENAMES = [\n    \"lock\",\n    \"lockfile\",\n    \"my.lock\",\n    \"resource.lock\",\n    \"LOCK\",\n    \"lock_12345.pid\",\n    \"a\" * 200,  # long name\n]\n\nSUFFIXES = [\"\", \".lck\", \".lock\", \".pid\", \".txt\"]\n\ndef rand_pid(r: random.Random) -> int:\n    # Typical pid ranges; include edge cases\n    choices = [0, 1, 2, 42, 255, 1024, 65535, 131072, 2_147_483_647]\n    if r.random() < 0.6:\n        return r.randint(1, 500000)\n    return r.choice(choices)\n\ndef rand_host(r: random.Random) -> str:\n    base = r.choice(HOSTS)\n    if r.random() < 0.4:\n        base += f\"-{r.randint(0, 9999)}\"\n    return base\n\ndef make_path(r: random.Random) -> str:\n    mode = r.randint(0, 7)\n    if mode == 0:\n        return \"\"  # empty path case\n    if mode == 1:\n        # absolute typical lock dirs\n        d = r.choice(DIRS)\n        n = r.choice(FILENAMES)\n        s = r.choice(SUFFIXES)\n        return f\"{d}/{n}{s}\"\n    if mode == 2:\n        # nested path\n        depth = r.randint(1, 4)\n        parts = [r.choice([\"tmp\", \"var\", \"run\", \"opt\", \"data\"]) for _ in range(depth)]\n        leaf = r.choice(FILENAMES) + r.choice(SUFFIXES)\n        return \"/\" + \"/\".join(parts + [leaf])\n    if mode == 3:\n        # relative path\n        prefix = r.choice([\"./\", \"../\", \"\"])\n        return prefix + r.choice(FILENAMES) + r.choice(SUFFIXES)\n    if mode == 4:\n        # include spaces and special chars\n        return f\"/tmp/{r.choice(['res lock', 'res.lock', 'res:lock', 'res,lock'])}\"\n    if mode == 5:\n        # very long path (but keep within buffer limit)\n        longname = (\"long_\" * r.randint(5, 20))[:200]\n        return f\"/var/lock/{longname}{r.choice(SUFFIXES)}\"\n    if mode == 6:\n        # unicode in path\n        return \"/tmp/🔒lockfile-π.pid\"\n    # random-ish safe chars\n    letters = \"abcdefghijklmnopqrstuvwxyz0123456789._-\"\n    name = \"\".join(r.choice(letters) for _ in range(r.randint(1, 40)))\n    return f\"/tmp/{name}{r.choice(SUFFIXES)}\"\n\ndef make_lockfile_variants(r: random.Random) -> List[bytes]:\n    host = rand_host(r)\n    pid = rand_pid(r)\n    variants = []\n    # space-separated\n    variants.append(f\"{host} {pid}\\n\".encode(\"utf-8\", errors=\"ignore\"))\n    # newline separated\n    variants.append(f\"{host}\\n{pid}\\n\".encode(\"utf-8\", errors=\"ignore\"))\n    # key=value style\n    variants.append(f\"host={host}\\npid={pid}\\n\".encode(\"utf-8\", errors=\"ignore\"))\n    # JSON-like\n    variants.append(f\"{{\\\"host\\\":\\\"{host}\\\",\\\"pid\\\":{pid}}}\\n\".encode(\"utf-8\", errors=\"ignore\"))\n    # Add some random noise after valid header\n    noise_len = r.randint(0, 64)\n    noise = bytes(r.getrandbits(8) for _ in range(noise_len))\n    variants.append(f\"{host} {pid}\\n\".encode(\"utf-8\") + noise)\n    # Only pid or only host to test partial reads (still valid file content generally)\n    variants.append(f\"{host}\\n\".encode(\"utf-8\"))\n    variants.append(f\"{pid}\\n\".encode(\"utf-8\"))\n    return variants\n\ndef assemble_buffer(path: str, file_bytes: bytes) -> bytes:\n    # Emit: path\\0file_bytes\n    path_b = path.encode(\"utf-8\", errors=\"ignore\")\n    blob = path_b + b\"\\x00\" + file_bytes\n    return blob[:MAX_SIZE]\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    path = make_path(r)\n    variants = make_lockfile_variants(r)\n    file_bytes = r.choice(variants)\n\n    # Occasionally produce empty file content or pure random data to vary behavior.\n    roll = r.random()\n    if roll < 0.1:\n        file_bytes = b\"\"\n    elif roll < 0.2:\n        rnd_len = r.randint(1, 256)\n        file_bytes = bytes(r.getrandbits(8) for _ in range(rnd_len))\n\n    buf = assemble_buffer(path, file_bytes)\n    return buf\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 954,
+            "output_tokens": 433,
+            "total_tokens": 1387
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 532,
+            "output_tokens": 80,
+            "total_tokens": 612
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1034,
+            "output_tokens": 2433,
+            "total_tokens": 3467
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4954,
+            "output_tokens": 4655,
+            "total_tokens": 9609
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5672,
+            "output_tokens": 1096,
+            "total_tokens": 6768
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4300,
+            "output_tokens": 272,
+            "total_tokens": 4572
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 214.63150072097778,
+    "scan_objects": 6.818404674530029,
+    "validate_objects": 0.30703020095825195,
+    "scan_functions": 51.76392602920532,
+    "synthesis": 80.83951258659363,
+    "fill": 26.940541982650757,
+    "classify": 8.332777261734009,
+    "build_generators": 39.62869906425476
+  }
+}

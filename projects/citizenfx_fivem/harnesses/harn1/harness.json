@@ -1,0 +1,158 @@
+{
+  "objects": [
+    {
+      "ptr_type": "char *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom types are defined in this header. The functions declared here use built-in types (char, unsigned char, size_t).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "base64_encode",
+      "signature": "char *base64_encode(const unsigned char *data, size_t input_length, size_t *output_length);",
+      "description": "Encodes binary data into Base64. Given a pointer to input bytes and their length, returns a pointer to the resulting Base64-encoded buffer and writes the encoded length to output_length. Typical usage is to pass a buffer of raw bytes and receive an ASCII Base64 string (not necessarily null-terminated; null-termination status is unknown). Memory ownership and failure semantics are not documented in the header; allocation and freeing behavior are unknown but, by convention, such functions usually allocate a new buffer that the caller must free.",
+      "requirements": [
+        "data must point to at least input_length bytes of readable memory.",
+        "If input_length is 0, behavior is unspecified by this header; it may be allowed, but is unknown.",
+        "output_length must be a valid, non-null pointer to size_t where the function can store the encoded output length.",
+        "The function likely allocates memory for the returned buffer; ownership and required deallocation routine are unknown (not documented).",
+        "Return value on failure is not documented; callers should be prepared for a possible NULL return (inferred from return type)."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_decode",
+      "signature": "unsigned char *base64_decode(const char *data, size_t input_length, size_t *output_length);",
+      "description": "Decodes Base64-encoded text into binary data. Given a pointer to Base64 text and its length, returns a pointer to the decoded byte buffer and writes the decoded length to output_length. Typical usage is to pass a Base64 string and receive raw bytes. Memory ownership and error semantics are not documented; allocation and freeing behavior are unknown. Validity requirements of the input (padding, whitespace handling) are not stated.",
+      "requirements": [
+        "data must point to at least input_length bytes of readable memory containing the Base64 input (inferred from name/signature).",
+        "If input_length is 0, behavior is unspecified by this header; it may be allowed, but is unknown.",
+        "output_length must be a valid, non-null pointer to size_t where the function can store the decoded output length.",
+        "The function likely allocates memory for the returned buffer; ownership and required deallocation routine are unknown (not documented).",
+        "Return value on failure (e.g., invalid Base64) is not documented; callers should be prepared for a possible NULL return (inferred from return type)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "base64_encode",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "encoded",
+          "type": "char *"
+        }
+      ],
+      "code": "// Generate input buffer: arbitrary binary data using FUZZ_PARAM_STR\n// FUZZ_PARAM_STR returns size in [1, 4096], satisfying the readable-bytes requirement\nstd::string in = FUZZ_PARAM_STR();\nconst unsigned char *data = reinterpret_cast<const unsigned char *>(in.data());\nsize_t input_length = in.size();\n\n// Prepare a valid, non-null output length pointer\nsize_t out_len = 0;\n\n// Call the target function\nchar *encoded = base64_encode(data, input_length, &out_len);\n\n// Handle potential failure (unspecified by header but NULL is plausible)\nif (!encoded) { FUZZ_BAIL(); }\n\n// For non-empty input, encoded output should be non-empty as well\nFUZZ_ASSERT(out_len > 0, \"base64_encode returned non-null with zero length\");\n\n// Track metadata about the returned buffer for downstream stubs/tools\nFUZZ_SET_ATTR_INT(encoded, \"length\", (int)out_len);\nFUZZ_SET_ATTR_STR(encoded, \"kind\", \"base64\");\n\n// Provide encoded as an output-managed object"
+    },
+    {
+      "name": "base64_decode",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "decoded",
+          "type": "char *"
+        }
+      ],
+      "code": "// Generate input text: arbitrary bytes. Decoder may reject invalid base64.\nstd::string in = FUZZ_PARAM_STR();\nconst char *data = in.data();\nsize_t input_length = in.size();\n\n// Prepare a valid, non-null output length pointer\nsize_t out_len = 0;\n\n// Call the target function\nunsigned char *decoded_uc = base64_decode(data, input_length, &out_len);\n\n// If decoding fails (e.g., invalid base64), the function may return NULL\nif (!decoded_uc) { FUZZ_BAIL(); }\n\n// For a non-null decoded buffer, expect a positive decoded length\nFUZZ_ASSERT(out_len > 0, \"base64_decode returned non-null with zero length\");\n\n// Reinterpret to char * for the fuzzer's object pool type\nchar *decoded = reinterpret_cast<char *>(decoded_uc);\n\n// Track metadata for downstream handling\nFUZZ_SET_ATTR_INT(decoded, \"length\", (int)out_len);\nFUZZ_SET_ATTR_STR(decoded, \"kind\", \"raw\");\n\n// Provide decoded as an output-managed object"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "base64_encode",
+      "data_types": [
+        "binary data"
+      ]
+    },
+    {
+      "name": "base64_decode",
+      "data_types": [
+        "Base64-encoded text"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "binary data",
+      "description": "Arbitrary raw bytes with no required encoding or structure. May include any 8-bit values (0x00–0xFF), including null bytes and non-printable characters. Size is variable."
+    },
+    {
+      "data_type": "Base64-encoded text",
+      "description": "ASCII text conforming to Base64 encoding as defined by RFC 4648/2045. Typically consists of characters A–Z, a–z, 0–9, '+', '/', with optional '=' padding; may or may not include whitespace depending on implementation tolerance."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "binary data",
+      "generator": "import random\nimport os\nimport struct\n\n# This generator produces valid arbitrary binary inputs for base64_encode.\n# Strategy:\n# - Produce a variety of sizes (including 0, small, moderate, and near the 4096 limit used by the fuzzer infra).\n# - Mix content patterns: all-zero, incremental, high-entropy random, repeated bytes, ASCII text, and lengths that\n#   are interesting w.r.t Base64 grouping (mod 3 boundaries).\n# - Ensure determinism per provided seed while remaining varied between calls with different seeds.\n# - Keep output size <= 4096 bytes.\n\n_MAX = 4096\n\n\ndef _rand_choice(rng, items):\n    return items[rng.randrange(len(items))]\n\n\ndef _gen_size(rng):\n    # Favor sizes around Base64 boundaries and a spread of ranges.\n    interesting = [0, 1, 2, 3, 4, 5, 6, 7, 8, 15, 16, 31, 32, 47, 48, 63, 64, 65, 127, 128, 255, 256, 511, 512, 1023, 1024, 2047, 2048, 3072, 4095]\n    if rng.random() < 0.6:\n        # Pick from interesting, but cap at _MAX\n        sz = _rand_choice(rng, [s for s in interesting if s <= _MAX])\n    else:\n        # Weighted random up to _MAX\n        # Bias toward smaller sizes but allow large\n        p = rng.random()\n        if p < 0.6:\n            sz = rng.randint(0, 128)\n        elif p < 0.85:\n            sz = rng.randint(0, 1024)\n        else:\n            sz = rng.randint(0, _MAX)\n    return sz\n\n\ndef _pattern_zero(sz):\n    return b\"\\x00\" * sz\n\n\ndef _pattern_increment(sz, start):\n    return bytes(((start + i) & 0xFF) for i in range(sz))\n\n\ndef _pattern_repeat_byte(sz, bval):\n    return bytes([bval]) * sz\n\n\ndef _pattern_random(sz, rng):\n    # Deterministic via rng\n    return bytes(rng.getrandbits(8) for _ in range(sz))\n\n\ndef _pattern_ascii(sz, rng):\n    # Printable ASCII with occasional whitespace/newlines\n    chars = [\n        *(ord(c) for c in \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"),\n        0x20, 0x09, 0x0A, 0x0D, ord('='), ord(':'), ord(','), ord(';'), ord('{'), ord('}'), ord('['), ord(']'), ord('('), ord(')'), ord('-'), ord('_'), ord('.'), ord('!'), ord('?')\n    ]\n    return bytes(_rand_choice(rng, chars) for _ in range(sz))\n\n\ndef _pattern_blocks(sz, rng):\n    # Compose from blocks with varied contents to exercise transitions.\n    out = bytearray()\n    while len(out) < sz:\n        mode = rng.randrange(6)\n        block_len = min(sz - len(out), max(1, int(rng.expovariate(1/32))))\n        if mode == 0:\n            out.extend(_pattern_random(block_len, rng))\n        elif mode == 1:\n            out.extend(_pattern_repeat_byte(block_len, rng.randrange(256)))\n        elif mode == 2:\n            out.extend(_pattern_increment(block_len, rng.randrange(256)))\n        elif mode == 3:\n            out.extend(_pattern_ascii(block_len, rng))\n        elif mode == 4:\n            out.extend(_pattern_zero(block_len))\n        else:\n            # Mixed small chunks\n            sub = min(block_len, 12)\n            for _ in range(block_len // sub):\n                out.extend(_pattern_random(sub, rng))\n            out.extend(_pattern_random(block_len % sub, rng))\n    return bytes(out[:sz])\n\n\ndef _bias_length_to_mod3(sz, rng):\n    # Occasionally force sizes to specific mod 3 to exercise Base64 padding behavior\n    if sz == 0:\n        return 0\n    if rng.random() < 0.7:\n        target_mod = _rand_choice(rng, [0, 1, 2])\n        # adjust by +/- up to 2 if possible\n        delta_opts = []\n        for d in (-2, -1, 0, 1, 2):\n            new = sz + d\n            if 0 <= new <= _MAX and (new % 3) == target_mod:\n                delta_opts.append(new)\n        if delta_opts:\n            return _rand_choice(rng, delta_opts)\n    return sz\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a base size and adjust around mod 3 boundaries\n    sz = _gen_size(rng)\n    sz = _bias_length_to_mod3(sz, rng)\n\n    # Choose a content strategy\n    strategy = _rand_choice(rng, [\n        'zero', 'increment', 'repeat', 'random', 'ascii', 'blocks'\n    ])\n\n    if strategy == 'zero':\n        data = _pattern_zero(sz)\n    elif strategy == 'increment':\n        start = rng.randrange(256)\n        data = _pattern_increment(sz, start)\n    elif strategy == 'repeat':\n        bval = rng.randrange(256)\n        data = _pattern_repeat_byte(sz, bval)\n    elif strategy == 'random':\n        data = _pattern_random(sz, rng)\n    elif strategy == 'ascii':\n        data = _pattern_ascii(sz, rng)\n    else:\n        data = _pattern_blocks(sz, rng)\n\n    # Occasionally prefix or suffix small markers to diversify boundaries without breaking validity\n    if rng.random() < 0.3 and len(data) < _MAX:\n        # Small prefix of random length 0-8\n        pre_len = min(rng.randrange(9), _MAX - len(data))\n        if pre_len:\n            prefix_mode = rng.randrange(3)\n            if prefix_mode == 0:\n                prefix = _pattern_zero(pre_len)\n            elif prefix_mode == 1:\n                prefix = _pattern_random(pre_len, rng)\n            else:\n                prefix = _pattern_increment(pre_len, rng.randrange(256))\n            data = prefix + data\n    if rng.random() < 0.3 and len(data) < _MAX:\n        suf_len = min(rng.randrange(9), _MAX - len(data))\n        if suf_len:\n            suffix_mode = rng.randrange(3)\n            if suffix_mode == 0:\n                suffix = _pattern_zero(suf_len)\n            elif suffix_mode == 1:\n                suffix = _pattern_random(suf_len, rng)\n            else:\n                suffix = _pattern_increment(suf_len, rng.randrange(256))\n            data = data + suffix\n\n    # Ensure size cap\n    if len(data) > _MAX:\n        data = data[:_MAX]\n\n    return data\n"
+    },
+    {
+      "data_type": "Base64-encoded text",
+      "generator": "import random\nimport base64\nimport struct\nfrom typing import List, Tuple\n\n# This generator focuses on producing valid Base64-encoded text inputs\n# suitable for the base64_decode fuzzer stub. It aims to cover different\n# edge cases and styles that decoders commonly handle: with/without padding,\n# line breaks, URL-safe vs standard alphabet, full 0-3 remainder lengths,\n# and varying sizes. All outputs are ASCII bytes containing valid Base64\n# text. The size is kept <= 4096 bytes.\n\n_STD_ALPHABET = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"\n_URL_ALPHABET = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_\"\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _chunk_lines(data: bytes, rng: random.Random) -> bytes:\n    # Insert CRLF or LF newlines at random chunk sizes (commonly 64 or 76)\n    if not data:\n        return data\n    modes = [64, 76, 57, 0]  # 76 (MIME), 64 (PEM), 57 (qprint), 0 (no wrap)\n    width = rng.choice(modes)\n    if width <= 0:\n        return data\n    sep = rng.choice([b\"\\n\", b\"\\r\\n\"])\n    chunks = [data[i:i+width] for i in range(0, len(data), width)]\n    return sep.join(chunks)\n\n\ndef _maybe_strip_padding(b64: bytes, rng: random.Random) -> bytes:\n    # Some decoders accept missing padding. Randomly strip '=' from end.\n    if not b64:\n        return b64\n    if rng.random() < 0.5:\n        return b64\n    return b64.rstrip(b\"=\")\n\n\ndef _to_urlsafe(b64: bytes) -> bytes:\n    # Convert standard base64 to URL-safe by replacing +/ with -_\n    return b64.replace(b\"+\", b\"-\").replace(b\"/\", b\"_\")\n\n\ndef _ensure_valid_urlsafe(b64: bytes) -> bytes:\n    # Make sure only URL-safe alphabet appears (including padding if present)\n    trans = bytes.maketrans(b\"+/\", b\"-_\")\n    return b64.translate(trans)\n\n\ndef _produce_valid_b64_blocks(rng: random.Random) -> Tuple[bytes, str]:\n    # Choose one of several strategies to cover various decoder behaviors.\n    # Returns (base64_text_bytes, description)\n    strategy = rng.choices(\n        population=[\n            \"std_padded\",         # Standard alphabet with proper padding\n            \"std_no_pad\",         # Standard alphabet, padding stripped\n            \"std_wrapped\",        # Standard with line wraps (LF/CRLF)\n            \"urlsafe_padded\",     # URL-safe with padding\n            \"urlsafe_no_pad\",     # URL-safe without padding\n            \"empty\",              # Empty input (some decoders may allow)\n            \"pure_padding_edge\",  # Inputs that decode to small sizes\n            \"big_block\"           # Large buffer with wrapping\n        ],\n        weights=[20, 12, 12, 10, 8, 3, 10, 25],\n        k=1,\n    )[0]\n\n    # Choose raw size carefully to keep final <= 4096\n    if strategy == \"empty\":\n        raw = b\"\"\n        out = b\"\"\n        return out, strategy\n\n    if strategy == \"pure_padding_edge\":\n        # Create sizes with different mod 3 remainders to exercise padding rules\n        rem = rng.randrange(0, 3)\n        base = rng.randrange(0, 10)\n        raw_len = base * 3 + rem\n        raw = _rand_bytes(rng, raw_len)\n        b64 = base64.b64encode(raw)\n        # Sometimes strip padding\n        if rng.random() < 0.5:\n            b64 = _maybe_strip_padding(b64, rng)\n        # Sometimes wrap\n        if rng.random() < 0.5:\n            b64 = _chunk_lines(b64, rng)\n        return b64, strategy\n\n    if strategy == \"big_block\":\n        # Aim for a large but bounded output. Base64 expands by ~4/3.\n        # Let output target be around 3000-3800 bytes including wraps.\n        target_out = rng.randint(2800, 3600)\n        # Calculate approximate raw size\n        raw_len = int(target_out * 3 / 4)\n        # Adjust to random remainder mod 3\n        raw_len += rng.randrange(0, 3)\n        raw = _rand_bytes(rng, raw_len)\n        b64 = base64.b64encode(raw)\n        # Wrap lines to add separators and vary parser paths\n        b64 = _chunk_lines(b64, rng)\n        # Maybe strip padding\n        b64 = _maybe_strip_padding(b64, rng)\n        return b64[:4096], strategy\n\n    # Default sizes for other strategies\n    raw_len = rng.choice([\n        rng.randint(1, 32),\n        rng.randint(33, 128),\n        rng.randint(129, 512),\n        rng.randint(513, 1500),\n    ])\n    raw = _rand_bytes(rng, raw_len)\n\n    if strategy in (\"std_padded\", \"std_no_pad\", \"std_wrapped\"):\n        b64 = base64.b64encode(raw)\n        if strategy == \"std_no_pad\":\n            b64 = _maybe_strip_padding(b64, rng)\n        elif strategy == \"std_wrapped\":\n            b64 = _chunk_lines(b64, rng)\n            # Maybe also strip padding after wrapping\n            if rng.random() < 0.3:\n                # Strip '=' possibly across wrapped lines: remove trailing '='\n                # from the last line only\n                parts = b64.splitlines()\n                if parts:\n                    parts[-1] = parts[-1].rstrip(b\"=\")\n                    b64 = b\"\\n\".join(parts)\n        return b64, strategy\n\n    if strategy in (\"urlsafe_padded\", \"urlsafe_no_pad\"):\n        # Use urlsafe alphabet. Many decoders accept this.\n        b64 = base64.urlsafe_b64encode(raw)\n        if strategy == \"urlsafe_no_pad\":\n            b64 = b64.rstrip(b\"=\")\n        # Optional wrapping as some implementations accept whitespace\n        if rng.random() < 0.5:\n            b64 = _chunk_lines(b64, rng)\n        return b64, strategy\n\n    # Fallback\n    b64 = base64.b64encode(raw)\n    return b64, \"std_padded\"\n\n\ndef _maybe_add_whitespace(b: bytes, rng: random.Random) -> bytes:\n    # Some decoders are lenient with whitespace; insert spaces/tabs randomly\n    if not b or rng.random() < 0.6:\n        return b\n    # Insert limited whitespace to keep overall size reasonable\n    ws_choices = [b\" \", b\"\\t\", b\"\\n\", b\"\\r\\n\"]\n    out = bytearray()\n    for ch in b:\n        out.append(ch)\n        if rng.random() < 0.02:  # sparse injection\n            out.extend(rng.choice(ws_choices))\n    return bytes(out[:4096])\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Produce a valid Base64 text according to one of our strategies\n    b64, _desc = _produce_valid_b64_blocks(rng)\n\n    # Optionally add benign whitespace that many decoders ignore\n    b64 = _maybe_add_whitespace(b64, rng)\n\n    # Ensure final size constraint\n    if len(b64) > 4096:\n        b64 = b64[:4096]\n\n    # Guarantee ASCII bytes; content is already ASCII by construction\n    return b64\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 734,
+            "output_tokens": 65,
+            "total_tokens": 799
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 312,
+            "output_tokens": 23,
+            "total_tokens": 335
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 751,
+            "output_tokens": 842,
+            "total_tokens": 1593
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4220,
+            "output_tokens": 1582,
+            "total_tokens": 5802
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2147,
+            "output_tokens": 167,
+            "total_tokens": 2314
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 78.1271812915802,
+    "scan_objects": 2.211087942123413,
+    "validate_objects": 0.17633461952209473,
+    "scan_functions": 16.39885902404785,
+    "synthesis": 31.501908540725708,
+    "fill": 0,
+    "classify": 3.810464382171631,
+    "build_generators": 24.027913808822632
+  }
+}

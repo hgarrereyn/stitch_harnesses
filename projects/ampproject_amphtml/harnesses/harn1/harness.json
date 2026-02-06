@@ -1,0 +1,1135 @@
+{
+  "objects": [
+    {
+      "ptr_type": "htmlparser::Strings *",
+      "aliases": [],
+      "definition": "namespace htmlparser {\n\nclass Strings {\n public:\n  // One of:\n  // U+0009 CHARACTER TABULATION,\n  // U+000A LINE FEED (LF),\n  // U+000C FORM FEED (FF),\n  // U+000D CARRIAGE RETURN (CR), or\n  // U+0020 SPACE.\n  inline static const std::string kWhitespace {\n    // Do not sort or re-order.\n    ' ',\n    '\\t',\n    '\\r',\n    '\\n',\n    '\\f',\n    '\\v'};\n\n  // kWhitespace plus null char.\n  inline static const std::string kWhitespaceOrNull {\n    // Do not sort or re-order.\n    ' ',\n    '\\t',\n    '\\r',\n    '\\n',\n    '\\f',\n    '\\0',\n    '\\v'};\n\n  inline static const std::string kEscapeChars {\n    // Do not sort or re-order.\n    '&',\n    '\\'',\n    '<',\n    '>',\n    '\"'};\n\n  inline static const std::string kNullChar = {'\\0'};\n\n  inline static const std::string kNullReplacementChar {\n    '\\xef', '\\xbf', '\\xbd'};  // encoded \\ufffd (3 bytes).\n\n  // Decodes a percent encoded string like \"google.com%20%2F%20%3Fx%3Db\" to\n  // \"google.com / ?x=b\".\n  static std::optional<std::string> DecodePercentEncodedURL(\n    std::string_view uri);\n\n  // Returns hex string representation of a 4 byte codepoint.\n  static std::string ToHexString(uint32_t c);\n\n  // byte is in the range 0x41-0x5A or 0x61-0x7A (A-Z or a-z).\n  static bool IsCharAlphabet(char c);\n\n  // byte is in the range 0x30-0x39 (chars: 0-9)\n  static bool IsDigit(char c);\n\n  // Converts \"\\r\" and \"\\r\\n\" in s to \"\\n\".\n  // The conversion happens in place, but the resulting string may be shorter.\n  static void ConvertNewLines(std::string* s);\n\n  // UTF-8 Encoding/Decoding utility functions.\n  // =================================\n  //\n  // Checks if the byte is a beginning of a unicode codepoint byte sequence.\n  // First byte is masked as follows:\n  // 0b110xxxxx - 2 byte sequence.\n  // 0b1110xxxx - 3 byte sequence.\n  // 0b11110xxx - 4 byte sequence.\n  //\n  // Returns number of byte sequence needed to encode the codepoint.\n  static int8_t CodePointByteSequenceCount(uint8_t c);\n\n  // Similar to CodePointByteSequenceCount except that it accepts entire\n  // codepoint and tells how many bytes the codepoint contains.\n  static int8_t CodePointNumBytes(char32_t c);\n\n  // Decodes byte sequence to utf-8 codepoint.\n  // The s points to the first byte in the sequence. Moves the cursor past\n  // the byte sequence if decoding is successful.\n  //\n  // Returns 4 byte utf-8 codepoint value, or nullopt if:\n  // - First byte is not valid (IsCodePoint),\n  // - The three byte sequence includes unpaired surrogate which is not a scalar\n  //   value.\n  // - Invalid utf-8 data.\n  static std::optional<char32_t> DecodeUtf8Symbol(std::string_view* s);\n\n  // Same as DecodeUtf8Symbol(string_view*) except that the prefix is not\n  // updated, meaning cursor is at the first byte of the current character\n  // decoded in s.\n  static std::optional<char32_t>\n      DecodeUtf8Symbol(std::string_view s, std::size_t position = 0) {\n    if (position < 0 || position > s.size()) return std::nullopt;\n\n    if (position == 0) {\n      return DecodeUtf8Symbol(&s);\n    }\n\n    std::string_view s_at_prefix = s.substr(position);\n    return DecodeUtf8Symbol(&s_at_prefix);\n  }\n\n  // Encodes a utf-8 codepoint.\n  // Fills the codepoint in the following sequence:\n  //\n  // 7 bits US ASCII characters.\n  // 0b0xxxxxx\n  //\n  // Codepoint upto 11 bits.\n  // 0b110xxxxx 0b10xxxxxx\n  //\n  // Codepoint upto 16 bits.\n  // 0b1110xxxx 0b10xxxxxx 0b10xxxxxx\n  //\n  // Codepoint upto 21 bits.\n  // 0b11110xxx 0b10xxxxxx 0b10xxxxxx 0b10xxxxxx\n  //\n  // Returns nullopt on error.\n  static std::optional<std::string> EncodeUtf8Symbol(char32_t code_point);\n\n  static std::vector<char32_t> Utf8ToCodepoints(std::string_view utf8) {\n    std::vector<char32_t> out;\n    out.reserve(utf8.size() / 2);\n    // We use the UnicodeText abstraction because it handles\n    // validation / coersion  under the hood, so what comes out of this is\n    // surely valid UTF8.\n    auto codepoint = DecodeUtf8Symbol(&utf8);\n    while (codepoint) {\n      out.push_back(*codepoint);\n      codepoint = DecodeUtf8Symbol(&utf8);\n    }\n    return out;\n  }\n\n  static void AppendCodepointToUtf8String(char32_t code,\n                                          std::string* utf8_str) {\n    // The implementation is modified from UnicodeText::push_back to append\n    // to an existing string, rather than allocate a new one.\n    auto encoded = EncodeUtf8Symbol(code);\n    if (encoded) {\n      *utf8_str += *encoded;\n    } else {\n      utf8_str->push_back(' ');\n    }\n  }\n\n  static std::string CodepointToUtf8String(char32_t code) {\n    auto output = htmlparser::Strings::EncodeUtf8Symbol(code);\n    return output ? std::move(output.value()) : \"\";\n  }\n\n  // Converts unicode code points to a string.\n  static std::string CodepointsToUtf8String(std::vector<char32_t> codes) {\n    std::stringbuf buf;\n    for (auto c : codes) {\n      if (auto encoded = htmlparser::Strings::EncodeUtf8Symbol(c);\n          encoded) {\n        buf.sputn(encoded->c_str(), encoded->size());\n      }\n    }\n    return buf.str();\n  }\n\n  // Returns index of the first instance of any character in chars or\n  // npos if no character found. For unicode character returns the index of\n  // initial byte of the sequence of bytes.\n  static std::size_t IndexAny(std::string_view s,\n                              std::string_view chars);\n\n  // Escapes special characters like \"<\" to become \"&lt;\". It escapes only\n  // five such characters: <, >, &, ' and \".\n  // UnescapeString(EscapeString(s)) == s always holds, but the converse isn't\n  // always true.\n  static std::string EscapeString(std::string_view s);\n  static void Escape(std::string_view s, std::stringbuf* escaped);\n\n  // Unescapes s's entities in-place, so that \"a&lt;b\" becomes \"a<b\".\n  // attribute should be true if passing an attribute value.\n  // UnescapeString(EscapeString(s)) == s always holds, but the converse isn't\n  // always true.\n  static void UnescapeString(std::string* s, bool attribute = false);\n\n  // Converts case of string in-place.\n  static void ToLower(std::string* s);\n  static void ToUpper(std::string* s);\n\n  // Checks if string contains whitespace only chracters.\n  static bool IsAllWhitespaceChars(std::string_view s,\n      std::string_view whitespace_chars = kWhitespace);\n\n  // Case insensitive equals.\n  static bool EqualFold(std::string_view l, std::string_view r);\n\n  // Search replace functions.\n  // Replaces first occurrence of the f in s with t.\n  static void Replace(std::string* s, std::string_view f,\n      std::string_view t);\n  // Replaces all occurrences of the f in s with t.\n  static void ReplaceAll(std::string* s, std::string_view f,\n                         std::string_view t);\n  static void ReplaceAny(std::string* s, std::string_view chars,\n                         std::string_view to);\n\n  // Replaces the string of characters in abc with the string of characters\n  // in xyz. The first character in xyz will replace every occurrence of the\n  // first character in abc that appears in the str.\n  //\n  // Example:\n  // Translate(\"The quick brown fox.\",\n  //           \"abcdefghijklmnopqrstuvwxyz\",\n  //           \"ABCDEFGHIJKLMNOPQRSTUVWXYZ\")\n  // Returns:\n  //   THE QUICK BROWN FOX.\n  //\n  // This works for utf-8 characters.\n  // Strings::Translate(\"AmAltAs\", \"A\", \"서\") outputs: 서m서lt서s.\n  //\n  // If abc contains duplicates, replacements are performed in the order they\n  // appear in the target string. So Translate(\"amaltas\", \"atas\", \"ipox\") will\n  // replace all occurrences of 'a' with 'i'. The later 'a'->'o' mapping is\n  // ignored.\n  //\n  // If abc is longer than xyz, then every occurrence of characters from str\n  // that do not have a corresponding character in xyz will be removed.\n  //\n  // Example:\n  // Strings::Translate(\"The quick brown fox.\", \"brown\", \"red\");\n  // returns: \"The quick red fdx.\"\n  //\n  // The translated string may be smaller or larger than the evaluated string.\n  //\n  // Translation is guaranteed for ASCII characters. Translation may fail if\n  // any of the strings str, abc, xyz contains utf-8 chars and decoding of those\n  // chars failed, in which case this function returns std::nullopt.\n  static std::optional<std::string> Translate(\n      std::string_view str,   // String to evaluate.\n      std::string_view abc,   // Chars that will be replaced.\n      std::string_view xyz);  // Chars used for replacement.\n\n  // Strips whitespace from a string in-place.\n  static void TrimLeft(std::string* s,\n      std::string_view chars_to_trim = kWhitespace);\n  static void TrimRight(std::string* s,\n      std::string_view chars_to_trim = kWhitespace);\n  static void Trim(std::string* s,\n      std::string_view chars_to_trim = kWhitespace);\n  static void TrimLeft(std::string_view* s,\n      std::string_view chars_to_trim = kWhitespace);\n  static void TrimRight(std::string_view* s,\n      std::string_view chars_to_trim = kWhitespace);\n  static void Trim(std::string_view* s,\n      std::string_view chars_to_trim = kWhitespace);\n\n  static bool StripTrailingNewline(std::string* s);\n\n  // Reduces all consecutive sequences of space characters to a single space\n  // character.\n  // Resulting string may be smaller (resized) than the original string.\n  static void RemoveExtraSpaceChars(std::string* s);\n\n  // Prefix and suffix matching functions.\n  static bool StartsWith(std::string_view s, std::string_view prefix);\n  static bool EndsWith(std::string_view s, std::string_view suffix);\n\n  // Splits a string at delimiter character and returns the columns.\n  static std::vector<std::string> SplitStringAt(\n      std::string_view s, char delimiter);\n\n  // Splits the string at any utf8 or ascii whitespace and returns the columns.\n  // The returned values are the views of original string argument passed to\n  // this method. If the original string goes out of scope after this method is\n  // called, the contents of the columns is undefined.\n  static std::vector<std::string_view> SplitStrAtUtf8Whitespace(\n      std::string_view s);\n\n  // Determines if a character at current position is a whitespace char.\n  // Returns the number of bytes from current character that are part of the\n  // whitespace. For multichar whitespace like ideographic space \\u3000 it\n  // returns 3 as ideographic space has 3 codepoints.\n  //\n  // Returns 0, if the character at current position is not a whitespace.\n  static int IsUtf8WhiteSpaceChar(std::string_view s, std::size_t position = 0);\n\n  // Counts number of terms in a text separated by whitespace and punctuations.\n  static int CountTerms(std::string_view s);\n\n private:\n  // No instance of this class.\n  Strings() = default;\n};\n\n}  // namespace htmlparser",
+      "description": "Utility class providing static string and UTF-8 helpers and constants for HTML parsing. It is non-instantiable (private default constructor) and exposes only static members. Includes whitespace/escape character sets and numerous manipulation, encoding/decoding, and comparison routines.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "htmlparser::URL *",
+      "aliases": [],
+      "definition": "namespace htmlparser {\n\nclass URL {\n public:\n  // returns: the protocol (scheme) of the URL, if one could be found, according\n  // to a strict interpretation of RFC 3986, Section 3.1. Otherwise returns the\n  // empty string. No normalization (e.g. lower casing) is performed, and\n  // no part of the URL is validated except the protocol. */\n  static std::string_view ProtocolStrict(std::string_view url);\n\n  explicit URL(std::string_view url);\n\n  // getters.\n  bool is_valid() const { return is_valid_; }\n  bool has_protocol() const { return has_protocol_; }\n  std::string protocol() const { return protocol_; }\n  std::string hostname() const { return host_; }\n  std::string login() const { return login_; }\n  int port() const { return port_; }\n  std::string_view path_params_fragment() const {\n    return path_params_fragment_;\n  }\n\n private:\n  static bool IsAlphaNum(uint8_t c) {\n    return ((\"0\" <= c && c <= \"9\") ||\n            (\"a\" <= c && c <= \"z\") ||\n            (\"A\" <= c && c <= \"Z\"));\n  }\n\n  static bool IsProtocolCharValidChar(uint8_t c) {\n    return IsAlphaNum(c) || c == '+' || c == '-';\n  }\n\n  static bool IsPositiveInteger(std::string_view may_be_int) {\n    for (auto c : may_be_int) {\n      if (!std::isdigit(c)) return false;\n    }\n\n    return true;\n  }\n\n  static bool HostCharIsEnd(uint8_t c) {\n    return c == '#' || c == '/' || c == '?' || c == '\\\\';\n  }\n\n  static bool HostCharIsValid(uint8_t c) {\n    static constexpr std::string_view illegal_chars =\n        \" !\\\"#$%&'()*+,/:;<=>?@[\\\\]^`{|}~\";\n    return c > 0x1f /* unprintable */ &&\n        illegal_chars.find_first_of(c) == std::string_view::npos;\n  }\n\n  static bool IsIPv6Valid(const std::string& host) {\n    struct in6_addr result;\n    return inet_pton(AF_INET6, host.c_str(), &result) == 1;\n  }\n\n  static std::optional<std::string> UnescapeAndCheckHostname(\n      std::string_view hostname);\n  void ParseProtocol();\n  void ParseAuthority();\n  void ProcessHostDots();\n\n  std::string_view url_;\n  bool is_valid_;\n  bool has_protocol_;\n  std::string protocol_;\n  std::string_view scheme_specific_port_;\n  bool starts_with_double_slash_;\n  std::string login_;\n  std::string host_;\n  int port_;\n  std::string_view path_params_fragment_;\n};\n\n}  // namespace htmlparser",
+      "description": "URL parsing and inspection class. Constructs from a URL string_view, parses components (protocol, authority, host, login, port, path/params/fragment) and exposes getters and internal validation helpers. Designed for read-only access to parsed fields after construction.",
+      "direct_api_constructors": [
+        "htmlparser::URL::URL(std::string_view url)"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "htmlparser::Strings::DecodePercentEncodedURL",
+      "signature": "static std::optional<std::string> htmlparser::Strings::DecodePercentEncodedURL(std::string_view uri)",
+      "description": "Decodes a percent-encoded URL string (e.g., \"google.com%20%2F%20%3Fx%3Db\" -> \"google.com / ?x=b\"). Use when you need a decoded representation of a URL or URL component.",
+      "requirements": [
+        "uri may reference external storage; it must remain valid only for the duration of the call.",
+        "On invalid percent-encoding, returns std::nullopt; callers must handle the optional result."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::ToHexString",
+      "signature": "static std::string htmlparser::Strings::ToHexString(uint32_t c)",
+      "description": "Returns a hexadecimal string representation of a 4-byte code point value.",
+      "requirements": [
+        "Input is a 32-bit unsigned value; behavior for values outside Unicode scalar range is not specified (result is still a hex string)."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::IsCharAlphabet",
+      "signature": "static bool htmlparser::Strings::IsCharAlphabet(char c)",
+      "description": "Returns true if c is an ASCII alphabet letter (A–Z or a–z).",
+      "requirements": [
+        "c is interpreted as a byte; only ASCII ranges 0x41–0x5A and 0x61–0x7A are considered alphabetic."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::IsDigit",
+      "signature": "static bool htmlparser::Strings::IsDigit(char c)",
+      "description": "Returns true if c is an ASCII digit ('0'–'9').",
+      "requirements": [
+        "c is interpreted as a byte; only ASCII range 0x30–0x39 are considered digits."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::ConvertNewLines",
+      "signature": "static void htmlparser::Strings::ConvertNewLines(std::string* s)",
+      "description": "In-place converts Windows/Mac newlines to Unix: transforms \"\\r\\n\" and \"\\r\" into \"\\n\". The resulting string may shrink.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::CodePointByteSequenceCount",
+      "signature": "static int8_t htmlparser::Strings::CodePointByteSequenceCount(uint8_t c)",
+      "description": "Determines the expected UTF-8 sequence length based on the first byte. Returns the number of bytes (2, 3, or 4) for leading bytes, or other value per implementation for invalid/ASCII cases.",
+      "requirements": [
+        "c is a raw byte from a UTF-8 encoded sequence.",
+        "Return value semantics for ASCII (single-byte) and invalid leading bytes are per implementation; callers should be prepared for non-2/3/4 values."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::CodePointNumBytes",
+      "signature": "static int8_t htmlparser::Strings::CodePointNumBytes(char32_t c)",
+      "description": "Returns how many bytes are required to UTF-8 encode the given Unicode code point.",
+      "requirements": [
+        "c should represent a Unicode code point; values outside UTF-8 encodable range or surrogate range may yield error-indicating value depending on implementation."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::DecodeUtf8Symbol",
+      "signature": "static std::optional<char32_t> htmlparser::Strings::DecodeUtf8Symbol(std::string_view* s)",
+      "description": "Decodes the next UTF-8 code point from the beginning of the given string_view, advancing the view past the decoded sequence on success. Returns std::nullopt on invalid UTF-8 or unpaired surrogate in a three-byte sequence.",
+      "requirements": [
+        "s must be non-null and point to a valid std::string_view.",
+        "The view referenced by *s must remain valid for the duration of the call and its underlying buffer must outlive the call.",
+        "On success, *s is modified to start after the decoded code point; callers must account for the consumed bytes.",
+        "Callers must handle std::nullopt for invalid data."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::EncodeUtf8Symbol",
+      "signature": "static std::optional<std::string> htmlparser::Strings::EncodeUtf8Symbol(char32_t code_point)",
+      "description": "Encodes a Unicode code point into its UTF-8 byte sequence. Returns std::nullopt on error (e.g., code point not encodable in UTF-8).",
+      "requirements": [
+        "code_point should be a valid Unicode scalar value (up to 21 bits; surrogates are invalid).",
+        "Callers must handle std::nullopt."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::Utf8ToCodepoints",
+      "signature": "static std::vector<char32_t> htmlparser::Strings::Utf8ToCodepoints(std::string_view utf8)",
+      "description": "Converts a UTF-8 string into a vector of Unicode code points, stopping at the first invalid sequence.",
+      "requirements": [
+        "utf8 must be valid UTF-8 to obtain a full conversion; invalid data will stop decoding early.",
+        "utf8 must remain valid only during the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::AppendCodepointToUtf8String",
+      "signature": "static void htmlparser::Strings::AppendCodepointToUtf8String(char32_t code, std::string* utf8_str)",
+      "description": "Appends the UTF-8 encoding of the given code point to an existing string. If encoding fails, appends a single space character.",
+      "requirements": [
+        "utf8_str must be non-null and point to a valid, mutable std::string.",
+        "code should be a valid Unicode scalar value to avoid fallback behavior."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::CodepointToUtf8String",
+      "signature": "static std::string htmlparser::Strings::CodepointToUtf8String(char32_t code)",
+      "description": "Returns a new string containing the UTF-8 encoding of the given code point. Returns an empty string on encoding error.",
+      "requirements": [
+        "code should be a valid Unicode scalar value."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::CodepointsToUtf8String",
+      "signature": "static std::string htmlparser::Strings::CodepointsToUtf8String(std::vector<char32_t> codes)",
+      "description": "Converts a sequence of Unicode code points to a UTF-8 string; code points that fail to encode are skipped.",
+      "requirements": [
+        "codes elements should be valid Unicode scalar values."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::IndexAny",
+      "signature": "static std::size_t htmlparser::Strings::IndexAny(std::string_view s, std::string_view chars)",
+      "description": "Returns the index of the first occurrence in s of any character from chars, or std::string_view::npos if none. For UTF-8 characters, the index corresponds to the first byte of the sequence.",
+      "requirements": [
+        "s and chars must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::EscapeString",
+      "signature": "static std::string htmlparser::Strings::EscapeString(std::string_view s)",
+      "description": "Escapes special HTML characters (<, >, &, ', \") in s to their entity forms. Guarantees UnescapeString(EscapeString(s)) == s.",
+      "requirements": [
+        "s must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::Escape",
+      "signature": "static void htmlparser::Strings::Escape(std::string_view s, std::stringbuf* escaped)",
+      "description": "Writes the HTML-escaped form of s into the provided stringbuf. Escapes the five characters <, >, &, ', \".",
+      "requirements": [
+        "escaped must be non-null and point to a valid std::stringbuf ready for writing.",
+        "s must remain valid during the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::UnescapeString",
+      "signature": "static void htmlparser::Strings::UnescapeString(std::string* s, bool attribute = false)",
+      "description": "In-place unescapes HTML entities in s (e.g., \"a&lt;b\" -> \"a<b\"). If attribute is true, uses attribute-value parsing rules. It holds that UnescapeString(EscapeString(s)) == s, but not necessarily the converse.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::ToLower",
+      "signature": "static void htmlparser::Strings::ToLower(std::string* s)",
+      "description": "Converts all characters in s to lowercase in-place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::ToUpper",
+      "signature": "static void htmlparser::Strings::ToUpper(std::string* s)",
+      "description": "Converts all characters in s to uppercase in-place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::IsAllWhitespaceChars",
+      "signature": "static bool htmlparser::Strings::IsAllWhitespaceChars(std::string_view s, std::string_view whitespace_chars = kWhitespace)",
+      "description": "Returns true if s consists only of characters from whitespace_chars (defaults to kWhitespace set).",
+      "requirements": [
+        "s and whitespace_chars must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::EqualFold",
+      "signature": "static bool htmlparser::Strings::EqualFold(std::string_view l, std::string_view r)",
+      "description": "Case-insensitive string equality comparison.",
+      "requirements": [
+        "l and r must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::Replace",
+      "signature": "static void htmlparser::Strings::Replace(std::string* s, std::string_view f, std::string_view t)",
+      "description": "Replaces the first occurrence of substring f in s with t, modifying s in place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string.",
+        "Replacement is no-op if f is not found."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::ReplaceAll",
+      "signature": "static void htmlparser::Strings::ReplaceAll(std::string* s, std::string_view f, std::string_view t)",
+      "description": "Replaces all occurrences of substring f in s with t, modifying s in place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::ReplaceAny",
+      "signature": "static void htmlparser::Strings::ReplaceAny(std::string* s, std::string_view chars, std::string_view to)",
+      "description": "Replaces any occurrence in s of any character from chars with the string to, modifying s in place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::Translate",
+      "signature": "static std::optional<std::string> htmlparser::Strings::Translate(std::string_view str, std::string_view abc, std::string_view xyz)",
+      "description": "Translates characters in str by mapping each character in abc to the corresponding character in xyz. If abc has duplicates, earlier mappings take precedence. If abc is longer than xyz, unmatched characters in str are removed. Works with UTF-8; returns std::nullopt if any string contains UTF-8 that fails to decode.",
+      "requirements": [
+        "str, abc, and xyz must remain valid for the duration of the call.",
+        "Callers must handle std::nullopt when UTF-8 decoding fails for any input string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::TrimLeft",
+      "signature": "static void htmlparser::Strings::TrimLeft(std::string* s, std::string_view chars_to_trim = kWhitespace)",
+      "description": "Removes leading characters in s that are present in chars_to_trim, in place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::TrimRight",
+      "signature": "static void htmlparser::Strings::TrimRight(std::string* s, std::string_view chars_to_trim = kWhitespace)",
+      "description": "Removes trailing characters in s that are present in chars_to_trim, in place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::Trim",
+      "signature": "static void htmlparser::Strings::Trim(std::string* s, std::string_view chars_to_trim = kWhitespace)",
+      "description": "Removes leading and trailing characters in s that are present in chars_to_trim, in place.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::StripTrailingNewline",
+      "signature": "static bool htmlparser::Strings::StripTrailingNewline(std::string* s)",
+      "description": "Removes a trailing newline from s if present, modifying the string. The meaning of the boolean return value is not documented in the header (likely indicates whether a newline was removed).",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::RemoveExtraSpaceChars",
+      "signature": "static void htmlparser::Strings::RemoveExtraSpaceChars(std::string* s)",
+      "description": "Reduces all consecutive sequences of space characters to a single space, modifying s in place. The resulting string may shrink.",
+      "requirements": [
+        "s must be non-null and point to a valid, mutable std::string."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::StartsWith",
+      "signature": "static bool htmlparser::Strings::StartsWith(std::string_view s, std::string_view prefix)",
+      "description": "Returns true if s starts with prefix.",
+      "requirements": [
+        "s and prefix must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::EndsWith",
+      "signature": "static bool htmlparser::Strings::EndsWith(std::string_view s, std::string_view suffix)",
+      "description": "Returns true if s ends with suffix.",
+      "requirements": [
+        "s and suffix must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::SplitStringAt",
+      "signature": "static std::vector<std::string> htmlparser::Strings::SplitStringAt(std::string_view s, char delimiter)",
+      "description": "Splits s on the given delimiter character and returns owned string columns.",
+      "requirements": [
+        "s must remain valid only for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::SplitStrAtUtf8Whitespace",
+      "signature": "static std::vector<std::string_view> htmlparser::Strings::SplitStrAtUtf8Whitespace(std::string_view s)",
+      "description": "Splits s on any UTF-8 or ASCII whitespace and returns views into the original string. The returned views alias s and are invalidated if s's storage is destroyed or modified.",
+      "requirements": [
+        "The original string/buffer referenced by s must outlive all returned string_view elements.",
+        "s must remain unmodified while using the returned views."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::IsUtf8WhiteSpaceChar",
+      "signature": "static int htmlparser::Strings::IsUtf8WhiteSpaceChar(std::string_view s, std::size_t position = 0)",
+      "description": "Determines whether the character at byte position in s is a whitespace character. Returns the number of bytes comprising that whitespace character (e.g., 3 for U+3000 IDEOGRAPHIC SPACE). Returns 0 if the character at position is not whitespace.",
+      "requirements": [
+        "position must be in the range [0, s.size()].",
+        "s must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::Strings::CountTerms",
+      "signature": "static int htmlparser::Strings::CountTerms(std::string_view s)",
+      "description": "Counts the number of terms in s, where terms are separated by whitespace and punctuation.",
+      "requirements": [
+        "s must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::ProtocolStrict",
+      "signature": "static std::string_view htmlparser::URL::ProtocolStrict(std::string_view url)",
+      "description": "Extracts the URL scheme (protocol) per RFC 3986 §3.1. Returns an empty string_view if none found. Performs no normalization or validation beyond the protocol itself. The returned view refers to the input buffer.",
+      "requirements": [
+        "url must remain valid for the duration of the call and as long as the returned string_view is used."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::URL",
+      "signature": "explicit htmlparser::URL::URL(std::string_view url)",
+      "description": "Constructs a URL object and parses the provided URL. The URL stores the input as a std::string_view internally and parses components such as protocol, login, host, port, and path/params/fragment.",
+      "requirements": [
+        "The character data referenced by url must outlive the URL instance, since the class stores a std::string_view to the original buffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::is_valid",
+      "signature": "bool htmlparser::URL::is_valid() const",
+      "description": "Indicates whether the parsed URL is valid according to the class’s parsing logic.",
+      "requirements": [
+        "Call only on a constructed URL instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::has_protocol",
+      "signature": "bool htmlparser::URL::has_protocol() const",
+      "description": "Returns true if the URL contains a protocol (scheme).",
+      "requirements": [
+        "Call only on a constructed URL instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::protocol",
+      "signature": "std::string htmlparser::URL::protocol() const",
+      "description": "Returns the parsed protocol component as a std::string. No normalization is guaranteed by the header.",
+      "requirements": [
+        "Call only on a constructed URL instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::hostname",
+      "signature": "std::string htmlparser::URL::hostname() const",
+      "description": "Returns the parsed hostname as a std::string.",
+      "requirements": [
+        "Call only on a constructed URL instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::login",
+      "signature": "std::string htmlparser::URL::login() const",
+      "description": "Returns the parsed userinfo/login component as a std::string.",
+      "requirements": [
+        "Call only on a constructed URL instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::port",
+      "signature": "int htmlparser::URL::port() const",
+      "description": "Returns the parsed port number. If no port is specified, the value depends on parsing defaults (not specified in header).",
+      "requirements": [
+        "Call only on a constructed URL instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "htmlparser::URL::path_params_fragment",
+      "signature": "std::string_view htmlparser::URL::path_params_fragment() const",
+      "description": "Returns a view of the path, parameters, and fragment portion of the URL. The returned view aliases the original URL buffer stored by the object.",
+      "requirements": [
+        "The returned string_view remains valid as long as the URL object (and its referenced underlying buffer) remains alive."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "htmlparser::Strings::DecodePercentEncodedURL",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a percent-encoded candidate URL string. The underlying storage must\n// outlive the call; we keep it in a local std::string and pass a view.\nstd::string uri_storage = FUZZ_PARAM_STR();\nstd::string_view uri_view(uri_storage);\n\n// Call the target. It may return nullopt on invalid encodings; caller must\n// handle that (we do not assert on either outcome).\nauto decoded = htmlparser::Strings::DecodePercentEncodedURL(uri_view);\n(void)decoded; // exercise both success and failure paths without assuming either.\n"
+    },
+    {
+      "name": "htmlparser::Strings::ToHexString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Random 32-bit code point value (any uint32 is accepted by API).\nuint32_t c = *FUZZ_PARAM(unsigned int);\n\n// Call the target.\nstd::string hex = htmlparser::Strings::ToHexString(c);\n(void)hex;\n"
+    },
+    {
+      "name": "htmlparser::Strings::IsCharAlphabet",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a random byte; function interprets it as ASCII byte.\nchar c = static_cast<char>(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nbool is_alpha = htmlparser::Strings::IsCharAlphabet(c);\n(void)is_alpha;\n"
+    },
+    {
+      "name": "htmlparser::Strings::IsDigit",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a random byte; function interprets it as ASCII byte.\nchar c = static_cast<char>(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nbool is_digit = htmlparser::Strings::IsDigit(c);\n(void)is_digit;\n"
+    },
+    {
+      "name": "htmlparser::Strings::ConvertNewLines",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a mutable string; pointer must be non-null and valid.\nstd::string s = FUZZ_PARAM_STR();\n// Mix in some CR characters to exercise CR/LF handling logic at bounded size.\nif (!s.empty()) {\n  size_t pos = (*FUZZ_PARAM(unsigned int)) % s.size();\n  s.insert(pos, \"\\r\");\n  if (s.size() < 2048) s.append(\"\\r\\n\");\n}\n\nhtmlparser::Strings::ConvertNewLines(&s);\n"
+    },
+    {
+      "name": "htmlparser::Strings::CodePointByteSequenceCount",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a raw byte; function determines expected UTF-8 sequence length.\nuint8_t b = static_cast<uint8_t>(*FUZZ_PARAM(unsigned int) & 0xFF);\nint8_t count = htmlparser::Strings::CodePointByteSequenceCount(b);\n(void)count;\n"
+    },
+    {
+      "name": "htmlparser::Strings::CodePointNumBytes",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a 21-bit value (UTF-8 max is 0x10FFFF). Values outside range are\n// still accepted by the API and may produce an error-indicating value.\nchar32_t cp = static_cast<char32_t>(*FUZZ_PARAM(unsigned int) & 0x1FFFFF);\nint8_t nbytes = htmlparser::Strings::CodePointNumBytes(cp);\n(void)nbytes;\n"
+    },
+    {
+      "name": "htmlparser::Strings::DecodeUtf8Symbol",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Backing storage must outlive the string_view for the duration of the call.\nstd::string data = FUZZ_PARAM_STR();\nstd::string_view sv(data);\nstd::size_t before = sv.size();\n\nauto decoded = htmlparser::Strings::DecodeUtf8Symbol(&sv);\n// If decoding succeeded, the cursor (sv) must advance.\nif (decoded) {\n  FUZZ_ASSERT(sv.size() < before, \"DecodeUtf8Symbol must advance the cursor on success\");\n}\n"
+    },
+    {
+      "name": "htmlparser::Strings::EncodeUtf8Symbol",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a code point; try to avoid surrogates to exercise success path,\n// but still allow arbitrary values to exercise failure path occasionally.\nuint32_t raw = *FUZZ_PARAM(unsigned int) & 0x1FFFFF; // up to 21 bits\nif (raw >= 0xD800 && raw <= 0xDFFF) raw = 0x20; // map surrogates to space\nchar32_t cp = static_cast<char32_t>(raw);\n\nauto enc = htmlparser::Strings::EncodeUtf8Symbol(cp);\nif (enc) {\n  // Property: decoding the produced bytes yields the same code point.\n  std::string_view v(*enc);\n  auto dec = htmlparser::Strings::DecodeUtf8Symbol(&v);\n  FUZZ_ASSERT(dec && *dec == cp, \"Round-trip encode/decode must match on success\");\n}\n"
+    },
+    {
+      "name": "htmlparser::Strings::Utf8ToCodepoints",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a UTF-8 byte sequence candidate; storage must outlive the call.\nstd::string utf8 = FUZZ_PARAM_STR();\n\nauto cps = htmlparser::Strings::Utf8ToCodepoints(std::string_view(utf8));\n(void)cps;\n"
+    },
+    {
+      "name": "htmlparser::Strings::AppendCodepointToUtf8String",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare destination string and a code point.\nstd::string out = FUZZ_PARAM_STR();\nuint32_t raw = *FUZZ_PARAM(unsigned int) & 0x1FFFFF;\nif (raw >= 0xD800 && raw <= 0xDFFF) raw = 0x2E; // '.' to avoid surrogate edge\nchar32_t cp = static_cast<char32_t>(raw);\n\nhtmlparser::Strings::AppendCodepointToUtf8String(cp, &out);\n"
+    },
+    {
+      "name": "htmlparser::Strings::CodepointToUtf8String",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint32_t raw = *FUZZ_PARAM(unsigned int) & 0x1FFFFF;\nif (raw >= 0xD800 && raw <= 0xDFFF) raw = 0x41; // 'A'\nchar32_t cp = static_cast<char32_t>(raw);\n\nstd::string s = htmlparser::Strings::CodepointToUtf8String(cp);\nif (!s.empty()) {\n  // If non-empty, decoding the first symbol should equal cp.\n  std::string_view v(s);\n  auto dec = htmlparser::Strings::DecodeUtf8Symbol(&v);\n  FUZZ_ASSERT(dec && *dec == cp, \"codepointToUtf8String must produce decodable first symbol\");\n}\n"
+    },
+    {
+      "name": "htmlparser::Strings::CodepointsToUtf8String",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a small vector of code points without using FUZZ_PARAM in a loop.\nunsigned int seed = *FUZZ_PARAM(unsigned int);\nunsigned int count = (seed % 8); // 0..7 code points\nstd::vector<char32_t> codes;\ncodes.reserve(count);\nfor (unsigned int i = 0; i < count; ++i) {\n  uint32_t v = (seed ^ (0x9E3779B9u * (i + 1))) & 0x1FFFFF;\n  if (v >= 0xD800 && v <= 0xDFFF) v = 0x20 + i; // avoid surrogates\n  codes.push_back(static_cast<char32_t>(v));\n}\n\nstd::string out = htmlparser::Strings::CodepointsToUtf8String(std::move(codes));\n(void)out;\n"
+    },
+    {
+      "name": "htmlparser::Strings::IndexAny",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nstd::string chars = FUZZ_PARAM_STR();\n\nstd::size_t idx = htmlparser::Strings::IndexAny(std::string_view(s), std::string_view(chars));\n(void)idx;\n"
+    },
+    {
+      "name": "htmlparser::Strings::EscapeString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide input storage that outlives the call.\nstd::string in = FUZZ_PARAM_STR();\nstd::string escaped = htmlparser::Strings::EscapeString(std::string_view(in));\n\n// Property guarantee: UnescapeString(EscapeString(s)) == s.\nstd::string round = escaped;\nhtmlparser::Strings::UnescapeString(&round, /*attribute=*/false);\nFUZZ_ASSERT(round == in, \"UnescapeString(EscapeString(s)) must equal s\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::Escape",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string in = FUZZ_PARAM_STR();\nstd::stringbuf buf;\nhtmlparser::Strings::Escape(std::string_view(in), &buf);\n\n// Property guarantee: UnescapeString(EscapeString(s)) == s applies; since we\n// used Escape(s) into a buffer, compare after unescaping.\nstd::string out = buf.str();\nstd::string round = out;\nhtmlparser::Strings::UnescapeString(&round, /*attribute=*/false);\nFUZZ_ASSERT(round == in, \"UnescapeString(Escape(s)) must equal s\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::UnescapeString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Start with arbitrary text, then escape it to form a valid entity string.\nstd::string original = FUZZ_PARAM_STR();\nstd::string escaped = htmlparser::Strings::EscapeString(std::string_view(original));\n\n// Randomize attribute parsing mode.\nbool attribute = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nhtmlparser::Strings::UnescapeString(&escaped, attribute);\n\n// Regardless of attribute mode, UnescapeString(EscapeString(s)) == s.\nFUZZ_ASSERT(escaped == original, \"UnescapeString(EscapeString(s)) must equal s\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::ToLower",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nhtmlparser::Strings::ToLower(&s);\n// Optional sanity: lowercasing twice should be idempotent.\nstd::string t = s;\nhtmlparser::Strings::ToLower(&t);\nFUZZ_ASSERT(t == s, \"ToLower should be idempotent\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::ToUpper",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nhtmlparser::Strings::ToUpper(&s);\n// Optional sanity: uppercasing twice should be idempotent.\nstd::string t = s;\nhtmlparser::Strings::ToUpper(&t);\nFUZZ_ASSERT(t == s, \"ToUpper should be idempotent\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::IsAllWhitespaceChars",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose whitespace character set: either default kWhitespace or\n// kWhitespaceOrNull to exercise alternate set.\nbool use_null_ws = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nstd::string in = FUZZ_PARAM_STR();\nstd::string_view ws = use_null_ws ? htmlparser::Strings::kWhitespaceOrNull\n                                  : htmlparser::Strings::kWhitespace;\n\nbool all_ws = htmlparser::Strings::IsAllWhitespaceChars(std::string_view(in), ws);\n(void)all_ws;\n"
+    },
+    {
+      "name": "htmlparser::Strings::EqualFold",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare two inputs; storage must outlive the call.\nstd::string l = FUZZ_PARAM_STR();\nstd::string r = FUZZ_PARAM_STR();\n\n// Invoke target in both orders and assert symmetry (commutativity) property.\nbool lr = htmlparser::Strings::EqualFold(std::string_view(l), std::string_view(r));\nbool rl = htmlparser::Strings::EqualFold(std::string_view(r), std::string_view(l));\nFUZZ_ASSERT(lr == rl, \"EqualFold must be symmetric\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::Replace",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare mutable string and non-empty search/replace tokens.\nstd::string s = FUZZ_PARAM_STR();\nstd::string f = FUZZ_PARAM_STR();\nstd::string t = FUZZ_PARAM_STR();\n// Enforce non-empty 'f' to avoid ambiguous semantics for empty needle.\nif (f.empty()) f = \"x\";\n\n// Snapshot before replace to validate no-op when 'f' not found.\nstd::string before = s;\nhtmlparser::Strings::Replace(&s, std::string_view(f), std::string_view(t));\n\n// If 'f' was not present originally, Replace must be a no-op.\nif (before.find(f) == std::string::npos) {\n  FUZZ_ASSERT(s == before, \"Replace must be a no-op when substring not found\");\n}\n"
+    },
+    {
+      "name": "htmlparser::Strings::ReplaceAll",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare mutable string and non-empty search/replace tokens.\nstd::string s = FUZZ_PARAM_STR();\nstd::string f = FUZZ_PARAM_STR();\nstd::string t = FUZZ_PARAM_STR();\nif (f.empty()) f = \"x\"; // enforce defined behavior\n\nhtmlparser::Strings::ReplaceAll(&s, std::string_view(f), std::string_view(t));\n\n// After ReplaceAll, 'f' should not appear in 's'.\nFUZZ_ASSERT(s.find(f) == std::string::npos, \"ReplaceAll must remove all occurrences of f\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::ReplaceAny",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare mutable string and replacement set/target.\nstd::string s = FUZZ_PARAM_STR();\nstd::string chars = FUZZ_PARAM_STR();\nstd::string to = FUZZ_PARAM_STR();\n\nhtmlparser::Strings::ReplaceAny(&s, std::string_view(chars), std::string_view(to));\n\n// Validate none of the characters in 'chars' remain in 's'.\nfor (unsigned char c : chars) {\n  if (s.find(static_cast<char>(c)) != std::string::npos) {\n    FUZZ_BAIL();\n  }\n}\n"
+    },
+    {
+      "name": "htmlparser::Strings::Translate",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare ASCII-only inputs to ensure valid UTF-8 when exercising identity.\nstd::string raw = FUZZ_PARAM_STR();\nstd::string str;\nstr.reserve(raw.size());\nfor (unsigned char c : raw) { str.push_back(static_cast<char>('a' + (c % 26))); }\n\n// Build abc as unique-ish ASCII letters and xyz mapping (optionally identity).\nstd::string abc_raw = FUZZ_PARAM_STR();\nstd::string abc;\nfor (unsigned char c : abc_raw) { char ch = static_cast<char>('a' + (c % 26)); if (abc.find(ch) == std::string::npos) abc.push_back(ch); }\nif (abc.empty()) abc = \"abc\"; // ensure non-empty mapping domain\n\nbool identity = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nstd::string xyz;\nif (identity) {\n  xyz = abc; // identity mapping\n} else {\n  std::string xyz_raw = FUZZ_PARAM_STR();\n  // Build a same-length xyz with ASCII letters (wrap if needed).\n  for (size_t i = 0; i < abc.size(); ++i) {\n    unsigned char c = (i < xyz_raw.size()) ? static_cast<unsigned char>(xyz_raw[i]) : static_cast<unsigned char>(i);\n    xyz.push_back(static_cast<char>('A' + (c % 26)));\n  }\n}\n\nauto out = htmlparser::Strings::Translate(std::string_view(str), std::string_view(abc), std::string_view(xyz));\n\n// If we requested identity translation and inputs are valid ASCII, result must equal input.\nif (identity) {\n  FUZZ_ASSERT(out.has_value(), \"Translate(identity) must succeed on ASCII inputs\");\n  FUZZ_ASSERT(*out == str, \"Translate(identity) must be an identity mapping\");\n}\n"
+    },
+    {
+      "name": "htmlparser::Strings::TrimLeft",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare string and trimming character set (use default or custom).\nstd::string s = FUZZ_PARAM_STR();\nbool use_default = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nstd::string chars_custom = FUZZ_PARAM_STR();\nstd::string_view chars = use_default ? htmlparser::Strings::kWhitespace\n                                     : std::string_view(chars_custom);\n\nhtmlparser::Strings::TrimLeft(&s, chars);\n// Trimming is idempotent.\nstd::string t = s;\nhtmlparser::Strings::TrimLeft(&t, chars);\nFUZZ_ASSERT(t == s, \"TrimLeft should be idempotent\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::TrimRight",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare string and trimming character set.\nstd::string s = FUZZ_PARAM_STR();\nbool use_default = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nstd::string chars_custom = FUZZ_PARAM_STR();\nstd::string_view chars = use_default ? htmlparser::Strings::kWhitespace\n                                     : std::string_view(chars_custom);\n\nhtmlparser::Strings::TrimRight(&s, chars);\n// Trimming is idempotent.\nstd::string t = s;\nhtmlparser::Strings::TrimRight(&t, chars);\nFUZZ_ASSERT(t == s, \"TrimRight should be idempotent\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::Trim",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare string and trimming character set.\nstd::string s = FUZZ_PARAM_STR();\nbool use_default = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nstd::string chars_custom = FUZZ_PARAM_STR();\nstd::string_view chars = use_default ? htmlparser::Strings::kWhitespace\n                                     : std::string_view(chars_custom);\n\nhtmlparser::Strings::Trim(&s, chars);\n// Trimming is idempotent.\nstd::string t = s;\nhtmlparser::Strings::Trim(&t, chars);\nFUZZ_ASSERT(t == s, \"Trim should be idempotent\");\n"
+    },
+    {
+      "name": "htmlparser::Strings::StripTrailingNewline",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a mutable string with possible trailing newlines.\nstd::string s = FUZZ_PARAM_STR();\n// Optionally append a newline sequence to exercise removal.\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 3u; // 0: none, 1: \\n, 2: \\r\\n\nif (mode == 1 && s.size() < 2048) s.push_back('\\n');\nif (mode == 2 && s.size() < 2047) { s.push_back('\\r'); s.push_back('\\n'); }\n\n(void)htmlparser::Strings::StripTrailingNewline(&s);\n"
+    },
+    {
+      "name": "htmlparser::Strings::RemoveExtraSpaceChars",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a string with potential multiple spaces.\nstd::string s = FUZZ_PARAM_STR();\n// Insert some runs of spaces to exercise collapsing.\nif (!s.empty()) {\n  size_t pos = (*FUZZ_PARAM(unsigned int)) % s.size();\n  s.insert(pos, \"   \");\n}\n\nhtmlparser::Strings::RemoveExtraSpaceChars(&s);\n"
+    },
+    {
+      "name": "htmlparser::Strings::StartsWith",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nstd::string prefix = FUZZ_PARAM_STR();\n\nbool sw = htmlparser::Strings::StartsWith(std::string_view(s), std::string_view(prefix));\n(void)sw;\n"
+    },
+    {
+      "name": "htmlparser::Strings::EndsWith",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nstd::string suffix = FUZZ_PARAM_STR();\n\nbool ew = htmlparser::Strings::EndsWith(std::string_view(s), std::string_view(suffix));\n(void)ew;\n"
+    },
+    {
+      "name": "htmlparser::Strings::SplitStringAt",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare input and delimiter.\nstd::string s = FUZZ_PARAM_STR();\nchar delimiter = static_cast<char>(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nauto cols = htmlparser::Strings::SplitStringAt(std::string_view(s), delimiter);\n(void)cols;\n"
+    },
+    {
+      "name": "htmlparser::Strings::SplitStrAtUtf8Whitespace",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Input storage must outlive the call; returned views alias this storage.\nstd::string s = FUZZ_PARAM_STR();\n\nauto cols = htmlparser::Strings::SplitStrAtUtf8Whitespace(std::string_view(s));\n// Do not modify or free 's' before using 'cols' (we simply discard here).\n(void)cols;\n"
+    },
+    {
+      "name": "htmlparser::Strings::IsUtf8WhiteSpaceChar",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare input and a valid position in [0, s.size()].\nstd::string s = FUZZ_PARAM_STR();\nstd::size_t pos = s.empty() ? 0 : (static_cast<std::size_t>(*FUZZ_PARAM(unsigned int)) % (s.size() + 1));\n\nint n = htmlparser::Strings::IsUtf8WhiteSpaceChar(std::string_view(s), pos);\n(void)n;\n"
+    },
+    {
+      "name": "htmlparser::Strings::CountTerms",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nint n = htmlparser::Strings::CountTerms(std::string_view(s));\n(void)n;\n"
+    },
+    {
+      "name": "htmlparser::URL::ProtocolStrict",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare backing storage for URL that outlives the call.\nstd::string url_storage = FUZZ_PARAM_STR();\nstd::string_view proto = htmlparser::URL::ProtocolStrict(std::string_view(url_storage));\n// Use and then drop the view while storage is still alive.\nif (!proto.empty()) {\n  // Touch first char to avoid optimizing away.\n  volatile char c = proto.front();\n  (void)c;\n}\n"
+    },
+    {
+      "name": "htmlparser::URL::URL",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// The URL class stores a std::string_view to the original buffer; ensure the\n// buffer outlives the URL instance by allocating it on the heap and attaching\n// it as an attribute to the URL object.\nstd::string* backing = new std::string(FUZZ_PARAM_STR());\n\n// Construct the URL with a view into the backing storage.\nhtmlparser::URL* url = new htmlparser::URL(std::string_view(*backing));\n\n// Track the backing pointer to keep it alive across fuzz calls.\nFUZZ_SET_ATTR_PTR(url, \"backing\", static_cast<void*>(backing));\n// Optionally record basic parse facts for downstream stubs.\nFUZZ_SET_ATTR_INT(url, \"has_protocol\", url->has_protocol() ? 1 : 0);\nFUZZ_SET_ATTR_INT(url, \"is_valid\", url->is_valid() ? 1 : 0);\n"
+    },
+    {
+      "name": "htmlparser::URL::is_valid",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// Call the const getter; ensure input object remains alive by returning it.\nbool v = url->is_valid();\n(void)v;\n\n// Keep the object in the pool for further operations.\n"
+    },
+    {
+      "name": "htmlparser::URL::has_protocol",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// Call the const getter and keep the object alive.\nbool hp = url->has_protocol();\n(void)hp;\n\n// Keep the object in the pool.\n"
+    },
+    {
+      "name": "htmlparser::URL::protocol",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// Ensure this URL was constructed via our harness and retains its backing.\nvoid* backing_ptr = FUZZ_GET_ATTR_PTR(url, \"backing\");\nif (!backing_ptr) { FUZZ_BAIL(); }\nstd::string* backing = static_cast<std::string*>(backing_ptr);\n\n// Call the target getter.\nstd::string proto = url->protocol();\n\n// Live check of has_protocol for consistency with protocol() emptiness.\nbool has_proto = url->has_protocol();\nFUZZ_ASSERT((has_proto && !proto.empty()) || (!has_proto && proto.empty()),\n            \"protocol() emptiness must correspond to has_protocol()\");\n\n// Optionally touch contents to exercise returned data.\nif (!proto.empty()) {\n  volatile char c = proto[0];\n  (void)c;\n}\n\n// Keep the URL object alive for the pool (and its backing by attribute)."
+    },
+    {
+      "name": "htmlparser::URL::hostname",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// Validate backing storage presence to ensure internal views remain valid.\nvoid* backing_ptr = FUZZ_GET_ATTR_PTR(url, \"backing\");\nif (!backing_ptr) { FUZZ_BAIL(); }\n\n// Invoke the getter. Contents may be empty depending on parsed URL.\nstd::string host = url->hostname();\n\n// Touch result to exercise path without asserting normalization/validity.\nif (!host.empty()) {\n  volatile char c = host.back();\n  (void)c;\n}\n\n// Return url to pool intact."
+    },
+    {
+      "name": "htmlparser::URL::login",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// Ensure object has backing storage tracked by our harness.\nvoid* backing_ptr = FUZZ_GET_ATTR_PTR(url, \"backing\");\nif (!backing_ptr) { FUZZ_BAIL(); }\n\n// Call the getter.\nstd::string login = url->login();\n\n// Light-touch use to avoid optimizing away.\nif (!login.empty()) {\n  volatile char c = login.front();\n  (void)c;\n}\n\n// Keep URL alive."
+    },
+    {
+      "name": "htmlparser::URL::port",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// Ensure we only operate on harness-constructed objects with live backing.\nvoid* backing_ptr = FUZZ_GET_ATTR_PTR(url, \"backing\");\nif (!backing_ptr) { FUZZ_BAIL(); }\n\n// Retrieve the parsed port (may be -1/0/explicit depending on implementation).\nint p = url->port();\n(void)p;\n\n// Keep URL in the pool."
+    },
+    {
+      "name": "htmlparser::URL::path_params_fragment",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "url",
+          "type": "htmlparser::URL *"
+        }
+      ],
+      "code": "// Verify backing storage exists; returned view aliases original buffer.\nvoid* backing_ptr = FUZZ_GET_ATTR_PTR(url, \"backing\");\nif (!backing_ptr) { FUZZ_BAIL(); }\nstd::string* backing = static_cast<std::string*>(backing_ptr);\n\n// Call the getter returning a view into the stored URL buffer.\nstd::string_view ppf = url->path_params_fragment();\n\n// If non-empty, its data pointer should lie within the backing buffer range.\nif (!ppf.empty()) {\n  const char* base = backing->data();\n  const char* end = base + backing->size();\n  const char* ptr = ppf.data();\n  FUZZ_ASSERT(ptr >= base && ptr <= end, \"path_params_fragment view must alias backing storage\");\n}\n\n// Touch size to exercise path.\nvolatile std::size_t n = ppf.size();\n(void)n;\n\n// Return URL to pool to preserve lifetime.\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "htmlparser::Strings::ToHexString",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::IsCharAlphabet",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::IsDigit",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::CodePointByteSequenceCount",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::CodePointNumBytes",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::EncodeUtf8Symbol",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::CodepointToUtf8String",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::CodepointsToUtf8String",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::URL::is_valid",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::URL::has_protocol",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::URL::protocol",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::URL::hostname",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::URL::login",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::URL::port",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::URL::path_params_fragment",
+      "data_types": []
+    },
+    {
+      "name": "htmlparser::Strings::DecodePercentEncodedURL",
+      "data_types": [
+        "percent-encoded URL or component"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::ConvertNewLines",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::DecodeUtf8Symbol",
+      "data_types": [
+        "UTF-8 data"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::Utf8ToCodepoints",
+      "data_types": [
+        "UTF-8 data"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::AppendCodepointToUtf8String",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::IndexAny",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::EscapeString",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::Escape",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::UnescapeString",
+      "data_types": [
+        "HTML with entities"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::ToLower",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::ToUpper",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::IsAllWhitespaceChars",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::EqualFold",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::Replace",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::ReplaceAll",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::ReplaceAny",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::Translate",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::TrimLeft",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::TrimRight",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::Trim",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::StripTrailingNewline",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::RemoveExtraSpaceChars",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::StartsWith",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::EndsWith",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::SplitStringAt",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::SplitStrAtUtf8Whitespace",
+      "data_types": [
+        "UTF-8 data"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::IsUtf8WhiteSpaceChar",
+      "data_types": [
+        "UTF-8 data"
+      ]
+    },
+    {
+      "name": "htmlparser::Strings::CountTerms",
+      "data_types": [
+        "UTF-8 data"
+      ]
+    },
+    {
+      "name": "htmlparser::URL::ProtocolStrict",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "htmlparser::URL::URL",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "percent-encoded URL or component",
+      "description": "A string that may contain percent-escape sequences per URL encoding (e.g., %20, %2F, %3F). It can be a full URL or any URL component that uses percent-encoding. Non-encoded characters may appear alongside encoded bytes."
+    },
+    {
+      "data_type": "arbitrary byte string",
+      "description": "An unconstrained byte sequence treated as a generic string. It may contain any bytes including NULs, control characters, or invalid UTF-8."
+    },
+    {
+      "data_type": "UTF-8 data",
+      "description": "A byte sequence intended to represent text encoded as UTF-8. May be valid or invalid; decoding routines should handle errors."
+    },
+    {
+      "data_type": "HTML with entities",
+      "description": "A string that may include HTML entity escapes such as &lt;, &gt;, &amp;, &apos;, &quot; and possibly other entities, representing HTML or attribute text requiring unescaping."
+    },
+    {
+      "data_type": "alphanumeric string",
+      "description": "A string composed only of letters and/or digits. In this context the fuzzer constructs ASCII letters for inputs to ensure valid UTF-8 and predictable translation behavior."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "percent-encoded URL or component",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for percent-encoded URL or component strings.\n# Produces valid, interesting inputs for htmlparser::Strings::DecodePercentEncodedURL.\n# Constraints:\n# - Return bytes (UTF-8) up to 4096 bytes.\n# - Seeded randomness.\n\nSAFE_PCHAR = string.ascii_letters + string.digits + \"-._~\"\nSUBDELIMS = \"!$&'()*+,;=\"\nUNRESERVED = SAFE_PCHAR\nHEX_DIGITS = \"0123456789ABCDEF\"\nSCHEMES = [\n    \"http\", \"https\", \"ftp\", \"file\", \"ws\", \"wss\", \"gopher\", \"mailto\",\n    \"data\", \"news\", \"tel\", \"ssh\", \"irc\", \"s3\", \"custom+ext\", \"a-b\",\n]\n\n# Common path segments for variability.\nSEGMENTS = [\n    \"\", \"index.html\", \"api\", \"v1\", \"用户\", \"тест\", \"スペース\", \"with space\",\n    \"a%20b\", \"%2Fslashes%2F\", \"%E2%9C%93\", \"%7Ehome\", \"ডাটা\", \"пример\",\n]\n\nQUERY_KEYS = [\n    \"q\", \"page\", \"lang\", \"utf8\", \"redirect\", \"token\", \"x\", \"y\", \"z\",\n]\nQUERY_VALUES = [\n    \"test\", \"hello world\", \"a/b\", \"c%d\", \"✓\", \"%E2%9C%93\", \"%2F\", \"123\",\n    \"спасибо\", \"数据\", \"~tilde\", \"a+b\", \"a%2Bb\",\n]\n\nFRAGMENTS = [\n    \"top\", \"section-1\", \"%E2%9C%93\", \"with space\", \"Übersicht\", \"\", \"a%2Fb\",\n]\n\n# Some characters to percent-encode deliberately in components\nTO_ENCODE = [\" \", \"/\", \"?\", \"#\", \"%\", \"+\", \"\\t\", \"\\n\"]\n\n# Percent-encode a byte value\n\ndef pct_byte(b: int) -> str:\n    return \"%\" + HEX_DIGITS[(b >> 4) & 0xF] + HEX_DIGITS[b & 0xF]\n\n\ndef pct_encode_utf8(s: str, encode_set: str = \"\") -> str:\n    # Percent-encode given characters and non-URL-safe bytes; leave others.\n    out = []\n    for ch in s:\n        bts = ch.encode(\"utf-8\")\n        for i, b in enumerate(bts):\n            if len(bts) == 1:\n                # Single-byte character\n                if ch in encode_set or (ch not in UNRESERVED and ch not in SUBDELIMS and ch not in \":@/\"):\n                    out.append(pct_byte(b))\n                else:\n                    out.append(ch)\n            else:\n                # Multibyte UTF-8: percent-encode each byte\n                out.append(pct_byte(b))\n    return \"\".join(out)\n\n\ndef maybe_pct(s: str, rng: random.Random, encode_set: str = \"\") -> str:\n    # Randomly percent-encode characters: some forced, some random.\n    out = []\n    for ch in s:\n        if ch in encode_set or ch in TO_ENCODE or rng.random() < 0.2:\n            out.append(pct_encode_utf8(ch, encode_set=encode_set or ch))\n        else:\n            out.append(ch)\n    return \"\".join(out)\n\n\ndef gen_authority(rng: random.Random) -> str:\n    # Optionally include userinfo and port. Host may be domain, IPv4, or IPv6.\n    parts = []\n    if rng.random() < 0.35:\n        user = maybe_pct(rng.choice([\"user\", \"admin\", \"测试\", \"πα\"],), rng, encode_set=\":@/\")\n        if rng.random() < 0.5:\n            pwd = maybe_pct(rng.choice([\"pass\", \"päss\", \"p%40ss\"],), rng, encode_set=\":@/\")\n            parts.append(f\"{user}:{pwd}@\")\n        else:\n            parts.append(f\"{user}@\")\n    host_choice = rng.random()\n    if host_choice < 0.6:\n        # domain with labels\n        labels = []\n        for _ in range(rng.randint(1, 3)):\n            base = rng.choice([\n                \"example\", \"sub\", \"svc\", \"xn--d1acufc\", \"müller\"  # include unicode label\n            ])\n            # For domain, leave ASCII labels as-is; percent-encode unicode bytes\n            labels.append(maybe_pct(base, rng))\n        host = \".\".join(labels)\n    elif host_choice < 0.85:\n        # IPv4\n        host = \".\".join(str(rng.randint(0, 255)) for _ in range(4))\n    else:\n        # IPv6 in brackets\n        hextets = [\"%x\" % rng.randint(0, 0xFFFF) for _ in range(8)]\n        host = \"[\" + \":\".join(hextets) + \"]\"\n    parts.append(host)\n    if rng.random() < 0.4:\n        parts.append(\":\" + str(rng.choice([80, 443, 21, 0, 65535, rng.randint(1, 65534)])))\n    return \"\".join(parts)\n\n\ndef gen_path(rng: random.Random) -> str:\n    # Construct a path with segments, some encoded\n    segs = []\n    n = rng.randint(0, 5)\n    for _ in range(n):\n        seg = rng.choice(SEGMENTS)\n        # Introduce special chars to encode\n        if rng.random() < 0.4:\n            seg += rng.choice([\" \", \"+\", \"#\", \";\", \",\", \"=\", \":\", \"@\"])  # to trigger encoding\n        segs.append(maybe_pct(seg, rng, encode_set=\"/#?+;,@\"))\n    path = \"/\" + \"/\".join(segs) if segs else (\"/\" if rng.random() < 0.6 else \"\")\n    return path\n\n\ndef gen_query(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return \"\"\n    pairs = []\n    m = rng.randint(1, 4)\n    for _ in range(m):\n        k = rng.choice(QUERY_KEYS)\n        v = rng.choice(QUERY_VALUES)\n        k_enc = maybe_pct(k, rng, encode_set=\"&=#?\")\n        v_enc = maybe_pct(v, rng, encode_set=\"&=#?\")\n        if rng.random() < 0.3:\n            # space as + variant, keep mix of %20 and +\n            v_enc = v_enc.replace(\" \", \"+\")\n        pairs.append(f\"{k_enc}={v_enc}\")\n    return \"?\" + \"&\".join(pairs)\n\n\ndef gen_fragment(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return \"\"\n    frag = rng.choice(FRAGMENTS)\n    frag_enc = maybe_pct(frag, rng, encode_set=\"#?\")\n    return \"#\" + frag_enc\n\n\ndef gen_full_url(rng: random.Random) -> str:\n    scheme = rng.choice(SCHEMES)\n    # Some schemes (mailto, data) can be special-cased\n    if scheme == \"mailto\":\n        local = maybe_pct(rng.choice([\"user.name\", \"名-前\", \"δοκιμή\"]), rng, encode_set=\"@<>#%\")\n        domain = rng.choice([\"example.com\", \"δοκιμή.gr\", \"xn--d1acufc.xn--p1ai\"])  # include puny/unicode\n        return f\"mailto:{local}@{domain}\"\n    if scheme == \"data\":\n        mime = rng.choice([\"text/plain\", \"text/html\", \"application/json\", \"image/png\"])\n        base64 = rng.random() < 0.5\n        if base64:\n            # simple valid base64 payload\n            payload = rng.choice([\"aGVsbG8=\", \"eyJrIjoiViJ9\", \"iVBORw0KGgo=\"])\n            return f\"data:{mime};base64,{payload}\"\n        else:\n            payload = maybe_pct(rng.choice([\"hello world\", \"<b>✓</b>\", \"a,b;c=d\"],), rng, encode_set=\",\")\n            return f\"data:{mime},{payload}\"\n    # Standard hierarchical URL\n    auth = gen_authority(rng)\n    path = gen_path(rng)\n    query = gen_query(rng)\n    frag = gen_fragment(rng)\n    # Some URLs start with // without explicit protocol\n    if rng.random() < 0.15:\n        return f\"//{auth}{path}{query}{frag}\"\n    return f\"{scheme}://{auth}{path}{query}{frag}\"\n\n\ndef gen_component_only(rng: random.Random) -> str:\n    # Generate standalone components that often include percent-encoding\n    kind = rng.choice([\"path\", \"query\", \"fragment\", \"hostname\", \"opaque\"])  # opaque arbitrary\n    if kind == \"path\":\n        return gen_path(rng)\n    if kind == \"query\":\n        return gen_query(rng)[1:] if rng.random() < 0.7 else gen_query(rng)\n    if kind == \"fragment\":\n        return gen_fragment(rng)[1:] if rng.random() < 0.7 else gen_fragment(rng)\n    if kind == \"hostname\":\n        return gen_authority(rng)\n    # opaque: a mix of unreserved, subdelims, and encoded UTF-8\n    base = \"\".join(rng.choice(UNRESERVED + SUBDELIMS + \":@/\") for _ in range(rng.randint(5, 25)))\n    # Inject some unicode and spaces which we encode\n    base += rng.choice([\" ✓\", \" 数据\", \" تست\", \"\\tend\"])\n    return maybe_pct(base, rng, encode_set=\" #%\")\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose between full URL and components, and occasionally a plain string already percent-encoded\n    choice = rng.random()\n    if choice < 0.6:\n        s = gen_full_url(rng)\n    elif choice < 0.9:\n        s = gen_component_only(rng)\n    else:\n        # Raw percent-encoded sequences mixing ASCII and UTF-8 bytes\n        raw = []\n        length = rng.randint(10, 80)\n        for _ in range(length):\n            r = rng.random()\n            if r < 0.5:\n                raw.append(rng.choice(UNRESERVED))\n            elif r < 0.8:\n                # force percent-encoded byte\n                raw.append(pct_byte(rng.randint(0, 255)))\n            else:\n                # direct UTF-8 then percent-encode bytes\n                ch = rng.choice([\"✓\", \"ß\", \"界\", \"💡\", \"/\", \"?\", \"#\", \"%\"])  # include reserved\n                raw.append(pct_encode_utf8(ch, encode_set=ch))\n        s = \"\".join(raw)\n    # Ensure size constraint\n    b = s.encode(\"utf-8\")\n    if len(b) > 4096:\n        b = b[:4096]\n    return b\n"
+    },
+    {
+      "data_type": "arbitrary byte string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets functions that consume arbitrary byte strings, but many\n# stubs exercise URL parsing and UTF-8/HTML string utilities. We therefore\n# produce valid, interesting byte sequences that include:\n# - Valid UTF-8 across 1–4 byte sequences\n# - ASCII text with mixed case for ToLower/ToUpper/EqualFold\n# - Whitespace variants including CR, LF, CRLF, tabs, form-feed, vertical tab\n# - Repetitions of spaces for RemoveExtraSpaceChars\n# - HTML escape-relevant characters: < > & ' \"\n# - Percent-encoded segments for DecodePercentEncodedURL and URL components\n# - URL-like strings (with and without protocol, with login, ports, IPv6, query/fragment)\n# - Strings containing delimiter candidates for SplitStringAt\n# - Bytes including NUL (for kWhitespaceOrNull) and other control chars\n# - Codepoint boundaries to exercise Utf8 decoding/encoding paths\n#\n# The output is a single bytes buffer; fuzz harness will slice it into different\n# FUZZ_PARAM_STR/FILENAME inputs over time. We structure the buffer as a corpus\n# of multiple lines/records separated by newlines and NULs so different slices\n# are likely to pick diverse content.\n\nASCII_WHITESPACE = b\" \\t\\r\\n\\f\\v\"\nHTML_ESC = b\"<>&\\'\\\"\"\nCONTROL_BYTES = bytes([0x00, 0x01, 0x02, 0x1F])\n\n# Some valid multi-byte UTF-8 examples (2,3,4-byte sequences), including spaces.\nUTF8_SAMPLES = [\n    \"\\u00A0\",   # non-breaking space (2 bytes)\n    \"\\u00E9\",   # é\n    \"\\u03B1\",   # α\n    \"\\u20AC\",   # € (3 bytes)\n    \"\\u2603\",   # ☃\n    \"\\u3000\",   # IDEOGRAPHIC SPACE (UTF-8 3 bytes)\n    \"\\U0001F600\",  # 😀 (4 bytes)\n    \"\\U0001F4A9\",  # 💩\n]\n\nURL_TEMPLATES = [\n    \"http://example.com/\",  # simple http\n    \"https://example.com/path?x=1&y=2#frag\",\n    \"ftp://user:pass@host.example:21/path;param?query#frag\",\n    \"mailto:user@example.com\",\n    \"file:///C:/Windows/system32/drivers/etc/hosts\",\n    \"//no-scheme.example.com/path\",  # scheme-less\n    \"custom+ext-proto://host/path\",\n    \"http://[2001:db8::1]/index.html\",\n    \"http://example.com/%7Euser/%E2%82%AC\",  # percent enc + UTF8\n    \"ws://example.com/socket?token=abc%20123\",\n]\n\nPERCENT_ENCODED_PARTS = [\n    b\"simple%20space%2Fslash%3Fq%3D1\",\n    b\"mixed%25percent%2Bplus%26amp\",\n    b\"utf8-%E2%82%AC-%F0%9F%98%80\",\n]\n\nDELIMS = [ord(','), ord('|'), ord(':'), ord(';'), ord('\\t')]\n\n\ndef _rand_weighted_choice(rng: random.Random, items: List, weights: List[int]):\n    total = sum(weights)\n    x = rng.randrange(total)\n    acc = 0\n    for item, w in zip(items, weights):\n        acc += w\n        if x < acc:\n            return item\n    return items[-1]\n\n\ndef _rand_utf8_chunk(rng: random.Random) -> bytes:\n    # Build a chunk containing a mix of ASCII words, UTF-8 samples, and digits.\n    parts: List[bytes] = []\n    # Random ASCII word with mixed case\n    word_len = rng.randint(1, 16)\n    word = ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(word_len))\n    parts.append(word.encode('ascii'))\n    # Optional UTF-8 code points\n    for _ in range(rng.randint(1, 3)):\n        cp = rng.choice(UTF8_SAMPLES)\n        parts.append(cp.encode('utf-8'))\n    # Include some HTML escape chars\n    if rng.random() < 0.8:\n        k = rng.randint(1, 4)\n        parts.append(bytes(rng.choices(list(HTML_ESC), k=k)))\n    # Include whitespace run\n    if rng.random() < 0.9:\n        parts.append(b\" \")\n        parts.append(b\"   \")\n    return b\"\".join(parts)\n\n\ndef _rand_newline_block(rng: random.Random) -> bytes:\n    # Create text with different newline styles to exercise ConvertNewLines and StripTrailingNewline.\n    lines = []\n    num = rng.randint(2, 6)\n    for i in range(num):\n        body = _rand_utf8_chunk(rng)\n        nl = _rand_weighted_choice(rng, [b\"\\n\", b\"\\r\\n\", b\"\\r\"], [5, 3, 2])\n        lines.append(body + nl)\n    return b\"\".join(lines)\n\n\ndef _rand_url(rng: random.Random) -> bytes:\n    base = rng.choice(URL_TEMPLATES).encode('utf-8')\n    # Optionally append extra path/query params and escapes\n    tail = b\"\"\n    if rng.random() < 0.7:\n        tail += b\"path-\" + _rand_utf8_chunk(rng)\n    if rng.random() < 0.7:\n        tail += b\"?q=\" + rng.choice(PERCENT_ENCODED_PARTS)\n    if rng.random() < 0.5:\n        tail += b\"#frag-\" + _rand_utf8_chunk(rng)\n    return base + tail\n\n\ndef _rand_split_candidate(rng: random.Random) -> bytes:\n    # Build CSV/TSV-like content with various delimiters.\n    delim = rng.choice(DELIMS)\n    cols = [\n        _rand_utf8_chunk(rng),\n        b\"value123\",\n        b\"A<B>&\\\"'C\",  # includes escapables\n        b\"  spaced   out  \",\n    ]\n    row = bytes([delim]).join(cols)\n    # multiple rows\n    rows = [row]\n    for _ in range(rng.randint(1, 3)):\n        mutated = bytearray(row)\n        # insert NUL or control occasionally\n        if rng.random() < 0.5:\n            pos = rng.randrange(1, len(mutated))\n            mutated.insert(pos, 0)\n        rows.append(bytes(mutated))\n    return b\"\\n\".join(rows)\n\n\ndef _section(rng: random.Random, title: str, payload: bytes) -> bytes:\n    # Frame sections with markers that are benign strings; harness may pick substrings.\n    return (b\"--BEGIN-\" + title.encode('ascii') + b\"--\\n\" + payload + b\"\\n--END-\" + title.encode('ascii') + b\"--\\n\")\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    sections: List[bytes] = []\n\n    # 1) Mixed ASCII/UTF-8 with HTML escapables and whitespace runs\n    for i in range(rng.randint(2, 4)):\n        sections.append(_section(rng, f\"UTF8-{i}\", _rand_utf8_chunk(rng)))\n\n    # 2) Newline variants block\n    sections.append(_section(rng, \"NEWLINES\", _rand_newline_block(rng)))\n\n    # 3) URL cases (with and without schemes), including percent-encoding\n    for i in range(rng.randint(2, 4)):\n        sections.append(_section(rng, f\"URL-{i}\", _rand_url(rng)))\n\n    # 4) Pure percent-encoded strings to feed DecodePercentEncodedURL\n    pe = b\"\\n\".join(PERCENT_ENCODED_PARTS + [b\"a%20b%2Fc%3Fd%3D1%26e%3D2%25\"])\n    sections.append(_section(rng, \"PERCENT\", pe))\n\n    # 5) Split delimiter candidate data\n    sections.append(_section(rng, \"SPLIT\", _rand_split_candidate(rng)))\n\n    # 6) Whitespace-only strings to test IsAllWhitespaceChars (with and w/o NUL)\n    ws_only = bytearray()\n    for _ in range(rng.randint(8, 20)):\n        ws_only.append(rng.choice(list(ASCII_WHITESPACE)))\n    if rng.random() < 0.7:\n        ws_only.append(0x00)\n    sections.append(_section(rng, \"WHITESPACE\", bytes(ws_only)))\n\n    # 7) Include some control bytes and boundary values for ASCII checks\n    ascii_checks = bytearray()\n    ascii_checks += b\"AZaz09!\"  # boundaries for IsCharAlphabet/IsDigit\n    ascii_checks += CONTROL_BYTES\n    ascii_checks += b\"\\x7F\"  # DEL\n    sections.append(_section(rng, \"ASCII\", bytes(ascii_checks)))\n\n    # 8) Trailing newline exercise strings\n    sections.append(_section(rng, \"TRAIL-NL\", b\"line1\\nline2\\r\\nend\\n\"))\n\n    # 9) Add a long run with many spaces to test RemoveExtraSpaceChars\n    sections.append(_section(rng, \"SPACES\", b\"word\" + b\" \" * rng.randint(5, 20) + b\"end\"))\n\n    # 10) Add some exact tokens for Replace/ReplaceAll/ReplaceAny testing\n    sections.append(_section(rng, \"REPLACE\", b\"foo bar foo <tag> & entity ' \\\" \"))\n\n    blob = b\"\".join(sections)\n\n    # Ensure size limit\n    if len(blob) > 4096:\n        blob = blob[:4096]\n\n    return blob\n"
+    },
+    {
+      "data_type": "UTF-8 data",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator focuses on producing valid and interesting UTF-8 byte sequences\n# to exercise htmlparser::Strings UTF-8 related fuzzers. It mixes ASCII, multi-\n# byte Unicode (2/3/4 bytes), various whitespace (including multibyte U+3000),\n# punctuation, and boundary code points. It also intersperses different newline\n# styles to drive newline/whitespace logic.\n\n_MAX_BYTES = 4096\n\nASCII_WHITESPACE = [0x20, 0x09, 0x0A, 0x0C, 0x0D]  # space, tab, LF, FF, CR\n\n# A selection of code points to cover a wide surface area.\n# - ASCII letters/digits/punct\n# - Latin-1 supplement accents\n# - Greek, Cyrillic\n# - Common emoji (4-byte)\n# - Edge cases around plane boundaries\n# - Whitespace including U+3000 IDEOGRAPHIC SPACE and NBSP\nUNICODE_CODEPOINT_POOLS = {\n    \"ascii_letters\": [ord(c) for c in (\"abcdefghijklmnopqrstuvwxyz\" \n                                        \"ABCDEFGHIJKLMNOPQRSTUVWXYZ\")],\n    \"ascii_digits\": [ord(c) for c in \"0123456789\"],\n    \"ascii_punct\": [ord(c) for c in \"!@#$%^&*()-_=+[]{};:',.<>/?|\\\\\\\"`~\"],\n    \"latin1\": list(range(0x00A0, 0x00FF + 1)),\n    \"greek\": list(range(0x0370, 0x03FF + 1)),\n    \"cyrillic\": list(range(0x0400, 0x04FF + 1)),\n    \"emoji\": [0x1F600, 0x1F603, 0x1F604, 0x1F601, 0x1F923, 0x1F602, 0x1F642,\n               0x1F609, 0x1F60D, 0x1F680, 0x1F4A9, 0x1F44D, 0x1F44E],\n    \"math\": list(range(0x2200, 0x22FF + 1)),\n    \"arabic\": list(range(0x0600, 0x06FF + 1)),\n    \"hebrew\": list(range(0x0590, 0x05FF + 1)),\n    # Useful whitespace and separators\n    \"whitespace\": [0x00A0, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005,\n                    0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x2028, 0x2029,\n                    0x202F, 0x205F, 0x3000],  # NBSP..IDEOGRAPHIC SPACE\n    # Boundary/edge scalars\n    \"edges\": [0x007F, 0x0080, 0x07FF, 0x0800, 0xD7FF, 0xE000, 0xFFFD,\n              0xFFFF, 0x10000, 0x10FFFF],\n}\n\n# Encode a Unicode scalar to UTF-8 (skip invalid scalars like surrogates)\ndef encode_utf8_scalar(cp: int) -> bytes:\n    # Skip surrogate range explicitly\n    if 0xD800 <= cp <= 0xDFFF:\n        return b\"\"\n    if cp < 0 or cp > 0x10FFFF:\n        return b\"\"\n    if cp <= 0x7F:\n        return bytes([cp])\n    elif cp <= 0x7FF:\n        return bytes([0xC0 | (cp >> 6), 0x80 | (cp & 0x3F)])\n    elif cp <= 0xFFFF:\n        return bytes([0xE0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F)])\n    else:\n        return bytes([0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F),\n                      0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F)])\n\ndef rand_choice(rnd: random.Random, seq: List[int]) -> int:\n    return seq[rnd.randrange(0, len(seq))]\n\ndef gen_ascii_word(rnd: random.Random, min_len=1, max_len=16) -> bytes:\n    length = rnd.randint(min_len, max_len)\n    alphabet = \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\"\n    return ''.join(rnd.choice(alphabet) for _ in range(length)).encode('ascii')\n\ndef gen_utf8_word(rnd: random.Random, min_len=1, max_len=8) -> bytes:\n    length = rnd.randint(min_len, max_len)\n    pools = list(UNICODE_CODEPOINT_POOLS.values())\n    out = bytearray()\n    for _ in range(length):\n        pool = rnd.choice(pools)\n        cp = rand_choice(rnd, pool)\n        enc = encode_utf8_scalar(cp)\n        if not enc:\n            # fallback to a safe ASCII letter\n            enc = bytes([rand_choice(rnd, UNICODE_CODEPOINT_POOLS[\"ascii_letters\"])])\n        out.extend(enc)\n    return bytes(out)\n\ndef gen_whitespace_mix(rnd: random.Random, min_runs=1, max_runs=6) -> bytes:\n    runs = rnd.randint(min_runs, max_runs)\n    out = bytearray()\n    for _ in range(runs):\n        kind = rnd.randrange(0, 5)\n        if kind == 0:\n            # ASCII spaces/tabs\n            out.extend(bytes([rand_choice(rnd, ASCII_WHITESPACE)]) * rnd.randint(1, 5))\n        elif kind == 1:\n            # Windows newline CRLF\n            out.extend(b\"\\r\\n\")\n        elif kind == 2:\n            # Classic Mac CR\n            out.extend(b\"\\r\")\n        elif kind == 3:\n            # U+3000 IDEOGRAPHIC SPACE\n            out.extend(encode_utf8_scalar(0x3000))\n        else:\n            # Other Unicode space\n            cp = rand_choice(rnd, UNICODE_CODEPOINT_POOLS[\"whitespace\"]) \\\n                 if rnd.random() < 0.8 else 0x00A0\n            out.extend(encode_utf8_scalar(cp))\n    return bytes(out)\n\ndef gen_sentence(rnd: random.Random) -> bytes:\n    # Build a sentence mixing ASCII and UTF-8 words with punctuation\n    words = []\n    n = rnd.randint(3, 12)\n    for i in range(n):\n        if rnd.random() < 0.5:\n            w = gen_ascii_word(rnd)\n        else:\n            w = gen_utf8_word(rnd)\n        words.append(w)\n    sep = gen_whitespace_mix(rnd, 1, 2)\n    sentence = sep.join(words)\n    # Add terminal punctuation sometimes\n    trail = rnd.choice([b\".\", b\"!\", b\"?\", b\"\", b\";\", b\":\"]) if rnd.random() < 0.8 else b\"\"\n    return sentence + trail\n\ndef gen_multiline_text(rnd: random.Random) -> bytes:\n    lines = []\n    count = rnd.randint(2, 8)\n    for _ in range(count):\n        line = gen_sentence(rnd)\n        # End each line with varying newline styles\n        end = rnd.choice([b\"\\n\", b\"\\r\\n\", b\"\\r\"]) if rnd.random() < 0.9 else b\"\\n\"\n        lines.append(line + end)\n    return b\"\".join(lines)\n\ndef gen_emoji_run(rnd: random.Random) -> bytes:\n    run = bytearray()\n    n = rnd.randint(3, 16)\n    for _ in range(n):\n        cp = rand_choice(rnd, UNICODE_CODEPOINT_POOLS[\"emoji\"])  # 4-byte sequences\n        run.extend(encode_utf8_scalar(cp))\n        if rnd.random() < 0.3:\n            run.extend(gen_whitespace_mix(rnd, 1, 1))\n    return bytes(run)\n\ndef gen_mixed_clusters(rnd: random.Random) -> bytes:\n    # Mix scripts and edges, useful for tokenization and boundary checks\n    parts = []\n    for _ in range(rnd.randint(4, 12)):\n        choice = rnd.random()\n        if choice < 0.2:\n            parts.append(gen_utf8_word(rnd, 1, 3))\n        elif choice < 0.4:\n            parts.append(b\"-\" + gen_ascii_word(rnd, 1, 5))\n        elif choice < 0.6:\n            # Boundary code point\n            cp = rand_choice(rnd, UNICODE_CODEPOINT_POOLS[\"edges\"])\n            parts.append(encode_utf8_scalar(cp))\n        elif choice < 0.8:\n            parts.append(gen_whitespace_mix(rnd, 1, 2))\n        else:\n            parts.append(encode_utf8_scalar(rand_choice(rnd, UNICODE_CODEPOINT_POOLS[\"greek\"])))\n    return b\"\".join(parts)\n\ndef gen_title_like(rnd: random.Random) -> bytes:\n    # Mimic a title with mixed case and multibyte spaces\n    words = [gen_utf8_word(rnd, 1, 4).capitalize() for _ in range(rnd.randint(2, 6))]\n    sep = rnd.choice([b\" \", encode_utf8_scalar(0x3000), encode_utf8_scalar(0x2009)])\n    return sep.join(words)\n\ndef gen_payload(rnd: random.Random) -> bytes:\n    # Assemble a payload concatenating different segments with whitespace between\n    segments = []\n    builders = [gen_sentence, gen_multiline_text, gen_emoji_run, gen_mixed_clusters, gen_title_like]\n    total_budget = _MAX_BYTES\n    # Start with BOM sometimes (valid UTF-8 BOM)\n    if rnd.random() < 0.2:\n        segments.append(b\"\\xEF\\xBB\\xBF\")\n        total_budget -= 3\n    # Ensure we generate multiple sections to exercise splitting and decoding\n    for _ in range(rnd.randint(3, 8)):\n        builder = rnd.choice(builders)\n        part = builder(rnd)\n        # Insert percent-encoded URL-ish snippet sometimes (valid text still)\n        if rnd.random() < 0.3:\n            # create ASCII with spaces and symbols that could be split and counted\n            urlish = b\"http://example.com/search?q=\" + gen_ascii_word(rnd, 3, 8) + b\"%20\" + gen_ascii_word(rnd, 3, 8)\n            part = part + b\" \" + urlish\n        # Insert escapes and HTML-like entities to exercise CountTerms/Escape interactions\n        if rnd.random() < 0.3:\n            part += b\" <tag attr=\\\"value\\\">&amp;&lt;&gt;\\\"' </tag> \"\n        # Bound segment size\n        if len(part) > total_budget // 2:\n            part = part[: max(1, total_budget // 2)]\n        segments.append(part)\n        total_budget -= len(part)\n        if total_budget <= 0:\n            break\n        # Add whitespace separator between segments\n        sep = gen_whitespace_mix(rnd, 1, 3)\n        if len(sep) > total_budget:\n            sep = sep[:total_budget]\n        segments.append(sep)\n        total_budget -= len(sep)\n        if total_budget <= 0:\n            break\n    payload = b\"\".join(segments)\n    # Final trim to max size\n    if len(payload) > _MAX_BYTES:\n        payload = payload[:_MAX_BYTES]\n    return payload\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    # Randomly choose a strategy that still produces valid UTF-8 overall.\n    strategy = rnd.randrange(0, 5)\n    if strategy == 0:\n        data = gen_multiline_text(rnd)\n    elif strategy == 1:\n        data = gen_emoji_run(rnd)\n    elif strategy == 2:\n        data = gen_mixed_clusters(rnd)\n    elif strategy == 3:\n        data = gen_title_like(rnd)\n    else:\n        data = gen_payload(rnd)\n    # Ensure non-empty and within size\n    if not data:\n        data = b\"hello\\n\"\n    if len(data) > _MAX_BYTES:\n        data = data[:_MAX_BYTES]\n    return data\n"
+    },
+    {
+      "data_type": "HTML with entities",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for HTML-with-entities content that remains valid after unescaping\n# and re-escaping round trips used by the fuzzer stub:\n#   original -> EscapeString -> UnescapeString(attribute|!attribute) == original\n# We therefore need to generate arbitrary original text (not necessarily valid HTML)\n# consisting of a wide range of characters, including ones that trigger escaping\n# (<, >, &, ', \"), whitespace/newlines, Unicode, and edge cases like lone semicolons\n# or ampersands that should be preserved through Escape/Unescape cycle.\n# The stub will use FUZZ_PARAM_STR() to obtain this buffer.\n# No filenames are used in this stub.\n\nHTML_BASIC_ENTITIES = [\"&lt;\", \"&gt;\", \"&amp;\", \"&apos;\", \"&quot;\"]\n\ndef _rand_ascii(rnd: random.Random, min_len: int, max_len: int) -> str:\n    # Mix visible ASCII and whitespace; include characters that do not get escaped\n    # to increase coverage of general string processing.\n    alphabet = (\n        string.ascii_letters + string.digits + string.punctuation + \" \"\n    )\n    n = rnd.randint(min_len, max_len)\n    return \"\".join(rnd.choice(alphabet) for _ in range(n))\n\ndef _rand_unicode_block(rnd: random.Random) -> str:\n    # Produce a small sequence of valid UTF-8 characters from diverse ranges.\n    # Avoid surrogate range and invalid code points.\n    out: List[str] = []\n    choices = []\n    # Basic Latin extended punctuation\n    choices += list(range(0x00A1, 0x00FF))\n    # Latin Extended-A subset\n    choices += list(range(0x0100, 0x017F))\n    # Greek subset\n    choices += list(range(0x0370, 0x03A2))\n    # Cyrillic subset\n    choices += list(range(0x0400, 0x045F))\n    # Emoji subset (common ones)\n    choices += [0x2600, 0x2601, 0x2602, 0x2615, 0x263A, 0x2665, 0x2728]\n    # Some CJK characters\n    choices += [0x4E00, 0x4E2D, 0x56FD, 0x65E5, 0x672C, 0x6C49, 0x8A9E]\n    for _ in range(rnd.randint(3, 12)):\n        cp = rnd.choice(choices)\n        try:\n            out.append(chr(cp))\n        except ValueError:\n            pass\n    return \"\".join(out)\n\ndef _insert_entities(rnd: random.Random, s: str) -> str:\n    # Insert pre-escaped entities that should remain stable through the cycle.\n    parts = [s]\n    # Randomly interleave known entities and numeric entities\n    for _ in range(rnd.randint(1, 6)):\n        idx = rnd.randint(0, len(parts))\n        ent_kind = rnd.randint(0, 3)\n        if ent_kind == 0:\n            ent = rnd.choice(HTML_BASIC_ENTITIES)\n        elif ent_kind == 1:\n            # Decimal numeric entity for a printable character\n            cp = rnd.choice([34, 38, 39, 60, 62, 160, 169, 174, 215, 247])\n            ent = f\"&#{cp};\"\n        else:\n            # Hex numeric entity\n            cp = rnd.choice([0x22, 0x26, 0x27, 0x3C, 0x3E, 0xA0, 0x2022, 0x2014])\n            ent = f\"&#x{cp:X};\"\n        parts.insert(idx, ent)\n    return \"\".join(parts)\n\ndef _structured_htmlish(rnd: random.Random) -> str:\n    # Create small HTML-like snippets to ensure escaping of tag syntax.\n    tags = [\n        (\"div\", {\"class\": \"c&c\", \"data-x\": \"1<2\"}),\n        (\"a\", {\"href\": \"https://example.com/?q=1&x=2\", \"title\": \"A\\\"B\"}),\n        (\"span\", {\"data-v\": \"'quote' & more\"}),\n        (\"p\", {}),\n    ]\n    name, attrs = rnd.choice(tags)\n    attr_parts = []\n    for k, v in attrs.items():\n        q = rnd.choice(['\"', \"'\"])\n        attr_parts.append(f\"{k}={q}{v}{q}\")\n    attr_str = (\" \" + \" \".join(attr_parts)) if attr_parts else \"\"\n    inner = _rand_ascii(rnd, 0, 24) + _rand_unicode_block(rnd)\n    # Sprinkle raw special chars in inner\n    specials = ['<', '>', '&', '\\'', '\"']\n    for _ in range(rnd.randint(1, 5)):\n        pos = rnd.randint(0, len(inner))\n        inner = inner[:pos] + rnd.choice(specials) + inner[pos:]\n    return f\"<{name}{attr_str}>{inner}</{name}>\"\n\ndef _mix_newlines_and_space(rnd: random.Random, s: str) -> str:\n    # Introduce various newline styles and whitespace runs which should be\n    # preserved by Escape/Unescape.\n    nl_variants = [\"\\n\", \"\\r\", \"\\r\\n\", \"\\f\", \"\\t\", \" \"]\n    chunks = [s]\n    for _ in range(rnd.randint(2, 6)):\n        chunks.insert(rnd.randint(0, len(chunks)), rnd.choice(nl_variants) * rnd.randint(1, 3))\n    return \"\".join(chunks)\n\ndef _build_original(rnd: random.Random) -> str:\n    pieces: List[str] = []\n    # Start with structured htmlish content to ensure presence of escapables\n    if rnd.random() < 0.7:\n        pieces.append(_structured_htmlish(rnd))\n    # Add random ascii and unicode blocks\n    for _ in range(rnd.randint(1, 3)):\n        block = _rand_ascii(rnd, 5, 40)\n        if rnd.random() < 0.6:\n            block = _insert_entities(rnd, block)\n        if rnd.random() < 0.7:\n            block += _rand_unicode_block(rnd)\n        pieces.append(block)\n    s = \" \".join(pieces)\n    s = _mix_newlines_and_space(rnd, s)\n\n    # Edge-case prefixes/suffixes: leading/trailing spaces, tabs, and semicolons\n    if rnd.random() < 0.5:\n        s = (\" \" * rnd.randint(0, 3)) + s\n    if rnd.random() < 0.5:\n        s = s + (\"\\t\" * rnd.randint(0, 3))\n\n    # Include stray ampersands and incomplete entities that should be preserved\n    # (they will be escaped first and then unescaped back to original text).\n    if rnd.random() < 0.7:\n        insert_positions = [rnd.randint(0, len(s)) for _ in range(rnd.randint(1, 3))]\n        for pos in sorted(insert_positions):\n            s = s[:pos] + rnd.choice([\"&x\", \"&\", \"&notanentity;\", \"&&\", \"&;\", \"&#\", \"&#x\"]) + s[pos:]\n\n    # Cap size to 4096 bytes\n    if len(s.encode('utf-8')) > 4096:\n        # Truncate at code-point boundary by encoding and slicing\n        b = s.encode('utf-8')[:4096]\n        # Ensure valid UTF-8 by backing up to a safe boundary\n        while b and (b[-1] & 0xC0) == 0x80:\n            b = b[:-1]\n        try:\n            s = b.decode('utf-8', 'strict')\n        except UnicodeDecodeError:\n            s = b.decode('utf-8', 'ignore')\n    return s\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    original = _build_original(rnd)\n    return original.encode('utf-8')\n"
+    },
+    {
+      "data_type": "alphanumeric string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets htmlparser::Strings::Translate fuzzer stub.\n# The stub builds its own ASCII-only strings from FUZZ_PARAM_STR bytes by mapping\n# each byte to 'a' + (c % 26) for str and abc (with abc deduplicated) and builds xyz\n# either as identity (xyz == abc) or as an uppercase mapping of equal length.\n# We therefore provide a buffer that, when split by the harness into FUZZ_PARAM_STR\n# calls, yields diverse but valid ASCII inputs that exercise:\n# - identity mapping (ensures equality)\n# - non-identity mapping with same-length xyz\n# - abc containing duplicates, gaps, and full alphabet coverage\n# We avoid invalid UTF-8 entirely and keep under 4096 bytes.\n\n# Assumed harness consumption order within this stub:\n#   raw         = FUZZ_PARAM_STR()\n#   abc_raw     = FUZZ_PARAM_STR()\n#   identity flag is random in harness (not from buffer), but we craft data to be\n#                interesting for both branches.\n#   xyz_raw     = FUZZ_PARAM_STR()  (only used if identity == false)\n# Many fuzzers concatenate all provided seed buffers and split them per FUZZ_PARAM_STR\n# based on delimiters or sizes. We encode three segments with length headers so that\n# common corpus loaders can split deterministically.\n\n# Encoding format we use for our bytes buffer:\n# [len1(2 bytes LE)] raw_bytes\n# [len2(2 bytes LE)] abc_raw_bytes\n# [len3(2 bytes LE)] xyz_raw_bytes\n# All bytes are ASCII and constrained so that the stub’s mapping yields desired coverage.\n\nMAX_TOTAL = 4096\nMAX_SEG = 1200\n\n\ndef _pack_len(n: int) -> bytes:\n    return n.to_bytes(2, 'little')\n\n\ndef _make_raw(rng: random.Random) -> bytes:\n    # raw -> becomes str: 'a' + (c % 26). We want words, spaces are ignored by mapping\n    # so just create varied sequences that after mapping give patterns to translate.\n    # Include all letters by ensuring c % 26 covers 0..25 multiple times.\n    length = rng.randint(64, 512)\n    # Build with values 0..255 but ensure spread across mod 26.\n    out = bytearray()\n    base_cycle = [i for i in range(26)]\n    rng.shuffle(base_cycle)\n    while len(out) < length:\n        for v in base_cycle:\n            out.append((v + rng.randrange(0, 230)) & 0xFF)\n            if len(out) >= length:\n                break\n    return bytes(out)\n\n\ndef _make_abc_raw(rng: random.Random) -> bytes:\n    # abc is deduplicated after mapping to 'a'+(c%26). We want:\n    # - sometimes small abc (e.g., 3 chars)\n    # - sometimes full alphabet\n    # - duplicates in source to test dedup logic\n    mode = rng.randrange(4)\n    if mode == 0:\n        # small abc around 3-6 unique letters with many duplicates\n        target_uniques = rng.randint(3, 6)\n    elif mode == 1:\n        # medium 10-15 uniques\n        target_uniques = rng.randint(10, 15)\n    elif mode == 2:\n        # full alphabet\n        target_uniques = 26\n    else:\n        # single-letter mapping\n        target_uniques = 1\n\n    # Create values that map to chosen unique set.\n    letters = list(range(26))\n    rng.shuffle(letters)\n    chosen = letters[:target_uniques]\n\n    # Populate with duplicates and noise that maps into chosen set.\n    size = rng.randint(max(8, target_uniques * 2), min(MAX_SEG, target_uniques * 20))\n    out = bytearray()\n    while len(out) < size:\n        v = rng.choice(chosen)\n        # Add random higher byte to vary original value while keeping mod 26 == v\n        k = rng.randrange(0, 10)\n        val = (v + 26 * k) & 0xFF\n        out.append(val)\n        # inject occasional bytes that map to same chosen via different residue\n        if rng.random() < 0.2:\n            k2 = rng.randrange(10, 20)\n            out.append((v + 26 * k2) & 0xFF)\n    return bytes(out)\n\n\ndef _make_xyz_raw(rng: random.Random) -> bytes:\n    # xyz_raw is only used to build uppercase mapping: for i in abc.size(), pick\n    # c from xyz_raw or from i. Only c % 26 matters. To vary, craft a buffer that,\n    # when mod 26 applied across positions, yields a shuffled A..Z coverage.\n    # We'll emit a random permutation of 0..25 twice.\n    perms: List[int] = list(range(26))\n    rng.shuffle(perms)\n    seq = perms + perms  # ensure enough bytes for long abc\n    # Map residues to bytes: just use the residue itself to keep simple.\n    data = bytes((v for v in seq))\n    # Pad a bit randomly\n    pad_len = rng.randint(0, 64)\n    pad = bytes(rng.randrange(0, 256) for _ in range(pad_len))\n    return data + pad\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    raw = _make_raw(rng)\n    abc_raw = _make_abc_raw(rng)\n    xyz_raw = _make_xyz_raw(rng)\n\n    # Ensure total size within limit\n    parts = [_pack_len(len(raw)), raw, _pack_len(len(abc_raw)), abc_raw,\n             _pack_len(len(xyz_raw)), xyz_raw]\n    buf = b''.join(parts)\n    if len(buf) > MAX_TOTAL:\n        # Trim xyz_raw first, then others if necessary\n        # Rebuild with trimmed xyz\n        avail = MAX_TOTAL - (2 + len(raw) + 2 + len(abc_raw))\n        if avail < 2:\n            # extreme fallback: trim all proportionally\n            raw = raw[:min(len(raw), 1024)]\n            abc_raw = abc_raw[:min(len(abc_raw), 1024)]\n            xyz_raw = xyz_raw[:min(len(xyz_raw), 1024)]\n        else:\n            xyz_raw = xyz_raw[:max(0, avail - 2)]\n        parts = [_pack_len(len(raw)), raw, _pack_len(len(abc_raw)), abc_raw,\n                 _pack_len(len(xyz_raw)), xyz_raw]\n        buf = b''.join(parts)\n\n    return buf\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4171,
+            "output_tokens": 3961,
+            "total_tokens": 8132
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3749,
+            "output_tokens": 413,
+            "total_tokens": 4162
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4621,
+            "output_tokens": 6076,
+            "total_tokens": 10697
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 45159,
+            "output_tokens": 11412,
+            "total_tokens": 56571
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 24070,
+            "output_tokens": 871,
+            "total_tokens": 24941
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 489.5677762031555,
+    "scan_objects": 34.035133838653564,
+    "validate_objects": 0.7604339122772217,
+    "scan_functions": 87.94979739189148,
+    "synthesis": 281.94317650794983,
+    "fill": 0,
+    "classify": 25.265620231628418,
+    "build_generators": 59.612324953079224
+  }
+}

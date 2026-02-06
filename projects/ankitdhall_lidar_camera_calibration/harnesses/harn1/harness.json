@@ -1,0 +1,182 @@
+{
+  "objects": [
+    {
+      "ptr_type": "std::pair<Eigen::MatrixXd, Eigen::MatrixXd> *",
+      "aliases": [],
+      "definition": "",
+      "description": "A standard library pair of two Eigen::MatrixXd objects used by readArray to return lidar and camera point arrays. This is a referenced standard template instantiation and not custom-defined here; included only for clarity. No custom definition exists in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Eigen::Quaterniond *",
+      "aliases": [],
+      "definition": "",
+      "description": "Eigen quaternion with double precision. Used for accumulating rotations. This is defined by Eigen, not in this header; no custom type is defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "addQ",
+      "signature": "Eigen::Quaterniond addQ(Eigen::Quaterniond a, Eigen::Quaterniond b)",
+      "description": "Accumulates two quaternions with hemisphere correction. If the dot product a·b is negative, b is flipped (negated) to avoid averaging antipodal quaternions, then the components are added elementwise. Intended for incremental averaging/accumulation of rotations before normalization by the caller.",
+      "requirements": [
+        "Inputs a and b should represent valid rotations (unit quaternions) for meaningful results; function does not normalize the sum.",
+        "Caller must normalize the returned quaternion if a rotation quaternion is required.",
+        "No side effects beyond returning the sum; parameters are passed by value."
+      ],
+      "error": null
+    },
+    {
+      "name": "readArray",
+      "signature": "std::pair<Eigen::MatrixXd, Eigen::MatrixXd> readArray()",
+      "description": "Reads paired 3D point sets from file \"<pkg_loc>/conf/points.txt\" and returns them as two 3×N matrices (lidar, camera). The file is expected to contain: first an integer N (>0), then N lines of LiDAR points (x y z), followed by N lines of camera points (x y z). Note: a comment in code indicates a possible swap between lidar and camera storage; the function currently returns (lidar, camera).",
+      "requirements": [
+        "ROS must be initialized and ros::package::getPath(\"lidar_camera_calibration\") must succeed to resolve pkg_loc.",
+        "File \"<pkg_loc>/conf/points.txt\" must exist and be readable.",
+        "First token in the file must be an integer num_points > 0 (enforced by ROS_ASSERT).",
+        "The file must contain exactly 3*num_points doubles for lidar, followed by 3*num_points doubles for camera.",
+        "All numeric values should be finite; no handling for NaN/Inf is present.",
+        "Returns matrices of size 3×num_points."
+      ],
+      "error": null
+    },
+    {
+      "name": "calc_RT",
+      "signature": "Eigen::Matrix4d calc_RT(Eigen::MatrixXd lidar, Eigen::MatrixXd camera, int MAX_ITERS, Eigen::Matrix3d lidarToCamera)",
+      "description": "Computes a rigid-body transform (rotation R and translation t) that best aligns LiDAR points to camera points using SVD (Umeyama/Kabsch-style) and returns a 4×4 homogeneous transform T where camera ≈ R·lidar + t. Also accumulates running averages across calls using module-level globals (translation_sum, rotation_sum, rotation_avg_by_mult, rmse_avg, iteration_counter) and logs intermediate/average values to \"<pkg_loc>/log/avg_values.txt\". Parameter MAX_ITERS is accepted but not used to iterate within this function; averaging evolves over repeated calls. lidarToCamera is only used for reporting a derived final_rotation in logs.",
+      "requirements": [
+        "Inputs lidar and camera must both be 3×N with the same N and N > 0; columns correspond to matched point pairs.",
+        "Matrices should contain finite numeric values; no explicit checks exist for NaN/Inf.",
+        "Function relies on global state for averaging and logging; repeated calls increment a global iteration_counter and update running averages.",
+        "ROS package path pkg_loc must resolve and the log directory \"<pkg_loc>/log\" must exist and be writable to append avg_values.txt.",
+        "If the initial call (iteration_counter==0), the function truncates \"avg_values.txt\" and resets global accumulators.",
+        "The computed rotation is forced to be a proper rotation (determinant +1) by possibly flipping the last singular value.",
+        "Return is a 4×4 Matrix4d with top-left 3×3 rotation and top-right 3×1 translation.",
+        "MAX_ITERS has no effect on computation inside this function.",
+        "lidarToCamera is used only for computing a reported final_rotation; not used in T."
+      ],
+      "error": null
+    },
+    {
+      "name": "readArucoPose",
+      "signature": "void readArucoPose(std::vector<float> marker_info, int num_of_marker_in_config)",
+      "description": "Parses a flat marker_info array describing multiple marker poses and appends transformed board corner points to \"<pkg_loc>/conf/points.txt\". Each marker uses 7 floats: [marker_id, tx, ty, tz, rx, ry, rz], where r is a rotation vector (axis×angle in radians). For each marker, a 4×4 pose matrix is built from the rotation vector and translation, then per-marker board geometry from \"<pkg_loc>/conf/marker_coordinates.txt\" is transformed into marker/world coordinates and four 3D points are appended to points.txt.",
+      "requirements": [
+        "ROS must be initialized and ros::package::getPath(\"lidar_camera_calibration\") must succeed to resolve pkg_loc.",
+        "ROS_ASSERT enforces marker_info.size()/7 == num_of_marker_in_config; caller must satisfy this.",
+        "Each 7-float block must be ordered: marker_id (int convertible), translation (tx,ty,tz), rotation vector (rx,ry,rz).",
+        "Rotation vector must have non-zero norm; otherwise division by zero occurs when normalizing (rot/rot.norm()).",
+        "File \"<pkg_loc>/conf/marker_coordinates.txt\" must exist and be readable. Its first token is an integer num_of_markers, followed by num_of_markers lines each with 5 floats defining board parameters.",
+        "The function assumes num_of_markers <= marker_info.size()/7 since it indexes marker_pose[i] for i in [0, num_of_markers). Caller/config must ensure at least as many marker poses are provided as markers described in the file.",
+        "Outputs are appended to \"<pkg_loc>/conf/points.txt\"; the directory must exist and be writable.",
+        "All numeric inputs should be finite; no handling for NaN/Inf is present."
+      ],
+      "error": null
+    },
+    {
+      "name": "find_transformation",
+      "signature": "void find_transformation(std::vector<float> marker_info, int num_of_marker_in_config, int MAX_ITERS, Eigen::Matrix3d lidarToCamera)",
+      "description": "High-level helper that generates point correspondences from marker poses and board definitions, reads them back, and computes a LiDAR-to-camera transform. It calls readArucoPose(marker_info,...), then readArray() to load 3×N point sets, and finally calc_RT(...) to compute a 4×4 transform. The returned transform from calc_RT is computed but not used or returned by this function.",
+      "requirements": [
+        "All requirements of readArucoPose apply (marker_info formatting, files, writable points.txt, rotation vector norm > 0).",
+        "All requirements of readArray apply (points.txt format and existence).",
+        "All requirements of calc_RT apply (3×N matched point sets, logging path).",
+        "MAX_ITERS is passed through to calc_RT but has no effect there; no iteration within this function.",
+        "lidarToCamera is passed through to calc_RT for logging-derived final_rotation; not used otherwise."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "addQ",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "q_sum",
+          "type": "Eigen::Quaterniond *"
+        }
+      ],
+      "code": "// Generate two random quaternions (w,x,y,z) as doubles from fuzzer\nconst double (*a_arr)[4] = FUZZ_PARAM(double[4]);\nconst double (*b_arr)[4] = FUZZ_PARAM(double[4]);\n\n// Extract components\ndouble aw = a_arr[0][0];\ndouble ax = a_arr[0][1];\ndouble ay = a_arr[0][2];\ndouble az = a_arr[0][3];\ndouble bw = b_arr[0][0];\ndouble bx = b_arr[0][1];\ndouble by = b_arr[0][2];\ndouble bz = b_arr[0][3];\n\n// Enforce finite values to avoid NaNs/Infs during normalization\nif (!(std::isfinite(aw) && std::isfinite(ax) && std::isfinite(ay) && std::isfinite(az) &&\n      std::isfinite(bw) && std::isfinite(bx) && std::isfinite(by) && std::isfinite(bz))) {\n    FUZZ_BAIL();\n}\n\n// Construct Eigen quaternions (w, x, y, z)\nEigen::Quaterniond qa(aw, ax, ay, az);\nEigen::Quaterniond qb(bw, bx, by, bz);\n\n// Require non-zero finite norms, then normalize to get unit quaternions as inputs\ndouble na = qa.norm();\ndouble nb = qb.norm();\nif (!(std::isfinite(na) && na > 0.0 && std::isfinite(nb) && nb > 0.0)) { FUZZ_BAIL(); }\nqa.normalize();\nqb.normalize();\n\n// Target call: addQ applies hemisphere correction and returns the elementwise sum (not normalized)\nEigen::Quaterniond qres = addQ(qa, qb);\n\n// Persist the result; caller may normalize if a unit quaternion is needed\nEigen::Quaterniond *q_sum = new Eigen::Quaterniond(qres);\n// Mark that this quaternion is not guaranteed to be normalized\nFUZZ_SET_ATTR_INT(q_sum, \"normalized\", 0);\n\n// Validation: Inputs are normalized unit quaternions and finite; output is stored for reuse.\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "readArray",
+      "reason": "Depends on ROS package resolution and specific filesystem paths; cannot supply required files/ROS environment in the fuzzer harness."
+    },
+    {
+      "name": "calc_RT",
+      "reason": "Relies on ROS package paths, filesystem logging, and module-level globals, which are not safely controllable in the fuzzer environment."
+    },
+    {
+      "name": "readArucoPose",
+      "reason": "Requires ROS package resolution and specific input/output files; also assumes non-zero rotation vector norms, making it unsuitable without filesystem/ROS setup."
+    },
+    {
+      "name": "find_transformation",
+      "reason": "Transitively depends on readArucoPose, readArray, and calc_RT, all of which require ROS/filesystem setup not available to the fuzzer."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "addQ",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3605,
+            "output_tokens": 156,
+            "total_tokens": 3761
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3183,
+            "output_tokens": 34,
+            "total_tokens": 3217
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3636,
+            "output_tokens": 2337,
+            "total_tokens": 5973
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11396,
+            "output_tokens": 3271,
+            "total_tokens": 14667
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 224.9185390472412,
+    "scan_objects": 4.126321315765381,
+    "validate_objects": 29.355575799942017,
+    "scan_functions": 34.238839864730835,
+    "synthesis": 157.14149594306946,
+    "fill": 0,
+    "classify": 0.0556492805480957,
+    "build_generators": 0.00006532669067382812
+  }
+}

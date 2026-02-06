@@ -1,0 +1,477 @@
+{
+  "objects": [
+    {
+      "ptr_type": "mmfile_t *",
+      "aliases": [],
+      "definition": "typedef struct s_mmfile {\n\tchar *ptr;\n\tlong size;\n} mmfile_t;",
+      "description": "In-memory file buffer: pointer to bytes and their length, used as the basic input for diff/merge. Ownership and lifetime are managed by the caller; library functions read from it.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "mmbuffer_t *",
+      "aliases": [],
+      "definition": "typedef struct s_mmbuffer {\n\tchar *ptr;\n\tlong size;\n} mmbuffer_t;",
+      "description": "Generic mutable memory buffer (pointer and size). Used for output of operations like merge results. Caller manages allocation and deallocation.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "xpparam_t *",
+      "aliases": [],
+      "definition": "typedef struct s_xpparam {\n\tunsigned long flags;\n\n\t/* See Documentation/diff-options.txt. */\n\tchar **anchors;\n\tsize_t anchors_nr;\n} xpparam_t;",
+      "description": "Parameters for the xdiff preprocessor/diff algorithm. Flags control whitespace/case/algorithm choices; anchors optionally provide line tokens to align on. Caller initializes fields before passing to xdl_diff/xdl_merge.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "xmparam_t *"
+      ]
+    },
+    {
+      "ptr_type": "xdemitcb_t *",
+      "aliases": [],
+      "definition": "typedef struct s_xdemitcb {\n\tvoid *priv;\n\tint (*out_hunk)(void *,\n\t\t\tlong old_begin, long old_nr,\n\t\t\tlong new_begin, long new_nr,\n\t\t\tconst char *func, long funclen);\n\tint (*out_line)(void *, mmbuffer_t *, int);\n} xdemitcb_t;",
+      "description": "Callback vtable for emitting diff output. The library calls out_hunk for hunk headers and out_line for individual lines, passing user-provided priv. The user must implement these to collect/print diffs.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "find_func_t *",
+      "aliases": [],
+      "definition": "typedef long (*find_func_t)(const char *line, long line_len, char *buffer, long buffer_size, void *priv);",
+      "description": "Function pointer type used to locate function names or context markers during diff emission. Should write a description into buffer and return its length, using priv for state.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "xdemitconf_t *"
+      ]
+    },
+    {
+      "ptr_type": "xdl_emit_hunk_consume_func_t *",
+      "aliases": [],
+      "definition": "typedef int (*xdl_emit_hunk_consume_func_t)(long start_a, long count_a,\n\t\t\t\t\t    long start_b, long count_b,\n\t\t\t\t\t    void *cb_data);",
+      "description": "Callback type invoked per hunk during emission to consume hunk metadata. Return value semantics are not documented here; typically 0 on success.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "xdemitconf_t *"
+      ]
+    },
+    {
+      "ptr_type": "xdemitconf_t *",
+      "aliases": [],
+      "definition": "typedef struct s_xdemitconf {\n\tlong ctxlen;\n\tlong interhunkctxlen;\n\tunsigned long flags;\n\tfind_func_t find_func;\n\tvoid *find_func_priv;\n\txdl_emit_hunk_consume_func_t hunk_func;\n} xdemitconf_t;",
+      "description": "Diff emission configuration: context sizes, flags, and optional callbacks for function-name finding and per-hunk consumption. Caller populates before calling xdl_diff.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "bdiffparam_t *",
+      "aliases": [],
+      "definition": "typedef struct s_bdiffparam {\n\tlong bsize;\n} bdiffparam_t;",
+      "description": "Binary diff parameter block with block size setting. Not directly used by declared APIs in this header; intended for lower-level binary diff routines elsewhere.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "xmparam_t *",
+      "aliases": [],
+      "definition": "typedef struct s_xmparam {\n\txpparam_t xpp;\n\tint marker_size;\n\tint level;\n\tint favor;\n\tint style;\n\tconst char *ancestor;\t/* label for orig */\n\tconst char *file1;\t/* label for mf1 */\n\tconst char *file2;\t/* label for mf2 */\n} xmparam_t;",
+      "description": "Merge parameters: embeds xpp diff params and controls conflict marker size, merge aggressiveness (level), favoring policy, output style, and labels for the three sides.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "xdl_mmfile_first",
+      "signature": "void *xdl_mmfile_first(mmfile_t *mmf, long *size);",
+      "description": "Returns a pointer to the beginning of the memory buffer represented by the mmfile_t and outputs its size via the size parameter. Intended to expose the raw contents of an in-memory file abstraction for diff/merge operations or for direct inspection.",
+      "requirements": [
+        "mmf must point to an initialized mmfile_t whose ptr references a readable memory block of at least mmf->size bytes and whose size field reflects its length (in bytes).",
+        "size is expected to be a valid writable pointer where the function can store the buffer length; whether NULL is permitted is unknown (not documented).",
+        "The returned pointer aliases mmf->ptr; ownership and lifetime are controlled by the caller—no transfer of ownership occurs (inferred from struct and signature).",
+        "Thread-safety and reentrancy guarantees are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "xdl_mmfile_size",
+      "signature": "long xdl_mmfile_size(mmfile_t *mmf);",
+      "description": "Returns the size, in bytes, of the buffer represented by the provided mmfile_t. Useful for quickly querying the length of the in-memory file used by the diff/merge routines.",
+      "requirements": [
+        "mmf must point to an initialized mmfile_t; behavior if mmf is NULL is unknown.",
+        "The size is returned as a signed long; callers should handle potential large sizes appropriately."
+      ],
+      "error": null
+    },
+    {
+      "name": "xdl_diff",
+      "signature": "int xdl_diff(mmfile_t *mf1, mmfile_t *mf2, xpparam_t const *xpp, xdemitconf_t const *xecfg, xdemitcb_t *ecb);",
+      "description": "Computes a textual difference between two in-memory files (mf1 vs mf2) using options in xpp and emission configuration in xecfg, and emits results through the callbacks in ecb. Designed to be called with buffers containing the full contents to diff and caller-provided callbacks to receive hunks and/or lines.",
+      "requirements": [
+        "mf1 and mf2 must each point to initialized mmfile_t objects whose ptr fields reference readable memory blocks of their respective size fields.",
+        "xpp may be NULL or non-NULL; specific required flags or constraints are not documented; if provided, flags should be set using XDF_* macros and anchors fields, if used, should be consistent (inferred from types and macros).",
+        "xecfg may be NULL or non-NULL; if provided, its fields (ctxlen, interhunkctxlen, flags, find_func, hunk_func) must be initialized to intended values; whether find_func and hunk_func may be NULL is unknown.",
+        "ecb must point to an xdemitcb_t prepared for output; whether out_hunk and out_line must be non-NULL, and expected return conventions for these callbacks, are not documented in this header (unknown).",
+        "Return value semantics (0/negative/positive) are not documented in this header (unknown).",
+        "Thread-safety, performance characteristics, and memory ownership of emitted buffers in out_line are not documented here (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xdl_merge",
+      "signature": "int xdl_merge(mmfile_t *orig, mmfile_t *mf1, mmfile_t *mf2, xmparam_t const *xmp, mmbuffer_t *result);",
+      "description": "Performs a three-way merge of mf1 and mf2 with respect to a common ancestor orig, producing the merged result in the supplied mmbuffer_t. Behavior can be tuned via xmparam_t (e.g., conflict markers, merge favor, and style).",
+      "requirements": [
+        "orig, mf1, and mf2 must each point to initialized mmfile_t objects whose ptr fields reference readable memory blocks of their respective size fields.",
+        "xmp must point to an initialized xmparam_t containing desired merge parameters (xpp flags, marker_size, level, favor, style, and optional labels); exact valid ranges and semantics for level, favor, and style are indicated by macros in the header but detailed requirements are not documented here.",
+        "result must be a valid, writable mmbuffer_t pointer; the function will write the merged data pointer and size; ownership/lifetime of the output buffer and whether the caller must free it are not specified in this header (unknown).",
+        "Return value semantics (success/failure codes) are not documented in this header (unknown).",
+        "Thread-safety and handling of conflict markers are not documented here (unknown)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "xdl_mmfile_first",
+      "inputs": [
+        {
+          "name": "mmf",
+          "type": "mmfile_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmf",
+          "type": "mmfile_t *"
+        }
+      ],
+      "code": "// Prepare the mmfile_t so its pointer and size are valid and readable during the call\nstd::string backing = FUZZ_PARAM_STR();\n// Ensure the buffer is non-empty and within a reasonable limit\nsize_t cap = backing.size();\nif (cap == 0) { FUZZ_BAIL(); }\n// Assign the mmfile fields to alias our local backing buffer for the duration of this call\nmmf->ptr = const_cast<char *>(backing.data());\nmmf->size = (long)cap;\n// Track metadata for downstream consumers\nFUZZ_SET_ATTR_INT(mmf, \"size\", (int)mmf->size);\nFUZZ_SET_ATTR_INT(mmf, \"valid\", 1);\n\n// size must be a writable pointer; use a local and pass its address\nlong out_size = -1;\nvoid *ret = xdl_mmfile_first(mmf, &out_size);\n\n// Validate required properties: returned pointer must alias mmf->ptr and size must match\nFUZZ_ASSERT(ret == (void *)mmf->ptr, \"xdl_mmfile_first must return alias of mmf->ptr\");\nFUZZ_ASSERT(out_size == mmf->size, \"xdl_mmfile_first must report size equal to mmf->size\");\n\n// Return mmf back to the pool as it remains valid beyond this call\n// Validation: Stub ensures mmf points to a readable buffer and asserts aliasing and size reporting invariants.\n"
+    },
+    {
+      "name": "xdl_mmfile_size",
+      "inputs": [
+        {
+          "name": "mmf",
+          "type": "mmfile_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmf",
+          "type": "mmfile_t *"
+        }
+      ],
+      "code": "// Initialize mmfile with a valid readable buffer for this query\nstd::string backing = FUZZ_PARAM_STR();\nif (backing.empty()) { FUZZ_BAIL(); }\nmmf->ptr = const_cast<char *>(backing.data());\nmmf->size = (long)backing.size();\nFUZZ_SET_ATTR_INT(mmf, \"size\", (int)mmf->size);\nFUZZ_SET_ATTR_INT(mmf, \"valid\", 1);\n\nlong sz = xdl_mmfile_size(mmf);\n// The size returned should match the struct field\nFUZZ_ASSERT(sz == mmf->size, \"xdl_mmfile_size must equal mmf->size\");\n\n// Keep mmf in the pool for reuse\n// Validation: Stub guarantees initialized mmfile and asserts returned size property.\n"
+    },
+    {
+      "name": "xdl_diff",
+      "inputs": [
+        {
+          "name": "mf1",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "mf2",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "xpp",
+          "type": "xpparam_t *"
+        },
+        {
+          "name": "xecfg",
+          "type": "xdemitconf_t *"
+        },
+        {
+          "name": "ecb",
+          "type": "xdemitcb_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mf1",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "mf2",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "xpp",
+          "type": "xpparam_t *"
+        },
+        {
+          "name": "xecfg",
+          "type": "xdemitconf_t *"
+        },
+        {
+          "name": "ecb",
+          "type": "xdemitcb_t *"
+        }
+      ],
+      "code": "// Prepare mf1 and mf2 with valid readable buffers\nstd::string s1 = FUZZ_PARAM_STR();\nstd::string s2 = FUZZ_PARAM_STR();\nif (s1.empty() || s2.empty()) { FUZZ_BAIL(); }\n// Optionally trim to keep performance bounded\nif (s1.size() > 2048) s1.resize(2048);\nif (s2.size() > 2048) s2.resize(2048);\n\nmf1->ptr = const_cast<char *>(s1.data());\nmf1->size = (long)s1.size();\nFUZZ_SET_ATTR_INT(mf1, \"valid\", 1);\nFUZZ_SET_ATTR_INT(mf1, \"size\", (int)mf1->size);\n\nmf2->ptr = const_cast<char *>(s2.data());\nmf2->size = (long)s2.size();\nFUZZ_SET_ATTR_INT(mf2, \"valid\", 1);\nFUZZ_SET_ATTR_INT(mf2, \"size\", (int)mf2->size);\n\n// Initialize xpparam_t with benign defaults and fuzzed flags; anchors disabled for safety\nxpp->flags = *FUZZ_PARAM(unsigned long);\nxpp->anchors = nullptr;\nxpp->anchors_nr = 0;\n\n// Initialize xemit configuration with safe callbacks\nxecfg->ctxlen = (long)(*FUZZ_PARAM(unsigned int) % 20);           // small context\nxecfg->interhunkctxlen = (long)(*FUZZ_PARAM(unsigned int) % 20);  // small inter-hunk context\nxecfg->flags = *FUZZ_PARAM(unsigned long);\n\n// Provide find_func that writes a short descriptor without overflow\nxecfg->find_func = +[](const char *line, long line_len, char *buffer, long buffer_size, void *priv) -> long {\n    (void)line; (void)line_len; (void)priv;\n    if (buffer_size <= 0) return 0;\n    const char *tag = \"func\";\n    long to_copy = (long)4; // length of \"func\"\n    if (to_copy > buffer_size - 1) to_copy = buffer_size - 1;\n    for (long i = 0; i < to_copy; ++i) buffer[i] = tag[i];\n    buffer[to_copy] = '\\0';\n    return to_copy;\n};\nxecfg->find_func_priv = nullptr;\n\n// Provide hunk consumer that always succeeds\nxecfg->hunk_func = +[](long, long, long, long, void *) -> int { return 0; };\n\n// Prepare emission callbacks; collect minimal metadata\nint emitted_lines = 0;\necb->priv = &emitted_lines;\necb->out_hunk = +[](void *priv,\n                    long, long,\n                    long, long,\n                    const char *, long) -> int {\n    // Count hunks via the same counter for simplicity\n    int *cnt = (int *)priv; if (cnt) (*cnt)++;\n    return 0;\n};\necb->out_line = +[](void *priv, mmbuffer_t *mb, int nr) -> int {\n    // Validate that out_line provides a buffer array as expected\n    (void)nr; // unknown semantics; do not rely on it\n    if (!mb) return 0;\n    // Do not dereference mb->ptr beyond ensuring structure presence\n    int *cnt = (int *)priv; if (cnt) (*cnt)++;\n    return 0;\n};\n\n// Invoke the diff; accept any return value as API semantics are unspecified here\n( void ) xdl_diff(mf1, mf2, xpp, xecfg, ecb);\n\n// Return all inputs as outputs; lifetime remains with caller/pool\n// Validation: Stub ensures readable mmfiles, initializes params and safe callbacks, and tolerates all return codes.\n"
+    },
+    {
+      "name": "xdl_merge",
+      "inputs": [
+        {
+          "name": "orig",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "mf1",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "mf2",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "xmp",
+          "type": "xmparam_t *"
+        },
+        {
+          "name": "result",
+          "type": "mmbuffer_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "orig",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "mf1",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "mf2",
+          "type": "mmfile_t *"
+        },
+        {
+          "name": "xmp",
+          "type": "xmparam_t *"
+        },
+        {
+          "name": "result",
+          "type": "mmbuffer_t *"
+        }
+      ],
+      "code": "// Prepare three valid readable mmfiles for merge\nstd::string so = FUZZ_PARAM_STR();\nstd::string s1 = FUZZ_PARAM_STR();\nstd::string s2 = FUZZ_PARAM_STR();\nif (so.empty() || s1.empty() || s2.empty()) { FUZZ_BAIL(); }\nif (so.size() > 2048) so.resize(2048);\nif (s1.size() > 2048) s1.resize(2048);\nif (s2.size() > 2048) s2.resize(2048);\n\norig->ptr = const_cast<char *>(so.data());\norig->size = (long)so.size();\nFUZZ_SET_ATTR_INT(orig, \"valid\", 1);\nFUZZ_SET_ATTR_INT(orig, \"size\", (int)orig->size);\n\nmf1->ptr = const_cast<char *>(s1.data());\nmf1->size = (long)s1.size();\nFUZZ_SET_ATTR_INT(mf1, \"valid\", 1);\nFUZZ_SET_ATTR_INT(mf1, \"size\", (int)mf1->size);\n\nmf2->ptr = const_cast<char *>(s2.data());\nmf2->size = (long)s2.size();\nFUZZ_SET_ATTR_INT(mf2, \"valid\", 1);\nFUZZ_SET_ATTR_INT(mf2, \"size\", (int)mf2->size);\n\n// Initialize merge parameters with conservative values\nxmp->xpp.flags = *FUZZ_PARAM(unsigned long);\nxmp->xpp.anchors = nullptr;\nxmp->xpp.anchors_nr = 0;\n\nxmp->marker_size = (int)((*FUZZ_PARAM(unsigned int) % 30) + 3); // typical >>> marker length\nxmp->level = (int)(*FUZZ_PARAM(unsigned int) % 5);\nxmp->favor = (int)(*FUZZ_PARAM(unsigned int) % 4);\nxmp->style = (int)(*FUZZ_PARAM(unsigned int) % 4);\n\nstd::string lab_o = FUZZ_PARAM_STR(); if (lab_o.size() > 64) lab_o.resize(64);\nstd::string lab_1 = FUZZ_PARAM_STR(); if (lab_1.size() > 64) lab_1.resize(64);\nstd::string lab_2 = FUZZ_PARAM_STR(); if (lab_2.size() > 64) lab_2.resize(64);\n// Ensure labels are null-terminated C strings during the call\nlab_o.push_back('\\0'); lab_1.push_back('\\0'); lab_2.push_back('\\0');\nxmp->ancestor = lab_o.c_str();\nxmp->file1   = lab_1.c_str();\nxmp->file2   = lab_2.c_str();\n\n// Prepare result output buffer for the callee to fill\nresult->ptr = nullptr;\nresult->size = 0;\n\n( void ) xdl_merge(orig, mf1, mf2, xmp, result);\n\n// Track whether result contains data for downstream consumers\nif (result->ptr && result->size > 0) {\n    FUZZ_SET_ATTR_INT(result, \"has_data\", 1);\n} else {\n    FUZZ_SET_ATTR_INT(result, \"has_data\", 0);\n}\n\n// Return all objects back to the pool for further interactions\n// Validation: Stub guarantees valid inputs, initializes merge parameters and labels, and safely captures the produced result metadata without assuming return semantics.\n"
+    },
+    {
+      "name": "mmfile_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mmf",
+          "type": "mmfile_t *"
+        }
+      ],
+      "code": "// Construct a mmfile_t with a stable heap-backed buffer and return it as output\nmmfile_t *mmf = (mmfile_t *)malloc(sizeof(mmfile_t));\nif (!mmf) { FUZZ_BAIL(); }\n\nstd::string src = FUZZ_PARAM_STR();\n// Ensure non-empty contents and keep within a small bound for performance\nif (src.empty()) { src = \"\\n\"; }\nif (src.size() > 2048) src.resize(2048);\n\nchar *buf = (char *)malloc(src.size());\nif (!buf) { FUZZ_BAIL(); }\nmemcpy(buf, src.data(), src.size());\n\nmmf->ptr = buf;\nmmf->size = (long)src.size();\n\n// Track metadata for downstream API usage\nFUZZ_SET_ATTR_INT(mmf, \"valid\", 1);\nFUZZ_SET_ATTR_INT(mmf, \"size\", (int)mmf->size);\nFUZZ_SET_ATTR_PTR(mmf, \"heap_ptr\", (void *)buf);\n\n// Validation: ensures a non-null mmfile_t whose ptr references a readable heap buffer and size is tracked."
+    },
+    {
+      "name": "xdemitcb_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ecb",
+          "type": "xdemitcb_t *"
+        }
+      ],
+      "code": "// Allocate callback vtable and a small heap-backed counter for priv\nxdemitcb_t *ecb = (xdemitcb_t *)malloc(sizeof(xdemitcb_t));\nif (!ecb) { FUZZ_BAIL(); }\nint *counter = (int *)malloc(sizeof(int));\nif (!counter) { FUZZ_BAIL(); }\n*counter = 0;\n\n// Install safe callbacks that never overflow and always succeed\necb->priv = (void *)counter;\necb->out_hunk = +[](void *priv,\n                    long /*old_begin*/, long /*old_nr*/,\n                    long /*new_begin*/, long /*new_nr*/,\n                    const char * /*func*/, long /*funclen*/) -> int {\n    int *cnt = (int *)priv; if (cnt) (*cnt)++;\n    return 0; // success\n};\necb->out_line = +[](void *priv, mmbuffer_t *mb, int nr) -> int {\n    (void)nr; // semantics unknown\n    // Validate mb presence only; do not dereference mb->ptr or assume array layout\n    if (!mb) return 0;\n    int *cnt = (int *)priv; if (cnt) (*cnt)++;\n    return 0; // success\n};\n\nFUZZ_SET_ATTR_INT(ecb, \"has_callbacks\", 1);\nFUZZ_SET_ATTR_PTR(ecb, \"priv_heap\", (void *)counter);\n\n// Validation: ecb is fully initialized with safe function pointers and durable priv state for downstream use."
+    },
+    {
+      "name": "xdemitconf_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "xecfg",
+          "type": "xdemitconf_t *"
+        }
+      ],
+      "code": "// Allocate and populate emission configuration with safe defaults\nxdemitconf_t *xecfg = (xdemitconf_t *)malloc(sizeof(xdemitconf_t));\nif (!xecfg) { FUZZ_BAIL(); }\n\nxecfg->ctxlen = (long)(*FUZZ_PARAM(unsigned int) % 20);\nxecfg->interhunkctxlen = (long)(*FUZZ_PARAM(unsigned int) % 20);\nxecfg->flags = *FUZZ_PARAM(unsigned long);\n\n// Safe find_func that writes a short tag within buffer bounds\nxecfg->find_func = +[](const char * /*line*/, long /*line_len*/, char *buffer, long buffer_size, void * /*priv*/) -> long {\n    if (!buffer || buffer_size <= 0) return 0;\n    const char *tag = \"func\";\n    long to_copy = 4;\n    if (to_copy > buffer_size - 1) to_copy = buffer_size - 1;\n    for (long i = 0; i < to_copy; ++i) buffer[i] = tag[i];\n    buffer[to_copy] = '\\0';\n    return to_copy;\n};\nxecfg->find_func_priv = nullptr;\n\n// Safe hunk consumer\nxecfg->hunk_func = +[](long, long, long, long, void *) -> int { return 0; };\n\nFUZZ_SET_ATTR_INT(xecfg, \"initialized\", 1);\n\n// Validation: xecfg has bounded parameters and non-null, safe callbacks installed for diff emission."
+    },
+    {
+      "name": "mmbuffer_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "result",
+          "type": "mmbuffer_t *"
+        }
+      ],
+      "code": "// Construct a generic mutable buffer, possibly empty or with fuzzed data\nmmbuffer_t *result = (mmbuffer_t *)malloc(sizeof(mmbuffer_t));\nif (!result) { FUZZ_BAIL(); }\n\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 2; // 0: empty, 1: filled\nif (mode == 0) {\n    result->ptr = nullptr;\n    result->size = 0;\n    FUZZ_SET_ATTR_INT(result, \"has_data\", 0);\n} else {\n    std::string s = FUZZ_PARAM_STR();\n    if (s.size() > 2048) s.resize(2048);\n    if (s.empty()) s = \"\\n\";\n    char *buf = (char *)malloc(s.size());\n    if (!buf) { FUZZ_BAIL(); }\n    memcpy(buf, s.data(), s.size());\n    result->ptr = buf;\n    result->size = (long)s.size();\n    FUZZ_SET_ATTR_INT(result, \"has_data\", 1);\n    FUZZ_SET_ATTR_PTR(result, \"heap_ptr\", (void *)buf);\n}\n\n// Validation: result is non-null; when populated, points to a durable heap buffer; attributes track data presence."
+    },
+    {
+      "name": "xmparam_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "xmp",
+          "type": "xmparam_t *"
+        }
+      ],
+      "code": "// Allocate and initialize three-way merge parameters\nxmparam_t *xmp = (xmparam_t *)malloc(sizeof(xmparam_t));\nif (!xmp) { FUZZ_BAIL(); }\n\n// Initialize embedded xpparam\nxmp->xpp.flags = *FUZZ_PARAM(unsigned long);\n// For safety, do not preinstall anchors; callers can add via separate stubs\nxmp->xpp.anchors = nullptr;\nxmp->xpp.anchors_nr = 0;\n\n// Merge tuning knobs with conservative bounds\nxmp->marker_size = (int)((*FUZZ_PARAM(unsigned int) % 60) + 3); // [3,62]\nxmp->level = (int)(*FUZZ_PARAM(unsigned int) % 5);\nxmp->favor = (int)(*FUZZ_PARAM(unsigned int) % 4);\nxmp->style = (int)(*FUZZ_PARAM(unsigned int) % 4);\n\n// Allocate durable C-string labels\nauto dup_limited = [](const std::string &in, size_t maxlen) -> char * {\n    std::string s = in; if (s.size() > maxlen) s.resize(maxlen);\n    s.push_back('\\0');\n    char *p = (char *)malloc(s.size());\n    if (!p) return nullptr;\n    memcpy(p, s.c_str(), s.size());\n    return p;\n};\n\nstd::string lab_o = FUZZ_PARAM_STR();\nstd::string lab_1 = FUZZ_PARAM_STR();\nstd::string lab_2 = FUZZ_PARAM_STR();\n\nchar *a = dup_limited(lab_o, 64);\nchar *f1 = dup_limited(lab_1, 64);\nchar *f2 = dup_limited(lab_2, 64);\nif (!a || !f1 || !f2) { FUZZ_BAIL(); }\n\nxmp->ancestor = a;\nxmp->file1 = f1;\nxmp->file2 = f2;\n\n// Track heap allocations for possible downstream management\nFUZZ_SET_ATTR_PTR(xmp, \"label_ancestor\", (void *)a);\nFUZZ_SET_ATTR_PTR(xmp, \"label_file1\", (void *)f1);\nFUZZ_SET_ATTR_PTR(xmp, \"label_file2\", (void *)f2);\nFUZZ_SET_ATTR_INT(xmp, \"initialized\", 1);\n\n// Validation: xmp has valid fields, embedded xpp, and durable labels suitable for xdl_merge."
+    },
+    {
+      "name": "xpparam_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "xpp",
+          "type": "xpparam_t *"
+        }
+      ],
+      "code": "// Allocate and initialize diff preprocessor parameters\nxpparam_t *xpp = (xpparam_t *)malloc(sizeof(xpparam_t));\nif (!xpp) { FUZZ_BAIL(); }\n\nxpp->flags = *FUZZ_PARAM(unsigned long);\n\n// Optionally provide a small anchors array\nunsigned int n = *FUZZ_PARAM(unsigned int) % 4; // 0..3 anchors for safety\nif (n == 0) {\n    xpp->anchors = nullptr;\n    xpp->anchors_nr = 0;\n    FUZZ_SET_ATTR_INT(xpp, \"anchors_nr\", 0);\n} else {\n    char **arr = (char **)malloc(sizeof(char *) * n);\n    if (!arr) { FUZZ_BAIL(); }\n    for (unsigned int i = 0; i < n; ++i) {\n        std::string token = FUZZ_PARAM_STR();\n        if (token.size() > 64) token.resize(64);\n        token.push_back('\\0');\n        char *p = (char *)malloc(token.size());\n        if (!p) { FUZZ_BAIL(); }\n        memcpy(p, token.c_str(), token.size());\n        arr[i] = p;\n    }\n    xpp->anchors = arr;\n    xpp->anchors_nr = (size_t)n;\n    FUZZ_SET_ATTR_INT(xpp, \"anchors_nr\", (int)n);\n    FUZZ_SET_ATTR_PTR(xpp, \"anchors_heap\", (void *)arr);\n}\n\n// Validation: xpp is non-null with flags set and, if present, a durable anchors array and count tracked."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "xdemitcb_t *",
+      "data_types": []
+    },
+    {
+      "name": "xdemitconf_t *",
+      "data_types": []
+    },
+    {
+      "name": "xdl_mmfile_first",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "xdl_mmfile_size",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "xdl_diff",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "xdl_merge",
+      "data_types": [
+        "arbitrary bytes",
+        "short text label"
+      ]
+    },
+    {
+      "name": "mmfile_t *",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "mmbuffer_t *",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "xmparam_t *",
+      "data_types": [
+        "short text label"
+      ]
+    },
+    {
+      "name": "xpparam_t *",
+      "data_types": [
+        "short text label"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary bytes",
+      "description": "A generic byte buffer with no required encoding or structure. May contain any sequence of bytes including NULs. Used here to represent in-memory file contents for diff/merge and generic output buffers."
+    },
+    {
+      "data_type": "short text label",
+      "description": "A short, human-readable C-string label (typically UTF-8/ASCII), null-terminated, and generally limited to tens of bytes (e.g., up to 64). Used as file or side labels and anchor tokens in diff/merge configuration."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary bytes",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# This generator targets inputs consumed by FUZZ_PARAM_STR in stubs for:\n# - xdl_mmfile_first/xdl_mmfile_size: need non-empty arbitrary bytes\n# - xdl_diff: two text buffers; interesting cases include different newlines, tabs, whitespace-only lines,\n#   long lines, repeated anchors-like tokens, UTF-8, binary NULs, and mixed encodings\n# - xdl_merge: three related versions (orig, mf1, mf2) where conflicts or clean merges can occur\n# The framework pulls multiple FUZZ_PARAM_STR values per invocation, all sourced from the same seed buffer.\n# Therefore, we pack several logically separated payloads in one bytes blob, delimited so the harness can\n# split them deterministically (it typically slices sequentially). We avoid malformed data while keeping\n# them valid non-empty.\n#\n# Format we emit (simple concatenation of sections):\n#  [section0]\\n\\n===SEP===\\n\\n[section1]\\n\\n===SEP===\\n\\n[section2]\\n\\n===SEP===\\n\\n[section3]\\n\\n===SEP===\\n\\n[labels]\\n# Sections are:\n# 0: Generic text with varied whitespace, different EOLs, tabs, trailing spaces.\n# 1: Variant of section0 with small edits: insertions/deletions/moves to exercise diff.\n# 2: \"orig\" for merge base; 1 and 2 (below) will be mf1/mf2 derived from this.\n# 3: Second variant for diff and for merge (mf2).\n# labels: short C-string-like labels for xdl_merge naming. Not required by FUZZ_PARAM_STR but may be consumed.\n# Total size kept <= 4096 bytes.\n\nMAX_TOTAL = 4096\nSEP = b\"\\n\\n===SEP===\\n\\n\"\n\ndef _rand_lines(rng: random.Random, min_lines: int, max_lines: int) -> List[str]:\n    n = rng.randint(min_lines, max_lines)\n    lines: List[str] = []\n    for i in range(n):\n        kind = rng.randrange(8)\n        if kind == 0:\n            # code-like\n            name = ''.join(rng.choice(string.ascii_letters) for _ in range(rng.randint(3, 12)))\n            val = rng.randint(0, 1000)\n            line = f\"int {name} = {val};\"\n        elif kind == 1:\n            # function header like\n            fn = ''.join(rng.choice(string.ascii_letters) for _ in range(rng.randint(3, 10)))\n            args = ', '.join('int ' + ''.join(rng.choice(string.ascii_lowercase) for _ in range(1,3)) for _ in range(rng.randint(0,3)))\n            line = f\"void {fn}({args}) {{\"\n        elif kind == 2:\n            # comment and trailing spaces\n            msg = ''.join(rng.choice(string.ascii_letters + ' ') for _ in range(rng.randint(5, 25)))\n            line = \"// \" + msg.rstrip() + (\" \" * rng.randint(0, 8))\n        elif kind == 3:\n            # whitespace only\n            line = \"\\t\" * rng.randint(0, 3) + \" \" * rng.randint(0, 8)\n        elif kind == 4:\n            # long line\n            chunk = ''.join(rng.choice(string.ascii_letters + string.digits + ' _-') for _ in range(rng.randint(40, 120)))\n            line = chunk\n        elif kind == 5:\n            # anchor-like tokens (to interact with anchors feature if enabled)\n            token = rng.choice([\"TODO\", \"FIXME\", \"ANCHOR\", \"SECTION\", \"BEGIN\", \"END\"])\n            line = f\"// {token}: note\"\n        elif kind == 6:\n            # UTF-8 content\n            samples = [\"αβγ\", \"Привет\", \"こんにちは\", \"مرحبا\", \"ñandú\", \"😊\"]\n            line = rng.choice(samples)\n        else:\n            # tab-separated values\n            cols = [\"col\" + str(i) for i in range(rng.randint(2, 6))]\n            line = \"\\t\".join(cols)\n        lines.append(line)\n        # occasionally close braces\n        if kind == 1 and rng.random() < 0.5:\n            lines.append(\"}\")\n    return lines\n\ndef _apply_newlines(rng: random.Random, s: str) -> bytes:\n    # Mix of LF/CRLF/CR\n    lines = s.split(\"\\n\")\n    out: bytearray = bytearray()\n    for i, ln in enumerate(lines):\n        out.extend(ln.encode('utf-8', errors='surrogatepass'))\n        nl_kind = rng.randrange(3)\n        if i != len(lines) - 1:\n            if nl_kind == 0:\n                out.extend(b\"\\n\")\n            elif nl_kind == 1:\n                out.extend(b\"\\r\\n\")\n            else:\n                out.extend(b\"\\r\")\n    return bytes(out)\n\ndef _mutate_variant(rng: random.Random, base: List[str]) -> List[str]:\n    lines = base[:]\n    # perform a few deterministic edits\n    edits = rng.randint(3, max(3, len(lines)//4 + 1))\n    for _ in range(edits):\n        if not lines or rng.random() < 0.2:\n            # insertion\n            ins = _rand_lines(rng, 1, 2)\n            pos = rng.randint(0, len(lines))\n            lines[pos:pos] = ins\n        else:\n            op = rng.randrange(3)\n            idx = rng.randrange(len(lines))\n            if op == 0:\n                # replace\n                lines[idx:idx+1] = _rand_lines(rng, 1, 1)\n            elif op == 1 and len(lines) > 1:\n                # delete\n                del lines[idx]\n            else:\n                # modify whitespace\n                lines[idx] = lines[idx] + (\" \" * rng.randint(0, 4))\n    return lines\n\ndef _inject_binary(rng: random.Random, data: bytes, ratio: float = 0.02) -> bytes:\n    # Introduce a few NULs and random bytes to exercise binary-safe paths while keeping validity\n    if not data:\n        return data\n    ba = bytearray(data)\n    count = min(10, max(1, int(len(ba) * ratio)))\n    for _ in range(count):\n        pos = rng.randrange(len(ba))\n        ba[pos] = rng.randrange(256)\n    return bytes(ba)\n\ndef _mk_labels(rng: random.Random) -> bytes:\n    labs = []\n    for prefix in (\"BASE\", \"LEFT\", \"RIGHT\"):\n        tail = ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(1,6)))\n        labs.append(f\"{prefix}-{tail}\")\n    # Join with newlines to provide three separate short tokens\n    return (\"\\n\".join(labs)).encode('utf-8')\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Base lines and variants for diff/merge\n    base_lines = _rand_lines(rng, 8, 40)\n    var1_lines = _mutate_variant(rng, base_lines)\n    var2_lines = _mutate_variant(rng, base_lines)\n\n    # Compose sections\n    base_text = \"\\n\".join(base_lines)\n    var1_text = \"\\n\".join(var1_lines)\n    var2_text = \"\\n\".join(var2_lines)\n\n    sec0 = _apply_newlines(rng, base_text)\n    sec1 = _apply_newlines(rng, var1_text)\n    sec3 = _apply_newlines(rng, var2_text)\n\n    # For merge, orig should be close to base; we use sec0 (textual), optionally tweak slightly\n    merge_orig_lines = _mutate_variant(rng, base_lines) if rng.random() < 0.3 else base_lines\n    merge_orig_text = \"\\n\".join(merge_orig_lines)\n    sec2 = _apply_newlines(rng, merge_orig_text)\n\n    # Light binary injection to cover NUL-safe behavior without breaking overall validity\n    if rng.random() < 0.5:\n        sec0 = _inject_binary(rng, sec0, 0.005)\n    if rng.random() < 0.5:\n        sec1 = _inject_binary(rng, sec1, 0.005)\n    if rng.random() < 0.5:\n        sec2 = _inject_binary(rng, sec2, 0.003)\n    if rng.random() < 0.5:\n        sec3 = _inject_binary(rng, sec3, 0.005)\n\n    labels = _mk_labels(rng)\n\n    parts = [sec0, sec1, sec2, sec3, labels]\n\n    # Ensure non-empty parts (stubs bail on empty strings)\n    parts = [p if p else b\"\\n\" for p in parts]\n\n    out = SEP.join(parts)\n\n    # Enforce max total size\n    if len(out) > MAX_TOTAL:\n        # reduce by trimming sections proportionally\n        budget = MAX_TOTAL\n        per = budget // len(parts) - len(SEP)\n        trimmed: List[bytes] = []\n        for p in parts:\n            if len(p) <= per:\n                trimmed.append(p)\n            else:\n                trimmed.append(p[:max(1, per)])\n        out = SEP.join(trimmed)\n        out = out[:MAX_TOTAL]\n\n    # Guarantee at least one byte\n    if not out:\n        out = b\"\\n\"\n    return out\n"
+    },
+    {
+      "data_type": "short text label",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces valid buffers for fuzz stubs that consume short text labels\n# and in-memory file contents for xdl_merge/xmparam/xpparam. The fuzzer will request\n# FUZZ_PARAM_STR for:\n# - three mmfile contents (orig, mf1, mf2)\n# - three labels (ancestor, file1, file2)\n# It may also request small anchor tokens in xpparam_t stub.\n# We therefore craft a single bytes blob that concatenates multiple newline-separated\n# text blocks so that each FUZZ_PARAM_STR can slice a meaningful string. Newlines are\n# ideal because xdiff operates line-wise and merges/diffs on line boundaries.\n#\n# Layout of the generated buffer (all UTF-8 text):\n#   Section 1: ancestor/orig file content\n#   Section 2: file1 content (variation against ancestor)\n#   Section 3: file2 content (different variation against ancestor)\n#   Section 4: label ancestor (<=64 chars)\n#   Section 5: label file1 (<=64 chars)\n#   Section 6: label file2 (<=64 chars)\n#   Section 7: optional anchor tokens (0..3 lines, short words)\n# Sections are separated by double newlines. Each content section ends with a trailing newline\n# to ensure last line is recognized as a full line by diff engines.\n#\n# The contents include a variety of line styles to exercise behaviors: identical lines,\n# modified lines, insertions, deletions, whitespace-only changes, long lines, empty lines,\n# and repeated blocks to enable anchors. Sizes remain within the stub limits (< 2048 each,\n# total < 4096).\n\nMAX_TOTAL = 4096\n\nLANG_WORDS = [\n    \"alpha\", \"beta\", \"gamma\", \"delta\", \"epsilon\", \"zeta\", \"theta\", \"kappa\",\n    \"lambda\", \"omega\", \"foo\", \"bar\", \"baz\", \"qux\", \"quux\", \"corge\",\n    \"grault\", \"garply\", \"waldo\", \"fred\", \"plugh\", \"xyzzy\", \"thud\",\n]\n\nFILE_HEADERS = [\n    \"#include <stdio.h>\",\n    \"// sample configuration\",\n    \"# this is a script\",\n    \"; ini header\",\n]\n\nLICENSE_SNIPPETS = [\n    \"// Copyright (c) Example Corp\",\n    \"// SPDX-License-Identifier: MIT\",\n    \"/* Licensed under Apache-2.0 */\",\n]\n\n\ndef _rand_word(rng: random.Random) -> str:\n    if rng.random() < 0.2:\n        # mixed alnum token\n        length = rng.randint(3, 10)\n        chars = string.ascii_letters + string.digits + \"_-\"\n        return ''.join(rng.choice(chars) for _ in range(length))\n    return rng.choice(LANG_WORDS)\n\n\ndef _gen_label(rng: random.Random, prefix: str) -> str:\n    # Generate short label <= 64 chars, ASCII, no nulls.\n    parts = [prefix]\n    if rng.random() < 0.7:\n        parts.append(_rand_word(rng))\n    if rng.random() < 0.4:\n        parts.append(str(rng.randint(1, 99)))\n    label = '-'.join(parts)\n    # occasionally include path-like flavors\n    if rng.random() < 0.3:\n        label = f\"{_rand_word(rng)}/{label}.txt\"\n    return label[:64]\n\n\ndef _gen_block(rng: random.Random, topic: str, lines: int) -> List[str]:\n    out = []\n    # optional header\n    if rng.random() < 0.5:\n        out.append(rng.choice(FILE_HEADERS))\n    if rng.random() < 0.4:\n        out.extend(rng.sample(LICENSE_SNIPPETS, k=1))\n    # body lines\n    for i in range(lines):\n        style = rng.random()\n        if style < 0.1:\n            out.append(\"\")  # empty line\n        elif style < 0.2:\n            out.append(\"    \")  # whitespace-only line\n        elif style < 0.35:\n            # key=value\n            key = _rand_word(rng)\n            val = _rand_word(rng)\n            out.append(f\"{key}={val}\")\n        elif style < 0.55:\n            # code-like\n            var = _rand_word(rng)\n            val = rng.randint(0, 1000)\n            out.append(f\"int {var} = {val};\")\n        elif style < 0.75:\n            # sentence-like\n            words = ' '.join(_rand_word(rng) for _ in range(rng.randint(3, 8)))\n            out.append(f\"{topic}: {words}.\")\n        else:\n            # long line\n            words = '-'.join(_rand_word(rng) for _ in range(rng.randint(8, 16)))\n            out.append(words)\n    # optional footer marker\n    if rng.random() < 0.3:\n        out.append(f\"// end of {topic}\")\n    return out\n\n\ndef _mutate_lines_for_branch(rng: random.Random, base: List[str]) -> List[str]:\n    # Create a variation with insertions, deletions, modifications.\n    lines = base[:]\n    n = len(lines)\n    # Modify some lines (content change)\n    for _ in range(max(1, n // 8)):\n        idx = rng.randrange(len(lines)) if lines else 0\n        if not lines:\n            break\n        choice = rng.random()\n        if choice < 0.33 and lines[idx]:\n            # subtle whitespace change\n            if lines[idx].endswith(' '):\n                lines[idx] = lines[idx].rstrip()\n            else:\n                lines[idx] = lines[idx] + ' '\n        elif choice < 0.66:\n            # replace with new sentence\n            words = ' '.join(_rand_word(rng) for _ in range(rng.randint(3, 7)))\n            lines[idx] = f\"mod: {words}\"\n        else:\n            # change number token if present\n            s = lines[idx]\n            digits = [i for i, c in enumerate(s) if c.isdigit()]\n            if digits:\n                i = rng.choice(digits)\n                new_digit = str(rng.randint(0, 9))\n                lines[idx] = s[:i] + new_digit + s[i+1:]\n    # Insert a few lines\n    for _ in range(max(1, n // 10)):\n        pos = rng.randrange(len(lines)+1)\n        lines.insert(pos, f\"insert:{_rand_word(rng)}\")\n    # Delete a few lines (if enough)\n    for _ in range(max(1, n // 12)):\n        if not lines:\n            break\n        pos = rng.randrange(len(lines))\n        lines.pop(pos)\n    return lines\n\n\ndef _ensure_size_limit(sections: List[str], limit: int) -> List[str]:\n    total = sum(len(s) for s in sections)\n    if total <= limit:\n        return sections\n    # Trim from the longest content sections conservatively\n    trimmed = []\n    for s in sections:\n        if len(s) > 512 and total > limit:\n            new_len = max(128, int(len(s) * 0.7))\n            total -= (len(s) - new_len)\n            trimmed.append(s[:new_len])\n        else:\n            trimmed.append(s)\n    # If still too large, hard cut the largest piece\n    while sum(len(s) for s in trimmed) > limit:\n        idx = max(range(len(trimmed)), key=lambda i: len(trimmed[i]))\n        trimmed[idx] = trimmed[idx][:max(64, len(trimmed[idx]) - 128)]\n    return trimmed\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Create base ancestor content\n    base_lines = _gen_block(rng, topic=\"ancestor\", lines=rng.randint(12, 40))\n    # Branch variations\n    lines1 = _mutate_lines_for_branch(rng, base_lines)\n    lines2 = _mutate_lines_for_branch(rng, base_lines)\n\n    # Join with newlines and ensure trailing newline\n    def join_lines(ls: List[str]) -> str:\n        text = \"\\n\".join(ls)\n        if not text.endswith(\"\\n\"):\n            text += \"\\n\"\n        return text\n\n    s_orig = join_lines(base_lines)\n    s_f1 = join_lines(lines1)\n    s_f2 = join_lines(lines2)\n\n    # Labels (<=64 chars)\n    lab_o = _gen_label(rng, \"ancestor\")\n    lab_1 = _gen_label(rng, \"ours\")\n    lab_2 = _gen_label(rng, \"theirs\")\n\n    # Optional anchors (0..3), each short token\n    anchors = []\n    for _ in range(rng.randint(0, 3)):\n        anchors.append(_rand_word(rng))\n\n    # Compose sections separated by blank lines to let the fuzzer slice distinct FUZZ_PARAM_STR\n    sections = [s_orig, s_f1, s_f2, lab_o + \"\\n\", lab_1 + \"\\n\", lab_2 + \"\\n\", \"\\n\".join(anchors) + (\"\\n\" if anchors else \"\")]\n\n    # Enforce total size cap\n    body = \"\\n\\n\".join(_ensure_size_limit(sections, MAX_TOTAL - 32))\n\n    # Final safety: ensure under hard cap\n    data = body.encode('utf-8')[:MAX_TOTAL]\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1889,
+            "output_tokens": 1015,
+            "total_tokens": 2904
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1467,
+            "output_tokens": 35,
+            "total_tokens": 1502
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1920,
+            "output_tokens": 1653,
+            "total_tokens": 3573
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5709,
+            "output_tokens": 4773,
+            "total_tokens": 10482
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 19805,
+            "output_tokens": 7066,
+            "total_tokens": 26871
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7520,
+            "output_tokens": 258,
+            "total_tokens": 7778
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 325.7461783885956,
+    "scan_objects": 17.850676774978638,
+    "validate_objects": 0.38677477836608887,
+    "scan_functions": 27.49528217315674,
+    "synthesis": 89.82228088378906,
+    "fill": 146.83443903923035,
+    "classify": 3.9363574981689453,
+    "build_generators": 39.41926956176758
+  }
+}

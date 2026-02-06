@@ -1,0 +1,180 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [
+        "__BEGIN_DECLS",
+        "__END_DECLS"
+      ],
+      "definition": "#if defined(__cplusplus)\n#define __BEGIN_DECLS extern \"C\" {\n#define __END_DECLS }\n#else\n#define __BEGIN_DECLS /* empty */\n#define __END_DECLS /* empty */\n#endif /* #if defined(__cplusplus) */",
+      "description": "No custom data types are defined in these headers. They only define C/C++ linkage helper macros (__BEGIN_DECLS/__END_DECLS) and declare hashing functions. There are no structs, enums, typedefs, or classes introduced here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "furc_hash",
+      "signature": "uint32_t furc_hash(const char* const key, const size_t len, const uint32_t m);",
+      "description": "Computes a stateless consistent hash of the given key over the range [0, m-1]. Designed to minimize key redistribution when m changes. Intended for sharding/consistent hashing scenarios. Performance is good for typical key lengths; behavior is deterministic for a given key and m.",
+      "requirements": [
+        "key must reference at least len bytes of readable memory",
+        "len may be zero; if non-zero, key must not be NULL",
+        "m must be greater than 0 (defines the output range [0, m-1])",
+        "Return value is an index in the range [0, m-1]"
+      ],
+      "error": null
+    },
+    {
+      "name": "furc_maximum_pool_size",
+      "signature": "uint32_t furc_maximum_pool_size(void);",
+      "description": "Returns the maximum pool size supported by the furc_hash implementation. Useful to bound m when configuring shard counts.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "murmur_hash_64A",
+      "signature": "uint64_t murmur_hash_64A(const void* const key, const size_t len, const uint32_t seed);",
+      "description": "Computes a 64-bit MurmurHash2 (64A variant) of the input buffer with the provided seed. Fast, non-cryptographic hash; alignment and endianness differences can affect results across platforms.",
+      "requirements": [
+        "key must reference at least len bytes of readable memory",
+        "len may be zero; if non-zero, key must not be NULL",
+        "seed is an arbitrary 32-bit value used to initialize the hash state",
+        "Hash results are not guaranteed to be consistent across platforms with different endianness/alignments"
+      ],
+      "error": null
+    },
+    {
+      "name": "crc32_hash",
+      "signature": "uint32_t crc32_hash(const char* const key, const size_t len);",
+      "description": "Computes a CRC32 hash over the first len bytes of key. Non-cryptographic checksum commonly used for fast integrity checks or simple hashing.",
+      "requirements": [
+        "key must reference at least len bytes of readable memory",
+        "len may be zero; if non-zero, key must not be NULL"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "furc_hash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a fuzz string as the backing buffer\nstd::string key_buf = FUZZ_PARAM_STR();\n// Choose a length within [0, key_buf.size()]\nsize_t len = 0;\nif (!key_buf.empty()) {\n    len = (size_t)(*FUZZ_PARAM(unsigned int) % (key_buf.size() + 1));\n}\n// Per API: if len==0, key may be NULL; if len>0, key must be non-NULL\n// Randomly exercise the NULL-key edge case when len==0\nconst char* key_ptr = nullptr;\nif (len == 0) {\n    bool use_null = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n    key_ptr = use_null ? nullptr : key_buf.data();\n} else {\n    key_ptr = key_buf.data();\n}\n// Determine m>0, optionally bounded by the implementation's maximum\nuint32_t max_m = furc_maximum_pool_size();\nuint32_t m = 0;\nif (max_m > 0) {\n    // Range [1, max_m]\n    m = (uint32_t)(*FUZZ_PARAM(unsigned int) % max_m) + 1;\n} else {\n    // Fallback bound to keep runtime fast\n    m = (uint32_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\n}\n// Invoke the target function\nuint32_t idx = furc_hash(key_ptr, len, m);\n// Property: result must be within [0, m-1]\nFUZZ_ASSERT(idx < m, \"furc_hash returned index >= m\");\n// Validation: Inputs generated to honor API constraints; assertion verifies result range per contract."
+    },
+    {
+      "name": "furc_maximum_pool_size",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Stateless query; just invoke and touch the value to avoid optimizing away\nuint32_t max_m = furc_maximum_pool_size();\n// Light exercise: if zero, bail to surface unusual implementations; otherwise proceed\nif (max_m == 0) { FUZZ_BAIL(); }\nvolatile uint32_t sink = max_m; (void)sink;\n// Validation: Function is side-effect free; stub simply calls it and ensures a non-zero result to continue fuzzing."
+    },
+    {
+      "name": "murmur_hash_64A",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Backing buffer for hashing\nstd::string buf = FUZZ_PARAM_STR();\n// Choose a length within [0, buf.size()]\nsize_t len = 0;\nif (!buf.empty()) {\n    len = (size_t)(*FUZZ_PARAM(unsigned int) % (buf.size() + 1));\n}\n// If len==0 we may pass a NULL key per API; otherwise key must be non-NULL\nconst void* key_ptr = nullptr;\nif (len == 0) {\n    bool use_null = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n    key_ptr = use_null ? nullptr : (const void*)buf.data();\n} else {\n    key_ptr = (const void*)buf.data();\n}\n// Arbitrary 32-bit seed\nuint32_t seed = *FUZZ_PARAM(uint32_t);\n// Invoke target function\nvolatile uint64_t h = murmur_hash_64A(key_ptr, len, seed); (void)h;\n// Validation: Stub enforces pointer/length constraints; no cross-platform properties are asserted."
+    },
+    {
+      "name": "crc32_hash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Backing buffer for hashing\nstd::string key_buf = FUZZ_PARAM_STR();\n// Length within [0, key_buf.size()]\nsize_t len = 0;\nif (!key_buf.empty()) {\n    len = (size_t)(*FUZZ_PARAM(unsigned int) % (key_buf.size() + 1));\n}\n// If len==0 we may pass NULL; otherwise key must be non-NULL\nconst char* key_ptr = nullptr;\nif (len == 0) {\n    bool use_null = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n    key_ptr = use_null ? nullptr : key_buf.data();\n} else {\n    key_ptr = key_buf.data();\n}\n// Invoke target function\nvolatile uint32_t crc = crc32_hash(key_ptr, len); (void)crc;\n// Validation: Pointer/length rules are respected; function is pure so no outputs are required."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "furc_maximum_pool_size",
+      "data_types": []
+    },
+    {
+      "name": "furc_hash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "murmur_hash_64A",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "crc32_hash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "An uninterpreted byte sequence of any length, including empty. May contain any 8-bit values (0x00–0xFF), not required to be valid text or encoded in any specific format. Suitable for functions that consume raw buffers and lengths (e.g., hashing or checksums)."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nimport struct\nimport string\nfrom typing import List\n\n# We generate arbitrary binary data suitable as backing buffers for hashing\n# functions. The fuzzer stubs will select a length within [0, size] and may\n# pass NULL when len==0, so we just need to provide interesting buffers.\n# Strategy: produce a mix of sizes and content patterns that exercise\n# different internal code paths (alignment, block processing, tails, repeats).\n\n_MAX_SIZE = 4096\n\ndef _rand(rng: random.Random, n: int) -> int:\n    return rng.randrange(n)\n\ndef _weighted_choice(rng: random.Random, items: List[tuple]):\n    # items: list of (value, weight)\n    total = sum(w for _, w in items)\n    pick = rng.uniform(0, total)\n    cum = 0.0\n    for v, w in items:\n        cum += w\n        if pick <= cum:\n            return v\n    return items[-1][0]\n\ndef _pattern_repeats(rng: random.Random, total_len: int) -> bytes:\n    # Choose a small pattern and repeat\n    pat_len = _weighted_choice(rng, [(1, 3), (2, 3), (3, 2), (4, 2), (8, 3), (16, 2), (32, 1)])\n    # Craft pattern with diverse bytes\n    choices = [\n        b\"\\x00\" * pat_len,\n        b\"\\xff\" * pat_len,\n        bytes((i % 256 for i in range(pat_len))),\n        os.urandom(pat_len),\n        bytes(rng.randrange(256) for _ in range(pat_len)),\n    ]\n    pat = rng.choice(choices)\n    reps = total_len // pat_len\n    rem = total_len % pat_len\n    return pat * reps + pat[:rem]\n\ndef _structured_segments(rng: random.Random, total_len: int) -> bytes:\n    # Build buffer from segments with different characteristics\n    out = bytearray()\n    while len(out) < total_len:\n        seg_type = _weighted_choice(rng, [\n            (\"zeros\", 2), (\"ff\", 2), (\"ascii\", 2), (\"alnum\", 2), (\"words\", 2),\n            (\"urandom\", 3), (\"counter\", 2), (\"unicode_like\", 1), (\"gzip_header\", 0.5),\n        ])\n        max_seg = max(1, total_len - len(out))\n        seg_len = min(max_seg, int(_weighted_choice(rng, [\n            (8, 2), (16, 2), (32, 2), (64, 2), (128, 2), (256, 2), (512, 1), (1024, 1), (max_seg, 0.5)\n        ])))\n        if seg_type == \"zeros\":\n            seg = b\"\\x00\" * seg_len\n        elif seg_type == \"ff\":\n            seg = b\"\\xff\" * seg_len\n        elif seg_type == \"ascii\":\n            alphabet = (string.ascii_letters + string.digits + string.punctuation + \" \").encode()\n            seg = bytes(alphabet[rng.randrange(len(alphabet))] for _ in range(seg_len))\n        elif seg_type == \"alnum\":\n            alphabet = (string.ascii_letters + string.digits).encode()\n            seg = bytes(alphabet[rng.randrange(len(alphabet))] for _ in range(seg_len))\n        elif seg_type == \"words\":\n            # 32-bit repeating words to exercise alignment\n            word = rng.getrandbits(32)\n            seg = struct.pack(\"<I\", word) * (seg_len // 4) + bytes(struct.pack(\"<I\", word)[: seg_len % 4])\n        elif seg_type == \"urandom\":\n            seg = os.urandom(seg_len)\n        elif seg_type == \"counter\":\n            start = rng.randrange(256)\n            seg = bytes((start + i) & 0xFF for i in range(seg_len))\n        elif seg_type == \"unicode_like\":\n            # Mix of UTF-8-like sequences though not guaranteed valid\n            seg = bytearray()\n            while len(seg) < seg_len:\n                choice = rng.randrange(4)\n                if choice == 0:\n                    seg.append(rng.randrange(0x20))  # control\n                elif choice == 1:\n                    seg.append(rng.randrange(0x7f))  # ASCII\n                elif choice == 2 and len(seg) + 2 <= seg_len:\n                    # 2-byte utf8-like\n                    first = 0xC2 + rng.randrange(2)  # C2..C3\n                    cont = 0x80 + rng.randrange(64)\n                    seg.extend([first, cont])\n                elif choice == 3 and len(seg) + 3 <= seg_len:\n                    first = 0xE0 + rng.randrange(16)  # E0..EF\n                    cont1 = 0x80 + rng.randrange(64)\n                    cont2 = 0x80 + rng.randrange(64)\n                    seg.extend([first, cont1, cont2])\n                else:\n                    seg.append(rng.randrange(256))\n            seg = bytes(seg[:seg_len])\n        elif seg_type == \"gzip_header\":\n            # Minimal gzip header + random payload chunk\n            header = b\"\\x1f\\x8b\\x08\\x00\\x00\\x00\\x00\\x00\\x00\\x03\"  # ID1 ID2 CM FLG MTIME XFL OS\n            payload = os.urandom(max(0, seg_len - len(header)))\n            seg = (header + payload)[:seg_len]\n        else:\n            seg = os.urandom(seg_len)\n        out.extend(seg)\n    return bytes(out[:total_len])\n\ndef _edge_case_sizes(rng: random.Random) -> int:\n    # Favor sizes that hit block boundaries for typical hash implementations\n    candidates = [\n        0, 1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65,\n        127, 128, 129, 255, 256, 257, 511, 512, 513, 1023, 1024, 1025,\n        2047, 2048, 2049, 3072, 3584, 4095, 4096\n    ]\n    if rng.random() < 0.6:\n        return rng.choice([s for s in candidates if s <= _MAX_SIZE])\n    # otherwise random up to MAX\n    return rng.randrange(0, _MAX_SIZE + 1)\n\ndef _compose_with_prefix_suffix(rng: random.Random, core: bytes) -> bytes:\n    # Add optional prefixes/suffixes that can change alignment and tails\n    parts = []\n    if rng.random() < 0.4:\n        pre_len = _weighted_choice(rng, [(0, 2), (1, 2), (2, 2), (3, 2), (7, 1), (8, 2), (15, 1), (16, 2)])\n        parts.append(_pattern_repeats(rng, pre_len))\n    parts.append(core)\n    if rng.random() < 0.5:\n        suf_len = _weighted_choice(rng, [(0, 2), (1, 2), (2, 2), (3, 2), (5, 1), (7, 1), (8, 2), (13, 1)])\n        parts.append(_structured_segments(rng, suf_len))\n    out = b\"\".join(parts)\n    if len(out) > _MAX_SIZE:\n        out = out[:_MAX_SIZE]\n    return out\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose an overall strategy\n    strategy = _weighted_choice(rng, [\n        (\"repeat\", 3),\n        (\"structured\", 4),\n        (\"urandom\", 2),\n        (\"ascii\", 2),\n        (\"mixed\", 3),\n    ])\n    size = _edge_case_sizes(rng)\n\n    if strategy == \"repeat\":\n        core = _pattern_repeats(rng, size)\n    elif strategy == \"structured\":\n        core = _structured_segments(rng, size)\n    elif strategy == \"urandom\":\n        core = os.urandom(size)\n    elif strategy == \"ascii\":\n        alphabet = (string.ascii_letters + string.digits + string.punctuation + \" \\t\\r\\n\").encode()\n        core = bytes(alphabet[rng.randrange(len(alphabet))] for _ in range(size))\n    else:  # mixed\n        # Split into chunks of varying patterns\n        buf = bytearray()\n        remaining = size\n        while remaining > 0:\n            chunk_len = min(remaining, _weighted_choice(rng, [(8,2),(16,2),(32,2),(64,2),(128,2),(256,1)]))\n            chooser = rng.randrange(5)\n            if chooser == 0:\n                chunk = _pattern_repeats(rng, chunk_len)\n            elif chooser == 1:\n                chunk = _structured_segments(rng, chunk_len)\n            elif chooser == 2:\n                chunk = os.urandom(chunk_len)\n            elif chooser == 3:\n                chunk = bytes((i % 256) for i in range(chunk_len))\n            else:\n                chunk = b\"\\x00\" * chunk_len\n            buf.extend(chunk)\n            remaining -= len(chunk)\n        core = bytes(buf[:size])\n\n    result = _compose_with_prefix_suffix(rng, core)\n    # Ensure size cap\n    return result[:_MAX_SIZE]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1455,
+            "output_tokens": 153,
+            "total_tokens": 1608
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1033,
+            "output_tokens": 38,
+            "total_tokens": 1071
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1489,
+            "output_tokens": 1175,
+            "total_tokens": 2664
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4288,
+            "output_tokens": 2244,
+            "total_tokens": 6532
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2533,
+            "output_tokens": 142,
+            "total_tokens": 2675
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 115.07143521308899,
+    "scan_objects": 3.1778931617736816,
+    "validate_objects": 0.19180917739868164,
+    "scan_functions": 16.73023533821106,
+    "synthesis": 49.86746644973755,
+    "fill": 0,
+    "classify": 3.7986342906951904,
+    "build_generators": 41.304725646972656
+  }
+}

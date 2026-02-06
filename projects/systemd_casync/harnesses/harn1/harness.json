@@ -1,0 +1,669 @@
+{
+  "objects": [
+    {
+      "ptr_type": "CaCompressionType *",
+      "aliases": [],
+      "definition": "typedef enum CaCompressionType {\n        CA_COMPRESSION_XZ,\n        CA_COMPRESSION_GZIP,\n        CA_COMPRESSION_ZSTD,\n        _CA_COMPRESSION_TYPE_MAX,\n        _CA_COMPRESSION_TYPE_INVALID = -1,\n\n        CA_COMPRESSION_DEFAULT =\n#if HAVE_LIBZSTD\n        CA_COMPRESSION_ZSTD,\n#elif HAVE_LIBZ\n        CA_COMPRESSION_GZIP,\n#elif HAVE_LIBLZMA\n        CA_COMPRESSION_XZ,\n#else\n        _CA_COMPRESSION_TYPE_INVALID\n#endif\n} CaCompressionType;",
+      "description": "Enumeration of supported compression backends, with a build-time-selected CA_COMPRESSION_DEFAULT. Values include XZ, GZIP, ZSTD, plus sentinels for max and invalid.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "CaDigest *",
+      "aliases": [],
+      "definition": "typedef struct CaDigest CaDigest;",
+      "description": "Opaque digest context object. Concrete structure is not defined in this header; it is managed via the provided API for creating, writing data, reading the resulting hash, resetting, and changing type.",
+      "direct_api_constructors": [
+        "ca_digest_new",
+        "ca_digest_ensure_allocated"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "CaDigestType *",
+      "aliases": [],
+      "definition": "typedef enum CaDigestType {\n        CA_DIGEST_SHA256,\n        CA_DIGEST_SHA512_256,\n        _CA_DIGEST_TYPE_MAX,\n        CA_DIGEST_DEFAULT = CA_DIGEST_SHA512_256,\n        _CA_DIGEST_TYPE_INVALID = -1,\n} CaDigestType;",
+      "description": "Enumeration of supported digest algorithms for CaDigest. Provides SHA-256 and SHA-512/256, plus default, max, and invalid sentinels.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "CaChunkID *",
+      "aliases": [],
+      "definition": "typedef union CaChunkID {\n        /* Depending on context either a SHA256 or SHA512/256 sum */\n        uint8_t bytes[CA_CHUNK_ID_SIZE];\n        uint64_t u64[CA_CHUNK_ID_SIZE / sizeof(uint64_t)];\n} CaChunkID;",
+      "description": "Binary identifier for a content-addressed chunk, storing a 32-byte digest (SHA-256 or SHA-512/256). Exposes byte-wise and 64-bit-word views.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "ca_compression_type_to_string",
+      "signature": "const char* ca_compression_type_to_string(CaCompressionType c);",
+      "description": "Convert a CaCompressionType enum value to its human-readable name. Typical use is for logging or configuration serialization.",
+      "requirements": [
+        "c should be a valid CaCompressionType value; behavior for _CA_COMPRESSION_TYPE_INVALID is unspecified.",
+        "The returned pointer refers to a constant string and must not be modified."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_compression_type_from_string",
+      "signature": "CaCompressionType ca_compression_type_from_string(const char *s);",
+      "description": "Parse a human-readable compression type name into a CaCompressionType enum value. Intended for reading configuration or user input.",
+      "requirements": [
+        "s must be a non-NULL, NUL-terminated string representing a known compression type.",
+        "Returns _CA_COMPRESSION_TYPE_INVALID for unrecognized input (exact semantics unspecified in header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_new",
+      "signature": "int ca_digest_new(CaDigestType t, CaDigest **ret);",
+      "description": "Allocate and initialize a new digest context of the specified type (e.g., SHA256 or SHA512/256). On success stores the created context in *ret.",
+      "requirements": [
+        "ret must be non-NULL and point to a location where the created CaDigest* will be stored.",
+        "t must be a valid CaDigestType (not _CA_DIGEST_TYPE_INVALID).",
+        "Caller is responsible for freeing the returned context with ca_digest_free."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_free",
+      "signature": "CaDigest *ca_digest_free(CaDigest *d);",
+      "description": "Free a CaDigest context and return NULL for convenience. Intended to be used for cleanup (and with the provided ca_digest_freep helper).",
+      "requirements": [
+        "d must be a CaDigest* previously obtained from ca_digest_new or ca_digest_ensure_allocated.",
+        "Do not use the context after freeing it.",
+        "The function returns NULL (per common pattern); assign the return value back to your variable if you rely on NULLing."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_ensure_allocated",
+      "signature": "int ca_digest_ensure_allocated(CaDigest **d, CaDigestType t);",
+      "description": "Ensure that *d holds a valid CaDigest of the given type, allocating it if *d is NULL. If already allocated, the function may leave it as-is or adjust it as needed.",
+      "requirements": [
+        "d must be non-NULL.",
+        "t must be a valid CaDigestType (not _CA_DIGEST_TYPE_INVALID).",
+        "On success, *d will reference an initialized digest context that the caller must later free with ca_digest_free."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_write",
+      "signature": "void ca_digest_write(CaDigest *d, const void *p, size_t l);",
+      "description": "Update the digest with l bytes from buffer p. Use for streaming data into the digest.",
+      "requirements": [
+        "d must be a valid, initialized CaDigest*.",
+        "If l > 0, p must be a valid pointer to at least l bytes; p may be NULL only when l == 0.",
+        "Must be called before finalizing/reading if you want the data to affect the digest."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_read",
+      "signature": "const void* ca_digest_read(CaDigest *d);",
+      "description": "Return a pointer to the current digest value (raw bytes). Use ca_digest_get_size to determine the length.",
+      "requirements": [
+        "d must be a valid, initialized CaDigest*.",
+        "The returned memory must not be modified by the caller.",
+        "Size of the digest can be obtained via ca_digest_get_size(d).",
+        "Lifetime/validity of the returned pointer is not specified in the header; if in doubt, copy the bytes immediately."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_reset",
+      "signature": "void ca_digest_reset(CaDigest *d);",
+      "description": "Reset the digest context to its initial state, discarding any previously written data.",
+      "requirements": [
+        "d must be a valid CaDigest*.",
+        "After reset, previous digest_read results become stale; recompute as needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_get_size",
+      "signature": "size_t ca_digest_get_size(CaDigest *d);",
+      "description": "Return the digest output size in bytes for the context’s current type.",
+      "requirements": [
+        "d must be a valid CaDigest*.",
+        "Returned size corresponds to the current type; changing type may change this value."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_get_type",
+      "signature": "CaDigestType ca_digest_get_type(CaDigest *d);",
+      "description": "Return the digest algorithm type currently configured for the context.",
+      "requirements": [
+        "d must be a valid CaDigest*."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_get_name",
+      "signature": "const char *ca_digest_get_name(CaDigest *d);",
+      "description": "Return a human-readable name for the digest context’s current type.",
+      "requirements": [
+        "d must be a valid CaDigest*.",
+        "The returned pointer refers to a constant string and must not be modified."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_type_size",
+      "signature": "size_t ca_digest_type_size(CaDigestType t);",
+      "description": "Return the output size in bytes for the specified digest type.",
+      "requirements": [
+        "t should be a valid CaDigestType (behavior for _CA_DIGEST_TYPE_INVALID is unspecified)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_type_to_string",
+      "signature": "const char *ca_digest_type_to_string(CaDigestType t);",
+      "description": "Convert a CaDigestType enum value to its human-readable name.",
+      "requirements": [
+        "t should be a valid CaDigestType; behavior for invalid values is unspecified.",
+        "The returned pointer refers to a constant string and must not be modified."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_type_from_string",
+      "signature": "CaDigestType ca_digest_type_from_string(const char *name);",
+      "description": "Parse a human-readable digest type name into a CaDigestType enum value.",
+      "requirements": [
+        "name must be a non-NULL, NUL-terminated string representing a known digest type.",
+        "Returns _CA_DIGEST_TYPE_INVALID for unrecognized input (exact behavior unspecified in header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_digest_set_type",
+      "signature": "int ca_digest_set_type(CaDigest *d, CaDigestType t);",
+      "description": "Change the digest algorithm used by the context to the specified type.",
+      "requirements": [
+        "d must be a valid CaDigest*.",
+        "t must be a valid CaDigestType (not _CA_DIGEST_TYPE_INVALID).",
+        "Changing type may invalidate previously computed results; caller should assume the context is effectively reset (not explicitly documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_chunk_id_parse",
+      "signature": "CaChunkID* ca_chunk_id_parse(const char *v, CaChunkID *ret);",
+      "description": "Parse a textual chunk ID into a 32-byte CaChunkID structure. The textual form is the hexadecimal representation of the ID.",
+      "requirements": [
+        "v must be a non-NULL, NUL-terminated string containing a 64-character hexadecimal representation (no separators) of a 32-byte ID.",
+        "ret must be non-NULL and point to writable storage for a CaChunkID.",
+        "On success, returns ret; on failure, behavior is unspecified in header."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_chunk_id_format",
+      "signature": "char *ca_chunk_id_format(const CaChunkID *id, char v[CA_CHUNK_ID_FORMAT_MAX]);",
+      "description": "Format a 32-byte CaChunkID as a 64-character hexadecimal string plus terminating NUL into the provided buffer and return v.",
+      "requirements": [
+        "id must be a non-NULL pointer to a valid CaChunkID.",
+        "v must point to a writable buffer of at least CA_CHUNK_ID_FORMAT_MAX bytes (64 hex chars + 1 NUL).",
+        "The returned pointer is v; buffer contents are owned by the caller."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_chunk_id_make",
+      "signature": "int ca_chunk_id_make(CaDigest *digest, const void *p, size_t l, CaChunkID *ret);",
+      "description": "Compute a CaChunkID for the given data using the provided digest context and store it in ret. The chunk ID is a 32-byte digest (e.g., SHA256 or SHA512/256).",
+      "requirements": [
+        "digest must be a valid, initialized CaDigest* whose digest output size is exactly CA_CHUNK_ID_SIZE (32 bytes).",
+        "ret must be non-NULL and point to writable storage for a CaChunkID.",
+        "If l > 0, p must point to at least l bytes; p may be NULL only when l == 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "ca_chunk_id_format_path",
+      "signature": "char* ca_chunk_id_format_path(const char *prefix, const CaChunkID *chunkid, const char *suffix, char buffer[]);",
+      "description": "Construct a filesystem path string from an optional prefix, a formatted chunk ID, and an optional suffix, writing the result into buffer and returning buffer.",
+      "requirements": [
+        "chunkid must be a non-NULL pointer to a valid CaChunkID.",
+        "buffer must be large enough to hold the full result; use CA_CHUNK_ID_PATH_SIZE(prefix, suffix) to size it.",
+        "prefix may be NULL or a NUL-terminated string.",
+        "suffix may be NULL or a NUL-terminated string.",
+        "The returned pointer is buffer; buffer contents are owned by the caller."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ca_compression_type_to_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid CaCompressionType value explicitly from the known set\nCaCompressionType c = (*FUZZ_PARAM(unsigned int) % 3 == 0) ? CA_COMPRESSION_XZ : ((*FUZZ_PARAM(unsigned int) % 2 == 0) ? CA_COMPRESSION_GZIP : CA_COMPRESSION_ZSTD);\n// Call the function; returned pointer must be a constant string; we don't modify it\nconst char *name = ca_compression_type_to_string(c);\n// Property: returned pointer should be non-null for valid enum values (assert for fuzzer signal)\nFUZZ_ASSERT(name != nullptr, \"ca_compression_type_to_string returned NULL for valid enum\");\n// Validation: Inputs none; output none. We exercised the conversion with a valid enum and asserted non-null result."
+    },
+    {
+      "name": "ca_compression_type_from_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose either a valid known name or a random string to exercise both success and invalid paths\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nstd::string s;\nif ((pick & 3u) == 0) s = \"xz\"; else if ((pick & 3u) == 1) s = \"gzip\"; else if ((pick & 3u) == 2) s = \"zstd\"; else s = FUZZ_PARAM_STR();\n// Ensure non-empty, NUL-terminated input as required\nif (s.empty()) s = \"xz\";\nCaCompressionType t = ca_compression_type_from_string(s.c_str());\n// No hard assertion on t; invalid strings may yield _CA_COMPRESSION_TYPE_INVALID.\n// Validation: Provided a guaranteed non-NULL, NUL-terminated string; handled both valid and invalid paths."
+    },
+    {
+      "name": "ca_digest_new",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "// Pick a valid digest type explicitly\nCaDigestType t = (*FUZZ_PARAM(unsigned int) & 1u) ? CA_DIGEST_SHA256 : CA_DIGEST_SHA512_256;\nCaDigest *digest = nullptr;\nint r = ca_digest_new(t, &digest);\nif (r < 0 || !digest) { FUZZ_BAIL(); }\n// Track attributes for downstream stubs\nFUZZ_SET_ATTR_INT(digest, \"digest_type\", (int)t);\nsize_t sz = ca_digest_get_size(digest);\nFUZZ_SET_ATTR_INT(digest, \"digest_size\", (int)sz);\n// Validation: Ensured valid type and non-NULL ret; recorded type/size; returning digest as persistent output."
+    },
+    {
+      "name": "ca_digest_free",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free the digest; after this, it must not be used\nCaDigest *ret = ca_digest_free(digest);\n// Property: API states it returns NULL (common pattern)\nFUZZ_ASSERT(ret == nullptr, \"ca_digest_free did not return NULL\");\n// Validation: Consumed digest and did not return it; avoids use-after-free."
+    },
+    {
+      "name": "ca_digest_ensure_allocated",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        },
+        {
+          "name": "digest_alt",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "// Start with the provided digest pointer; ensure it's tracked via local variable\nCaDigest *p = digest;\n// Choose a valid target type\nCaDigestType t = (*FUZZ_PARAM(unsigned int) & 1u) ? CA_DIGEST_SHA256 : CA_DIGEST_SHA512_256;\nint r = ca_digest_ensure_allocated(&p, t);\nif (r < 0 || !p) { FUZZ_BAIL(); }\n// Update attributes on the (possibly new) context\nFUZZ_SET_ATTR_INT(p, \"digest_type\", (int)t);\nFUZZ_SET_ATTR_INT(p, \"digest_size\", (int)ca_digest_get_size(p));\n// Output both the possibly-updated pointer and the original to preserve ownership regardless of internal behavior\nCaDigest *digest_alt = p;\n// Validation: Maintains ownership of the original object and returns the ensured pointer; updates tracked attributes."
+    },
+    {
+      "name": "ca_digest_write",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "// Generate a data buffer; limit size for performance\nstd::string data = FUZZ_PARAM_STR();\nif (data.size() > 1024) data.resize(1024);\nconst void *p = data.empty() ? nullptr : (const void*)data.data();\nsize_t l = data.size();\n// Enforce API: p may be NULL only when l == 0\nif (l == 0) p = nullptr;\nca_digest_write(digest, p, l);\n// Keep digest alive; return it as output\n// Validation: Respects pointer/length rules; returns digest unchanged for continued use."
+    },
+    {
+      "name": "ca_digest_read",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "// Read current digest bytes and optionally copy a bounded prefix for coverage\nconst void *ptr = ca_digest_read(digest);\nFUZZ_ASSERT(ptr != nullptr, \"ca_digest_read returned NULL\");\nsize_t sz = ca_digest_get_size(digest);\n// Copy at most 64 bytes to a local buffer to exercise read paths without heavy work\nsize_t n = sz < 64 ? sz : 64;\nunsigned char tmp[64];\nfor (size_t i = 0; i < n; ++i) tmp[i] = ((const unsigned char*)ptr)[i];\n(void)tmp;\n// Return digest for further operations\n// Validation: Ensures non-NULL read pointer and bounded copy; preserves digest."
+    },
+    {
+      "name": "ca_digest_reset",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "// Reset the digest to initial state\nca_digest_reset(digest);\n// After reset, previously read values are stale; nothing else required\n// Return digest for future use\n// Validation: Simple state transition; object is preserved as output."
+    },
+    {
+      "name": "ca_digest_get_size",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "size_t sz = ca_digest_get_size(digest);\nFUZZ_ASSERT(sz > 0, \"Digest size must be > 0 for a valid context\");\n// Track for later checks\nFUZZ_SET_ATTR_INT(digest, \"digest_size\", (int)sz);\n// Validation: Size read asserted positive and recorded; digest returned."
+    },
+    {
+      "name": "ca_digest_get_type",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "CaDigestType t = ca_digest_get_type(digest);\n// t should be a valid type for a valid context; record it\nFUZZ_SET_ATTR_INT(digest, \"digest_type\", (int)t);\n// Validation: Type captured and stored for downstream checks; digest preserved."
+    },
+    {
+      "name": "ca_digest_get_name",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "const char *name = ca_digest_get_name(digest);\nFUZZ_ASSERT(name != nullptr, \"ca_digest_get_name returned NULL\");\n// Do not modify the returned constant string\n// Validation: Ensured non-NULL name; digest returned unchanged."
+    },
+    {
+      "name": "ca_digest_type_size",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Pick a valid digest type explicitly\nCaDigestType t = (*FUZZ_PARAM(unsigned int) & 1u) ? CA_DIGEST_SHA256 : CA_DIGEST_SHA512_256;\nsize_t sz = ca_digest_type_size(t);\nFUZZ_ASSERT(sz > 0, \"ca_digest_type_size returned 0 for valid type\");\n// Validation: Exercised size query for a valid type and asserted positive size."
+    },
+    {
+      "name": "ca_digest_type_to_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Pick a valid digest type explicitly\nCaDigestType t = (*FUZZ_PARAM(unsigned int) & 1u) ? CA_DIGEST_SHA256 : CA_DIGEST_SHA512_256;\nconst char *name = ca_digest_type_to_string(t);\nFUZZ_ASSERT(name != nullptr, \"ca_digest_type_to_string returned NULL for valid type\");\n// Validation: Verified non-NULL constant string for valid enum."
+    },
+    {
+      "name": "ca_digest_type_from_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose valid names or a random string to test invalid path\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nstd::string s;\nif ((pick & 3u) == 0) s = \"sha256\"; else if ((pick & 3u) == 1) s = \"sha512_256\"; else s = FUZZ_PARAM_STR();\nif (s.empty()) s = \"sha256\";\nCaDigestType t = ca_digest_type_from_string(s.c_str());\n// Accept that invalid strings may map to _CA_DIGEST_TYPE_INVALID; no assertion here\n// Validation: Always passes a non-NULL NUL-terminated string; exercises both valid and invalid parsing."
+    },
+    {
+      "name": "ca_digest_set_type",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "code": "// Pick a valid type\nCaDigestType t = (*FUZZ_PARAM(unsigned int) & 1u) ? CA_DIGEST_SHA256 : CA_DIGEST_SHA512_256;\nint r = ca_digest_set_type(digest, t);\nif (r < 0) { FUZZ_BAIL(); }\n// Update tracked attributes after successful change\nFUZZ_SET_ATTR_INT(digest, \"digest_type\", (int)t);\nFUZZ_SET_ATTR_INT(digest, \"digest_size\", (int)ca_digest_type_size(t));\n// Validation: Enforced valid type and success path; updated attributes; digest preserved."
+    },
+    {
+      "name": "ca_chunk_id_format",
+      "inputs": [
+        {
+          "name": "chunkid",
+          "type": "CaChunkID *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunkid",
+          "type": "CaChunkID *"
+        }
+      ],
+      "code": "// Prepare an adequately sized output buffer: 64 hex chars + 1 NUL\nchar buf[65];\nchar *res = ca_chunk_id_format(chunkid, buf);\nFUZZ_ASSERT(res == buf, \"ca_chunk_id_format did not return the provided buffer\");\n// Do not store buf beyond this call; caller owns it. Keep chunkid alive.\n// Validation: Ensured buffer size and return pointer; chunkid returned unchanged."
+    },
+    {
+      "name": "ca_chunk_id_make",
+      "inputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "digest",
+          "type": "CaDigest *"
+        },
+        {
+          "name": "chunkid",
+          "type": "CaChunkID *"
+        }
+      ],
+      "code": "// Ensure digest produces 32-byte output as required\nsize_t sz = ca_digest_get_size(digest);\nif (sz != 32) { FUZZ_BAIL(); }\n// Generate input data (bounded)\nstd::string data = FUZZ_PARAM_STR();\nif (data.size() > 1024) data.resize(1024);\nconst void *p = data.empty() ? nullptr : (const void*)data.data();\nsize_t l = data.size();\nif (l == 0) p = nullptr;\n// Allocate result storage\nCaChunkID *chunkid = new CaChunkID();\nint r = ca_chunk_id_make(digest, p, l, chunkid);\nif (r < 0) { delete chunkid; FUZZ_BAIL(); }\n// Return both digest (still valid) and the produced chunkid\n// Validation: Enforced 32-byte digest constraint and buffer rules; produced and returned new CaChunkID."
+    },
+    {
+      "name": "ca_chunk_id_format_path",
+      "inputs": [
+        {
+          "name": "chunkid",
+          "type": "CaChunkID *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chunkid",
+          "type": "CaChunkID *"
+        }
+      ],
+      "code": "// Create bounded prefix/suffix to guarantee buffer capacity assumptions\nstd::string pfx = FUZZ_PARAM_STR(); if (pfx.size() > 64) pfx.resize(64);\nstd::string sfx = FUZZ_PARAM_STR(); if (sfx.size() > 64) sfx.resize(64);\nconst char *prefix = pfx.c_str();\nconst char *suffix = sfx.c_str();\n// Buffer sized to accommodate prefix + 64 hex + suffix + separators + NUL safely\nchar buffer[256];\nchar *res = ca_chunk_id_format_path(prefix, chunkid, suffix, buffer);\nFUZZ_ASSERT(res == buffer, \"ca_chunk_id_format_path did not return the provided buffer\");\n// Return chunkid for reuse\n// Validation: Constrained prefix/suffix lengths to fit buffer; asserted correct return pointer; preserved chunkid."
+    },
+    {
+      "name": "ca_chunk_id_parse",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "chunkid",
+          "type": "CaChunkID *"
+        }
+      ],
+      "code": "// Build a valid 64-character lowercase hex string from a random byte sequence\n// Use FUZZ_PARAM_STR to obtain a random buffer once (macros are compile-time and static per call)\nstd::string bytes = FUZZ_PARAM_STR();\nif (bytes.size() > 1024) bytes.resize(1024);\n// bytes is guaranteed to be at least 1 byte; we can cycle through it if < 32\nstatic const char hexdig[] = \"0123456789abcdef\";\nchar hex[65];\nfor (int i = 0; i < 32; ++i) {\n    uint8_t b = (uint8_t)bytes[i % bytes.size()];\n    hex[2*i]   = hexdig[(b >> 4) & 0xF];\n    hex[2*i+1] = hexdig[b & 0xF];\n}\nhex[64] = '\\0';\n// Allocate storage for the parsed result (caller-owned)\nCaChunkID *chunkid = new CaChunkID();\n// Enforce API: v non-NULL 64-char hex string; ret non-NULL writable storage\nCaChunkID *ret = ca_chunk_id_parse(hex, chunkid);\n// Assume success when parser returns the provided ret pointer; otherwise bail and free\nif (ret != chunkid) { delete chunkid; FUZZ_BAIL(); }\n// Validation: Provided exact-length hex input and non-NULL output buffer; asserted success by pointer equality and return the allocated CaChunkID."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "ca_compression_type_to_string",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_new",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_free",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_ensure_allocated",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_read",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_reset",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_get_size",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_get_type",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_get_name",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_type_size",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_type_to_string",
+      "data_types": []
+    },
+    {
+      "name": "ca_digest_set_type",
+      "data_types": []
+    },
+    {
+      "name": "ca_chunk_id_format",
+      "data_types": []
+    },
+    {
+      "name": "ca_compression_type_from_string",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "ca_digest_write",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ca_digest_type_from_string",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "ca_chunk_id_make",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ca_chunk_id_format_path",
+      "data_types": [
+        "generic string"
+      ]
+    },
+    {
+      "name": "ca_chunk_id_parse",
+      "data_types": [
+        "hexadecimal string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "generic string",
+      "description": "A NUL-terminated text string with no required structure or character set constraints beyond being valid C-string data. May contain any bytes except the terminating NUL; used for free-form names, prefixes, or suffixes."
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A byte buffer of any length (including zero) whose contents are treated as opaque binary data. No encoding or structure is required; used directly as input to functions like hashing or processing raw bytes."
+    },
+    {
+      "data_type": "hexadecimal string",
+      "description": "A textual representation consisting solely of hexadecimal digits (0-9, a-f or A-F). In this context, typically a fixed-length 64-character lowercase hex string representing 32 bytes of binary data."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "generic string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets inputs for generic C strings used by:\n# - ca_compression_type_from_string (expects names like \"xz\", \"gzip\", \"zstd\" or arbitrary)\n# - ca_digest_type_from_string (expects names like \"sha256\", \"sha512_256\" or arbitrary)\n# - ca_chunk_id_format_path (expects prefix/suffix strings; any NUL-terminated C-strings)\n#\n# The fuzzer framework will draw strings from the provided byte buffer. We therefore\n# pack multiple interesting, NUL-terminated strings back-to-back in the buffer. The\n# stubs may request several FUZZ_PARAM_STR values; this buffer should contain a mix of:\n# - Valid compression names: \"xz\", \"gzip\", \"zstd\"\n# - Valid digest names: \"sha256\", \"sha512_256\"\n# - Edge-case strings for prefixes/suffixes: empty, very short, long (<=64), with slashes,\n#   dots, spaces, unicode-like UTF-8, and characters often used in paths.\n# - Random additional strings to add variation while remaining valid C-strings.\n#\n# Constraints:\n# - Total size <= 4096 bytes\n# - Strings are valid C-strings (no embedded NUL; we terminate with NUL explicitly)\n# - Deterministic with the provided seed, but still varied.\n\nMAX_TOTAL = 4096\n\nVALID_COMPRESSION = [\"xz\", \"gzip\", \"zstd\"]\nVALID_DIGEST = [\"sha256\", \"sha512_256\"]\n\n# Path-ish interesting tokens for prefix/suffix construction\nINTERESTING_PATHS = [\n    \"\",  # empty allowed\n    \"/\",  # root\n    \".\",\n    \"..\",\n    \"tmp\",\n    \"var/lib/ca\",\n    \"prefix\",\n    \"suffix\",\n    \"leading/slash/\",\n    \"trailing\",\n    \"multi/level/path\",\n    \"with spaces\",\n    \"dots...and...more\",\n    \"special-_.~!$&'()@\",\n    \"unicode-π-中文-😊\",  # UTF-8 payload\n]\n\n# Additional arbitrary names for invalid-path testing of from_string parsers\nARBITRARY_NAMES = [\n    \"\",  # empty\n    \"none\",\n    \"unknown\",\n    \"sha\",\n    \"sha-256\",\n    \"sha512/256\",\n    \"SHA256\",  # case sensitivity\n    \"ZSTD\",     # case sensitivity\n    \"gz\",\n    \"xz2\",\n    \"lzo\",\n    \"brotli\",\n    \"123\",\n    \"a\" * 63,\n]\n\nSAFE_ASCII = string.ascii_letters + string.digits + \"-_./ \"\n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    n = rng.randint(min_len, max_len)\n    return \"\".join(rng.choice(SAFE_ASCII) for _ in range(n))\n\ndef _cap64(s: str) -> str:\n    # ca_chunk_id_format_path test clamps to 64; we keep within 64\n    if len(s.encode('utf-8')) <= 64:\n        return s\n    # Truncate on code-point boundary by iteratively shortening bytes\n    b = s.encode('utf-8')[:64]\n    # ensure valid utf-8; if not, back off\n    while True:\n        try:\n            return b.decode('utf-8', errors='strict')\n        except UnicodeDecodeError:\n            b = b[:-1]\n            if not b:\n                return \"\"\n\ndef _emit_cstr(buf: bytearray, s: str) -> None:\n    # Ensure no embedded NULs; replace with space\n    if \"\\x00\" in s:\n        s = s.replace(\"\\x00\", \" \")\n    b = s.encode('utf-8', errors='replace')\n    # Ensure buffer size constraint; leave room for NUL\n    if len(buf) + len(b) + 1 > MAX_TOTAL:\n        return\n    buf += b\n    buf.append(0)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    buf = bytearray()\n\n    # 1) Ensure at least one valid compression and digest names appear early\n    for name in rng.sample(VALID_COMPRESSION, k=len(VALID_COMPRESSION)):\n        _emit_cstr(buf, name)\n    for name in rng.sample(VALID_DIGEST, k=len(VALID_DIGEST)):\n        _emit_cstr(buf, name)\n\n    # 2) Include empty string once (valid C-string for prefixes/suffixes)\n    _emit_cstr(buf, \"\")\n\n    # 3) Add a mixture of path-like prefixes and suffixes (capped to 64)\n    chosen_paths = rng.sample(INTERESTING_PATHS, k=min(len(INTERESTING_PATHS), 8))\n    for p in chosen_paths:\n        _emit_cstr(buf, _cap64(p))\n\n    # 4) Add some arbitrary names (potentially invalid for parsers)\n    for nm in rng.sample(ARBITRARY_NAMES, k=min(len(ARBITRARY_NAMES), 8)):\n        _emit_cstr(buf, _cap64(nm))\n\n    # 5) Add randomized valid-looking prefixes/suffixes of various lengths up to 64\n    for _ in range(8):\n        s = _rand_ascii(rng, 0, 64)\n        _emit_cstr(buf, s)\n\n    # 6) Add additional valid identifiers with separators, to exercise path joining\n    for _ in range(6):\n        parts = [\n            _rand_ascii(rng, 1, 8),\n            _rand_ascii(rng, 0, 6),\n            _rand_ascii(rng, 1, 10),\n        ]\n        s = \"/\".join(filter(None, parts))\n        _emit_cstr(buf, _cap64(s))\n\n    # 7) Intersperse repeats of valid canonical names to increase their presence\n    for _ in range(3):\n        _emit_cstr(buf, rng.choice(VALID_COMPRESSION))\n        _emit_cstr(buf, rng.choice(VALID_DIGEST))\n\n    # Final safety: ensure non-empty output\n    if not buf:\n        _emit_cstr(buf, \"xz\")\n\n    return bytes(buf)\n"
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# Generator for arbitrary binary data tailored to exercise digest and chunk-id code paths.\n# Produces valid arbitrary bytes with seeded randomness. Avoids invalid UTF-8 surrogate code points.\n\n_MAX = 1024\n\ndef _rng(seed: int) -> random.Random:\n    return random.Random(seed & 0xFFFFFFFF)\n\ndef _ascii_words(r: random.Random, n: int) -> bytes:\n    words = [\n        b\"hello\", b\"world\", b\"compression\", b\"digest\", b\"sha256\", b\"sha512/256\",\n        b\"chunk\", b\"id\", b\"zstd\", b\"gzip\", b\"xz\", b\"linux\", b\"systemd\", b\"cache\",\n        b\"content-addressed\", b\"fuzz\", b\"test\", b\"data\", b\"binary\", b\"random\"\n    ]\n    out = bytearray()\n    while len(out) < n:\n        w = r.choice(words)\n        out.extend(w + b\" \")\n    return bytes(out[:n])\n\ndef _utf8_mix(r: random.Random, n: int) -> bytes:\n    # Mix ASCII with multi-byte UTF-8 sequences, avoiding surrogate code points (U+D800..U+DFFF)\n    parts = []\n    total = 0\n    while total < n:\n        t = r.randrange(5)\n        if t == 0:\n            b = bytes([r.randrange(32, 127)])\n        elif t == 1:\n            cp = r.randrange(0x80, 0x800)\n            b = chr(cp).encode('utf-8')\n        elif t == 2:\n            # pick BMP excluding surrogates\n            while True:\n                cp = r.randrange(0x80, 0x10000)\n                if not (0xD800 <= cp <= 0xDFFF):\n                    break\n            b = chr(cp).encode('utf-8')\n        elif t == 3:\n            cp = r.randrange(0x10000, 0x110000)\n            b = chr(cp).encode('utf-8')\n        else:\n            b = b\"\\n\"\n        parts.append(b)\n        total += len(b)\n    return b\"\".join(parts)[:n]\n\ndef _incremental(n: int, start: int = 0) -> bytes:\n    return bytes(((start + i) & 0xFF) for i in range(n))\n\ndef _repeated_block(block: bytes, n: int) -> bytes:\n    if not block:\n        return b\"\"\n    reps = (n + len(block) - 1) // len(block)\n    return (block * reps)[:n]\n\ndef _prime_lengths_upto(m: int) -> List[int]:\n    sieve = [True] * (m + 1)\n    if m >= 0:\n        sieve[0] = False\n    if m >= 1:\n        sieve[1] = False\n    p = 2\n    while p * p <= m:\n        if sieve[p]:\n            for k in range(p * p, m + 1, p):\n                sieve[k] = False\n        p += 1\n    return [i for i, v in enumerate(sieve) if v]\n\ndef _choose_length(r: random.Random) -> int:\n    specials = [0, 1, 31, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256, 257, _MAX]\n    if r.random() < 0.6:\n        return r.choice(specials)\n    if r.random() < 0.2:\n        k = r.choice([2,3,4,5,6,7,8,9,10])\n        v = 1 << k\n        return min(v, _MAX)\n    if r.random() < 0.2:\n        primes = _prime_lengths_upto(_MAX)\n        return r.choice(primes)\n    return r.randrange(0, _MAX + 1)\n\ndef _structured_random(r: random.Random, n: int) -> bytes:\n    segs = []\n    remaining = n\n    while remaining > 0:\n        seg_len = r.randrange(1, min(remaining, 128) + 1)\n        kind = r.randrange(8)\n        if kind == 0:\n            seg = bytes([0]) * seg_len\n        elif kind == 1:\n            seg = bytes([0xFF]) * seg_len\n        elif kind == 2:\n            seg = os.urandom(seg_len)\n        elif kind == 3:\n            seg = _incremental(seg_len, r.randrange(256))\n        elif kind == 4:\n            blk = struct.pack('<I', r.getrandbits(32))\n            seg = _repeated_block(blk, seg_len)\n        elif kind == 5:\n            seg = _ascii_words(r, seg_len)\n        elif kind == 6:\n            seg = _utf8_mix(r, seg_len)\n        else:\n            a = r.randrange(256)\n            b = r.randrange(256)\n            seg = bytes((a if (i & 1) == 0 else b) for i in range(seg_len))\n        segs.append(seg)\n        remaining -= seg_len\n    return b\"\".join(segs)\n\ndef generate(seed: int) -> bytes:\n    r = _rng(seed)\n    n = _choose_length(r)\n    if n == 0:\n        return b\"\"\n    mode = r.randrange(7)\n    if mode == 0:\n        return bytes([0]) * n\n    if mode == 1:\n        return bytes([0xFF]) * n\n    if mode == 2:\n        return _incremental(n, r.randrange(256))\n    if mode == 3:\n        blk_size = r.choice([3,4,8,16,32,64])\n        blk = os.urandom(blk_size)\n        return _repeated_block(blk, n)\n    if mode == 4:\n        return _ascii_words(r, n)\n    if mode == 5:\n        return _utf8_mix(r, n)\n    return _structured_random(r, n)\n"
+    },
+    {
+      "data_type": "hexadecimal string",
+      "generator": "import random\nimport os\nimport struct\n\n# This generator targets inputs for FUZZ_PARAM_STR used to build a 64-char lowercase\n# hexadecimal string for ca_chunk_id_parse. The fuzzer stub converts the provided\n# bytes into hex nybbles deterministically, cycling over the buffer if shorter than 32.\n# Therefore, any non-empty byte buffer is acceptable; to exercise different code paths\n# and produce diverse chunk IDs, we generate variable-length data with patterns and\n# randomness while ensuring size <= 1024 (the stub truncates beyond that anyway).\n\nMAX_SIZE = 1024\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    # Mix structured patterns and randomness to cover varied byte distributions.\n    parts = []\n\n    # 1) Pure random chunk\n    m = rng.randint(0, n)\n    parts.append(bytes(rng.getrandbits(8) for _ in range(m)))\n\n    # 2) Repeating single-byte pattern\n    if m < n and rng.random() < 0.9:\n        v = rng.randrange(256)\n        k = rng.randint(0, n - m)\n        parts.append(bytes([v]) * k)\n        m += k\n\n    # 3) Incrementing sequence\n    if m < n and rng.random() < 0.8:\n        k = rng.randint(0, n - m)\n        start = rng.randrange(256)\n        seq = bytes(((start + i) & 0xFF) for i in range(k))\n        parts.append(seq)\n        m += k\n\n    # 4) Boundary/interesting byte values sprinkled in\n    interesting = [0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF]\n    if m < n and rng.random() < 0.8:\n        k = min(len(interesting), n - m)\n        sample = rng.sample(interesting, k)\n        parts.append(bytes(sample))\n        m += k\n\n    # 5) Fill remaining with random if needed\n    if m < n:\n        parts.append(bytes(rng.getrandbits(8) for _ in range(n - m)))\n\n    return b\"\".join(parts)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a size between 1 and 1024 inclusive (stub requires at least 1 byte; it truncates >1024).\n    # Bias towards sizes around 1, 16, 32, 64, 256, 1024 to influence cycling behavior and full coverage.\n    choices = [1, 2, 4, 8, 15, 16, 31, 32, 33, 48, 64, 128, 256, 512, 768, 1024]\n    if rng.random() < 0.7:\n        size = rng.choice(choices)\n    else:\n        size = rng.randint(1, MAX_SIZE)\n\n    # Compose bytes with mixed structure.\n    data = _rand_bytes(rng, size)\n\n    # Ensure non-empty and within limit (already guaranteed by construction).\n    if not data:\n        data = b\"\\x00\"\n    if len(data) > MAX_SIZE:\n        data = data[:MAX_SIZE]\n\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1739,
+            "output_tokens": 530,
+            "total_tokens": 2269
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1317,
+            "output_tokens": 114,
+            "total_tokens": 1431
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1864,
+            "output_tokens": 3278,
+            "total_tokens": 5142
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 16438,
+            "output_tokens": 6953,
+            "total_tokens": 23391
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5105,
+            "output_tokens": 268,
+            "total_tokens": 5373
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 335.5822331905365,
+    "scan_objects": 9.039347171783447,
+    "validate_objects": 0.4595201015472412,
+    "scan_functions": 60.121652603149414,
+    "synthesis": 198.00989985466003,
+    "fill": 0,
+    "classify": 8.625559568405151,
+    "build_generators": 59.325183153152466
+  }
+}

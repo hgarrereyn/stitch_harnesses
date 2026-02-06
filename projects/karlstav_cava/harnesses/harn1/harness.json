@@ -1,0 +1,189 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct cava_plan *",
+      "aliases": [
+        "cava_plan *"
+      ],
+      "definition": "struct cava_plan {\n    int FFTbassbufferSize;\n    int FFTbufferSize;\n    int number_of_bars;\n    int audio_channels;\n    int input_buffer_size;\n    int rate;\n    int bass_cut_off_bar;\n    int sens_init;\n    int autosens;\n    int frame_skip;\n    int status;\n    char error_message[1024];\n\n    double sens;\n    double framerate;\n    double noise_reduction;\n\n    fftw_plan p_bass_l, p_bass_r;\n    fftw_plan p_l, p_r;\n\n    fftw_complex *out_bass_l, *out_bass_r;\n    fftw_complex *out_l, *out_r;\n\n    double *bass_multiplier;\n    double *multiplier;\n\n    double *in_bass_r_raw, *in_bass_l_raw;\n    double *in_r_raw, *in_l_raw;\n    double *in_bass_r, *in_bass_l;\n    double *in_r, *in_l;\n    double *prev_cava_out, *cava_mem;\n    double *input_buffer, *cava_peak;\n\n    double *eq;\n\n    float *cut_off_frequency;\n    int *FFTbuffer_lower_cut_off;\n    int *FFTbuffer_upper_cut_off;\n    double *cava_fall;\n};",
+      "description": "Internal state and buffers for the cava audio visualization core. Applications receive a pointer to this plan from cava_init, pass it to cava_execute for processing, and finally to cava_destroy for cleanup. Fields include FFTW plans and buffers, configuration (number of bars, channels, rate), sensitivity/noise reduction parameters, cutoff-related data, and status/error reporting. The comments advise users not to modify fields directly; treat as opaque outside of cavacore.",
+      "direct_api_constructors": [
+        "cava_init"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "cava_init",
+      "signature": "struct cava_plan *cava_init(int number_of_bars, unsigned int rate, int channels, int autosens, double noise_reduction, int low_cut_off, int high_cut_off);",
+      "description": "Initializes the cavacore visualization engine and returns an allocated cava_plan describing the processing plan. Use this before calling cava_execute. The plan carries configuration such as bar count, sample rate, channels, sensitivity, noise reduction, and frequency cutoffs; its status field indicates success or failure and error_message contains details on invalid parameters.",
+      "requirements": [
+        "Caller must pass the desired number_of_bars per channel (unspecified minimum/maximum; illegal values cause plan->status == -1).",
+        "rate must be a valid audio sample rate in Hz (unsigned integer; e.g., > 0).",
+        "channels is the number of interleaved input channels; only up to two channels are supported by cavacore.",
+        "autosens is a toggle: 1 to enable automatic sensitivity (output dynamically scaled to 0..1), 0 to disable (raw values).",
+        "noise_reduction is a smoothing factor in the range [0.0, 1.0]; recommended value: 0.77.",
+        "low_cut_off and high_cut_off are cutoff frequencies for visualization in Hz; recommended values: 50 and 10000.",
+        "On return, caller must check plan != NULL and plan->status: 0 indicates success; -1 indicates an illegal parameter (details in plan->error_message).",
+        "Caller is responsible for eventually freeing the plan via cava_destroy when finished."
+      ],
+      "error": null
+    },
+    {
+      "name": "cava_execute",
+      "signature": "void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cava_plan *plan);",
+      "description": "Processes input audio samples and produces a bar-spectrum visualization output according to the provided cava_plan. Accepts interleaved input for multi-channel audio and writes bars sorted from lowest to highest frequency; for stereo, all left-channel bars precede right-channel bars.",
+      "requirements": [
+        "plan must be a valid pointer to a cava_plan previously returned by cava_init with plan->status == 0.",
+        "cava_in must point to at least new_samples samples of input, interleaved if channels > 1.",
+        "Only up to two input channels are supported; if more than one channel, input must be interleaved.",
+        "new_samples is the number of samples to process this call; it may vary between calls.",
+        "If new_samples exceeds cavacore's internal buffer capacity (4096 * number_of_channels at 44100 Hz), excess samples will be discarded.",
+        "cava_out must point to a buffer sized for (number_of_bars * number_of_channels) doubles; bars are ordered low-to-high frequency, and for stereo all left bars come before right bars.",
+        "Using smaller new_samples increases output frame rate (e.g., 512 samples at 44100 Hz mono yields ~86 FPS).",
+        "All pointers passed (cava_in, cava_out, plan) must be non-null and valid for reading/writing as appropriate."
+      ],
+      "error": null
+    },
+    {
+      "name": "cava_destroy",
+      "signature": "void cava_destroy(struct cava_plan *plan);",
+      "description": "Releases resources associated with a cava_plan created by cava_init. Call this when visualization is no longer needed.",
+      "requirements": [
+        "plan must be a cava_plan previously returned by cava_init.",
+        "After calling, the plan is invalid and must not be used again (including in cava_execute).",
+        "Caller should avoid calling cava_destroy more than once on the same plan pointer (double-free behavior is unspecified)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "cava_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "plan",
+          "type": "struct cava_plan *"
+        }
+      ],
+      "code": "// Generate parameters within safe and meaningful ranges per API requirements\nint number_of_bars = (int)(*FUZZ_PARAM(unsigned int) % 64) + 1;            // keep small to bound output buffer\nunsigned int rate = (unsigned int)(*FUZZ_PARAM(unsigned int) % 192001u);   // [0,192000]; below we clamp min to 8000\nif (rate < 8000u) { rate = 8000u; }                                        // valid audio rate (>0), pick >=8kHz\nint channels = (int)(*FUZZ_PARAM(unsigned int) % 2) + 1;                    // cavacore supports up to 2\nint autosens = (int)(*FUZZ_PARAM(unsigned int) % 2);\n// noise_reduction in [0,1]\ndouble noise_reduction = (double)((*FUZZ_PARAM(unsigned int) % 1001)) / 1000.0; // step=0.001\n// Pick cutoffs ensuring low < high and reasonable audio ranges\nint low_cut_off = (int)(*FUZZ_PARAM(unsigned int) % 9801) + 20;             // [20, 9820]\nint high_cut_off = (int)(*FUZZ_PARAM(unsigned int) % 11001) + 5000;         // [5000, 16000]\nif (high_cut_off <= low_cut_off) { high_cut_off = low_cut_off + 100; }\n\n// Invoke target function\nstruct cava_plan *plan = cava_init(number_of_bars, rate, channels, autosens, noise_reduction, low_cut_off, high_cut_off);\n// Validate return non-null\nif (!plan) { FUZZ_BAIL(); }\n// Enforce API contract: status 0 indicates success; -1 indicates invalid params\nif (plan->status != 0) { FUZZ_BAIL(); }\n\n// Persist key metadata for downstream stubs (do not modify fields directly)\nFUZZ_SET_ATTR_INT(plan, \"alive\", 1);\nFUZZ_SET_ATTR_INT(plan, \"bars\", plan->number_of_bars > 0 ? plan->number_of_bars : number_of_bars);\nFUZZ_SET_ATTR_INT(plan, \"channels\", plan->audio_channels > 0 ? plan->audio_channels : channels);\nFUZZ_SET_ATTR_INT(plan, \"rate\", (int)rate);\n// plan is returned as an output-owned object for further processing"
+    },
+    {
+      "name": "cava_execute",
+      "inputs": [
+        {
+          "name": "plan",
+          "type": "struct cava_plan *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "plan",
+          "type": "struct cava_plan *"
+        }
+      ],
+      "code": "// Validate plan is live and initialized\nif (FUZZ_GET_ATTR_INT(plan, \"alive\") != 1) { FUZZ_BAIL(); }\nif (plan->status != 0) { FUZZ_BAIL(); }\n\n// Determine channels and bars from attributes or plan fields\nint channels = FUZZ_GET_ATTR_INT(plan, \"channels\");\nif (channels <= 0) { channels = plan->audio_channels; }\nif (channels <= 0 || channels > 2) { FUZZ_BAIL(); } // cavacore supports up to 2\nint bars = FUZZ_GET_ATTR_INT(plan, \"bars\");\nif (bars <= 0) { bars = plan->number_of_bars; }\nif (bars <= 0) { FUZZ_BAIL(); }\n\n// Choose a small new_samples to keep allocations under ~2KB per call\n// Ensure 1..256 frames per channel\nint new_samples = (int)(*FUZZ_PARAM(unsigned int) % 256) + 1;\n\n// Compute buffer sizes and enforce small allocations\nint in_len = new_samples * channels;                // total interleaved samples\nint out_len = bars * channels;                      // total bars across channels\nif (out_len <= 0 || out_len > 256) { FUZZ_BAIL(); } // keep <= 2048 bytes for doubles\nif (in_len <= 0 || in_len > 256) { FUZZ_BAIL(); }\n\n// Prepare input buffer: fill doubles from a random byte string via memcpy (no UB/alignment issues)\nstd::string rand_bytes = FUZZ_PARAM_STR();\nif (rand_bytes.size() == 0) { FUZZ_BAIL(); }\nstd::vector<double> in_buf;\nin_buf.resize((size_t)in_len);\nconst unsigned char *src = (const unsigned char *)rand_bytes.data();\nsize_t src_len = rand_bytes.size();\nsize_t off = 0;\nfor (int i = 0; i < in_len; ++i) {\n    // copy up to sizeof(double) bytes, cycling through rand_bytes\n    unsigned char tmp[sizeof(double)] = {0};\n    for (size_t b = 0; b < sizeof(double); ++b) {\n        tmp[b] = src[off];\n        off = (off + 1) % src_len;\n    }\n    double v;\n    memcpy(&v, tmp, sizeof(double));\n    in_buf[(size_t)i] = v;\n}\n\n// Prepare output buffer sized for all bars\nstd::vector<double> out_buf;\nout_buf.resize((size_t)out_len);\n\n// Execute processing\ncava_execute(in_buf.data(), new_samples, out_buf.data(), plan);\n\n// Property: plan remains valid and alive after execute\nFUZZ_ASSERT(FUZZ_GET_ATTR_INT(plan, \"alive\") == 1, \"plan must remain alive after execute\");\n// Return plan back to pool as it remains in use"
+    },
+    {
+      "name": "cava_destroy",
+      "inputs": [
+        {
+          "name": "plan",
+          "type": "struct cava_plan *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Ensure the plan has not already been destroyed\nif (FUZZ_GET_ATTR_INT(plan, \"alive\") != 1) { FUZZ_BAIL(); }\n// Destroy plan; after this it is invalid for further use\ncava_destroy(plan);\n// Mark as dead to prevent double-free or reuse\nFUZZ_SET_ATTR_INT(plan, \"alive\", 0);\n// Do not return the plan as an output; ownership is released"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "cava_init",
+      "data_types": []
+    },
+    {
+      "name": "cava_destroy",
+      "data_types": []
+    },
+    {
+      "name": "cava_execute",
+      "data_types": [
+        "raw bytes for double samples"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "raw bytes for double samples",
+      "description": "Arbitrary byte sequence interpreted as IEEE-754 double-precision values when copied into a double buffer. The bytes are not expected to be valid text or any structured format; they are consumed cyclically to populate an array of doubles representing interleaved audio samples for 1–2 channels."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "raw bytes for double samples",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces raw bytes that will be cyclically memcpy'd into doubles\n# in the fuzzer stub to form interleaved audio samples (1-2 channels). We focus on\n# creating byte patterns that map to interesting IEEE-754 double values when read\n# little-endian or big-endian, including:\n# - canonical small/large magnitudes\n# - exact integers, powers of two\n# - denormals/subnormals\n# - signed zeros\n# - infinities and NaNs (quiet/signaling patterns)\n# - alternating patterns to exercise stereo interleaving\n# The stub cycles the bytes, so we keep the set diverse and short (< 4096 bytes).\n\n# Helper: pack u64 to bytes little-endian\n_def_le = lambda u: struct.pack('<Q', u & 0xFFFFFFFFFFFFFFFF)\n_def_be = lambda u: struct.pack('>Q', u & 0xFFFFFFFFFFFFFFFF)\n\n# Predefined interesting bit patterns for doubles\nINTERESTING_U64 = [\n    0x0000000000000000,  # +0.0\n    0x8000000000000000,  # -0.0\n    0x3FF0000000000000,  # 1.0\n    0xBFF0000000000000,  # -1.0\n    0x4000000000000000,  # 2.0\n    0xC000000000000000,  # -2.0\n    0x4024000000000000,  # 10.0\n    0xC024000000000000,  # -10.0\n    0x7FF0000000000000,  # +inf\n    0xFFF0000000000000,  # -inf\n    0x7FF8000000000000,  # qNaN\n    0x7FF0000000000001,  # sNaN-ish (impl-defined)\n    0x0000000000000001,  # smallest subnormal\n    0x8000000000000001,  # negative subnormal\n    0x0010000000000000,  # smallest normal\n    0x7FEFFFFFFFFFFFFF,  # max finite\n    0xFFEFFFFFFFFFFFFF,  # -max finite\n    0x3FE0000000000000,  # 0.5\n    0xBFE0000000000000,  # -0.5\n    0x3FB999999999999A,  # 0.1\n    0xBFB999999999999A,  # -0.1\n    0x3FD3333333333333,  # 0.3\n    0x3FF199999999999A,  # 1.1\n    0x402921FB54442D18,  # pi\n    0xC00921FB54442D18,  # -pi*2\n]\n\ndef _make_stereo_pattern(a_le: bytes, b_le: bytes) -> bytes:\n    # Interleave two 8-byte sequences to mimic alternating channel-heavy input\n    # The stub cycles bytes per double, not per channel, but alternating patterns\n    # introduce variety across consecutive doubles.\n    return a_le + b_le\n\ndef _random_double_bytes(rng: random.Random) -> bytes:\n    choice = rng.randrange(0, 6)\n    if choice == 0:\n        # Random normal range via uniform exponent/mantissa\n        sign = rng.getrandbits(1)\n        exp = rng.randrange(1, 2046)\n        mant = rng.getrandbits(52)\n        u = (sign << 63) | (exp << 52) | mant\n        return _def_le(u)\n    if choice == 1:\n        # Subnormal\n        sign = rng.getrandbits(1)\n        mant = rng.randrange(1, 1 << 52)\n        u = (sign << 63) | mant\n        return _def_le(u)\n    if choice == 2:\n        # Interesting constants\n        u = rng.choice(INTERESTING_U64)\n        # randomly flip a low bit to generate nearby representable values\n        if rng.random() < 0.3:\n            u ^= 1 << rng.randrange(0, 6)\n        return _def_le(u)\n    if choice == 3:\n        # Big-endian storage of interesting constant (still treated as opaque bytes)\n        u = rng.choice(INTERESTING_U64)\n        return _def_be(u)\n    if choice == 4:\n        # Short repeated byte pattern (e.g., 0x00, 0xFF, 0xAA, 0x55)\n        b = rng.choice([0x00, 0xFF, 0xAA, 0x55, 0x11, 0xEE])\n        return bytes([b]) * 8\n    # choice == 5\n    # Alternating nibbles\n    b1 = rng.choice([0xF0, 0x0F, 0xCC, 0x33, 0x5A, 0xA5])\n    return bytes([b1, 255 - b1] * 4)\n\ndef _assemble_palette(rng: random.Random) -> List[bytes]:\n    pal: List[bytes] = []\n    # Seed palette with canonical values (both LE and BE for diversity)\n    for u in INTERESTING_U64:\n        pal.append(_def_le(u))\n    for u in [0x3FF8000000000000, 0x4008000000000000, 0x4014000000000000]:  # 1.5, 3.0, 5.0\n        pal.append(_def_le(u))\n    # Include some BE forms\n    for u in [0x7FF8000000000001, 0x000FFFFFFFFFFFFF]:\n        pal.append(_def_be(u))\n\n    # Add randomized entries\n    for _ in range(32):\n        pal.append(_random_double_bytes(rng))\n\n    # Create some stereo-ish sequences by concatenating two doubles\n    stereo_pairs = []\n    for _ in range(8):\n        stereo_pairs.append(_make_stereo_pattern(_random_double_bytes(rng), _random_double_bytes(rng)))\n    pal.extend(stereo_pairs)\n\n    # Short ramps: bytes that, when cycled, produce gradually changing doubles\n    for step in [1, 3, 7, 13]:\n        base = rng.randrange(0, 256)\n        seq = bytes(((base + i * step) & 0xFF for i in range(8)))\n        pal.append(seq)\n\n    return pal\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide total output size (the stub keeps <= 256 doubles, i.e., 2048 bytes);\n    # we’ll produce between 64 and 2048 bytes to cover cycling behavior.\n    total_len = rng.randrange(64, 2049)\n\n    pal = _assemble_palette(rng)\n\n    # Strategy: build the buffer from a mix of whole-double chunks and shorter\n    # byte patterns to ensure good coverage when the stub cycles the data.\n    out = bytearray()\n\n    # Start with a header-like region of diverse doubles\n    for _ in range(rng.randrange(4, 16)):\n        out += rng.choice(pal)\n        if len(out) >= total_len:\n            break\n\n    # Mix in varied chunk sizes to desynchronize from 8-byte boundaries\n    while len(out) < total_len:\n        mode = rng.randrange(0, 5)\n        if mode == 0:\n            # append a full double\n            out += rng.choice(pal)\n        elif mode == 1:\n            # append two-doubles stereo pattern or random pair\n            chunk = rng.choice(pal)\n            if len(chunk) != 16:\n                chunk = chunk + rng.choice(pal)  # ensure ~16\n            out += chunk\n        elif mode == 2:\n            # append a slice of a pattern (1..7 bytes)\n            pat = rng.choice(pal)\n            start = rng.randrange(0, max(1, len(pat)))\n            slen = rng.randrange(1, 8)\n            piece = (pat * ((slen + len(pat) - 1) // len(pat)))[start:start + slen]\n            out += piece\n        elif mode == 3:\n            # small repeating motif (e.g., 3- or 5-byte repeats)\n            motif = rng.choice(pal)\n            mlen = rng.choice([3, 5, 6, 7])\n            motif = (motif * ((mlen + len(motif) - 1) // len(motif)))[:mlen]\n            reps = rng.randrange(2, 10)\n            out += motif * reps\n        else:\n            # random synthesized double bytes\n            out += _random_double_bytes(rng)\n\n        if len(out) > total_len:\n            out = out[:total_len]\n            break\n\n    # Ensure non-empty and limit to 4096 bytes as required\n    if not out:\n        out = bytearray(_def_le(0x3FF0000000000000))  # fallback 1.0\n    if len(out) > 4096:\n        out = out[:4096]\n\n    return bytes(out)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1824,
+            "output_tokens": 448,
+            "total_tokens": 2272
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1402,
+            "output_tokens": 27,
+            "total_tokens": 1429
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1846,
+            "output_tokens": 1455,
+            "total_tokens": 3301
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4855,
+            "output_tokens": 3309,
+            "total_tokens": 8164
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2971,
+            "output_tokens": 108,
+            "total_tokens": 3079
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 140.3730390071869,
+    "scan_objects": 11.50888466835022,
+    "validate_objects": 0.2149343490600586,
+    "scan_functions": 26.279528617858887,
+    "synthesis": 66.4214026927948,
+    "fill": 0,
+    "classify": 2.8477869033813477,
+    "build_generators": 33.09964156150818
+  }
+}

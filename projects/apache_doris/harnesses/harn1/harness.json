@@ -1,0 +1,210 @@
+{
+  "objects": [
+    {
+      "ptr_type": "doris::Md5Digest *",
+      "aliases": [],
+      "definition": "namespace doris {\n\nclass Md5Digest {\npublic:\n    Md5Digest();\n\n    void update(const void* data, size_t length);\n    void digest();\n\n    const std::string& hex() const { return _hex; }\n\nprivate:\n    MD5_CTX _md5_ctx;\n    std::string _hex;\n};\n\n} // namespace doris",
+      "description": "A simple RAII-style wrapper around OpenSSL's MD5 context (MD5_CTX). It provides an interface to incrementally update the MD5 state with data, finalize the digest, and retrieve the resulting hash as a hexadecimal string via hex(). Construction initializes the context; update() feeds data; digest() finalizes the computation and populates _hex. After digest(), update() may be invalid unless the implementation re-initializes the context; this header does not specify reusability semantics.",
+      "direct_api_constructors": [
+        "doris::Md5Digest::Md5Digest"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "doris::Md5Digest::Md5Digest",
+      "signature": "doris::Md5Digest::Md5Digest()",
+      "description": "Constructs an MD5 digest helper that wraps an OpenSSL MD5_CTX. Initializes internal state so the instance is ready to accept data via update() and be finalized with digest(). Usage: create an instance, call update() zero or more times with data chunks, then call digest() and read the hexadecimal result via hex().",
+      "requirements": [
+        "No special preconditions; object is ready for immediate use after construction.",
+        "Object is not thread-safe; do not access the same instance concurrently from multiple threads (inferred from typical mutable digest state)."
+      ],
+      "error": null
+    },
+    {
+      "name": "doris::Md5Digest::update",
+      "signature": "void doris::Md5Digest::update(const void* data, size_t length)",
+      "description": "Feeds a buffer of bytes into the MD5 computation. Can be called repeatedly to process data incrementally. Typical usage: call update() for each data chunk before finalizing with digest().",
+      "requirements": [
+        "If length is greater than 0, data must be a valid, readable pointer to at least length bytes (inferred from pointer/length pattern).",
+        "The function does not take ownership of the buffer; the memory must remain valid only for the duration of the call (standard for such APIs; inferred).",
+        "Call update() only before calling digest(); behavior of calling update() after digest() is unspecified (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "doris::Md5Digest::digest",
+      "signature": "void doris::Md5Digest::digest()",
+      "description": "Finalizes the ongoing MD5 computation and produces the hex-encoded digest string stored internally. After calling this, hex() returns the computed digest. Typical usage: call once after all update() calls.",
+      "requirements": [
+        "Should be called after all desired update() calls have completed (inferred).",
+        "Calling digest() multiple times or calling update() after digest() is unspecified; callers should assume digest() is intended to be called once per constructed instance (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "doris::Md5Digest::hex",
+      "signature": "const std::string& doris::Md5Digest::hex() const",
+      "description": "Returns a reference to the internal hex-encoded MD5 digest string. Intended to be read after digest() has been called. The returned reference remains valid as long as the Md5Digest object remains alive and its internal string is not modified.",
+      "requirements": [
+        "Call digest() before calling hex() to ensure the returned string contains the final digest value; otherwise the contents are unspecified (inferred).",
+        "Do not use the returned reference after the Md5Digest object is destroyed (standard reference lifetime; inferred)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "doris::Md5Digest::Md5Digest",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "md5",
+          "type": "doris::Md5Digest *"
+        }
+      ],
+      "code": "// Create a new Md5Digest instance; ready for immediate use per API contract.\ndoris::Md5Digest *md5 = new doris::Md5Digest();\n// Track lifecycle/state: 0 = not finalized, 1 = finalized via digest().\nFUZZ_SET_ATTR_INT(md5, \"finalized\", 0);\n// Optional: track number of updates applied before finalization for coverage.\nFUZZ_SET_ATTR_INT(md5, \"updates\", 0);\n\n// Validation: Constructor has no preconditions; we mark state as not finalized for sequencing in later stubs."
+    },
+    {
+      "name": "doris::Md5Digest::update",
+      "inputs": [
+        {
+          "name": "md5",
+          "type": "doris::Md5Digest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "md5",
+          "type": "doris::Md5Digest *"
+        }
+      ],
+      "code": "// Enforce: update() must not be called after digest().\nif (FUZZ_GET_ATTR_INT(md5, \"finalized\") != 0) { FUZZ_BAIL(); }\n\n// Generate an ephemeral data buffer; does not escape this call.\nstd::string buf = FUZZ_PARAM_STR();\n// Occasionally use zero-length updates to exercise that path.\nsize_t chosen_len = (*FUZZ_PARAM(unsigned int) % 2 == 0) ? static_cast<size_t>(0) : buf.size();\nconst void *data_ptr = buf.data();\n\n// If length > 0, data_ptr must be valid for at least chosen_len bytes (buf.data() is valid).\n// If length == 0, passing a non-null pointer is fine; many APIs ignore the pointer in that case.\nmd5->update(data_ptr, chosen_len);\n\n// Update sequencing metadata for downstream stubs.\nFUZZ_SET_ATTR_INT(md5, \"updates\", FUZZ_GET_ATTR_INT(md5, \"updates\") + 1);\n\n// Validation: We guard against post-digest updates; data lifetime is scoped to this call only."
+    },
+    {
+      "name": "doris::Md5Digest::digest",
+      "inputs": [
+        {
+          "name": "md5",
+          "type": "doris::Md5Digest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "md5",
+          "type": "doris::Md5Digest *"
+        }
+      ],
+      "code": "// Enforce single finalization per instance.\nif (FUZZ_GET_ATTR_INT(md5, \"finalized\") != 0) { FUZZ_BAIL(); }\n\n// Finalize the MD5 computation.\nmd5->digest();\n\n// Mark as finalized for downstream sequencing.\nFUZZ_SET_ATTR_INT(md5, \"finalized\", 1);\n\n// Property: MD5 hex digest should be exactly 32 hex characters.\nconst std::string &h = md5->hex();\nFUZZ_ASSERT(h.size() == 32, \"MD5 hex length must be 32 after digest()\");\n\n// Validation: We prevent double-finalization and assert the invariant length of the resulting hex string."
+    },
+    {
+      "name": "doris::Md5Digest::hex",
+      "inputs": [
+        {
+          "name": "md5",
+          "type": "doris::Md5Digest *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "md5",
+          "type": "doris::Md5Digest *"
+        }
+      ],
+      "code": "// Enforce: hex() should be called only after digest().\nif (FUZZ_GET_ATTR_INT(md5, \"finalized\") == 0) { FUZZ_BAIL(); }\n\n// Retrieve the hex string and exercise it to keep it live.\nconst std::string &h = md5->hex();\n// Assert known MD5 property: 32 ASCII hex characters.\nFUZZ_ASSERT(h.size() == 32, \"hex() must return 32 chars after digest()\");\n// Optionally touch a few characters to encourage coverage (no-op if empty due to assertion above).\nvolatile char c0 = h[0];\nvolatile char c1 = h[31];\n(void)c0; (void)c1;\n\n// Validation: We require prior digest() and assert the expected length of the digest string; object remains owned by fuzzer pool."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "doris::Md5Digest::Md5Digest",
+      "data_types": []
+    },
+    {
+      "name": "doris::Md5Digest::digest",
+      "data_types": []
+    },
+    {
+      "name": "doris::Md5Digest::hex",
+      "data_types": []
+    },
+    {
+      "name": "doris::Md5Digest::update",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A byte buffer containing any sequence of bytes with no required structure or encoding. May include null bytes and non-UTF-8 data. Suitable for APIs that accept generic data blobs (pointer plus length)."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\nimport zlib\nimport hashlib\nfrom typing import List\n\n# This generator creates arbitrary binary data that are valid inputs for\n# doris::Md5Digest::update(data, length). The fuzz stub will sometimes pass\n# length=0, otherwise it will use the full buffer size. Our goal is to\n# provide diverse, interesting yet valid byte sequences to exercise MD5's\n# incremental update paths and internal buffering (including various sizes\n# and content patterns).\n\nMAX_SIZE = 4096\n\n# A set of interesting sizes to stress message length handling (including MD5\n# block boundaries at 64 bytes and lengths around them), plus very small and\n# larger sizes.\nINTERESTING_SIZES: List[int] = [\n    0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 47, 48, 63, 64, 65, 127, 128, 255,\n    256, 511, 512, 767, 768, 1023, 1024, 1536, 2048, 3072, 4095\n]\n\n# Content builders that return bytes of the requested length.\n\ndef pat_repeating_byte(n: int, b: int) -> bytes:\n    return bytes([b]) * n\n\ndef pat_incrementing(n: int, start: int = 0, step: int = 1) -> bytes:\n    return bytes(((start + i * step) & 0xFF) for i in range(n))\n\ndef pat_decrementing(n: int, start: int = 255, step: int = 1) -> bytes:\n    return bytes(((start - i * step) & 0xFF) for i in range(n))\n\ndef pat_alternating(n: int, a: int, b: int) -> bytes:\n    return bytes((a if (i & 1) == 0 else b) & 0xFF for i in range(n))\n\ndef pat_random(n: int, rng: random.Random) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\ndef pat_ascii_text(n: int, rng: random.Random) -> bytes:\n    # English-like text with spaces and newlines sprinkled in\n    alphabet = b\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:;\\n\\t-_/\\\\\"\n    return bytes(alphabet[rng.randrange(len(alphabet))] for _ in range(n))\n\ndef pat_utf8(n: int, rng: random.Random) -> bytes:\n    # Build valid UTF-8 codepoints then truncate to n bytes (still likely valid prefix)\n    out = bytearray()\n    while len(out) < n:\n        r = rng.random()\n        if r < 0.6:\n            # ASCII\n            out.append(rng.randrange(0x20, 0x7F))\n        elif r < 0.8:\n            cp = rng.randrange(0x80, 0x800)\n            out += bytes([(0xC0 | (cp >> 6)), (0x80 | (cp & 0x3F))])\n        elif r < 0.95:\n            cp = rng.randrange(0x800, 0x10000)\n            out += bytes([\n                0xE0 | (cp >> 12),\n                0x80 | ((cp >> 6) & 0x3F),\n                0x80 | (cp & 0x3F),\n            ])\n        else:\n            cp = rng.randrange(0x10000, 0x110000)\n            out += bytes([\n                0xF0 | (cp >> 18),\n                0x80 | ((cp >> 12) & 0x3F),\n                0x80 | ((cp >> 6) & 0x3F),\n                0x80 | (cp & 0x3F),\n            ])\n    return bytes(out[:n])\n\ndef pat_structured(n: int, rng: random.Random) -> bytes:\n    # Mix of small length-prefixed chunks and numeric fields to simulate structured data\n    out = bytearray()\n    while len(out) + 8 < n:\n        tag = rng.randrange(0, 256)\n        # 50% fixed fields, 50% length-prefixed blob\n        if rng.random() < 0.5:\n            val32 = rng.getrandbits(32)\n            val64 = rng.getrandbits(64)\n            out.append(tag)\n            out += struct.pack('<I', val32)\n            out += struct.pack('>Q', val64)\n        else:\n            blob_len = min(rng.randrange(0, 128), n - len(out) - 3)\n            out.append(tag)\n            out += struct.pack('<H', blob_len)\n            out += pat_random(blob_len, rng)\n    # pad to exact size with a checksum footer over current data\n    remaining = max(0, n - len(out))\n    if remaining:\n        pad = pat_incrementing(remaining, start=rng.randrange(256))\n        out += pad\n    # overwrite last 4 bytes with a CRC32 to add deterministic structure\n    if len(out) >= 4:\n        crc = zlib.crc32(out[:-4]) & 0xFFFFFFFF\n        out[-4:] = struct.pack('<I', crc)\n    return bytes(out[:n])\n\ndef pat_hash_collision_hint(n: int, rng: random.Random) -> bytes:\n    # Build inputs with common MD5 test vectors and variations repeated to fill length\n    vectors = [\n        b\"\", b\"a\", b\"abc\", b\"message digest\", b\"abcdefghijklmnopqrstuvwxyz\",\n        b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\",\n        b\"1234567890\" * 8,\n    ]\n    base = vectors[rng.randrange(len(vectors))]\n    # Optionally prefix with count or metadata\n    prefix = struct.pack('<I', len(base)) + base\n    # Repeat and trim to desired length\n    reps = (n + len(prefix) - 1) // max(1, len(prefix))\n    data = (prefix * max(1, reps))[:n]\n    # Occasionally append a 64-byte aligned pad of zeros\n    if n >= 64 and rng.random() < 0.3:\n        pad_len = ((n // 64) * 64) - len(data)\n        if pad_len > 0:\n            data += b\"\\x00\" * pad_len\n    return data[:n]\n\nPATTERNS = [\n    lambda n, r: pat_repeating_byte(n, 0x00),\n    lambda n, r: pat_repeating_byte(n, 0xFF),\n    lambda n, r: pat_repeating_byte(n, 0x41),  # 'A'\n    lambda n, r: pat_alternating(n, 0x00, 0xFF),\n    lambda n, r: pat_alternating(n, 0x55, 0xAA),\n    lambda n, r: pat_incrementing(n, start=0),\n    lambda n, r: pat_decrementing(n, start=255),\n    lambda n, r: pat_random(n, r),\n    lambda n, r: pat_ascii_text(n, r),\n    lambda n, r: pat_utf8(n, r),\n    lambda n, r: pat_structured(n, r),\n    lambda n, r: pat_hash_collision_hint(n, r),\n]\n\ndef choose_size(rng: random.Random) -> int:\n    # Bias towards interesting sizes but allow arbitrary range up to MAX_SIZE\n    if rng.random() < 0.8:\n        size = INTERESTING_SIZES[rng.randrange(len(INTERESTING_SIZES))]\n        return min(size, MAX_SIZE)\n    # Otherwise pick a random size with slight bias towards smaller payloads\n    # Use geometric-like distribution\n    size = min(MAX_SIZE, int(rng.expovariate(1/256)))\n    return size\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide how many concatenated segments to build. Concatenation allows\n    # exercising multi-update-like variability even when the stub sends the\n    # full buffer.\n    segments = 1 + (rng.randrange(4) if rng.random() < 0.6 else 0)\n\n    parts: List[bytes] = []\n    total_len = 0\n\n    for i in range(segments):\n        # Pick size and pattern per segment\n        size = choose_size(rng)\n        # Ensure overall limit\n        if total_len + size > MAX_SIZE:\n            size = max(0, MAX_SIZE - total_len)\n        # If no room left, break\n        if size == 0 and total_len >= MAX_SIZE:\n            break\n        pattern_fn = PATTERNS[rng.randrange(len(PATTERNS))]\n        seg = pattern_fn(size, rng)\n        parts.append(seg)\n        total_len += len(seg)\n        if total_len >= MAX_SIZE:\n            break\n\n    data = b\"\".join(parts)[:MAX_SIZE]\n\n    # Occasionally wrap with a simple header to simulate file-like inputs and\n    # provide additional diversity for FUZZ_PARAM_FILENAME users too.\n    # Header: b\"MD5\\0\" + length(uint32 LE) + data + sha256(data) tail (16 bytes)\n    # This is still arbitrary binary, and callers that ignore structure will\n    # just hash the entire buffer.\n    if rng.random() < 0.25 and len(data) <= MAX_SIZE - (4 + 4 + 16):\n        header = b\"MD5\\x00\" + struct.pack('<I', len(data))\n        tail = hashlib.sha256(data).digest()[:16]\n        wrapped = header + data + tail\n        if len(wrapped) <= MAX_SIZE:\n            data = wrapped\n\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 947,
+            "output_tokens": 244,
+            "total_tokens": 1191
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 525,
+            "output_tokens": 53,
+            "total_tokens": 578
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 996,
+            "output_tokens": 1028,
+            "total_tokens": 2024
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4499,
+            "output_tokens": 1954,
+            "total_tokens": 6453
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2121,
+            "output_tokens": 93,
+            "total_tokens": 2214
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 124.57271218299866,
+    "scan_objects": 6.260339736938477,
+    "validate_objects": 0.5664608478546143,
+    "scan_functions": 25.536604404449463,
+    "synthesis": 46.76954102516174,
+    "fill": 0,
+    "classify": 3.1749370098114014,
+    "build_generators": 42.263970375061035
+  }
+}

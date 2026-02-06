@@ -1,0 +1,818 @@
+{
+  "objects": [
+    {
+      "ptr_type": "quiche::QuicheBufferAllocator *",
+      "aliases": [],
+      "definition": "class QUICHE_EXPORT QuicheBufferAllocator {\n public:\n  virtual ~QuicheBufferAllocator() = default;\n\n  // Returns or allocates a new buffer of |size|. Never returns null.\n  virtual char* New(size_t size) = 0;\n\n  // Returns or allocates a new buffer of |size| if |flag_enable| is true.\n  // Otherwise, returns a buffer that is compatible with this class directly\n  // with operator new. Never returns null.\n  virtual char* New(size_t size, bool flag_enable) = 0;\n\n  // Releases a buffer.\n  virtual void Delete(char* buffer) = 0;\n\n  // Marks the allocator as being idle. Serves as a hint to notify the allocator\n  // that it should release any resources it's still holding on to.\n  virtual void MarkAllocatorIdle() {}\n};",
+      "description": "Abstract base class that defines the interface for allocating and deleting raw character buffers. Provides two New overloads and a Delete function, plus an optional idle hint. Implementations must guarantee New never returns null and must pair allocations with Delete.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "quiche::QuicheBuffer",
+        "quiche::QuicheBufferDeleter"
+      ]
+    },
+    {
+      "ptr_type": "quiche::QuicheBufferDeleter *",
+      "aliases": [],
+      "definition": "class QUICHE_EXPORT QuicheBufferDeleter {\n public:\n  explicit QuicheBufferDeleter(QuicheBufferAllocator* allocator)\n      : allocator_(allocator) {}\n\n  QuicheBufferAllocator* allocator() { return allocator_; }\n  void operator()(char* buffer) { allocator_->Delete(buffer); }\n\n private:\n  QuicheBufferAllocator* allocator_;\n};",
+      "description": "Functor/deleter type intended for use with std::unique_ptr<char[]> that were allocated by a QuicheBufferAllocator. Captures the allocator pointer and calls allocator->Delete on the buffer when invoked.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "quiche::QuicheBuffer"
+      ]
+    },
+    {
+      "ptr_type": "quiche::QuicheUniqueBufferPtr *",
+      "aliases": [],
+      "definition": "using QuicheUniqueBufferPtr = std::unique_ptr<char[], QuicheBufferDeleter>;",
+      "description": "Type alias for a unique_ptr managing a char[] buffer with QuicheBufferDeleter. Owns buffers allocated via QuicheBufferAllocator. Note: this is an alias; pointer type here refers to the alias itself (QuicheUniqueBufferPtr) being used as a type name.",
+      "direct_api_constructors": [
+        "quiche::MakeUniqueBuffer"
+      ],
+      "owned_by": [
+        "quiche::QuicheBuffer"
+      ]
+    },
+    {
+      "ptr_type": "quiche::QuicheBuffer *",
+      "aliases": [],
+      "definition": "class QUICHE_EXPORT QuicheBuffer {\n public:\n  QuicheBuffer() : buffer_(nullptr, QuicheBufferDeleter(nullptr)), size_(0) {}\n  QuicheBuffer(QuicheBufferAllocator* allocator, size_t size)\n      : buffer_(MakeUniqueBuffer(allocator, size)), size_(size) {}\n\n  QuicheBuffer(QuicheUniqueBufferPtr buffer, size_t size)\n      : buffer_(std::move(buffer)), size_(size) {}\n\n  // Make sure the move constructor zeroes out the size field.\n  QuicheBuffer(QuicheBuffer&& other)\n      : buffer_(std::move(other.buffer_)), size_(other.size_) {\n    other.buffer_ = nullptr;\n    other.size_ = 0;\n  }\n  QuicheBuffer& operator=(QuicheBuffer&& other) {\n    buffer_ = std::move(other.buffer_);\n    size_ = other.size_;\n\n    other.buffer_ = nullptr;\n    other.size_ = 0;\n    return *this;\n  }\n\n  // Factory method to create a QuicheBuffer that holds a copy of `data`.\n  static QuicheBuffer Copy(QuicheBufferAllocator* allocator,\n                           absl::string_view data) {\n    QuicheBuffer buffer(allocator, data.size());\n    memcpy(buffer.data(), data.data(), data.size());\n    return buffer;\n  }\n\n  // Factory method to create a QuicheBuffer of length `buffer_length` that\n  // holds a copy of `buffer_length` bytes from `iov` starting at offset\n  // `iov_offset`.  `iov` must be at least `iov_offset + buffer_length` total\n  // length.\n  static QuicheBuffer CopyFromIovec(QuicheBufferAllocator* allocator,\n                                    const struct iovec* iov, int iov_count,\n                                    size_t iov_offset, size_t buffer_length);\n\n  const char* data() const { return buffer_.get(); }\n  char* data() { return buffer_.get(); }\n  size_t size() const { return size_; }\n  bool empty() const { return size_ == 0; }\n  absl::string_view AsStringView() const {\n    return absl::string_view(data(), size());\n  }\n  absl::Span<char> AsSpan() { return absl::Span<char>(data(), size()); }\n\n  // Releases the ownership of the underlying buffer.\n  QuicheUniqueBufferPtr Release() {\n    size_ = 0;\n    return std::move(buffer_);\n  }\n\n private:\n  QuicheUniqueBufferPtr buffer_;\n  size_t size_;\n};",
+      "description": "Owning, mutable buffer wrapper around a QuicheUniqueBufferPtr plus length. Provides construction from an allocator and size, from an existing unique buffer, move semantics, and factory helpers to copy from string_view or from iovec. Can be empty and can release ownership of the underlying buffer.",
+      "direct_api_constructors": [
+        "quiche::QuicheBuffer::Copy",
+        "quiche::QuicheBuffer::CopyFromIovec"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "quiche::SimpleBufferAllocator *",
+      "aliases": [],
+      "definition": "class QUICHE_EXPORT SimpleBufferAllocator : public QuicheBufferAllocator {\n public:\n  static SimpleBufferAllocator* Get() {\n    static SimpleBufferAllocator* singleton = new SimpleBufferAllocator();\n    return singleton;\n  }\n\n  char* New(size_t size) override;\n  char* New(size_t size, bool flag_enable) override;\n  void Delete(char* buffer) override;\n};",
+      "description": "Concrete implementation of QuicheBufferAllocator that allocates and frees using new[]/delete[] on char arrays. Provides a singleton accessor via Get().",
+      "direct_api_constructors": [
+        "quiche::SimpleBufferAllocator::Get"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "quiche::QuicheBufferAllocator::New",
+      "signature": "virtual char* quiche::QuicheBufferAllocator::New(size_t size) = 0",
+      "description": "Allocates or returns a new buffer of exactly size bytes. Implementations must never return null. Used as the primary allocation entry point for buffer providers.",
+      "requirements": [
+        "size is the number of bytes requested; zero-length behavior is unspecified by this interface",
+        "Return value must be non-null (as documented)",
+        "Caller is responsible for eventually releasing the buffer via quiche::QuicheBufferAllocator::Delete on the same allocator",
+        "The returned buffer must be compatible with delete semantics provided by this allocator"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator::New",
+      "signature": "virtual char* quiche::QuicheBufferAllocator::New(size_t size, bool flag_enable) = 0",
+      "description": "Allocates or returns a new buffer of size bytes, with behavior influenced by flag_enable. If flag_enable is true, behaves like New(size); otherwise returns a buffer compatible with allocations made directly with operator new. Must never return null.",
+      "requirements": [
+        "size is the number of bytes requested; zero-length behavior is unspecified",
+        "Return value must be non-null (as documented)",
+        "Caller must release the returned buffer via this allocator’s Delete",
+        "Behavioral difference when flag_enable is false implies the returned buffer must be safe to manage with this allocator and compatible with operator new[] semantics"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator::Delete",
+      "signature": "virtual void quiche::QuicheBufferAllocator::Delete(char* buffer) = 0",
+      "description": "Releases a buffer previously obtained from this allocator.",
+      "requirements": [
+        "buffer must have been allocated by the same quiche::QuicheBufferAllocator instance via one of its New overloads (inferred from typical allocator contracts)",
+        "Do not pass a buffer that has already been freed",
+        "Null handling is unspecified by this interface; callers should not assume Delete(nullptr) is safe unless documented by a concrete implementation"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator::MarkAllocatorIdle",
+      "signature": "virtual void quiche::QuicheBufferAllocator::MarkAllocatorIdle()",
+      "description": "Advises the allocator that it is idle and may release held resources. This is a hint and may be a no-op.",
+      "requirements": [
+        "May be called at any time; no ordering constraints are documented",
+        "Callers must not rely on any particular side effects; resource release is best-effort"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter::allocator",
+      "signature": "quiche::QuicheBufferAllocator* quiche::QuicheBufferDeleter::allocator()",
+      "description": "Accesses the underlying allocator used by this deleter. Useful when managing buffers via std::unique_ptr with custom deleter.",
+      "requirements": [
+        "The returned pointer may be null if the deleter was constructed with a null allocator (e.g., for empty buffers)",
+        "Callers must not use the returned allocator pointer after the allocator’s lifetime ends"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter::operator()",
+      "signature": "void quiche::QuicheBufferDeleter::operator()(char* buffer)",
+      "description": "Invokes allocator_->Delete(buffer) to free a buffer. Intended to be used as the custom deleter for QuicheUniqueBufferPtr.",
+      "requirements": [
+        "allocator_ must be a valid, live quiche::QuicheBufferAllocator when invoked",
+        "buffer must be a buffer allocated by allocator_ via New",
+        "Behavior when buffer == nullptr depends on allocator_->Delete; callers should not rely on nullptr being acceptable unless guaranteed by the allocator"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::MakeUniqueBuffer",
+      "signature": "quiche::QuicheUniqueBufferPtr quiche::MakeUniqueBuffer(quiche::QuicheBufferAllocator* allocator, size_t size)",
+      "description": "Allocates a new char[] buffer of size bytes from allocator and returns it wrapped in a unique_ptr with a QuicheBufferDeleter bound to allocator.",
+      "requirements": [
+        "allocator must be non-null and must outlive the returned unique_ptr’s deleter invocation",
+        "size is the number of bytes requested; may be zero but resulting pointer/nullness follows allocator->New contract (never null per interface)",
+        "Caller should keep the allocator alive until the unique_ptr (and its copies/moves) is destroyed or reset"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::QuicheBuffer",
+      "signature": "quiche::QuicheBuffer::QuicheBuffer()",
+      "description": "Default-constructs an empty QuicheBuffer. Holds no memory and has size 0.",
+      "requirements": [
+        "No requirements; resulting buffer is empty and data() may return nullptr"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::QuicheBuffer",
+      "signature": "quiche::QuicheBuffer::QuicheBuffer(quiche::QuicheBufferAllocator* allocator, size_t size)",
+      "description": "Constructs a QuicheBuffer by allocating size bytes from allocator. The buffer is mutable and may be empty if size is 0.",
+      "requirements": [
+        "allocator must be non-null and valid during construction",
+        "size is the number of bytes to allocate; zero creates an empty buffer",
+        "The allocator must fulfill the New contract (must not return null)"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::QuicheBuffer",
+      "signature": "quiche::QuicheBuffer::QuicheBuffer(quiche::QuicheUniqueBufferPtr buffer, size_t size)",
+      "description": "Constructs a QuicheBuffer that takes ownership of an existing unique buffer and associates a logical size with it.",
+      "requirements": [
+        "buffer must have a valid deleter (QuicheBufferDeleter) that can free the memory it owns",
+        "size should match the actual allocated length of the buffer to avoid overreads/writes; not enforced by the constructor",
+        "After construction, the QuicheBuffer owns the buffer; the passed unique_ptr must not be used by the caller anymore"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::operator=",
+      "signature": "quiche::QuicheBuffer& quiche::QuicheBuffer::operator=(quiche::QuicheBuffer&& other)",
+      "description": "Move-assigns from another QuicheBuffer, transferring ownership of the underlying buffer and size. The source is left empty.",
+      "requirements": [
+        "other is an rvalue; after assignment, other should not be used to access prior data as it is set to empty by the implementation",
+        "Self-move-assignment behavior follows standard move semantics; no special requirements"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::Copy",
+      "signature": "static quiche::QuicheBuffer quiche::QuicheBuffer::Copy(quiche::QuicheBufferAllocator* allocator, absl::string_view data)",
+      "description": "Creates a new QuicheBuffer that holds a copy of data. Allocates data.size() bytes and memcpy’s the contents.",
+      "requirements": [
+        "allocator must be non-null and valid for allocation",
+        "data must reference readable memory of length data.size()",
+        "Resulting buffer size equals data.size(); may be 0 for empty data"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::CopyFromIovec",
+      "signature": "static quiche::QuicheBuffer quiche::QuicheBuffer::CopyFromIovec(quiche::QuicheBufferAllocator* allocator, const struct iovec* iov, int iov_count, size_t iov_offset, size_t buffer_length)",
+      "description": "Creates a new QuicheBuffer of length buffer_length and fills it by copying from a scatter/gather array of iovec starting at byte offset iov_offset. The total length available across iov must be at least iov_offset + buffer_length.",
+      "requirements": [
+        "allocator must be non-null and valid",
+        "iov must be a non-null pointer to an array of at least iov_count iovec elements",
+        "iov_count must describe the number of elements in iov; it must be large enough that the total bytes across the array is at least iov_offset + buffer_length (as documented)",
+        "iov must contain at least iov_offset + buffer_length bytes in total (explicitly documented)",
+        "buffer_length is the number of bytes to copy; may be 0 to produce an empty buffer"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::data",
+      "signature": "const char* quiche::QuicheBuffer::data() const",
+      "description": "Returns a pointer to the underlying buffer data. Pointer may be null if the buffer is empty.",
+      "requirements": [
+        "The returned pointer remains valid until the QuicheBuffer is destroyed, released, or moved-from",
+        "Do not dereference if size() == 0 or if the pointer is null"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::data",
+      "signature": "char* quiche::QuicheBuffer::data()",
+      "description": "Returns a mutable pointer to the underlying buffer data. Pointer may be null if the buffer is empty.",
+      "requirements": [
+        "The returned pointer remains valid until the QuicheBuffer is destroyed, released, or moved-from",
+        "Do not dereference if size() == 0 or if the pointer is null",
+        "Mutating through the pointer must not exceed size() bytes"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::size",
+      "signature": "size_t quiche::QuicheBuffer::size() const",
+      "description": "Returns the current logical size in bytes of the buffer.",
+      "requirements": [
+        "None"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::empty",
+      "signature": "bool quiche::QuicheBuffer::empty() const",
+      "description": "Returns true if size() == 0.",
+      "requirements": [
+        "None"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::AsStringView",
+      "signature": "absl::string_view quiche::QuicheBuffer::AsStringView() const",
+      "description": "Returns an absl::string_view over the buffer’s contents [data(), size()]. The view does not take ownership.",
+      "requirements": [
+        "The returned view is only valid while the QuicheBuffer remains alive and unmodified in ways that reallocate or release the buffer",
+        "Do not use the view after calling Release() or after moving from the buffer"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::AsSpan",
+      "signature": "absl::Span<char> quiche::QuicheBuffer::AsSpan()",
+      "description": "Returns a mutable absl::Span<char> covering the entire buffer [data(), size()].",
+      "requirements": [
+        "The returned span is only valid while the QuicheBuffer remains alive and the underlying storage is not released or moved",
+        "Do not use the span after calling Release() or moving"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::QuicheBuffer::Release",
+      "signature": "quiche::QuicheUniqueBufferPtr quiche::QuicheBuffer::Release()",
+      "description": "Releases ownership of the underlying unique buffer and returns it, setting this QuicheBuffer’s size to 0 and leaving it empty.",
+      "requirements": [
+        "After Release(), this object no longer owns memory; data() will be nullptr and size() becomes 0",
+        "Caller becomes responsible for eventually freeing the returned unique_ptr (or letting it go out of scope)",
+        "Do not use any previously obtained views/spans after release"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::Get",
+      "signature": "static quiche::SimpleBufferAllocator* quiche::SimpleBufferAllocator::Get()",
+      "description": "Returns a pointer to a process-wide singleton SimpleBufferAllocator that allocates with operator new[]/delete[] on char arrays.",
+      "requirements": [
+        "The returned pointer is a singleton; callers must not delete it",
+        "Thread-safety of the singleton initialization is provided by function-local static initialization; subsequent usage thread-safety is not documented"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::New",
+      "signature": "char* quiche::SimpleBufferAllocator::New(size_t size) override",
+      "description": "Allocates a new char[] buffer of size bytes using operator new[]. Never returns null per the base-class contract.",
+      "requirements": [
+        "size is the number of bytes requested; operator new[] may throw on allocation failure in exception-enabled builds, otherwise the process may terminate",
+        "The returned buffer must be freed with quiche::SimpleBufferAllocator::Delete (or via the matching QuicheBufferDeleter)"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::New",
+      "signature": "char* quiche::SimpleBufferAllocator::New(size_t size, bool flag_enable) override",
+      "description": "Allocates a new char[] buffer of size bytes. The flag may be used by the implementation but callers should not depend on its behavior. Must not return null per base-class contract.",
+      "requirements": [
+        "size is the number of bytes requested",
+        "Caller must free the buffer via quiche::SimpleBufferAllocator::Delete (or via its deleter)",
+        "Behavioral differences based on flag_enable are not specified and should not be relied upon"
+      ],
+      "error": null
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::Delete",
+      "signature": "void quiche::SimpleBufferAllocator::Delete(char* buffer) override",
+      "description": "Frees a char[] buffer previously allocated by this allocator, typically via operator delete[].",
+      "requirements": [
+        "buffer must have been allocated by quiche::SimpleBufferAllocator::New from this allocator",
+        "Do not pass memory not obtained from this allocator",
+        "Passing nullptr is unspecified by interface; do not assume it is allowed"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "quiche::QuicheBufferAllocator::Delete",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        },
+        {
+          "name": "buf",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "code": "// Ensure the buffer was allocated by this allocator and not already freed.\nvoid* expect_alloc = FUZZ_GET_ATTR_PTR(buf, \"alloc\");\nint owned = FUZZ_GET_ATTR_INT(buf, \"owned\");\nif (expect_alloc != allocator || owned != 1) { FUZZ_BAIL(); }\n// Free the buffer via the matching allocator; null handling unspecified, so we avoid nullptr.\nchar* raw = static_cast<char*>(buf);\nallocator->Delete(raw);\n// Mark as freed to prevent double free if reused inadvertently.\nFUZZ_SET_ATTR_INT(buf, \"owned\", 0);\nFUZZ_SET_ATTR_PTR(buf, \"alloc\", nullptr);\n// Do not return the buffer; return allocator back to pool."
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator::MarkAllocatorIdle",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "code": "// Hint-only; allowed at any time.\nallocator->MarkAllocatorIdle();\n// No state guarantees; return allocator."
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter::allocator",
+      "inputs": [
+        {
+          "name": "deleter",
+          "type": "quiche::QuicheBufferDeleter *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "deleter",
+          "type": "quiche::QuicheBufferDeleter *"
+        },
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "code": "// Access underlying allocator; may be null for empty buffers.\nquiche::QuicheBufferAllocator* allocator = deleter->allocator();\n// Return both objects so downstream can use them."
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter::operator()",
+      "inputs": [
+        {
+          "name": "deleter",
+          "type": "quiche::QuicheBufferDeleter *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "deleter",
+          "type": "quiche::QuicheBufferDeleter *"
+        }
+      ],
+      "code": "// Retrieve allocator and ensure it is valid for allocation/deallocation.\nquiche::QuicheBufferAllocator* alloc = deleter->allocator();\nif (!alloc) { FUZZ_BAIL(); }\nsize_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 2049);\nchar* p = alloc->New(size);\nFUZZ_ASSERT(p != nullptr, \"Allocator must not return null\");\n// Deleter must free buffers allocated by its allocator.\n(*deleter)(p);\n// Nothing else to return; deleter remains valid."
+    },
+    {
+      "name": "quiche::MakeUniqueBuffer",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        },
+        {
+          "name": "ubuf",
+          "type": "quiche::QuicheUniqueBufferPtr *"
+        }
+      ],
+      "code": "size_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 2049);\nquiche::QuicheUniqueBufferPtr tmp = quiche::MakeUniqueBuffer(allocator, size);\n// The underlying allocator must outlive deleter invocation; using provided allocator satisfies this.\n// Store in heap object for pool management.\nquiche::QuicheUniqueBufferPtr* ubuf = new quiche::QuicheUniqueBufferPtr(std::move(tmp));\n// Track allocator linkage for later checks when constructing QuicheBuffer from this unique_ptr.\nFUZZ_SET_ATTR_PTR(ubuf, \"alloc\", allocator);\nFUZZ_SET_ATTR_INT(ubuf, \"size_hint\", (int)size);\n// Return both allocator and unique buffer."
+    },
+    {
+      "name": "quiche::QuicheBuffer::operator=",
+      "inputs": [
+        {
+          "name": "dst",
+          "type": "quiche::QuicheBuffer *"
+        },
+        {
+          "name": "src",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dst",
+          "type": "quiche::QuicheBuffer *"
+        },
+        {
+          "name": "src",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "code": "// Move-assign src into dst. After this, src should be empty per implementation.\n*dst = std::move(*src);\n// Validate post-conditions: src becomes empty.\nFUZZ_ASSERT(src->size() == 0, \"Move-assigned QuicheBuffer source must be empty\");\n// No ownership is freed here; both objects remain in pool."
+    },
+    {
+      "name": "quiche::QuicheBuffer::Copy",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        },
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "code": "// Prepare random data to copy.\nstd::string s = FUZZ_PARAM_STR();\nquiche::QuicheBuffer tmp = quiche::QuicheBuffer::Copy(allocator, absl::string_view(s.data(), s.size()));\nquiche::QuicheBuffer* qbuf = new quiche::QuicheBuffer(std::move(tmp));\n// Validate size matches source.\nFUZZ_ASSERT(qbuf->size() == s.size(), \"Copy must preserve size\");\n// Track allocator association for potential Release/ownership flows.\nFUZZ_SET_ATTR_PTR(qbuf, \"alloc\", allocator);\nFUZZ_SET_ATTR_INT(qbuf, \"size\", (int)qbuf->size());"
+    },
+    {
+      "name": "quiche::QuicheBuffer::size",
+      "inputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "code": "// Query size and assert consistency with empty().\nsize_t n = qbuf->size();\nbool is_empty = qbuf->empty();\nFUZZ_ASSERT((n == 0) == is_empty, \"empty() must reflect size() == 0\");"
+    },
+    {
+      "name": "quiche::QuicheBuffer::empty",
+      "inputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "code": "// Validate empty implies size() == 0.\nbool e = qbuf->empty();\nFUZZ_ASSERT(e == (qbuf->size() == 0), \"empty() must equal size()==0\");"
+    },
+    {
+      "name": "quiche::QuicheBuffer::AsStringView",
+      "inputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "code": "// Create a string_view and validate it matches [data(), size()].\nabsl::string_view v = qbuf->AsStringView();\nFUZZ_ASSERT(v.size() == qbuf->size(), \"AsStringView size must match\");\nif (qbuf->size() == 0) {\n  // For empty buffer, data may be nullptr; avoid dereference.\n} else {\n  FUZZ_ASSERT(v.data() == qbuf->data(), \"AsStringView data must alias buffer data\");\n}\n// Do not use v after this point per contract; qbuf remains."
+    },
+    {
+      "name": "quiche::QuicheBuffer::AsSpan",
+      "inputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "code": "// Obtain a mutable span and, if non-empty, mutate in-bounds.\nabsl::Span<char> sp = qbuf->AsSpan();\nFUZZ_ASSERT(sp.size() == qbuf->size(), \"AsSpan size must match\");\nif (!sp.empty()) {\n  sp[sp.size() - 1] = (char)((*FUZZ_PARAM(unsigned int)) & 0x7F);\n}\n// Span is ephemeral; don't store it."
+    },
+    {
+      "name": "quiche::QuicheBuffer::Release",
+      "inputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        },
+        {
+          "name": "ubuf",
+          "type": "quiche::QuicheUniqueBufferPtr *"
+        }
+      ],
+      "code": "// Release ownership and validate postconditions.\nquiche::QuicheUniqueBufferPtr tmp = qbuf->Release();\nquiche::QuicheUniqueBufferPtr* ubuf = new quiche::QuicheUniqueBufferPtr(std::move(tmp));\nFUZZ_ASSERT(qbuf->size() == 0, \"Release must set size to 0\");\n// Propagate allocator linkage if we had one on qbuf.\nvoid* alloc = FUZZ_GET_ATTR_PTR(qbuf, \"alloc\");\nif (alloc) { FUZZ_SET_ATTR_PTR(ubuf, \"alloc\", (void*)alloc); }\nFUZZ_SET_ATTR_INT(ubuf, \"owned\", 1);"
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::Get",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "salloc",
+          "type": "quiche::SimpleBufferAllocator *"
+        }
+      ],
+      "code": "// Acquire singleton allocator; callers must not delete it.\nquiche::SimpleBufferAllocator* salloc = quiche::SimpleBufferAllocator::Get();\nFUZZ_ASSERT(salloc != nullptr, \"SimpleBufferAllocator::Get must return a singleton\");\n// Track singleton marker.\nFUZZ_SET_ATTR_INT(salloc, \"singleton\", 1);"
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::Delete",
+      "inputs": [
+        {
+          "name": "salloc",
+          "type": "quiche::SimpleBufferAllocator *"
+        },
+        {
+          "name": "buf",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "salloc",
+          "type": "quiche::SimpleBufferAllocator *"
+        }
+      ],
+      "code": "// Validate buffer provenance and ownership before deletion.\nvoid* expect_alloc = FUZZ_GET_ATTR_PTR(buf, \"alloc\");\nint owned = FUZZ_GET_ATTR_INT(buf, \"owned\");\nif (expect_alloc != salloc || owned != 1) { FUZZ_BAIL(); }\nchar* raw = static_cast<char*>(buf);\nsalloc->Delete(raw);\n// Mark buffer as freed.\nFUZZ_SET_ATTR_INT(buf, \"owned\", 0);\nFUZZ_SET_ATTR_PTR(buf, \"alloc\", nullptr);"
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "code": "// Produce a base-class allocator pointer by upcasting the singleton SimpleBufferAllocator.\nquiche::SimpleBufferAllocator* s = quiche::SimpleBufferAllocator::Get();\nFUZZ_ASSERT(s != nullptr, \"SimpleBufferAllocator::Get must return non-null\");\nquiche::QuicheBufferAllocator* allocator = static_cast<quiche::QuicheBufferAllocator*>(s);\n// Track singleton property for downstream checks.\nFUZZ_SET_ATTR_INT(allocator, \"singleton\", 1);\n// Validation: allocator is live and non-null; callers must not delete it."
+    },
+    {
+      "name": "void *",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        },
+        {
+          "name": "buf",
+          "type": "void *"
+        }
+      ],
+      "code": "// Allocate an opaque buffer using the provided allocator.\nsize_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 2049u); // 0..2048 bytes\nchar* raw = allocator->New(size);\nFUZZ_ASSERT(raw != nullptr, \"Allocator must not return null\");\nvoid* buf = static_cast<void*>(raw);\n// Record ownership and provenance for safe deallocation in later stubs.\nFUZZ_SET_ATTR_PTR(buf, \"alloc\", (void*)allocator);\nFUZZ_SET_ATTR_INT(buf, \"owned\", 1);\nFUZZ_SET_ATTR_INT(buf, \"size\", (int)size);\n// Optionally touch one byte if non-empty to exercise writeability safely.\nif (size > 0) {\n  raw[size - 1] = (char)((*FUZZ_PARAM(unsigned int)) & 0x7F);\n}\n// Validation: buf is non-null (or size==0 but still non-null), attributes ensure correct Delete pairing."
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter *",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        },
+        {
+          "name": "deleter",
+          "type": "quiche::QuicheBufferDeleter *"
+        }
+      ],
+      "code": "// Construct a deleter bound to the provided allocator; allocator must outlive deleter use.\nquiche::QuicheBufferDeleter* deleter = new quiche::QuicheBufferDeleter(allocator);\nFUZZ_ASSERT(deleter->allocator() == allocator, \"Deleter must expose the bound allocator\");\n// Track linkage explicitly for any attribute-based checks downstream.\nFUZZ_SET_ATTR_PTR(deleter, \"alloc\", (void*)allocator);\n// Validation: deleter is heap-allocated, non-null, and bound to a live allocator; both objects returned."
+    },
+    {
+      "name": "quiche::QuicheBuffer *",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "quiche::QuicheBufferAllocator *"
+        },
+        {
+          "name": "qbuf",
+          "type": "quiche::QuicheBuffer *"
+        }
+      ],
+      "code": "// Construct a QuicheBuffer via multiple supported paths, avoiding CopyFromIovec (may be unavailable).\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 4u; // 4 construction modes\nquiche::QuicheBuffer tmp;\nif (mode == 0u) {\n  // Default constructor: empty buffer.\n  tmp = quiche::QuicheBuffer();\n  FUZZ_ASSERT(tmp.size() == 0, \"Default-constructed QuicheBuffer must be empty\");\n} else if (mode == 1u) {\n  // Direct allocation constructor with fuzzed size (0..2048).\n  size_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 2049u);\n  tmp = quiche::QuicheBuffer(allocator, size);\n  // If non-empty, mutate one byte in-bounds to exercise data() safely.\n  if (tmp.size() > 0) { tmp.data()[tmp.size() - 1] = (char)((*FUZZ_PARAM(unsigned int)) & 0x7F); }\n} else if (mode == 2u) {\n  // Copy from string data; cap to 2048 bytes to keep allocations small.\n  std::string s = FUZZ_PARAM_STR();\n  if (s.size() > 2048u) s.resize(2048u);\n  tmp = quiche::QuicheBuffer::Copy(allocator, absl::string_view(s.data(), s.size()));\n  FUZZ_ASSERT(tmp.size() == s.size(), \"Copy must produce buffer of identical size\");\n} else {\n  // Construct from an existing unique buffer allocated via MakeUniqueBuffer.\n  size_t size = (size_t)(*FUZZ_PARAM(unsigned int) % 2049u);\n  quiche::QuicheUniqueBufferPtr ub = quiche::MakeUniqueBuffer(allocator, size);\n  // Per contract, allocator must not be null and MakeUniqueBuffer should provide a valid pointer/deleter.\n  tmp = quiche::QuicheBuffer(std::move(ub), size);\n  if (tmp.size() > 0) { tmp.data()[tmp.size() - 1] = (char)((*FUZZ_PARAM(unsigned int)) & 0x7F); }\n}\n// Move to heap for pool management.\nquiche::QuicheBuffer* qbuf = new quiche::QuicheBuffer(std::move(tmp));\n// Track allocator linkage (best-effort) and size hint for downstream validation/use.\nFUZZ_SET_ATTR_PTR(qbuf, \"alloc\", (void*)allocator);\nFUZZ_SET_ATTR_INT(qbuf, \"size\", (int)qbuf->size());\n// Validation summary: allocator is non-null; construction paths enforce preconditions; qbuf is heap-allocated and returned."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "quiche::QuicheBuffer::data",
+      "reason": "This target is overloaded (const and non-const) but target_functions provides only the name; this stub covers the non-const overload implicitly."
+    },
+    {
+      "name": "quiche::QuicheBuffer::QuicheBuffer",
+      "reason": "Multiple constructors exist; this harness targets the default constructor implicitly as a representative overload."
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator::New",
+      "reason": "There are two overloads; this harness targets the single-parameter overload; the two-parameter overload is not separately addressable by name here."
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::New",
+      "reason": "There are two overloads; this harness targets the single-parameter overload; the two-parameter overload is not separately addressable by name here."
+    },
+    {
+      "name": "quiche::QuicheBuffer::CopyFromIovec",
+      "reason": "The symbol is undefined at link time in this environment, indicating the implementation is not available in the toolchain."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "quiche::QuicheBufferAllocator::Delete",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator::MarkAllocatorIdle",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter::allocator",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter::operator()",
+      "data_types": []
+    },
+    {
+      "name": "quiche::MakeUniqueBuffer",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBuffer::operator=",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBuffer::size",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBuffer::empty",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBuffer::AsStringView",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBuffer::AsSpan",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBuffer::Release",
+      "data_types": []
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::Get",
+      "data_types": []
+    },
+    {
+      "name": "quiche::SimpleBufferAllocator::Delete",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBufferAllocator *",
+      "data_types": []
+    },
+    {
+      "name": "void *",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBufferDeleter *",
+      "data_types": []
+    },
+    {
+      "name": "quiche::QuicheBuffer::Copy",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "quiche::QuicheBuffer *",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A byte buffer with no required encoding or structure. May contain any 8-bit values including null bytes. Suitable for functions that copy or process raw memory or generic string_view data without format constraints."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\n\n# This generator targets inputs consumed by FUZZ_PARAM_STR in the QuicheBuffer fuzzers.\n# The data type is arbitrary binary data, so we focus on producing valid, interesting\n# byte sequences that exercise various sizes and content patterns while remaining valid.\n\nMAX_SIZE = 2048  # The fuzzer caps Copy() inputs to 2048 bytes in one path.\nABS_MAX = 4096   # Hard cap per instructions.\n\ndef _biased_sizes(rng):\n    # Return a list of candidate sizes emphasizing corner cases.\n    common = [0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024, 1500, 1536, 1792, 1900, 2000, 2047, 2048]\n    # Add a few random sizes within bounds.\n    common += [rng.randint(0, MAX_SIZE) for _ in range(10)]\n    # Ensure uniqueness and in-range\n    uniq = [s for s in dict.fromkeys(common) if 0 <= s <= MAX_SIZE]\n    rng.shuffle(uniq)\n    return uniq\n\ndef _pattern_bytes(pattern_name, n, rng):\n    # Generate n bytes according to a named pattern.\n    if n <= 0:\n        return b\"\"\n    if pattern_name == \"zeros\":\n        return b\"\\x00\" * n\n    if pattern_name == \"ones\":\n        return b\"\\xff\" * n\n    if pattern_name == \"ascii\":\n        # Mix printable ASCII characters\n        chars = [ord(c) for c in (\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_./:\\n\\r\\t \")]\n        return bytes(rng.choice(chars) for _ in range(n))\n    if pattern_name == \"incremental\":\n        start = rng.randrange(256)\n        return bytes((start + i) & 0xFF for i in range(n))\n    if pattern_name == \"decremental\":\n        start = rng.randrange(256)\n        return bytes((start - i) & 0xFF for i in range(n))\n    if pattern_name == \"alternating01\":\n        return bytes((i & 1) * 0xFF for i in range(n))\n    if pattern_name == \"highbit\":\n        # High-bit set values to exercise signed/unsigned handling\n        vals = [0x80, 0x81, 0xFE, 0xFF]\n        return bytes(rng.choice(vals) for _ in range(n))\n    if pattern_name == \"utf8_like\":\n        # Not necessarily valid UTF-8, but cluster around multi-byte ranges\n        def gen():\n            t = rng.random()\n            if t < 0.5:\n                return rng.randint(0x20, 0x7E)\n            elif t < 0.7:\n                return rng.randint(0xC2, 0xDF)\n            elif t < 0.9:\n                return rng.randint(0xE0, 0xEF)\n            else:\n                return rng.randint(0xF0, 0xF4)\n        return bytes(gen() for _ in range(n))\n    if pattern_name == \"random\":\n        return rng.randbytes(n) if hasattr(rng, 'randbytes') else bytes(rng.getrandbits(8) for _ in range(n))\n    return _pattern_bytes(\"random\", n, rng)\n\ndef _compose_segments(total_len, rng):\n    # Compose the buffer from multiple segments of different patterns.\n    if total_len == 0:\n        return b\"\"\n    # Determine number of segments safely. Maximum segments limited by total_len.\n    theoretical_max = 4 if total_len >= 4 else total_len  # can't have more segments than bytes\n    theoretical_max = max(1, theoretical_max)\n    segs = rng.randint(1, theoretical_max)\n    if segs <= 1:\n        parts = [total_len]\n    else:\n        # We need segs-1 cut points chosen from positions 1..total_len-1.\n        population = total_len - 1\n        k = min(segs - 1, population)\n        # If population is 0, fallback to single segment.\n        if k <= 0:\n            parts = [total_len]\n        else:\n            cuts = sorted(rng.sample(range(1, total_len), k))\n            # If k < segs-1 because total_len was small, we will have fewer parts.\n            parts = []\n            prev = 0\n            for c in cuts + [total_len]:\n                parts.append(c - prev)\n                prev = c\n    patterns = [\n        \"zeros\", \"ones\", \"ascii\", \"incremental\", \"decremental\",\n        \"alternating01\", \"highbit\", \"utf8_like\", \"random\"\n    ]\n    rng.shuffle(patterns)\n    out = bytearray()\n    for i, ln in enumerate(parts):\n        pat = patterns[(i + rng.randint(0, len(patterns)-1)) % len(patterns)]\n        out += _pattern_bytes(pat, ln, rng)\n    return bytes(out)\n\ndef _inject_interesting_substrings(buf, rng):\n    # Insert known substrings that might be interesting within arbitrary binary.\n    inserts = [\n        b\"\",  # sometimes no-op\n        b\"\\x00\", b\"\\x00\\x00\", b\"\\x00\\x00\\x00\\x00\",\n        b\"\\n\", b\"\\r\\n\", b\"\\t\",\n        b\"HTTP/1.1 \", b\"GET / \", b\"POST / \", b\"Host: example.com\\r\\n\",\n        b\"quiche\", b\"QUIC\", b\"TLS\", b\"ALPN\",\n    ]\n    if not buf:\n        return buf\n    out = bytearray(buf)\n    tries = rng.randint(0, 4)\n    for _ in range(tries):\n        s = rng.choice(inserts)\n        if not s:\n            continue\n        if len(s) >= len(out):\n            # Replace a slice from the start, truncated if needed.\n            out[:len(out)] = s[:len(out)]\n        else:\n            pos = rng.randint(0, len(out) - len(s))\n            out[pos:pos+len(s)] = s\n    return bytes(out)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a size with strong bias to boundaries the fuzzer uses (<= 2048)\n    sizes = _biased_sizes(rng)\n    size = sizes[0] if sizes else rng.randint(0, MAX_SIZE)\n\n    # Compose content using multiple patterns\n    buf = _compose_segments(size, rng)\n\n    # Optionally inject interesting substrings without breaking validity\n    buf = _inject_interesting_substrings(buf, rng)\n\n    # Ensure final size constraints\n    if len(buf) > ABS_MAX:\n        buf = buf[:ABS_MAX]\n    return buf"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2027,
+            "output_tokens": 1456,
+            "total_tokens": 3483
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1605,
+            "output_tokens": 255,
+            "total_tokens": 1860
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2296,
+            "output_tokens": 4231,
+            "total_tokens": 6527
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 19903,
+            "output_tokens": 6068,
+            "total_tokens": 25971
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 20472,
+            "output_tokens": 4601,
+            "total_tokens": 25073
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6392,
+            "output_tokens": 111,
+            "total_tokens": 6503
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 371.0315852165222,
+    "scan_objects": 16.485806941986084,
+    "validate_objects": 0.8742861747741699,
+    "scan_functions": 76.04440069198608,
+    "synthesis": 127.56674861907959,
+    "fill": 101.87159991264343,
+    "classify": 2.9269232749938965,
+    "build_generators": 45.26084089279175
+  }
+}

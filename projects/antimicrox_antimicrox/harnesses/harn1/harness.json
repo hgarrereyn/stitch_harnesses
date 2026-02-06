@@ -1,0 +1,217 @@
+{
+  "objects": [
+    {
+      "ptr_type": "StatisticsEstimator *",
+      "aliases": [],
+      "definition": "class StatisticsEstimator\n{\n  public:\n    StatisticsEstimator();\n\n    void reset();\n    void process(double x);\n\n    /**\n     * @brief Gets the amount of processed samples.\n     * @returns Processed sample count.\n     */\n    inline size_t getCount() const { return m_count; }\n    /**\n     * @brief Gets the mean of processed samples.\n     * @returns Mean of processed samples.\n     */\n    inline double getMean() const { return m_mean; }\n    double calculateVariance() const;\n    double calculateRelativeErrorSq() const;\n\n  private:\n    double m_mean;\n    double m_var;\n    size_t m_count;\n};",
+      "description": "A class that incrementally estimates the mean of a data stream using Welford's algorithm and exposes statistical properties. It supports resetting, processing new samples, retrieving the count and mean, and computing variance and relative squared error. Implementation details (e.g., initialization values, exact formulas) are not present in this header.",
+      "direct_api_constructors": [
+        "StatisticsEstimator"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "StatisticsEstimator::StatisticsEstimator",
+      "signature": "StatisticsEstimator::StatisticsEstimator()",
+      "description": "Default constructor for StatisticsEstimator. Initializes the estimator to an empty state, ready to accept samples and compute streaming statistics (mean and related properties) using Welford's algorithm. Usage: construct an instance, then call process(...) repeatedly, and query results via getters or calculation methods.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "StatisticsEstimator::reset",
+      "signature": "void StatisticsEstimator::reset()",
+      "description": "Resets the estimator to its initial empty state. Clears accumulated statistics so a new stream can be processed from scratch. Usage: call at any time to discard prior samples before processing new data with process(...).",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "StatisticsEstimator::process",
+      "signature": "void StatisticsEstimator::process(double x)",
+      "description": "Processes a single sample value x into the running statistics using Welford's online update. Use this to feed the data stream sequentially before querying mean or derived statistics.",
+      "requirements": [
+        "x is a double value; no further constraints are documented.",
+        "The estimator instance must be constructed (and optionally reset) before calling."
+      ],
+      "error": null
+    },
+    {
+      "name": "StatisticsEstimator::getCount",
+      "signature": "size_t StatisticsEstimator::getCount() const",
+      "description": "Returns the number of samples that have been processed so far.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "StatisticsEstimator::getMean",
+      "signature": "double StatisticsEstimator::getMean() const",
+      "description": "Returns the current mean of the processed samples. If no samples were processed, the returned value is implementation-defined/unknown based on this header alone.",
+      "requirements": [
+        "If zero samples have been processed, the meaning of the returned value is unspecified in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "StatisticsEstimator::calculateVariance",
+      "signature": "double StatisticsEstimator::calculateVariance() const",
+      "description": "Computes the variance of the processed samples based on the accumulated state (consistent with Welford’s algorithm). Intended to be called after feeding samples via process(...).",
+      "requirements": [
+        "Behavior/return value when fewer than 2 samples have been processed is not specified in this header; callers should ensure at least 2 samples before calling to avoid undefined/degenerate results. (Inferred from common variance definition.)"
+      ],
+      "error": null
+    },
+    {
+      "name": "StatisticsEstimator::calculateRelativeErrorSq",
+      "signature": "double StatisticsEstimator::calculateRelativeErrorSq() const",
+      "description": "Calculates the squared relative error of the mean estimate from the processed samples. Exact definition/formula is not documented here; it is likely derived from variance and mean (e.g., variance/count divided by mean^2).",
+      "requirements": [
+        "Exact semantics are not specified in this header; callers should expect undefined/degenerate results if zero samples have been processed.",
+        "If the mean is zero or near zero, the result may be undefined, infinite, or NaN depending on implementation. (Inferred from the name and typical formula.)"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "StatisticsEstimator::getCount",
+      "inputs": [
+        {
+          "name": "estimator",
+          "type": "StatisticsEstimator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "estimator",
+          "type": "StatisticsEstimator *"
+        }
+      ],
+      "code": "// Query the processed sample count\nsize_t c = estimator->getCount();\n\n// Keep attribute in sync and assert consistency if previously tracked\nint tracked = FUZZ_GET_ATTR_INT(estimator, \"count\");\nif (tracked != 0 || c == 0) {\n    FUZZ_ASSERT((size_t)tracked == c, \"Tracked count must match estimator->getCount()\");\n}\nFUZZ_SET_ATTR_INT(estimator, \"count\", (int)c);\n\n// Output estimator unchanged\n"
+    },
+    {
+      "name": "StatisticsEstimator::getMean",
+      "inputs": [
+        {
+          "name": "estimator",
+          "type": "StatisticsEstimator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "estimator",
+          "type": "StatisticsEstimator *"
+        }
+      ],
+      "code": "// Caller must ensure at least one sample; otherwise behavior is unspecified in the header\nsize_t c = estimator->getCount();\nif (c == 0) { FUZZ_BAIL(); }\n\n// Retrieve mean; no assertions on value since initialization details are unspecified\nvolatile double mean = estimator->getMean();\n(void)mean; // Prevent optimization removing the call\n\n// Output estimator unchanged\n"
+    },
+    {
+      "name": "StatisticsEstimator *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "estimator",
+          "type": "StatisticsEstimator *"
+        }
+      ],
+      "code": "// Create a StatisticsEstimator instance without invoking its out-of-line constructor\n// Rationale: The default constructor is not linked/available, so we allocate raw storage\n// and zero-initialize it so inline getters (getCount/getMean) have deterministic values.\n// We strictly avoid calling any non-inline methods (reset/process/variance/relerr) here.\nvoid *raw = ::operator new(sizeof(StatisticsEstimator), std::nothrow);\nif (!raw) { FUZZ_BAIL(); }\n\n// Zero-initialize the storage to make m_mean = 0.0, m_var = 0.0, m_count = 0\nunsigned char *bp = reinterpret_cast<unsigned char*>(raw);\nfor (size_t i = 0; i < sizeof(StatisticsEstimator); ++i) { bp[i] = 0; }\n\nStatisticsEstimator *estimator = reinterpret_cast<StatisticsEstimator*>(raw);\n\n// Track observable state for downstream stubs that query getCount/getMean\nFUZZ_SET_ATTR_INT(estimator, \"count\", 0);\nFUZZ_SET_ATTR_INT(estimator, \"constructed_inline_only\", 1);\n\n// Do not call any methods here to avoid referencing missing symbols.\n// Output: estimator pointer managed by the fuzzing runtime.\n// Validation: Produces a usable instance for inline getters; avoids linking the unavailable constructor."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "StatisticsEstimator::StatisticsEstimator",
+      "reason": "Constructor implementation is not linked (undefined reference), so it cannot be invoked in this environment."
+    },
+    {
+      "name": "StatisticsEstimator::reset",
+      "reason": "Method implementation is not linked (undefined reference), so it cannot be invoked in this environment."
+    },
+    {
+      "name": "StatisticsEstimator::process",
+      "reason": "Method implementation is not linked (undefined reference), so it cannot be invoked in this environment."
+    },
+    {
+      "name": "StatisticsEstimator::calculateVariance",
+      "reason": "Method implementation is not linked (undefined reference), so it cannot be invoked in this environment."
+    },
+    {
+      "name": "StatisticsEstimator::calculateRelativeErrorSq",
+      "reason": "Method implementation is not linked (undefined reference), so it cannot be invoked in this environment."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "StatisticsEstimator::getCount",
+      "data_types": []
+    },
+    {
+      "name": "StatisticsEstimator::getMean",
+      "data_types": []
+    },
+    {
+      "name": "StatisticsEstimator *",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1026,
+            "output_tokens": 270,
+            "total_tokens": 1296
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 604,
+            "output_tokens": 57,
+            "total_tokens": 661
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1082,
+            "output_tokens": 1189,
+            "total_tokens": 2271
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11274,
+            "output_tokens": 3334,
+            "total_tokens": 14608
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12604,
+            "output_tokens": 6824,
+            "total_tokens": 19428
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 310.1322946548462,
+    "scan_objects": 4.310975551605225,
+    "validate_objects": 0.20434808731079102,
+    "scan_functions": 23.277487754821777,
+    "synthesis": 78.24692630767822,
+    "fill": 204.03684878349304,
+    "classify": 0.054894208908081055,
+    "build_generators": 0.00004744529724121094
+  }
+}

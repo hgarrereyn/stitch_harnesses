@@ -1,0 +1,106 @@
+{
+  "objects": [],
+  "functions": [
+    {
+      "name": "solution",
+      "signature": "int solution(int *arr, int N);",
+      "description": "Processes an array of N integers and returns an int result. The exact computation is not documented in the header and is unknown. Because the array parameter is non-const, the function may modify the contents of arr. Typical usage is to pass a pointer to the first element of an int array and its length.",
+      "requirements": [
+        "arr must be a valid, non-null pointer to at least N contiguous, writable int elements (inferred from pointer-and-length signature and non-const pointer).",
+        "Elements of arr should be initialized before the call (inferred).",
+        "N should be >= 0 and fit within the range of int (inferred from size parameter semantics).",
+        "Callers should not assume arr remains unchanged after the call because the parameter is non-const (inferred).",
+        "Return value semantics are unspecified; callers must be prepared to handle any int value, including potential sentinel/error codes if used by the implementation (unknown)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "solution",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose N in [0, 512] so allocation stays <= 2048 bytes for 4-byte ints\nint N = (int)(*FUZZ_PARAM(unsigned int) % 513u);\n\n// Allocate at least one writable int to keep arr non-null even when N == 0\nint alloc_elems = (N > 0) ? N : 1;\nint *arr = new int[alloc_elems];\n\n// Initialize arr[0..N-1] using fuzz data from a variable-size string buffer\n// Avoid FUZZ_PARAM in a loop due to macro limitation; derive all data up-front\nstd::string seed = FUZZ_PARAM_STR();\nconst unsigned char *bytes = (const unsigned char *)seed.data();\nsize_t bytes_len = seed.size();\nsize_t ints_available = bytes_len / sizeof(int);\nunsigned int base = *FUZZ_PARAM(unsigned int);      // base value for fallback filling\nint delta = (int)((bytes_len % 97u) + 1u);          // small positive delta (1..97)\n\nfor (int i = 0; i < N; ++i) {\n    if ((size_t)i < ints_available) {\n        // Pack up to 4 bytes into an int in little-endian order to initialize from seed\n        size_t off = (size_t)i * sizeof(int);\n        unsigned int v = 0u;\n        // Take exactly 4 bytes since ints_available guarantees availability\n        v |= (unsigned int)bytes[off + 0] << 0;\n        v |= (unsigned int)bytes[off + 1] << 8;\n        v |= (unsigned int)bytes[off + 2] << 16;\n        v |= (unsigned int)bytes[off + 3] << 24;\n        arr[i] = (int)v;\n    } else {\n        // Fallback: deterministic pattern derived from base and delta; add sign variety\n        int v = (int)(base + (unsigned int)(i * delta));\n        if (((i & 1) != 0) && ((base & 1u) != 0)) { v = -v; }\n        arr[i] = v;\n    }\n}\n\n// Call the target function with a valid, non-null, writable buffer and non-negative N\nint result = solution(arr, N);\n(void)result; // Return semantics are unspecified; do not assert on it\n\n// Caller-managed buffer: free locally since object is not persistent\ndelete[] arr;\n\n// Validation summary: arr is non-null, writable, and at least N ints long; elements 0..N-1 are initialized.\n// N is constrained to be >= 0 and within int range; function may modify arr which is not reused here."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "solution",
+      "data_types": [
+        "raw binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "raw binary data",
+      "description": "An arbitrary byte buffer with no required encoding or structure. May contain any values from 0x00 to 0xFF. In this context, the bytes are consumed in 4-byte chunks (little-endian) to initialize an array of ints; any remaining array elements are filled by a deterministic pattern. The data does not need to be valid text or follow any specific format."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "raw binary data",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces a raw byte buffer intended for the FUZZ_PARAM_STR() call\n# in the provided fuzzer stub. The stub interprets the buffer in 4-byte little-endian\n# chunks to initialize an int array. We craft buffers to exercise diverse integer\n# patterns: zeros, small numbers, boundaries, alternating signs, ramps, arithmetic\n#/geometric sequences, and bit-pattern edge cases. The output size is kept <= 4096.\n\nINT32_MIN = -0x80000000\nINT32_MAX = 0x7FFFFFFF\n\n\ndef _le_pack(ints: List[int]) -> bytes:\n    # Pack signed 32-bit ints into little-endian raw bytes\n    out = bytearray()\n    for v in ints:\n        # Constrain to int32 range wrapping like C\n        v &= 0xFFFFFFFF\n        out += struct.pack('<I', v)\n    return bytes(out)\n\n\ndef _pattern_boundary_set() -> List[int]:\n    # Mix of classic boundary values and bit patterns\n    return [\n        0, 1, -1, INT32_MAX, INT32_MIN,\n        2, -2, 3, -3,\n        0x7F, -0x80, 0x7FFF, -0x8000,\n        0x00FFFFFF, -0x01000000,\n        0x55555555, 0xAAAAAAAA, 0x80000000, 0x7FFFFFFF,\n        0x00000001, 0x00000002, 0x00000004, 0x00000008,\n        0x40000000, -0x40000000,\n    ]\n\n\ndef _pattern_arith(start: int, step: int, count: int) -> List[int]:\n    return [start + i * step for i in range(count)]\n\n\ndef _pattern_geom(start: int, factor: int, count: int) -> List[int]:\n    vals = []\n    v = start\n    for _ in range(count):\n        vals.append(v)\n        v = int(v * factor)\n    return vals\n\n\ndef _pattern_alternating(a: int, b: int, count: int) -> List[int]:\n    return [a if (i & 1) == 0 else b for i in range(count)]\n\n\ndef _pattern_bitwalk(count: int) -> List[int]:\n    vals = []\n    x = 1\n    for _ in range(count):\n        vals.append(x)\n        x = (x << 1) & 0xFFFFFFFF\n        if x == 0:\n            x = 1\n    return vals\n\n\ndef _pattern_noise(rng: random.Random, count: int) -> List[int]:\n    return [rng.randint(INT32_MIN, INT32_MAX) for _ in range(count)]\n\n\ndef _compose_chunks(rng: random.Random, max_bytes: int) -> bytes:\n    # Choose target number of ints so total bytes <= max_bytes and reasonably fills N\n    # Fuzzer chooses N in [0,512]. We'll often provide enough to cover most N values.\n    # Choose between 0 and 512 ints, bias toward larger sizes.\n    choices = [0, 1, 2, 3, 4, 8, 16, 32, 64, 128, 256, 384, 512]\n    weights = [1, 2, 2, 2, 2, 3, 4, 6, 8, 10, 12, 8, 6]\n    target_ints = rng.choices(choices, weights=weights, k=1)[0]\n\n    # Ensure byte budget\n    if target_ints * 4 > max_bytes:\n        target_ints = max_bytes // 4\n\n    # Build from multiple patterns concatenated to increase diversity.\n    ints: List[int] = []\n\n    # Always include a small boundary prelude\n    prelude = _pattern_boundary_set()\n    ints.extend(prelude[: min(len(prelude), max(0, target_ints - len(ints)))])\n\n    # Fill remaining with varied patterns\n    while len(ints) < target_ints:\n        remaining = target_ints - len(ints)\n        choice = rng.randint(0, 6)\n        if choice == 0:\n            n = min(remaining, rng.choice([4, 8, 16, 32]))\n            start = rng.randint(-1000, 1000)\n            step = rng.choice([-97, -13, -7, -3, -1, 1, 3, 5, 7, 13, 97])\n            ints.extend(_pattern_arith(start, step, n))\n        elif choice == 1:\n            n = min(remaining, rng.choice([4, 8, 16]))\n            start = rng.choice([1, -1, 2, -2, 3, -3])\n            factor = rng.choice([2, -2])\n            ints.extend(_pattern_geom(start, factor, n))\n        elif choice == 2:\n            n = min(remaining, rng.choice([8, 16, 32]))\n            a = rng.choice([0, 1, -1, 12345, -12345, INT32_MAX, INT32_MIN])\n            b = rng.choice([0, 2, -2, 67890, -67890, 0x55555555, 0xAAAAAAAA])\n            ints.extend(_pattern_alternating(a, b, n))\n        elif choice == 3:\n            n = min(remaining, rng.choice([16, 32, 64]))\n            ints.extend(_pattern_bitwalk(n))\n        elif choice == 4:\n            n = min(remaining, rng.choice([4, 8, 16]))\n            # Sign-flipping ramp aligned with stub's fallback pattern idea\n            base = rng.getrandbits(32)\n            delta = rng.randint(1, 97)\n            seq = []\n            for i in range(n):\n                v = (base + (i * delta)) & 0xFFFFFFFF\n                if ((i & 1) != 0) and ((base & 1) != 0):\n                    # match stub's occasional negative branch\n                    v = (-((v & 0x7FFFFFFF) | 0x80000000)) & 0xFFFFFFFF\n                seq.append(v)\n            ints.extend(seq)\n        elif choice == 5:\n            n = min(remaining, rng.choice([8, 16, 24]))\n            ints.extend(_pattern_noise(rng, n))\n        else:\n            n = min(remaining, rng.choice([4, 8, 12]))\n            # Edge flips around INT32 limits\n            seq = []\n            cur = rng.choice([INT32_MAX - 3, INT32_MIN + 3, -8, 8])\n            for _ in range(n):\n                seq.append(cur)\n                cur = (cur ^ 0xFFFFFFFF) + rng.choice([-1, 1])\n            ints.extend(seq)\n\n    # Possibly truncate if we overshot (shouldn't happen) and pack\n    ints = ints[:target_ints]\n    return _le_pack(ints)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Construct a buffer that, when interpreted in 4-byte little-endian chunks,\n    # yields diverse int arrays. Keep size <= 4096.\n    max_bytes = 4096\n\n    buf = bytearray()\n\n    # Randomly select a composition plan to add variety across seeds\n    plan = rng.randint(0, 3)\n\n    if plan == 0:\n        # Single large segment designed to cover most N values\n        buf += _compose_chunks(rng, max_bytes)\n    elif plan == 1:\n        # Multiple segments with separators (separators are harmless; bytes are arbitrary)\n        segment_budget = max_bytes // 3\n        for _ in range(3):\n            seg = _compose_chunks(rng, segment_budget)\n            buf += seg\n    elif plan == 2:\n        # Start with specific boundary palette, then fill with noise and sequences\n        ints = _pattern_boundary_set()\n        buf += _le_pack(ints)\n        remaining = max_bytes - len(buf)\n        if remaining > 0:\n            buf += _compose_chunks(rng, remaining)\n    else:\n        # Smaller buffer to exercise N > ints_available fallback case in the stub\n        # Provide only a handful of ints so the stub's deterministic filler runs.\n        small_ints = rng.choice([0, 1, 2, 3, 4, 8])\n        ints = _pattern_arith(rng.randint(-50, 50), rng.choice([-5, -1, 1, 5]), small_ints)\n        buf += _le_pack(ints)\n\n    # Enforce size limit\n    if len(buf) > max_bytes:\n        del buf[max_bytes:]\n\n    return bytes(buf)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 696,
+            "output_tokens": 78,
+            "total_tokens": 774
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 274,
+            "output_tokens": 17,
+            "total_tokens": 291
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 706,
+            "output_tokens": 1056,
+            "total_tokens": 1762
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8388,
+            "output_tokens": 3760,
+            "total_tokens": 12148
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1842,
+            "output_tokens": 121,
+            "total_tokens": 1963
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 160.05153799057007,
+    "scan_objects": 3.6866235733032227,
+    "validate_objects": 0.07724928855895996,
+    "scan_functions": 19.420235633850098,
+    "synthesis": 87.13602375984192,
+    "fill": 0,
+    "classify": 3.3052003383636475,
+    "build_generators": 46.425543546676636
+  }
+}

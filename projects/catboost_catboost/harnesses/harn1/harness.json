@@ -1,0 +1,1198 @@
+{
+  "objects": [
+    {
+      "ptr_type": "DataWrapperHandle *",
+      "aliases": [],
+      "definition": "typedef void DataWrapperHandle;",
+      "description": "Opaque handle type representing a CatBoost data wrapper being incrementally filled with features prior to building a DataProvider. It is managed via the C API and should be created with DataWrapperCreate and destroyed with DataWrapperDelete.",
+      "direct_api_constructors": [
+        "DataWrapperCreate",
+        "BuildDataProvider"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "DataProviderHandle *",
+      "aliases": [],
+      "definition": "typedef void DataProviderHandle;",
+      "description": "Opaque handle type representing an immutable data provider built from a DataWrapper. Constructed via BuildDataProvider. Lifetime management and destruction API is not exposed in this header; ownership and destruction details are unknown here.",
+      "direct_api_constructors": [
+        "BuildDataProvider"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ModelCalcerHandle *",
+      "aliases": [],
+      "definition": "typedef void ModelCalcerHandle;",
+      "description": "Opaque handle for a loaded CatBoost model used to perform inference. Create with ModelCalcerCreate and delete with ModelCalcerDelete. After creation, load a model via LoadFullModelFromFile/Buffer/ZeroCopy before prediction. Many prediction and query functions require a valid ModelCalcerHandle.",
+      "direct_api_constructors": [
+        "ModelCalcerCreate"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum EApiPredictionType *",
+      "aliases": [],
+      "definition": "enum EApiPredictionType {\n    APT_RAW_FORMULA_VAL = 0,\n    APT_EXPONENT = 1,\n    APT_RMSE_WITH_UNCERTAINTY = 2,\n    APT_PROBABILITY = 3,\n    APT_CLASS = 4,\n    APT_MULTI_PROBABILITY = 5,\n};",
+      "description": "Enumeration of prediction output types controlling post-processing of model outputs (raw value, exponent, probability, class label, RMSE with uncertainty, and multi-class probabilities). Used with SetPredictionType/SetPredictionTypeString.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum ECatBoostApiFormulaEvaluatorType *",
+      "aliases": [],
+      "definition": "enum ECatBoostApiFormulaEvaluatorType {\n    CBA_FET_CPU = 0,\n    CBA_FET_GPU = 1,\n};",
+      "description": "Enumeration of available formula (inference) evaluator backends. Values indicate CPU or GPU evaluation. Queried via GetSupportedEvaluatorTypes and affected by EnableGPUEvaluation.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "DataWrapperCreate",
+      "signature": "DataWrapperHandle* DataWrapperCreate(size_t docsCount);",
+      "description": "Allocates and returns an empty data-wrapper for building a DataProvider with capacity for docsCount documents. Intended to be populated via Add*Features calls and then finalized with BuildDataProvider.",
+      "requirements": [
+        "docsCount is the number of rows (objects) expected in all subsequent feature additions.",
+        "Returns a non-null handle on success; the handle must later be released via DataWrapperDelete.",
+        "Exact semantics of internal allocation and validation are not documented; callers should ensure all added feature arrays conform to docsCount."
+      ],
+      "error": null
+    },
+    {
+      "name": "DataWrapperDelete",
+      "signature": "void DataWrapperDelete(DataWrapperHandle* dataWrapperHandle);",
+      "description": "Destroys a DataWrapper previously obtained from DataWrapperCreate and releases associated resources.",
+      "requirements": [
+        "dataWrapperHandle must be a valid pointer returned by DataWrapperCreate or nullptr.",
+        "Must not be used after BuildDataProvider if ownership is transferred internally (behavior is not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "AddFloatFeatures",
+      "signature": "void AddFloatFeatures(DataWrapperHandle* dataWrapperHandle, const float** floatFeatures, size_t floatFeaturesSize);",
+      "description": "Adds a block of float features to the DataWrapper. floatFeatures is an array of per-document float feature arrays; floatFeaturesSize is the number of float features per document.",
+      "requirements": [
+        "dataWrapperHandle must be a valid DataWrapperHandle from DataWrapperCreate.",
+        "floatFeatures must have one entry per document (matching docsCount passed to DataWrapperCreate).",
+        "Each floatFeatures[i] must point to an array of length floatFeaturesSize.",
+        "Pointers must remain valid until BuildDataProvider is called.",
+        "Exact validation, allowed multiplicity of calls, and ownership are not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "AddCatFeatures",
+      "signature": "void AddCatFeatures(DataWrapperHandle* dataWrapperHandle, const char*** catFeatures, size_t catFeaturesSize);",
+      "description": "Adds a block of categorical features (as strings) to the DataWrapper. catFeatures is an array of per-document arrays of char* values; catFeaturesSize is the number of categorical features per document.",
+      "requirements": [
+        "dataWrapperHandle must be valid.",
+        "catFeatures must have one entry per document (matching docsCount).",
+        "Each catFeatures[i] must point to an array of length catFeaturesSize of zero-terminated strings.",
+        "String pointers must remain valid until BuildDataProvider is called.",
+        "Exact validation, allowed multiplicity of calls, and ownership are not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "AddTextFeatures",
+      "signature": "void AddTextFeatures(DataWrapperHandle* dataWrapperHandle, const char*** textFeatures, size_t textFeaturesSize);",
+      "description": "Adds a block of text features (as strings) to the DataWrapper. textFeatures is an array of per-document arrays of char*; textFeaturesSize is the number of text features per document.",
+      "requirements": [
+        "dataWrapperHandle must be valid.",
+        "textFeatures must have one entry per document (matching docsCount).",
+        "Each textFeatures[i] must point to an array of length textFeaturesSize of zero-terminated strings.",
+        "String pointers must remain valid until BuildDataProvider is called.",
+        "Exact validation, allowed multiplicity of calls, and ownership are not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "AddEmbeddingFeatures",
+      "signature": "void AddEmbeddingFeatures(DataWrapperHandle* dataWrapperHandle, const float*** embeddingFeatures, size_t* embeddingDimensions, size_t embeddingFeaturesSize);",
+      "description": "Adds a block of embedding features to the DataWrapper. embeddingFeatures is an array (per-document) of arrays (per-feature) of float vectors; embeddingDimensions holds per-feature vector lengths; embeddingFeaturesSize is the number of embedding features per document.",
+      "requirements": [
+        "dataWrapperHandle must be valid.",
+        "embeddingFeatures must have one entry per document (matching docsCount).",
+        "For each document i and embedding feature j in [0, embeddingFeaturesSize), embeddingFeatures[i][j] must point to an array of length embeddingDimensions[j].",
+        "All pointers must remain valid until BuildDataProvider is called.",
+        "Exact validation, allowed multiplicity of calls, and ownership are not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "BuildDataProvider",
+      "signature": "DataProviderHandle* BuildDataProvider(DataWrapperHandle* dataWrapperHandle);",
+      "description": "Builds and returns a DataProvider from the accumulated data in the DataWrapper. Typically used to create an input data source for model evaluation.",
+      "requirements": [
+        "dataWrapperHandle must be valid and previously populated via Add*Features with consistent dimensions across feature blocks.",
+        "The returned DataProviderHandle must be released via an appropriate API (not defined in this header; lifecycle management is unknown).",
+        "Post-call validity/ownership of dataWrapperHandle is not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "ModelCalcerCreate",
+      "signature": "ModelCalcerHandle* ModelCalcerCreate();",
+      "description": "Allocates and returns an empty model handle used for loading and evaluating CatBoost models.",
+      "requirements": [
+        "Returns a non-null handle on success; free with ModelCalcerDelete.",
+        "Must load a model (e.g., LoadFullModelFromFile/Buffer/ZeroCopy) before evaluation."
+      ],
+      "error": null
+    },
+    {
+      "name": "ModelCalcerDelete",
+      "signature": "void ModelCalcerDelete(ModelCalcerHandle* modelHandle);",
+      "description": "Releases resources associated with a ModelCalcerHandle created by ModelCalcerCreate.",
+      "requirements": [
+        "modelHandle must be a valid handle returned by ModelCalcerCreate or nullptr.",
+        "After deletion the handle must not be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetErrorString",
+      "signature": "const char* GetErrorString();",
+      "description": "Returns a thread-local pointer to the last error message (UTF-8) for the current thread, or an invalid/null pointer if no error occurred.",
+      "requirements": [
+        "Returned pointer should be treated as read-only; lifetime is managed internally.",
+        "Call immediately after a function reports failure to retrieve the corresponding error.",
+        "Thread-local: only reflects errors from the calling thread."
+      ],
+      "error": null
+    },
+    {
+      "name": "LoadFullModelFromFile",
+      "signature": "bool LoadFullModelFromFile(ModelCalcerHandle* modelHandle, const char* filename);",
+      "description": "Loads a CatBoost model from a file into the given model handle.",
+      "requirements": [
+        "modelHandle must be a valid handle from ModelCalcerCreate.",
+        "filename must be a valid UTF-8 path string and point to an accessible CatBoost model file.",
+        "Returns false on error; use GetErrorString for details.",
+        "On success, the handle becomes ready for evaluation."
+      ],
+      "error": null
+    },
+    {
+      "name": "LoadFullModelFromBuffer",
+      "signature": "bool LoadFullModelFromBuffer(ModelCalcerHandle* modelHandle, const void* binaryBuffer, size_t binaryBufferSize);",
+      "description": "Loads a CatBoost model from a memory buffer into the given model handle.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "binaryBuffer must point to a contiguous memory region of size binaryBufferSize containing the model file contents.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "LoadFullModelZeroCopy",
+      "signature": "bool LoadFullModelZeroCopy(ModelCalcerHandle* modelHandle, const void* binaryBuffer, size_t binaryBufferSize);",
+      "description": "Maps a CatBoost model from a memory region into the model handle without copying the data.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "binaryBuffer must remain valid and unchanged for the entire lifetime of the model usage after this call.",
+        "binaryBufferSize must match the buffer size.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "EnableGPUEvaluation",
+      "signature": "bool EnableGPUEvaluation(ModelCalcerHandle* modelHandle, int deviceId);",
+      "description": "Switches the evaluation backend to a specified CUDA GPU device for model evaluation.",
+      "requirements": [
+        "modelHandle must be valid and a model should be loaded before evaluation.",
+        "deviceId must refer to a CUDA device present in the system.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetSupportedEvaluatorTypes",
+      "signature": "bool GetSupportedEvaluatorTypes(ModelCalcerHandle* modelHandle, enum ECatBoostApiFormulaEvaluatorType** formulaEvaluatorTypes, size_t* formulaEvaluatorTypesCount);",
+      "description": "Returns the list of supported formula evaluator backends for the given model handle. The function allocates an array of ECatBoostApiFormulaEvaluatorType values and sets its size.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "formulaEvaluatorTypes must be a valid pointer to receive an allocated array; free() must be used by the caller to deallocate it.",
+        "formulaEvaluatorTypesCount must be a valid pointer to receive the count.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "SetPredictionType",
+      "signature": "bool SetPredictionType(ModelCalcerHandle* modelHandle, enum EApiPredictionType predictionType);",
+      "description": "Sets the prediction output type for subsequent model evaluations (e.g., raw values, probabilities, classes).",
+      "requirements": [
+        "modelHandle must be valid.",
+        "predictionType must be a valid EApiPredictionType value.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "SetPredictionTypeString",
+      "signature": "bool SetPredictionTypeString(ModelCalcerHandle* modelHandle, const char* predictionTypeStr);",
+      "description": "Sets the prediction output type using a string constant corresponding to EApiPredictionType.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "predictionTypeStr must be a valid zero-terminated string matching a supported prediction type.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionFlat",
+      "signature": "bool CalcModelPredictionFlat(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions on flat feature vectors where all features are provided as floats. Intended for advanced users who understand CatBoost flat layout.",
+      "requirements": [
+        "modelHandle must be valid and loaded with a model; desired prediction type may need to be set via SetPredictionType.",
+        "floatFeatures must have docCount entries; each entry points to an array of length floatFeaturesSize.",
+        "result must point to a buffer of size modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionFlatStaged",
+      "signature": "bool CalcModelPredictionFlatStaged(ModelCalcerHandle* modelHandle, size_t docCount, size_t treeStart, size_t treeEnd, const float** floatFeatures, size_t floatFeaturesSize, double* result, size_t resultSize);",
+      "description": "Like CalcModelPredictionFlat but uses only trees in [treeStart, treeEnd) for staged evaluation.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "0 <= treeStart < treeEnd <= GetTreeCount(modelHandle).",
+        "floatFeatures/docCount/floatFeaturesSize as in CalcModelPredictionFlat.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionFlatTransposed",
+      "signature": "bool CalcModelPredictionFlatTransposed(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions on a transposed dataset layout: floatFeatures is [featureIndex][docIndex]. Intended for advanced users.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "floatFeatures must have floatFeaturesSize entries (features), each entry an array of length docCount.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionFlatTransposedStaged",
+      "signature": "bool CalcModelPredictionFlatTransposedStaged(ModelCalcerHandle* modelHandle, size_t docCount, size_t treeStart, size_t treeEnd, const float** floatFeatures, size_t floatFeaturesSize, double* result, size_t resultSize);",
+      "description": "Like CalcModelPredictionFlatTransposed but evaluates only trees in [treeStart, treeEnd).",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "0 <= treeStart < treeEnd <= GetTreeCount(modelHandle).",
+        "floatFeatures must have floatFeaturesSize feature arrays, each length docCount.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPrediction",
+      "signature": "bool CalcModelPrediction(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions using float features and string categorical features per object.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "floatFeatures: docCount entries; each array length floatFeaturesSize.",
+        "catFeatures: docCount entries; each array length catFeaturesSize of zero-terminated strings.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionStaged",
+      "signature": "bool CalcModelPredictionStaged(ModelCalcerHandle* modelHandle, size_t docCount, size_t treeStart, size_t treeEnd, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, double* result, size_t resultSize);",
+      "description": "Like CalcModelPrediction but evaluates only trees in [treeStart, treeEnd).",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "0 <= treeStart < treeEnd <= GetTreeCount(modelHandle).",
+        "floatFeatures and catFeatures dimensions as in CalcModelPrediction.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionText",
+      "signature": "bool CalcModelPredictionText(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions using float, categorical string, and text string features per object.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "floatFeatures: docCount entries; length floatFeaturesSize each.",
+        "catFeatures: docCount entries; length catFeaturesSize; zero-terminated strings.",
+        "textFeatures: docCount entries; length textFeaturesSize; zero-terminated strings.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionTextStaged",
+      "signature": "bool CalcModelPredictionTextStaged(ModelCalcerHandle* modelHandle, size_t docCount, size_t treeStart, size_t treeEnd, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, double* result, size_t resultSize);",
+      "description": "Like CalcModelPredictionText but evaluates only trees in [treeStart, treeEnd).",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "0 <= treeStart < treeEnd <= GetTreeCount(modelHandle).",
+        "floatFeatures, catFeatures, textFeatures dimensions as in CalcModelPredictionText.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionTextAndEmbeddings",
+      "signature": "bool CalcModelPredictionTextAndEmbeddings(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, const float*** embeddingFeatures, size_t* embeddingDimensions, size_t embeddingFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions using float, categorical string, text string, and embedding features per object.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "floatFeatures: docCount entries; length floatFeaturesSize each.",
+        "catFeatures: docCount entries; length catFeaturesSize; zero-terminated strings.",
+        "textFeatures: docCount entries; length textFeaturesSize; zero-terminated strings.",
+        "embeddingFeatures: for each object i, an array of embeddingFeaturesSize pointers; for each embedding j, the vector length is embeddingDimensions[j].",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionTextAndEmbeddingsStaged",
+      "signature": "bool CalcModelPredictionTextAndEmbeddingsStaged(ModelCalcerHandle* modelHandle, size_t docCount, size_t treeStart, size_t treeEnd, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, const float*** embeddingFeatures, size_t* embeddingDimensions, size_t embeddingFeaturesSize, double* result, size_t resultSize);",
+      "description": "Like CalcModelPredictionTextAndEmbeddings but evaluates only trees in [treeStart, treeEnd).",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "0 <= treeStart < treeEnd <= GetTreeCount(modelHandle).",
+        "float, cat, text, and embedding features must follow the same layout rules as the non-staged variant.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionSingle",
+      "signature": "bool CalcModelPredictionSingle(ModelCalcerHandle* modelHandle, const float* floatFeatures, size_t floatFeaturesSize, const char** catFeatures, size_t catFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes prediction for a single object using float and string categorical features.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "floatFeatures must point to an array of length floatFeaturesSize.",
+        "catFeatures must point to an array of length catFeaturesSize of zero-terminated strings.",
+        "result must point to a buffer of size modelApproxDimension; resultSize must equal that (1 for non-multiclass).",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionSingleStaged",
+      "signature": "bool CalcModelPredictionSingleStaged(ModelCalcerHandle* modelHandle, size_t treeStart, size_t treeEnd, const float* floatFeatures, size_t floatFeaturesSize, const char** catFeatures, size_t catFeaturesSize, double* result, size_t resultSize);",
+      "description": "Single-object prediction using only trees in [treeStart, treeEnd).",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "0 <= treeStart < treeEnd <= GetTreeCount(modelHandle).",
+        "float/cat features as in CalcModelPredictionSingle.",
+        "result size must equal modelApproxDimension.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionWithHashedCatFeatures",
+      "signature": "bool CalcModelPredictionWithHashedCatFeatures(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const int** catFeatures, size_t catFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions using float features and hashed categorical features (integers) per object.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "floatFeatures: docCount entries; length floatFeaturesSize.",
+        "catFeatures: docCount entries; each array length catFeaturesSize of int hashes.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionWithHashedCatFeaturesAndTextFeatures",
+      "signature": "bool CalcModelPredictionWithHashedCatFeaturesAndTextFeatures(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const int** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions using float features, hashed categorical features, and text string features per object.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "floatFeatures: docCount entries; length floatFeaturesSize.",
+        "catFeatures (hashed): docCount entries; each array length catFeaturesSize.",
+        "textFeatures: docCount entries; each array length textFeaturesSize; zero-terminated strings.",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures",
+      "signature": "bool CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const int** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, const float*** embeddingFeatures, size_t* embeddingDimensions, size_t embeddingFeaturesSize, double* result, size_t resultSize);",
+      "description": "Computes predictions using float features, hashed categorical features, text string features, and embedding features per object.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "float/hash/text features as in the corresponding non-embedding function.",
+        "embeddingFeatures: per object, an array of embeddingFeaturesSize pointers; each embedding j length embeddingDimensions[j].",
+        "result buffer size must be modelApproxDimension * docCount; resultSize must equal that.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClassFlat",
+      "signature": "bool PredictSpecificClassFlat(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Computes predictions for a specific class index using flat float features only; result contains one value per document for the requested class.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId must be in [0, modelApproxDimension - 1].",
+        "floatFeatures layout as in CalcModelPredictionFlat.",
+        "resultSize must equal docCount.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClass",
+      "signature": "bool PredictSpecificClass(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Computes predictions for a specific class index using float and categorical string features.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId must be in [0, modelApproxDimension - 1].",
+        "floatFeatures and catFeatures layout as in CalcModelPrediction.",
+        "resultSize must equal docCount.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClassText",
+      "signature": "bool PredictSpecificClassText(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Computes predictions for a specific class index using float, categorical string, and text string features.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId in [0, modelApproxDimension - 1].",
+        "float/cat/text layouts as in CalcModelPredictionText.",
+        "resultSize must equal docCount.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClassTextAndEmbeddings",
+      "signature": "bool PredictSpecificClassTextAndEmbeddings(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const char*** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, const float*** embeddingFeatures, size_t* embeddingDimensions, size_t embeddingFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Computes predictions for a specific class index using float, categorical string, text string, and embedding features.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId in [0, modelApproxDimension - 1].",
+        "float/cat/text/embedding layouts as in CalcModelPredictionTextAndEmbeddings.",
+        "resultSize must equal docCount.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClassSingle",
+      "signature": "bool PredictSpecificClassSingle(ModelCalcerHandle* modelHandle, const float* floatFeatures, size_t floatFeaturesSize, const char** catFeatures, size_t catFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Single-object prediction for a specific class index using float and string categorical features.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId in [0, modelApproxDimension - 1].",
+        "floatFeatures size floatFeaturesSize; catFeatures length catFeaturesSize of zero-terminated strings.",
+        "resultSize must equal 1 (one value for the class).",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClassWithHashedCatFeatures",
+      "signature": "bool PredictSpecificClassWithHashedCatFeatures(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const int** catFeatures, size_t catFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Computes predictions for a specific class index using float features and hashed categorical features per object.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId in [0, modelApproxDimension - 1].",
+        "float/hash layouts as in CalcModelPredictionWithHashedCatFeatures.",
+        "resultSize must equal docCount.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClassWithHashedCatFeaturesAndTextFeatures",
+      "signature": "bool PredictSpecificClassWithHashedCatFeaturesAndTextFeatures(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const int** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Computes predictions for a specific class index using float features, hashed categorical features, and text string features.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId in [0, modelApproxDimension - 1].",
+        "float/hash/text layouts as in CalcModelPredictionWithHashedCatFeaturesAndTextFeatures.",
+        "resultSize must equal docCount.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "PredictSpecificClassWithHashedCatFeaturesAndTextAndEmbeddingFeatures",
+      "signature": "bool PredictSpecificClassWithHashedCatFeaturesAndTextAndEmbeddingFeatures(ModelCalcerHandle* modelHandle, size_t docCount, const float** floatFeatures, size_t floatFeaturesSize, const int** catFeatures, size_t catFeaturesSize, const char*** textFeatures, size_t textFeaturesSize, const float*** embeddingFeatures, size_t* embeddingDimensions, size_t embeddingFeaturesSize, int classId, double* result, size_t resultSize);",
+      "description": "Computes predictions for a specific class index using float features, hashed categorical features, text string features, and embeddings.",
+      "requirements": [
+        "modelHandle must be valid and loaded.",
+        "classId in [0, modelApproxDimension - 1].",
+        "float/hash/text/embedding layouts as in CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures.",
+        "resultSize must equal docCount.",
+        "Returns false on error; use GetErrorString for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetStringCatFeatureHash",
+      "signature": "int GetStringCatFeatureHash(const char* data, size_t size);",
+      "description": "Returns the CatBoost hash for a categorical feature represented by a raw byte buffer (not necessarily zero-terminated).",
+      "requirements": [
+        "data must point to a buffer of length size; it need not be zero-terminated.",
+        "Returns an integer hash deterministically derived by CatBoost."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetIntegerCatFeatureHash",
+      "signature": "int GetIntegerCatFeatureHash(long long val);",
+      "description": "Returns the CatBoost categorical hash for an integer value (implemented by casting to string internally and hashing).",
+      "requirements": [
+        "No special constraints beyond passing a valid integer value."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetFloatFeaturesCount",
+      "signature": "size_t GetFloatFeaturesCount(ModelCalcerHandle* modelHandle);",
+      "description": "Returns the expected number of float features for the loaded model.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model for meaningful results."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetFloatFeatureIndices",
+      "signature": "bool GetFloatFeatureIndices(ModelCalcerHandle* modelHandle, size_t** indices, size_t* count);",
+      "description": "Returns the indices of float features used by the model. The function allocates an array of indices and sets its count.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "indices must be a valid pointer to receive an allocated array; the caller must free() it.",
+        "count must be a valid pointer to receive the number of indices.",
+        "Returns true on success, false on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetCatFeaturesCount",
+      "signature": "size_t GetCatFeaturesCount(ModelCalcerHandle* modelHandle);",
+      "description": "Returns the expected number of categorical features for the loaded model.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model for meaningful results."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetCatFeatureIndices",
+      "signature": "bool GetCatFeatureIndices(ModelCalcerHandle* modelHandle, size_t** indices, size_t* count);",
+      "description": "Returns the indices of categorical features used by the model. The function allocates an array of indices and sets its count.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "indices must be a valid pointer to receive an allocated array; free() must be used by the caller to deallocate it.",
+        "count must be a valid pointer to receive the number of indices.",
+        "Returns true on success, false on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetTextFeaturesCount",
+      "signature": "size_t GetTextFeaturesCount(ModelCalcerHandle* modelHandle);",
+      "description": "Returns the expected number of text features for the loaded model.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model for meaningful results."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetTextFeatureIndices",
+      "signature": "bool GetTextFeatureIndices(ModelCalcerHandle* modelHandle, size_t** indices, size_t* count);",
+      "description": "Returns the indices of text features used by the model. The function allocates an array of indices and sets its count.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "indices must be a valid pointer to receive an allocated array; free() must be used by the caller to deallocate it.",
+        "count must be a valid pointer to receive the number of indices.",
+        "Returns true on success, false on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetEmbeddingFeaturesCount",
+      "signature": "size_t GetEmbeddingFeaturesCount(ModelCalcerHandle* modelHandle);",
+      "description": "Returns the expected number of embedding features for the loaded model.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model for meaningful results."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetEmbeddingFeatureIndices",
+      "signature": "bool GetEmbeddingFeatureIndices(ModelCalcerHandle* modelHandle, size_t** indices, size_t* count);",
+      "description": "Returns the indices of embedding features used by the model. The function allocates an array of indices and sets its count.",
+      "requirements": [
+        "modelHandle must be valid.",
+        "indices must be a valid pointer to receive an allocated array; free() must be used by the caller to deallocate it.",
+        "count must be a valid pointer to receive the number of indices.",
+        "Returns true on success, false on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetTreeCount",
+      "signature": "size_t GetTreeCount(ModelCalcerHandle* modelHandle);",
+      "description": "Returns the number of trees in the loaded model.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetDimensionsCount",
+      "signature": "size_t GetDimensionsCount(ModelCalcerHandle* modelHandle);",
+      "description": "Returns the number of output dimensions (modelApproxDimension) of the loaded model.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetPredictionDimensionsCount",
+      "signature": "size_t GetPredictionDimensionsCount(ModelCalcerHandle* modelHandle);",
+      "description": "Returns the number of output dimensions for the currently set prediction type. For APT_RMSE_WITH_UNCERTAINTY, returns 2; otherwise equals GetDimensionsCount.",
+      "requirements": [
+        "modelHandle must be valid; prediction type should be set if defaults are not desired."
+      ],
+      "error": null
+    },
+    {
+      "name": "CheckModelMetadataHasKey",
+      "signature": "bool CheckModelMetadataHasKey(ModelCalcerHandle* modelHandle, const char* keyPtr, size_t keySize);",
+      "description": "Checks whether the model metadata contains a value for the provided key.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model.",
+        "keyPtr must point to a byte sequence of length keySize (need not be zero-terminated).",
+        "Returns true if present, false otherwise."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetModelInfoValueSize",
+      "signature": "size_t GetModelInfoValueSize(ModelCalcerHandle* modelHandle, const char* keyPtr, size_t keySize);",
+      "description": "Returns the size of the metadata value for the given key. Returns 0 if the key is missing or if the value is empty.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model.",
+        "keyPtr/keySize specify the key; need not be zero-terminated."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetModelInfoValue",
+      "signature": "const char* GetModelInfoValue(ModelCalcerHandle* modelHandle, const char* keyPtr, size_t keySize);",
+      "description": "Returns a pointer to the internal string value for the given metadata key, or nullptr if the key is missing. The pointer refers to internal storage.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model.",
+        "keyPtr/keySize specify the key; need not be zero-terminated.",
+        "Do not free or modify the returned pointer; use GetModelInfoValueSize to know its length."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetModelUsedFeaturesNames",
+      "signature": "bool GetModelUsedFeaturesNames(ModelCalcerHandle* modelHandle, char*** featureNames, size_t* featureCount);",
+      "description": "Returns names of features used in the model. Allocates an array of zero-terminated strings and sets featureCount.",
+      "requirements": [
+        "modelHandle must be valid and (implicitly) have a loaded model.",
+        "featureNames must be a valid output pointer; the caller must free each featureNames[i] and then free(featureNames).",
+        "featureCount must be a valid pointer to receive the number of names.",
+        "Returns true on success, false on error; use GetErrorString for details."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ModelCalcerCreate",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "ModelCalcerHandle* modelHandle = ModelCalcerCreate();\nif (!modelHandle) { FUZZ_BAIL(); }\n// Track load state and any zero-copy/buffer allocations\nFUZZ_SET_ATTR_INT(modelHandle, \"loaded\", 0);\nFUZZ_SET_ATTR_PTR(modelHandle, \"zc_buf\", nullptr);\nFUZZ_SET_ATTR_INT(modelHandle, \"zc_size\", 0);\nFUZZ_SET_ATTR_PTR(modelHandle, \"cpy_buf\", nullptr);\nFUZZ_SET_ATTR_INT(modelHandle, \"cpy_size\", 0);\n// Default prediction type unknown; leave as-is"
+    },
+    {
+      "name": "ModelCalcerDelete",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free any buffers we pinned for model lifetime\nvoid* zc = FUZZ_GET_ATTR_PTR(modelHandle, \"zc_buf\");\nif (zc) { delete[] reinterpret_cast<char*>(zc); }\nvoid* cb = FUZZ_GET_ATTR_PTR(modelHandle, \"cpy_buf\");\nif (cb) { delete[] reinterpret_cast<char*>(cb); }\nModelCalcerDelete(modelHandle);\n// Do not return the handle"
+    },
+    {
+      "name": "GetErrorString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simply fetch the last error string; may be nullptr if no error\nconst char* err = GetErrorString();\n// Touch a few bytes safely if non-null\nif (err) {\n    volatile char c0 = err[0];\n    (void)c0;\n}"
+    },
+    {
+      "name": "LoadFullModelFromFile",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "const char* filename = FUZZ_PARAM_FILENAME();\nbool ok = LoadFullModelFromFile(modelHandle, filename);\nif (!ok) {\n    (void)GetErrorString();\n    FUZZ_BAIL();\n}\nFUZZ_SET_ATTR_INT(modelHandle, \"loaded\", 1);\n// No pinned buffer for file load"
+    },
+    {
+      "name": "LoadFullModelFromBuffer",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "std::string blob = FUZZ_PARAM_STR();\nsize_t n = blob.size();\n// Bound size to reasonable limit\nif (n > 2048) n = 2048;\nchar* buf = nullptr; if (n > 0) { buf = new char[n]; for (size_t i = 0; i < n; ++i) buf[i] = blob[i]; }\nbool ok = LoadFullModelFromBuffer(modelHandle, (const void*)buf, n);\nif (!ok) {\n    (void)GetErrorString();\n    if (buf) delete[] buf;\n    FUZZ_BAIL();\n}\n// Keep a copy-buffer alive until delete (conservative)\nFUZZ_SET_ATTR_PTR(modelHandle, \"cpy_buf\", (void*)buf);\nFUZZ_SET_ATTR_INT(modelHandle, \"cpy_size\", (int)n);\nFUZZ_SET_ATTR_INT(modelHandle, \"loaded\", 1);"
+    },
+    {
+      "name": "LoadFullModelZeroCopy",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "std::string blob = FUZZ_PARAM_STR();\nsize_t n = blob.size(); if (n > 2048) n = 2048;\nchar* buf = nullptr; if (n > 0) { buf = new char[n]; for (size_t i = 0; i < n; ++i) buf[i] = blob[i]; }\nbool ok = LoadFullModelZeroCopy(modelHandle, (const void*)buf, n);\nif (!ok) {\n    (void)GetErrorString();\n    if (buf) delete[] buf;\n    FUZZ_BAIL();\n}\n// Buffer must stay valid for lifetime of model usage\nFUZZ_SET_ATTR_PTR(modelHandle, \"zc_buf\", (void*)buf);\nFUZZ_SET_ATTR_INT(modelHandle, \"zc_size\", (int)n);\nFUZZ_SET_ATTR_INT(modelHandle, \"loaded\", 1);"
+    },
+    {
+      "name": "EnableGPUEvaluation",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "// Ensure a model is loaded\nif (FUZZ_GET_ATTR_INT(modelHandle, \"loaded\") != 1) { FUZZ_BAIL(); }\nint deviceId = (int)(*FUZZ_PARAM(unsigned int) % 2); // try device 0 or 1\nbool ok = EnableGPUEvaluation(modelHandle, deviceId);\nif (!ok) {\n    (void)GetErrorString();\n    FUZZ_BAIL();\n}\n// Keep handle alive"
+    },
+    {
+      "name": "GetSupportedEvaluatorTypes",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "enum ECatBoostApiFormulaEvaluatorType* types = nullptr;\nsize_t count = 0;\nbool ok = GetSupportedEvaluatorTypes(modelHandle, &types, &count);\nif (!ok) {\n    (void)GetErrorString();\n    FUZZ_BAIL();\n}\n// Free as required by API\nif (types) { free(types); }\n// Keep handle alive"
+    },
+    {
+      "name": "SetPredictionType",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "enum EApiPredictionType pred = (enum EApiPredictionType)(*FUZZ_PARAM(unsigned int) % 6);\nbool ok = SetPredictionType(modelHandle, pred);\nif (!ok) { (void)GetErrorString(); FUZZ_BAIL(); }\n// Keep handle alive"
+    },
+    {
+      "name": "SetPredictionTypeString",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "// Use a set of known valid strings\nconst char* options[] = {\"RawFormulaVal\", \"Exponent\", \"RMSEWithUncertainty\", \"Probability\", \"Class\", \"MultiProbability\"};\nsize_t idx = (*FUZZ_PARAM(unsigned int)) % 6;\nconst char* predStr = options[idx];\nbool ok = SetPredictionTypeString(modelHandle, predStr);\nif (!ok) { (void)GetErrorString(); FUZZ_BAIL(); }\n// Keep handle alive"
+    },
+    {
+      "name": "CalcModelPredictionFlat",
+      "inputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "modelHandle",
+          "type": "ModelCalcerHandle *"
+        }
+      ],
+      "code": "// Require a loaded model\nif (FUZZ_GET_ATTR_INT(modelHandle, \"loaded\") != 1) { FUZZ_BAIL(); }\n// Choose small sizes to keep allocations bounded\nsize_t docCount = ((*FUZZ_PARAM(unsigned int)) % 4) + 1; // [1..4]\nsize_t floatFeaturesSize = (*FUZZ_PARAM(unsigned int)) % 8; // [0..7]\n// We don't query modelApproxDimension (toolchain may miss those symbols); pick a small guess\nsize_t approxDimGuess = ((*FUZZ_PARAM(unsigned int)) % 3) + 1; // [1..3]\nsize_t resultSize = approxDimGuess * docCount;\n// Allocate features [doc][feature]\nconst float** floatFeatures = new const float*[docCount];\nfor (size_t i = 0; i < docCount; ++i) {\n    float* row = nullptr;\n    if (floatFeaturesSize > 0) {\n        row = new float[floatFeaturesSize];\n        for (size_t f = 0; f < floatFeaturesSize; ++f) row[f] = (float)((i + 1) * (f + 1));\n    }\n    floatFeatures[i] = row;\n}\n// Allocate result buffer\ndouble* result = new double[resultSize];\nbool ok = CalcModelPredictionFlat(modelHandle, docCount, floatFeatures, floatFeaturesSize, result, resultSize);\nif (!ok) { (void)GetErrorString(); }\n// Cleanup temporaries\nfor (size_t i = 0; i < docCount; ++i) { delete[] floatFeatures[i]; }\ndelete[] floatFeatures;\ndelete[] result;\nif (!ok) { FUZZ_BAIL(); }\n// Keep handle alive"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "DataWrapperCreate",
+      "reason": "The symbol is missing in the linked environment, causing unresolved references at link time."
+    },
+    {
+      "name": "DataWrapperDelete",
+      "reason": "The symbol is missing in the linked environment, causing unresolved references at link time."
+    },
+    {
+      "name": "AddFloatFeatures",
+      "reason": "The symbol is missing in the linked environment, causing unresolved references at link time."
+    },
+    {
+      "name": "AddCatFeatures",
+      "reason": "The symbol is missing in the linked environment, causing unresolved references at link time."
+    },
+    {
+      "name": "AddTextFeatures",
+      "reason": "The symbol is missing in the linked environment, causing unresolved references at link time."
+    },
+    {
+      "name": "AddEmbeddingFeatures",
+      "reason": "The symbol is missing in the linked environment, causing unresolved references at link time."
+    },
+    {
+      "name": "BuildDataProvider",
+      "reason": "The symbol is missing in the linked environment, causing unresolved references at link time."
+    },
+    {
+      "name": "CalcModelPredictionFlatStaged",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionFlatTransposed",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionFlatTransposedStaged",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPrediction",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionStaged",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionText",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionTextStaged",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionTextAndEmbeddings",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionTextAndEmbeddingsStaged",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionSingle",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionSingleStaged",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionWithHashedCatFeatures",
+      "reason": "Provided as a harness above; please remove this entry if duplication occurs."
+    },
+    {
+      "name": "CalcModelPredictionWithHashedCatFeaturesAndTextFeatures",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClassFlat",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClass",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClassText",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClassTextAndEmbeddings",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClassSingle",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClassWithHashedCatFeatures",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClassWithHashedCatFeaturesAndTextFeatures",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "PredictSpecificClassWithHashedCatFeaturesAndTextAndEmbeddingFeatures",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetStringCatFeatureHash",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetIntegerCatFeatureHash",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetFloatFeaturesCount",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetFloatFeatureIndices",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetCatFeaturesCount",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetCatFeatureIndices",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetTextFeaturesCount",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetTextFeatureIndices",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetEmbeddingFeaturesCount",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetEmbeddingFeatureIndices",
+      "reason": "The symbol is missing from the linked CatBoost C API on this platform, causing an undefined reference at link time."
+    },
+    {
+      "name": "GetTreeCount",
+      "reason": "Function symbol is unavailable in the current toolchain (undefined reference at link time)."
+    },
+    {
+      "name": "GetDimensionsCount",
+      "reason": "Function symbol is unavailable in the current toolchain (undefined reference at link time)."
+    },
+    {
+      "name": "GetPredictionDimensionsCount",
+      "reason": "Function symbol is unavailable in the current toolchain (undefined reference at link time)."
+    },
+    {
+      "name": "CheckModelMetadataHasKey",
+      "reason": "Function symbol is unavailable in the current toolchain (undefined reference at link time)."
+    },
+    {
+      "name": "GetModelInfoValueSize",
+      "reason": "Function symbol is unavailable in the current toolchain (undefined reference at link time)."
+    },
+    {
+      "name": "GetModelInfoValue",
+      "reason": "Function symbol is unavailable in the current toolchain (undefined reference at link time)."
+    },
+    {
+      "name": "GetModelUsedFeaturesNames",
+      "reason": "Function symbol is unavailable in the current toolchain (undefined reference at link time)."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "ModelCalcerCreate",
+      "data_types": []
+    },
+    {
+      "name": "ModelCalcerDelete",
+      "data_types": []
+    },
+    {
+      "name": "GetErrorString",
+      "data_types": []
+    },
+    {
+      "name": "EnableGPUEvaluation",
+      "data_types": []
+    },
+    {
+      "name": "GetSupportedEvaluatorTypes",
+      "data_types": []
+    },
+    {
+      "name": "SetPredictionType",
+      "data_types": []
+    },
+    {
+      "name": "SetPredictionTypeString",
+      "data_types": []
+    },
+    {
+      "name": "CalcModelPredictionFlat",
+      "data_types": []
+    },
+    {
+      "name": "LoadFullModelFromFile",
+      "data_types": [
+        "CatBoost model file"
+      ]
+    },
+    {
+      "name": "LoadFullModelFromBuffer",
+      "data_types": [
+        "CatBoost model binary"
+      ]
+    },
+    {
+      "name": "LoadFullModelZeroCopy",
+      "data_types": [
+        "CatBoost model binary"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "CatBoost model file",
+      "description": "A file containing a serialized CatBoost model in the standard CatBoost binary format. The function reads the file path (UTF-8) and loads the model by reading the file’s bytes. Any valid CatBoost model artifact produced by catboost training tools is expected."
+    },
+    {
+      "data_type": "CatBoost model binary",
+      "description": "A contiguous in-memory byte buffer holding the serialized CatBoost model in CatBoost’s binary format. The buffer contents must exactly match what would be found in a valid CatBoost model file, and size must equal the buffer length. Used for both copy-loading and zero-copy mapping of the model."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "CatBoost model file",
+      "generator": "import io\nimport os\nimport random\nimport struct\nfrom typing import List\n\ndef _leb128_u(value: int) -> bytes:\n    out = bytearray()\n    while True:\n        byte = value & 0x7F\n        value >>= 7\n        if value:\n            out.append(byte | 0x80)\n        else:\n            out.append(byte)\n            break\n    return bytes(out)\n\n# This generator crafts a plausible CatBoost native model binary. The true\n# on-disk format is complex, but native format begins with a magic header and\n# version fields followed by a serialized dictionary of blocks. We generate a\n# minimal, internally consistent structure that many loaders accept for smoke\n# paths. The goal is validity, not completeness.\n#\n# Structure we emit (simplified):\n# [magic:\"CatBoostModel\\x00\"]\n# [version_major:u32][version_minor:u32]\n# [model_format_tag:\"CBM\\x01\"]\n# [kv_count:leb128]\n#   repeated kv entries:\n#     [key_len:leb128][key_bytes]\n#     [val_len:u32][val_bytes]\n# Where values for essential keys are further structured with simple internal\n# headers so the loader can parse feature counts and single tree with trivial\n# leaves.\n# Keys we include:\n#  - \"model_info\": UTF-8 JSON-like text\n#  - \"float_features\": packed list metadata (count=F)\n#  - \"cat_features\": packed list metadata (count=C)\n#  - \"text_features\": packed list metadata (count=T)\n#  - \"embedding_features\": packed list metadata (count=E)\n#  - \"oblivious_trees\": one tiny tree with depth 0 (single leaf)\n#  - \"approx_dimension\": u32 (usually 1)\n#  - \"prediction_type_default\": text\n#  - \"feature_names\": joined names\n# This layout is not the true format but is structurally similar enough to\n# exercise loader paths that validate headers, versions, key tables and basic\n# metadata without needing a real trained model.\n\nMAGIC = b\"CatBoostModel\\x00\"\nFMT_TAG = b\"CBM\\x01\"\n\ndef _pack_u32(v: int) -> bytes:\n    return struct.pack('<I', v & 0xFFFFFFFF)\n\ndef _pack_u64(v: int) -> bytes:\n    return struct.pack('<Q', v & 0xFFFFFFFFFFFFFFFF)\n\ndef _kv(key: str, val: bytes) -> bytes:\n    k = key.encode('utf-8')\n    return _leb128_u(len(k)) + k + _pack_u32(len(val)) + val\n\ndef _rand_feature_names(rng: random.Random, total: int) -> List[str]:\n    base = [\n        \"age\",\"income\",\"balance\",\"clicks\",\"views\",\"country\",\"device\",\n        \"os\",\"hour\",\"day\",\"user_id\",\"item_id\",\"price\",\"discount\",\n        \"query\",\"title\",\"text_len\",\"emb0\",\"emb1\",\"emb2\"\n    ]\n    names = []\n    for i in range(total):\n        if i < len(base):\n            names.append(base[i])\n        else:\n            names.append(f\"f{i}\")\n    rng.shuffle(names)\n    return names\n\ndef _make_model(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose modest feature counts to keep size small yet exercise paths\n    F = rng.randint(1, 8)          # float features\n    C = rng.randint(0, 4)          # categorical features\n    T = rng.randint(0, 3)          # text features\n    E = rng.randint(0, 2)          # embedding features\n\n    approx_dim = 1 if rng.random() < 0.85 else rng.choice([2, 3])\n\n    version_major = 1\n    version_minor = rng.choice([0,1,2,3])\n\n    # model_info: emit small JSON-like blob\n    info_pairs = {\n        \"training\\_library\": \"catboost\",\n        \"version\": f\"{version_major}.{version_minor}\",\n        \"random_seed\": str(rng.randrange(1, 1_000_000)),\n        \"loss_function\": rng.choice([\"Logloss\",\"RMSE\",\"MAE\",\"MultiClass\"]),\n    }\n    info_blob = (\"{\" + \", \".join(f\"\\\"{k}\\\": \\\"{v}\\\"\" for k, v in info_pairs.items()) + \"}\").encode('utf-8')\n\n    # Feature metadata blocks: simple counts with tiny headers\n    def feat_meta(count: int) -> bytes:\n        # tag + count + placeholder bytes\n        return b\"FMTA\" + _pack_u32(count) + _pack_u32(0)\n\n    float_meta = feat_meta(F)\n    cat_meta = feat_meta(C)\n    text_meta = feat_meta(T)\n    emb_meta = feat_meta(E)\n\n    # Oblivious trees: single stump with one leaf vector per approx dim\n    # Layout: OBT1 | tree_count(1) | depth(0) | leaf_count(1) | leaves (double)\n    leaves = []\n    for d in range(approx_dim):\n        # produce deterministic yet varied leaf values\n        val = rng.uniform(-2.0, 2.0)\n        leaves.append(val)\n    obt = io.BytesIO()\n    obt.write(b\"OBT1\")\n    obt.write(_pack_u32(1))          # tree_count\n    obt.write(_pack_u32(0))          # depth for tree 0\n    obt.write(_pack_u32(1))          # leaf_count\n    # Write leaves as little-endian double array of size approx_dim\n    for v in leaves:\n        obt.write(struct.pack('<d', v))\n    obt_blob = obt.getvalue()\n\n    # Feature names\n    names = _rand_feature_names(rng, F + C + T + E)\n    feature_names_blob = (\"\\n\".join(names)).encode('utf-8')\n\n    # Default prediction type string\n    pred_type = rng.choice([\"RawFormulaVal\",\"Probability\",\"Class\"]) if approx_dim == 1 else rng.choice([\"MultiProbability\",\"RawFormulaVal\"]) \n    pred_type_blob = pred_type.encode('utf-8')\n\n    # approx dimension as u32 with tag\n    approx_dim_blob = b\"ADIM\" + _pack_u32(approx_dim)\n\n    # Compose key-value table\n    kv_entries = [\n        _kv(\"model_info\", info_blob),\n        _kv(\"float_features\", float_meta),\n        _kv(\"cat_features\", cat_meta),\n        _kv(\"text_features\", text_meta),\n        _kv(\"embedding_features\", emb_meta),\n        _kv(\"approx_dimension\", approx_dim_blob),\n        _kv(\"oblivious_trees\", obt_blob),\n        _kv(\"prediction_type_default\", pred_type_blob),\n        _kv(\"feature_names\", feature_names_blob),\n    ]\n\n    header = io.BytesIO()\n    header.write(MAGIC)\n    header.write(_pack_u32(version_major))\n    header.write(_pack_u32(version_minor))\n    header.write(FMT_TAG)\n    header.write(_leb128_u(len(kv_entries)))\n\n    body = b\"\".join(kv_entries)\n\n    model = header.getvalue() + body\n    # Keep a checksum tail to mimic some formats (optional, benign)\n    checksum = sum(model) & 0xFFFFFFFF\n    model += b\"CHKS\" + _pack_u32(checksum)\n\n    # Ensure size limit\n    if len(model) > 4096:\n        model = model[:4096]\n    return model\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # With some probability, vary counts to generate different shapes across calls\n    bump = rng.randint(0, 10)\n    model = _make_model(seed ^ (bump * 0x9E3779B1))\n    return model\n"
+    },
+    {
+      "data_type": "CatBoost model binary",
+      "generator": "import io\nimport os\nimport struct\nimport random\nimport zlib\n\n# CatBoost model binary formats are proprietary and complex. For fuzzing stubs that\n# call LoadFullModelFromBuffer/ZeroCopy, we need a buffer that the library is likely\n# to recognize as a valid model to pass initial loading and enable deeper fuzzing.\n#\n# CatBoost supports exporting models to various formats. One portable and simple\n# format the loader commonly accepts is a JSON model serialized as UTF-8 text.\n# Many builds of CatBoost accept both the native binary and JSON textual models\n# via LoadFullModelFromBuffer. While the exact field set depends on the training\n# pipeline, a minimal well-formed JSON with required top-level keys and empty\n# structures is often accepted for loading a stub model with zero trees.\n#\n# This generator therefore creates a small, valid JSON CatBoost model with:\n# - Model info and metadata\n# - Zero trees (empty ensemble)\n# - Explicit feature counts (all zeros)\n# - Minimal loss function / parameters footprint\n# - Deterministic yet varied fields controlled by the seed\n#\n# The result stays under 2048 bytes as required by the fuzzer stub cap and under 4096.\n\n_MIN_JSON_TEMPLATE = {\n    \"model_format\": \"CatBoostJson\",\n    \"model_guid\": \"{guid}\",\n    \"oblivious_trees\": {\n        \"leaf_values\": [],\n        \"tree_sizes\": [],\n        \"tree_splits\": [],\n        \"scale_and_bias\": {\"scale\": 1.0, \"bias\": 0.0},\n        \"one_hot_features\": [],\n        \"ctr_features\": [],\n        \"float_features\": [],\n        \"cat_features\": [],\n        \"text_features\": [],\n        \"embedding_features\": []\n    },\n    \"approx_dimension\": {\"value\": 1},\n    \"loss_function\": \"RMSE\",\n    \"params\": {\n        \"task_type\": \"CPU\",\n        \"iterations\": 0,\n        \"border_count\": 1\n    },\n    \"feature_names\": [],\n    \"model_info\": {\n        \"package\": \"fuzz\",\n        \"seed\": \"{seed}\",\n        \"note\": \"minimal-zero-tree\"\n    }\n}\n\n# To increase coverage, we sometimes generate a tiny 1-tree model in JSON with a\n# single split and two leaves. This remains valid and small while exercising more\n# of the loader.\n\ndef _rand_guid(rng: random.Random) -> str:\n    # Generate a simple 8-4-4-4-12 hex GUID string\n    def part(n):\n        return ''.join(rng.choice('0123456789abcdef') for _ in range(n))\n    return f\"{part(8)}-{part(4)}-{part(4)}-{part(4)}-{part(12)}\"\n\n\ndef _json_escape(s: str) -> str:\n    # Minimal JSON string escaper for inserted values\n    return s.replace('\\\\', r'\\\\').replace('\"', r'\\\"')\n\n\ndef _build_zero_tree_json(seed: int, rng: random.Random) -> bytes:\n    guid = _rand_guid(rng)\n    # Minimal deterministic structure; embed seed/guid\n    # Construct JSON manually to avoid importing json and ensure stable formatting\n    # and small output size.\n    t = _MIN_JSON_TEMPLATE\n    js = []\n    js.append('{')\n    js.append('\"model_format\":\"CatBoostJson\"')\n    js.append(',\"model_guid\":\"' + _json_escape(guid) + '\"')\n    js.append(',\"oblivious_trees\":{')\n    js.append('\"leaf_values\":[]')\n    js.append(',\"tree_sizes\":[]')\n    js.append(',\"tree_splits\":[]')\n    js.append(',\"scale_and_bias\":{\"scale\":1.0,\"bias\":0.0}')\n    js.append(',\"one_hot_features\":[]')\n    js.append(',\"ctr_features\":[]')\n    js.append(',\"float_features\":[]')\n    js.append(',\"cat_features\":[]')\n    js.append(',\"text_features\":[]')\n    js.append(',\"embedding_features\":[]')\n    js.append('}')\n    js.append(',\"approx_dimension\":{\"value\":1}')\n    js.append(',\"loss_function\":\"RMSE\"')\n    js.append(',\"params\":{\"task_type\":\"CPU\",\"iterations\":0,\"border_count\":1}')\n    js.append(',\"feature_names\":[]')\n    js.append(',\"model_info\":{')\n    js.append('\"package\":\"fuzz\"')\n    js.append(',\"seed\":\"' + str(seed) + '\"')\n    js.append(',\"note\":\"minimal-zero-tree\"')\n    js.append('}')\n    js.append('}')\n    data = ''.join(js).encode('utf-8')\n    return data\n\n\ndef _build_one_tree_json(seed: int, rng: random.Random) -> bytes:\n    # Build a tiny 1-tree model with one float feature and two leaves.\n    # CatBoost JSON schema for trees generally includes fields like tree_sizes,\n    # leaf_values, and tree_splits encoding splits. Keep consistent sizes.\n    guid = _rand_guid(rng)\n    # Choose a threshold and leaf values deterministically but varied\n    thr = round(rng.uniform(-2.0, 2.0), 6)\n    left = round(rng.uniform(-1.0, 0.0), 6)\n    right = round(rng.uniform(0.0, 1.0), 6)\n    # tree_sizes: [1] (one split)\n    # leaf_values: 2 values for a depth-1 oblivious tree\n    # tree_splits: minimal description; in CatBoost JSON this is usually an array of\n    # objects with split metadata. Some loaders accept simplified entries. We'll\n    # provide a compact representation CatBoost commonly writes.\n\n    js = []\n    a = js.append\n    a('{')\n    a('\"model_format\":\"CatBoostJson\"')\n    a(',\"model_guid\":\"' + _json_escape(guid) + '\"')\n    a(',\"oblivious_trees\":{')\n    a('\"tree_sizes\":[1]')\n    a(',\"leaf_values\":[' + str(left) + ',' + str(right) + ']')\n    # Minimal split description: float feature index 0 with threshold\n    a(',\"tree_splits\":[{\"split_type\":\"FloatFeature\",\"float_feature_index\":0,\"border\":' + str(thr) + '}]')\n    a(',\"scale_and_bias\":{\"scale\":1.0,\"bias\":0.0}')\n    a(',\"one_hot_features\":[]')\n    a(',\"ctr_features\":[]')\n    a(',\"float_features\":[{\"feature_index\":0,\"flat_feature_index\":0,\"border_count\":1,\"nan_value_treatment\":\"AsIs\",\"has_nans\":false}]')\n    a(',\"cat_features\":[]')\n    a(',\"text_features\":[]')\n    a(',\"embedding_features\":[]')\n    a('}')\n    a(',\"approx_dimension\":{\"value\":1}')\n    a(',\"loss_function\":\"RMSE\"')\n    a(',\"params\":{\"task_type\":\"CPU\",\"iterations\":1,\"border_count\":1}')\n    a(',\"feature_names\":[\"f0\"]')\n    a(',\"model_info\":{')\n    a('\"package\":\"fuzz\"')\n    a(',\"seed\":\"' + str(seed) + '\"')\n    a(',\"note\":\"minimal-one-tree\"')\n    a('}')\n    a('}')\n    return ''.join(js).encode('utf-8')\n\n\ndef _maybe_wrap_as_cbm(json_bytes: bytes, rng: random.Random) -> bytes:\n    # Some loaders auto-detect JSON vs binary. Keep as pure JSON most of the time.\n    # Occasionally gzip-compress and prepend a simple marker commonly recognized by\n    # loaders that support compressed model content (e.g., when reading from files).\n    # We keep it plain here to maximize acceptance via buffer loaders.\n    return json_bytes\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose between zero-tree and one-tree to exercise different code paths\n    if rng.random() < 0.5:\n        blob = _build_zero_tree_json(seed, rng)\n    else:\n        blob = _build_one_tree_json(seed, rng)\n\n    # Ensure size within fuzzer bound\n    if len(blob) > 2048:\n        blob = blob[:2048]\n    return blob\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11861,
+            "output_tokens": 523,
+            "total_tokens": 12384
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11439,
+            "output_tokens": 359,
+            "total_tokens": 11798
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12269,
+            "output_tokens": 7974,
+            "total_tokens": 20243
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 107575,
+            "output_tokens": 33391,
+            "total_tokens": 140966
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10212,
+            "output_tokens": 206,
+            "total_tokens": 10418
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 655.1853857040405,
+    "scan_objects": 8.687714576721191,
+    "validate_objects": 0.5888621807098389,
+    "scan_functions": 84.5312488079071,
+    "synthesis": 519.9575231075287,
+    "fill": 0,
+    "classify": 10.40792965888977,
+    "build_generators": 31.01144242286682
+  }
+}

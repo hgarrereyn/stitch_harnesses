@@ -1,0 +1,151 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct rtpp_cfg *",
+      "aliases": [],
+      "definition": "struct rtpp_cfg;",
+      "description": "Opaque forward declaration for the RTPproxy configuration/context object. The actual structure layout is not defined in this header; it is intended to be managed via the provided API functions. Details of fields and lifetime semantics are unknown from this header alone.",
+      "direct_api_constructors": [
+        "rtpp_main"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "rtpp_shutdown",
+      "signature": "void rtpp_shutdown(struct rtpp_cfg *);",
+      "description": "Shuts down and cleans up an RTPproxy runtime/context represented by the opaque rtpp_cfg handle. Intended to gracefully terminate a previously initialized instance and release resources. Typical usage: obtain an rtpp_cfg* from rtpp_main(), run the service, then call rtpp_shutdown(cfg) during program teardown. Details of side effects and shutdown semantics are not documented in this header; behavior is inferred from the name and signature.",
+      "requirements": [
+        "cfg must be a valid, initialized pointer to an RTPproxy context, typically one returned by rtpp_main(). (inferred)",
+        "cfg must not be NULL. (inferred from typical C API usage)",
+        "Do not call concurrently with other operations that use the same cfg; after shutdown, the cfg must not be used again. (inferred)",
+        "Call at most once for a given cfg to avoid double-shutdown or double-free scenarios. (inferred)",
+        "No ownership of cfg is transferred to the caller after shutdown; assume resources are released internally. (inferred)"
+      ],
+      "error": null
+    },
+    {
+      "name": "rtpp_main",
+      "signature": "struct rtpp_cfg *rtpp_main(int argc, const char * const *argv);",
+      "description": "Initializes the RTPproxy engine using command-line style arguments and returns an opaque runtime/context handle (rtpp_cfg*) for subsequent control (e.g., shutdown). Usage mirrors a conventional C main: pass argc and argv as provided by the environment; on success returns a non-NULL handle; on failure likely returns NULL (not documented here). No mutation of argv is implied by the const qualifiers.",
+      "requirements": [
+        "argc should be >= 0. (inferred from conventional C signatures)",
+        "argv must point to an array of argc pointers to NUL-terminated C strings; each argv[i] must be non-NULL for i in [0, argc). (inferred)",
+        "argv may be NULL only when argc == 0. (inferred)",
+        "The returned pointer must be checked for NULL before use, as initialization may fail. (inferred from common C patterns)",
+        "The returned rtpp_cfg* is opaque; callers should not dereference or manipulate its internals and should pair it with rtpp_shutdown() to release resources. (inferred)",
+        "Call rtpp_main() before calling rtpp_shutdown() for the same process/context. (inferred)"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "rtpp_shutdown",
+      "inputs": [
+        {
+          "name": "cfg",
+          "type": "struct rtpp_cfg *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce single-shutdown and validity: cfg must be alive\nint alive = FUZZ_GET_ATTR_INT(cfg, \"alive\");\nif (alive != 1) { FUZZ_BAIL(); }\n\n// Invoke shutdown; after this call cfg must not be used again\nrtpp_shutdown(cfg);\n\n// Mark as dead for safety; do not return cfg to the pool\nFUZZ_SET_ATTR_INT(cfg, \"alive\", 0);\n\n// Validation summary: Ensures cfg was previously initialized (alive==1), performs shutdown once, and drops the handle from outputs to avoid reuse."
+    },
+    {
+      "name": "rtpp_main",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "cfg",
+          "type": "struct rtpp_cfg *"
+        }
+      ],
+      "code": "// Generate argc in a small safe range [0, 8]\nint argc = (int)(*FUZZ_PARAM(unsigned int) % 9);\n\n// Build argv as an array of argc non-null, NUL-terminated C strings\n// Each argument is constrained for size and has no embedded NULs\nstd::vector<std::string> arg_storage;\narg_storage.reserve((size_t)argc);\nfor (int i = 0; i < argc; ++i) {\n    std::string s = FUZZ_PARAM_STR();\n    // Constrain size for performance and to avoid giant allocations\n    if (s.size() > 128) s.resize(128);\n    // Remove embedded NULs so each argument is a well-formed C string\n    for (size_t j = 0; j < s.size(); ++j) {\n        if (s[j] == '\\0') s[j] = 'X';\n    }\n    // Ensure at least one printable char\n    if (s.empty()) s = \"x\";\n    arg_storage.emplace_back(std::move(s));\n}\n\nstd::vector<const char *> argv_vec;\nargv_vec.reserve((size_t)argc);\nfor (int i = 0; i < argc; ++i) {\n    argv_vec.push_back(arg_storage[(size_t)i].c_str());\n}\n\nconst char * const *argv_ptr = (argc > 0) ? (const char * const *)argv_vec.data() : (const char * const *)nullptr;\n\n// Call the target function\nstruct rtpp_cfg *cfg = rtpp_main(argc, argv_ptr);\n\n// Validate result: on failure, bail to avoid emitting a null handle into the pool\nif (cfg == nullptr) { FUZZ_BAIL(); }\n\n// Track lifetime: cfg is now alive and must be shut down exactly once later\nFUZZ_SET_ATTR_INT(cfg, \"alive\", 1);\n\n// Validation summary: Builds a valid argv array (or NULL when argc==0), calls rtpp_main,\n// bails on NULL, and tags the returned cfg as alive for later rtpp_shutdown()."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "rtpp_shutdown",
+      "data_types": []
+    },
+    {
+      "name": "rtpp_main",
+      "data_types": [
+        "command-line arguments"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "command-line arguments",
+      "description": "An array of NUL-terminated C strings (argv) representing command-line style arguments passed with an accompanying argc count. Strings may include flags (e.g., -v), options, and values. For fuzzing, any printable bytes are acceptable as individual arguments as long as they contain no embedded NULs and are reasonably sized. argv may be NULL only when argc is 0."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "command-line arguments",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces a single buffer that the harness will slice into strings\n# for FUZZ_PARAM_STR calls. We encode a sequence of argv-like tokens separated by\\n\n# newlines. The stub ensures strings are NUL-free and size-capped; we proactively\n# avoid NULs and keep tokens reasonable, emphasizing valid and interesting rtpproxy\n# command-line styles (flags, options with values, paths, addresses, ports, etc.).\n\nPRINTABLE = ''.join(ch for ch in string.printable if ch not in ['\\x0b', '\\x0c', '\\x0b', '\\x0c'])\nSAFE_CHARS = ''.join(ch for ch in PRINTABLE if ch != '\\x00')\n\ndef _rand_choice(rng: random.Random, seq: List[str]) -> str:\n    return seq[rng.randrange(len(seq))]\n\ndef _rand_token(rng: random.Random) -> str:\n    # Generate a generic token of length 1..32\n    length = rng.randint(1, 32)\n    return ''.join(rng.choice(SAFE_CHARS[:-1]) for _ in range(length))\n\ndef _rand_int(rng: random.Random, lo: int, hi: int) -> str:\n    return str(rng.randint(lo, hi))\n\ndef _addr(rng: random.Random) -> str:\n    if rng.random() < 0.6:\n        # IPv4\n        return '.'.join(str(rng.randint(0, 255)) for _ in range(4))\n    else:\n        # Hostname\n        labels = [\n            ''.join(rng.choice(string.ascii_lowercase + string.digits) for _ in range(rng.randint(1, 8)))\n            for _ in range(rng.randint(1, 3))\n        ]\n        tld = _rand_choice(rng, ['com', 'net', 'org', 'local', 'io'])\n        return '.'.join(labels + [tld])\n\ndef _path(rng: random.Random) -> str:\n    if rng.random() < 0.7:\n        parts = [''] + [\n            ''.join(rng.choice(string.ascii_letters + string.digits + '._-') for _ in range(rng.randint(1, 10)))\n            for _ in range(rng.randint(1, 4))\n        ]\n        return '/'.join(parts) or '/'\n    else:\n        return './' + ''.join(rng.choice(string.ascii_letters + string.digits + '._-') for _ in range(rng.randint(1, 10)))\n\ndef _bool_flag(rng: random.Random) -> str:\n    return _rand_choice(rng, [\n        '-v', '--verbose', '-q', '--quiet', '-d', '--daemonize', '-h', '--help',\n        '--no-log', '--single-thread', '--multi-thread'\n    ])\n\ndef _opt_with_value(rng: random.Random) -> List[str]:\n    # Options common to network/server daemons, inspired by typical rtpproxy-like CLIs\n    opt = _rand_choice(rng, [\n        '-l', '--listen',           # address\n        '-p', '--port',             # port\n        '-f', '--config',           # config file path\n        '-P', '--pidfile',          # pid file path\n        '-s', '--socket',           # control socket path\n        '-m', '--max-sessions',     # number\n        '-r', '--recording-dir',    # path\n        '--log-level',              # level\n        '--timeout',                # seconds\n        '--control-ip',             # address\n        '--control-port',           # port\n        '--ttl',                    # hops\n        '--user',                   # user name\n        '--group',                  # group name\n    ])\n    if opt in ['-l', '--listen', '--control-ip']:\n        val = _addr(rng)\n    elif opt in ['-p', '--port', '--control-port']:\n        val = _rand_int(rng, 1, 65535)\n    elif opt in ['-m', '--max-sessions']:\n        val = _rand_int(rng, 1, 100000)\n    elif opt in ['--timeout', '--ttl']:\n        val = _rand_int(rng, 1, 3600)\n    elif opt in ['--log-level']:\n        val = _rand_choice(rng, ['debug', 'info', 'notice', 'warn', 'error'])\n    elif opt in ['-f', '--config', '-P', '--pidfile', '-s', '--socket', '-r', '--recording-dir']:\n        val = _path(rng)\n    elif opt in ['--user', '--group']:\n        val = ''.join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(3, 10)))\n    else:\n        val = _rand_token(rng)\n    # Sometimes join with '=' like --opt=value\n    if opt.startswith('--') and rng.random() < 0.5:\n        return [opt + '=' + val]\n    else:\n        return [opt, val]\n\ndef _make_argv_tokens(rng: random.Random, argc: int) -> List[str]:\n    tokens: List[str] = []\n    if argc == 0:\n        return tokens\n    # argv[0]: program name\n    prog = _rand_choice(rng, ['rtpproxy', 'rtpp', 'rtpproxyd', 'srv', 'app'])\n    tokens.append(prog)\n    # Remaining args\n    i = 1\n    while i < argc:\n        choice = rng.random()\n        if choice < 0.35 and i < argc:\n            tokens.append(_bool_flag(rng))\n            i += 1\n        elif choice < 0.8 and i < argc:\n            vals = _opt_with_value(rng)\n            # Ensure we don't exceed argc; if too many, collapse into single token with '='\n            if len(vals) == 2 and i == argc - 0:  # no room for two: collapse\n                # convert to --opt=value if possible, otherwise single token\n                opt = vals[0]\n                val = vals[1]\n                if opt.startswith('--'):\n                    tokens.append(opt + '=' + val)\n                    i += 1\n                else:\n                    tokens.append(opt)\n                    i += 1\n            else:\n                for v in vals:\n                    if i >= argc:\n                        break\n                    tokens.append(v)\n                    i += 1\n        else:\n            tokens.append(_rand_token(rng))\n            i += 1\n    # Ensure no token is empty or contains NUL\n    cleaned = []\n    for t in tokens[:argc]:\n        if not t:\n            t = 'x'\n        t = t.replace('\\x00', 'X')\n        # Limit token length to 120 (below harness cap 128)\n        if len(t) > 120:\n            t = t[:120]\n        cleaned.append(t)\n    return cleaned\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose argc in [0,8] to match harness range\n    argc = rng.randint(0, 8)\n    tokens = _make_argv_tokens(rng, argc)\n    # Encode as newline-separated strings; harness will draw FUZZ_PARAM_STR items from this buffer.\n    # Keep total size under 4096 bytes.\n    blob = '\\n'.join(tokens)\n    data = blob.encode('utf-8')\n    if len(data) > 4096:\n        data = data[:4096]\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1031,
+            "output_tokens": 98,
+            "total_tokens": 1129
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 609,
+            "output_tokens": 23,
+            "total_tokens": 632
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1048,
+            "output_tokens": 1155,
+            "total_tokens": 2203
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9514,
+            "output_tokens": 3420,
+            "total_tokens": 12934
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2112,
+            "output_tokens": 134,
+            "total_tokens": 2246
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 122.10521602630615,
+    "scan_objects": 2.6727700233459473,
+    "validate_objects": 0.2235095500946045,
+    "scan_functions": 34.26019620895386,
+    "synthesis": 56.165743589401245,
+    "fill": 0,
+    "classify": 4.029817342758179,
+    "build_generators": 24.75234317779541
+  }
+}

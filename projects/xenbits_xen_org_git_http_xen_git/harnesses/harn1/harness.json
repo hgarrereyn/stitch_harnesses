@@ -1,0 +1,1312 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct xs_handle *",
+      "aliases": [],
+      "definition": "struct xs_handle;",
+      "description": "Opaque handle to a Xenstore connection. Only a forward declaration is provided in this header; the structure layout is private to the library. It is created by xs_open (and deprecated xs_daemon_open* / xs_domain_open) and is passed to all Xenstore operations. Must be closed with xs_close (or deprecated xs_daemon_close) and not used after destruction, including across fork unless reopened as documented.",
+      "direct_api_constructors": [
+        "xs_open",
+        "xs_daemon_open",
+        "xs_domain_open",
+        "xs_daemon_open_readonly"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "xs_transaction_t *",
+      "aliases": [],
+      "definition": "typedef uint32_t xs_transaction_t;",
+      "description": "Identifier type for Xenstore transactions. Values are returned by xs_transaction_start and passed back to most operations to scope them to a transaction. The special value XBT_NULL (0) denotes no active transaction.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct xs_permissions *",
+      "aliases": [],
+      "definition": "struct xs_permissions\n{\n\tunsigned int id;\n\tunsigned int perms;\t/* Bitmask of permissions. */\n#define XS_PERM_NONE\t\t0x00\n#define XS_PERM_READ\t\t0x01\n#define XS_PERM_WRITE\t\t0x02\n\t/* Internal use. */\n#define XS_PERM_ENOENT_OK\t0x04\n#define XS_PERM_OWNER\t\t0x08\n#define XS_PERM_IGNORE\t\t0x10\n};",
+      "description": "Represents a Xenstore permission entry consisting of an owner/subject identifier (id) and a bitmask (perms) indicating allowed operations. The perms field uses the XS_PERM_* bit flags defined alongside the struct. Intended for use when setting or parsing access permissions in the Xenstore library/daemon. Details about the semantics of id are inferred (likely a domain or user identifier), as the header provides no additional documentation.",
+      "direct_api_constructors": [
+        "xs_strings_to_perms"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom types are defined in this header. It only emits a deprecation warning and includes xenstore_lib.h. Types from xenstore_lib.h are out of scope per instructions.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "xs_open",
+      "signature": "struct xs_handle *xs_open(unsigned long flags);",
+      "description": "Open a connection to the Xenstore daemon. Attempts a socket connection first and falls back to the xenbus/shmem interface. Use xs_open(0) for standard behavior; flags XS_OPEN_READONLY and XS_OPEN_SOCKETONLY are deprecated and ignored.",
+      "requirements": [
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "Connections made with xs_open(0) are only guaranteed to work in the parent after fork.",
+        "The returned struct xs_handle* must be closed with xs_close().",
+        "Flags currently have no effect (deprecated)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_close",
+      "signature": "void xs_close(struct xs_handle *xsh /* NULL ok */);",
+      "description": "Close the connection to the Xenstore daemon and release resources associated with the handle.",
+      "requirements": [
+        "It is safe to pass NULL (no effect).",
+        "After calling xs_close, the handle must not be used again."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_daemon_open",
+      "signature": "struct xs_handle *xs_daemon_open(void);",
+      "description": "Deprecated synonym for xs_open(0). Opens a connection to the Xenstore daemon.",
+      "requirements": [
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "Prefer xs_open(0) instead.",
+        "Close the returned handle with xs_close() or xs_daemon_close()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_domain_open",
+      "signature": "struct xs_handle *xs_domain_open(void);",
+      "description": "Deprecated synonym for xs_open(0). Opens a connection to the Xenstore daemon (domain-aware).",
+      "requirements": [
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "Prefer xs_open(0) instead.",
+        "Close the returned handle with xs_close() or xs_daemon_close()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_daemon_open_readonly",
+      "signature": "struct xs_handle *xs_daemon_open_readonly(void);",
+      "description": "Deprecated API to open a Xenstore connection in read-only mode. Use xs_open(0) instead; the legacy readonly flag behavior is deprecated.",
+      "requirements": [
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "Prefer xs_open(0) instead.",
+        "Close the returned handle with xs_close() or xs_daemon_close()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_daemon_close",
+      "signature": "void xs_daemon_close(struct xs_handle *);",
+      "description": "Deprecated close routine for Xenstore handles. Use xs_close() instead.",
+      "requirements": [
+        "Handle must be a valid xs_handle* returned by an open call.",
+        "After calling, the handle must not be used again."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_daemon_destroy_postfork",
+      "signature": "void xs_daemon_destroy_postfork(struct xs_handle *);",
+      "description": "Discard an xs_handle connection in a post-fork context. Intended to throw away inherited connections that are unsafe to use in the child.",
+      "requirements": [
+        "Call in a post-fork scenario where the existing connection must not be reused in the child.",
+        "Handle must be a valid xs_handle* or possibly NULL (NULL handling is not specified; treat unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_directory",
+      "signature": "char **xs_directory(struct xs_handle *h, xs_transaction_t t, const char *path, unsigned int *num);",
+      "description": "List entries in a Xenstore directory node at path within transaction t. Returns a malloced array of C strings; num receives the number of entries.",
+      "requirements": [
+        "On success, returns a malloced array; caller must call free() on the returned pointer after use (each string is typically contiguous with the array; free the single block as returned).",
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "h must be a valid open handle; path must be a valid NUL-terminated string.",
+        "If t is an active transaction, it must be started with xs_transaction_start().",
+        "num must be a valid pointer for output."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_read",
+      "signature": "void *xs_read(struct xs_handle *h, xs_transaction_t t, const char *path, unsigned int *len);",
+      "description": "Read the value stored at a Xenstore node path within transaction t. Returns a malloced, NUL-terminated buffer containing the value; len is set to the length in bytes excluding the terminator.",
+      "requirements": [
+        "On success, caller must free() the returned buffer.",
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "h must be valid; path must be a valid NUL-terminated string.",
+        "If t is an active transaction, it must be started with xs_transaction_start().",
+        "len must be a valid pointer for output."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_write",
+      "signature": "bool xs_write(struct xs_handle *h, xs_transaction_t t, const char *path, const void *data, unsigned int len);",
+      "description": "Write data of length len to the Xenstore node at path within transaction t.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; path must be a valid NUL-terminated string.",
+        "data must point to a buffer of at least len bytes.",
+        "If t is an active transaction, it must be started with xs_transaction_start()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_write_all",
+      "signature": "bool xs_write_all(int fd, const void *data, unsigned int len);",
+      "description": "Write len bytes to the file descriptor fd, looping internally until all data are written or an error occurs.",
+      "requirements": [
+        "Returns false on failure and may set errno; caller must check the boolean result.",
+        "fd must be a valid, writable file descriptor.",
+        "data must point to a buffer of at least len bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_mkdir",
+      "signature": "bool xs_mkdir(struct xs_handle *h, xs_transaction_t t, const char *path);",
+      "description": "Create a directory node at path within transaction t. Succeeds if the directory already exists.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; path must be a valid NUL-terminated string.",
+        "If t is an active transaction, it must be started with xs_transaction_start()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_rm",
+      "signature": "bool xs_rm(struct xs_handle *h, xs_transaction_t t, const char *path);",
+      "description": "Remove a Xenstore node or directory (and its children) at path within transaction t. Returns false on failure or if the node does not exist.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; path must be a valid NUL-terminated string.",
+        "If t is an active transaction, it must be started with xs_transaction_start()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_restrict",
+      "signature": "bool xs_restrict(struct xs_handle *h, unsigned domid);",
+      "description": "Stub function retained for compatibility; always returns false to maintain libxenstore 3.0 behavior.",
+      "requirements": [
+        "Always returns false; callers should not rely on it for access control.",
+        "h must be a (possibly unused) xs_handle*; domid is ignored."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_get_permissions",
+      "signature": "struct xs_permissions *xs_get_permissions(struct xs_handle *h, xs_transaction_t t, const char *path, unsigned int *num);",
+      "description": "Retrieve the permissions on a Xenstore node. Returns a malloced array of xs_permissions entries. The first element represents the owner and default permissions; subsequent elements are per-domain permissions.",
+      "requirements": [
+        "On success, returns a malloced array; caller must free() it after use.",
+        "num must be a valid pointer to receive the number of permissions entries.",
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "h must be valid; path must be a valid NUL-terminated string.",
+        "If t is an active transaction, it must be started with xs_transaction_start()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_set_permissions",
+      "signature": "bool xs_set_permissions(struct xs_handle *h, xs_transaction_t t, const char *path, struct xs_permissions *perms, unsigned int num_perms);",
+      "description": "Set permissions for a Xenstore node (caller must be the owner). Domain 0 bypasses permission checks. The perms array defines owner/default permissions in perms[0] and per-domain entries thereafter.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; path must be a valid NUL-terminated string.",
+        "perms must point to an array of at least num_perms xs_permissions entries; num_perms must match the array length.",
+        "If t is an active transaction, it must be started with xs_transaction_start()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_watch",
+      "signature": "bool xs_watch(struct xs_handle *h, const char *path, const char *token);",
+      "description": "Register a watch on a node (and its children). When changes occur, the file descriptor from xs_fileno becomes readable; events can be obtained with xs_check_watch or xs_read_watch. The token is returned with events for correlation.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; path and token must be valid NUL-terminated strings.",
+        "Call xs_unwatch with the same path and token to remove the watch.",
+        "If using XS_UNWATCH_FILTER semantics, observe the token/subpath uniqueness guidance in the header comments."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_fileno",
+      "signature": "int xs_fileno(struct xs_handle *h);",
+      "description": "Return a file descriptor suitable for polling/selecting to detect pending watch events.",
+      "requirements": [
+        "h must be a valid handle with an established connection.",
+        "On failure, may return a negative value and set errno (behavior not explicitly documented).",
+        "Caller must not close this fd independently of xs_close()."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_check_watch",
+      "signature": "char **xs_check_watch(struct xs_handle *h);",
+      "description": "Non-blocking check for pending watch events. On success returns an array of two C strings: ret[0] is the triggering path and ret[1] is the token. Returns NULL on error; when the watch fd became readable, callers should loop until this returns NULL with errno == EAGAIN.",
+      "requirements": [
+        "On success, caller must free() the returned array in one call to free(ret).",
+        "On error, returns NULL and sets errno; loop until errno == EAGAIN after fd readability.",
+        "h must be valid; watch must have been registered to receive events."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_read_watch",
+      "signature": "char **xs_read_watch(struct xs_handle *h, unsigned int *num);",
+      "description": "Blocking retrieval of the next watch event. Returns an array containing the path and token. num receives the array length (use XS_WATCH_* to index).",
+      "requirements": [
+        "On success, caller must free() the returned array with free().",
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "h must be valid; num must be a valid pointer for output."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_unwatch",
+      "signature": "bool xs_unwatch(struct xs_handle *h, const char *path, const char *token);",
+      "description": "Remove a previously registered watch on path/token. Implicitly acknowledges any outstanding events for that watch.",
+      "requirements": [
+        "Returns false on failure (e.g., if no such watch) and sets errno; caller must check the boolean result.",
+        "h must be valid; path and token must match those used in xs_watch().",
+        "If XS_UNWATCH_FILTER is set (global behavior), no further matching events will be delivered after xs_unwatch returns; otherwise, stale events may still be delivered."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_transaction_start",
+      "signature": "xs_transaction_t xs_transaction_start(struct xs_handle *h);",
+      "description": "Begin a Xenstore transaction. Changes by others are not seen during the transaction, and changes are not visible to others until committed.",
+      "requirements": [
+        "On failure, returns XBT_NULL (0) and sets errno; caller must check for this.",
+        "On success, the returned transaction must be ended with xs_transaction_end().",
+        "h must be a valid open handle."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_transaction_end",
+      "signature": "bool xs_transaction_end(struct xs_handle *h, xs_transaction_t t, bool abort);",
+      "description": "End a transaction t. If abort is true, discard changes (abort); otherwise attempt to commit. On certain conflicts, it can fail with errno == EAGAIN, requiring the caller to restart the whole transaction.",
+      "requirements": [
+        "Returns false on failure and sets errno; if errno == EAGAIN, the caller must restart the transaction from the beginning.",
+        "t must be a transaction previously returned by xs_transaction_start() (or XBT_NULL if not in a transaction, though this is not documented; treat as unknown).",
+        "h must be valid.",
+        "If abort is true, the transaction is discarded and not committed."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_introduce_domain",
+      "signature": "bool xs_introduce_domain(struct xs_handle *h, unsigned int domid, unsigned long mfn, unsigned int eventchn);",
+      "description": "Inform xenstored about a domain’s shared page (mfn), event channel (eventchn), and store path, enabling communication for that domain.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid.",
+        "domid, mfn, and eventchn must be valid identifiers for the target domain (detailed constraints not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_set_target",
+      "signature": "bool xs_set_target(struct xs_handle *h, unsigned int domid, unsigned int target);",
+      "description": "Set the target domain that domid is allowed to manipulate in xenstored.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid.",
+        "domid and target must be valid domain IDs (exact ranges not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_resume_domain",
+      "signature": "bool xs_resume_domain(struct xs_handle *h, unsigned int domid);",
+      "description": "Clear the shutdown flag for the specified domain in Xenstore (resume the domain).",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid.",
+        "domid must be a valid domain ID."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_release_domain",
+      "signature": "bool xs_release_domain(struct xs_handle *h, unsigned int domid);",
+      "description": "Ask xenstored to release the shared memory page for the specified domain.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid.",
+        "domid must be a valid domain ID."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_get_domain_path",
+      "signature": "char *xs_get_domain_path(struct xs_handle *h, unsigned int domid);",
+      "description": "Query the home Xenstore path for the specified domain. Returns a malloced string containing the path.",
+      "requirements": [
+        "On success, caller must free() the returned string.",
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "h must be valid; domid must be a valid domain ID."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_path_is_subpath",
+      "signature": "bool xs_path_is_subpath(const char *parent, const char *child);",
+      "description": "Return true if child is equal to parent or is a node under parent, based on string comparison; false otherwise. Relative and absolute paths are never parent/child by this definition. Cannot fail.",
+      "requirements": [
+        "parent and child must be valid NUL-terminated strings.",
+        "Function cannot fail; does not set errno."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_is_domain_introduced",
+      "signature": "bool xs_is_domain_introduced(struct xs_handle *h, unsigned int domid);",
+      "description": "Check whether the specified domain has been introduced to xenstored.",
+      "requirements": [
+        "Returns true if introduced; false otherwise (on failure or not introduced); on failure, errno may be set (not explicitly documented).",
+        "h must be valid; domid must be a valid domain ID."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_get_features_supported",
+      "signature": "bool xs_get_features_supported(struct xs_handle *h, unsigned int *features);",
+      "description": "Query the feature bitmap supported by xenstored. On success, writes a bitmap of XENSTORE_SERVER_FEATURE_* values to features.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; features must be a non-NULL pointer to receive the bitmap."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_get_features_domain",
+      "signature": "bool xs_get_features_domain(struct xs_handle *h, unsigned int domid, unsigned int *features);",
+      "description": "Get the feature bitmap available to a given domain.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; domid must be valid; features must be a non-NULL pointer to receive the bitmap."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_set_features_domain",
+      "signature": "bool xs_set_features_domain(struct xs_handle *h, unsigned int domid, unsigned int features);",
+      "description": "Set the feature bitmap available for a given domain.",
+      "requirements": [
+        "Returns false on failure and sets errno; caller must check the boolean result.",
+        "h must be valid; domid must be valid.",
+        "features is a bitmap; valid bit meanings are XENSTORE_SERVER_FEATURE_* (exact constraints not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_control_command",
+      "signature": "char *xs_control_command(struct xs_handle *h, const char *cmd, void *data, unsigned int len);",
+      "description": "Send a control command string cmd (with optional binary payload data of length len) to xenstored and return a response string. Deprecated alternative: xs_debug_command().",
+      "requirements": [
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "h must be valid; cmd must be a valid NUL-terminated string; if data is non-NULL, it must point to at least len bytes.",
+        "Memory ownership of the returned string is not documented here; likely malloced and must be freed by the caller, but this is unknown from the provided header."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_debug_command",
+      "signature": "char *xs_debug_command(struct xs_handle *h, const char *cmd, void *data, unsigned int len);",
+      "description": "Deprecated: use xs_control_command() instead. Sends a debug command to xenstored and returns a response string.",
+      "requirements": [
+        "On failure, returns NULL and sets errno; caller must check for NULL.",
+        "h must be valid; cmd must be a valid NUL-terminated string; if data is non-NULL, it must point to at least len bytes.",
+        "Memory ownership of the returned string is not documented here; likely malloced and must be freed by the caller, but this is unknown from the provided header."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_suspend_evtchn_port",
+      "signature": "int xs_suspend_evtchn_port(int domid);",
+      "description": "Return the event channel port number used for suspend notifications for the specified domain. Documentation is not provided in this header; details are unknown.",
+      "requirements": [
+        "On failure, may return a negative value and set errno (behavior not documented).",
+        "domid must be a valid domain ID.",
+        "Further semantics (e.g., whether the caller must close or bind the port) are unknown from the provided header."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_daemon_rundir",
+      "signature": "const char *xs_daemon_rundir(void);",
+      "description": "Returns the filesystem directory path used by the Xenstore daemon for runtime files. Environment variables may override the default path (per header comment). Intended for callers that need to construct or locate Xenstore-related files at runtime.",
+      "requirements": [
+        "Caller must treat the returned pointer as read-only (do not modify or free).",
+        "Returned string is expected to be NUL-terminated; handle the possibility of a NULL return defensively (not documented either way).",
+        "Value may depend on process environment; set any relevant environment variables before calling if you need overrides."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_daemon_socket",
+      "signature": "const char *xs_daemon_socket(void);",
+      "description": "Returns the path to the primary Xenstore daemon socket. Environment variables may override the default path. Use when connecting to the read-write Xenstore service.",
+      "requirements": [
+        "Caller must treat the returned pointer as read-only (do not modify or free).",
+        "Returned string is expected to be NUL-terminated; handle the possibility of a NULL return defensively (not documented either way).",
+        "Value may depend on process environment; set any relevant environment variables before calling if you need overrides."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_daemon_socket_ro",
+      "signature": "const char *xs_daemon_socket_ro(void);",
+      "description": "Returns the path to the read-only Xenstore daemon socket. Environment variables may override the default path. Use when a read-only connection is required.",
+      "requirements": [
+        "Caller must treat the returned pointer as read-only (do not modify or free).",
+        "Returned string is expected to be NUL-terminated; handle the possibility of a NULL return defensively (not documented either way).",
+        "Value may depend on process environment; set any relevant environment variables before calling if you need overrides."
+      ],
+      "error": null
+    },
+    {
+      "name": "xs_strings_to_perms",
+      "signature": "bool xs_strings_to_perms(struct xs_permissions *perms, unsigned int num, const char *strings);",
+      "description": "Parses a string representation of permissions and fills an array of xs_permissions entries. Returns false if a problem occurs. The xs_permissions structure includes an id and a perms bitmask (e.g., XS_PERM_READ, XS_PERM_WRITE). Exact input string format is not documented in this header and remains unknown; expect it to map to one or more permission entries.",
+      "requirements": [
+        "perms must point to an array with capacity for at least num xs_permissions elements.",
+        "num specifies how many permission entries to parse/populate; it must match the available capacity in perms.",
+        "strings must be a valid, NUL-terminated C string; its specific format is not documented here (unknown).",
+        "Caller must check the boolean return value and avoid using partially-filled results on failure.",
+        "On success, callers should only use defined bits in xs_permissions.perms (e.g., XS_PERM_READ, XS_PERM_WRITE); other bits are for internal use as noted in the header."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "xs_open",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "xsh",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "// Flags are deprecated/ignored; pass 0 to meet API. Ensure we check for NULL.\nunsigned long flags = 0UL;\nstruct xs_handle *xsh = xs_open(flags);\nif (!xsh) { FUZZ_BAIL(); }\n// Track liveness and watch count for downstream stubs.\nFUZZ_SET_ATTR_INT(xsh, \"alive\", 1);\nFUZZ_SET_ATTR_INT(xsh, \"watch_count\", 0);\n// Validation: returns non-NULL on success; handle is persisted as output."
+    },
+    {
+      "name": "xs_close",
+      "inputs": [
+        {
+          "name": "xsh",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Mark as dead before closing so downstream misuse can be detected if resurfaced erroneously.\nFUZZ_SET_ATTR_INT(xsh, \"alive\", 0);\n// API allows NULL; runtime guarantees non-null input, but function tolerates NULL.\nxs_close(xsh);\n// Validation: handle must not be used after this; no outputs returned."
+    },
+    {
+      "name": "xs_daemon_open",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "xsh",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "// Deprecated alias for xs_open(0). Check for NULL.\nstruct xs_handle *xsh = xs_daemon_open();\nif (!xsh) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(xsh, \"alive\", 1);\nFUZZ_SET_ATTR_INT(xsh, \"watch_count\", 0);\n// Validation: non-NULL handle persisted as output."
+    },
+    {
+      "name": "xs_domain_open",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "xsh",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "// Deprecated alias for xs_open(0). Check for NULL.\nstruct xs_handle *xsh = xs_domain_open();\nif (!xsh) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(xsh, \"alive\", 1);\nFUZZ_SET_ATTR_INT(xsh, \"watch_count\", 0);\n// Validation: non-NULL handle persisted as output."
+    },
+    {
+      "name": "xs_daemon_open_readonly",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "xsh",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "// Deprecated API; behave like xs_open(0) per description. Check for NULL.\nstruct xs_handle *xsh = xs_daemon_open_readonly();\nif (!xsh) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(xsh, \"alive\", 1);\nFUZZ_SET_ATTR_INT(xsh, \"watch_count\", 0);\n// Validation: non-NULL handle persisted as output."
+    },
+    {
+      "name": "xs_daemon_close",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Mark dead before closing; after this, handle must not be used.\nFUZZ_SET_ATTR_INT(h, \"alive\", 0);\nxs_daemon_close(h);\n// Validation: no outputs; handle consumed."
+    },
+    {
+      "name": "xs_daemon_destroy_postfork",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Intended to discard inherited post-fork connection. Treat as destructive.\nFUZZ_SET_ATTR_INT(h, \"alive\", 0);\nxs_daemon_destroy_postfork(h);\n// Validation: no outputs; handle considered invalid after call."
+    },
+    {
+      "name": "xs_directory",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "// Ensure the handle is alive.\nif (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\n// Build a plausible absolute path; limit size to keep performance reasonable.\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 512) p.resize(512);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\nunsigned int num = 0;\n// Use no transaction (XBT_NULL == 0) to satisfy constraints without needing a started txn.\nchar **entries = xs_directory(h, (xs_transaction_t)0, p.c_str(), &num);\n// On success, free() the single returned allocation per API.\nif (entries) { free(entries); }\n// Validation: input handle returned to pool; we free any allocation; NULL results are acceptable."
+    },
+    {
+      "name": "xs_read",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 512) p.resize(512);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\nunsigned int len = 0;\nvoid *buf = xs_read(h, (xs_transaction_t)0, p.c_str(), &len);\nif (buf) { free(buf); }\n// Validation: handle preserved; read buffer freed if returned."
+    },
+    {
+      "name": "xs_write",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\n// Path construction as absolute path.\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 256) p.resize(256);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\n// Data buffer; limit size to 512 bytes for performance.\nstd::string d = FUZZ_PARAM_STR();\nif (d.size() > 512) d.resize(512);\nconst void *data = d.data();\nunsigned int len = (unsigned int)d.size();\n// Write; false is acceptable and sets errno.\n( void ) xs_write(h, (xs_transaction_t)0, p.c_str(), data, len);\n// Validation: API result may be false; handle preserved."
+    },
+    {
+      "name": "xs_mkdir",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 256) p.resize(256);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\n( void ) xs_mkdir(h, (xs_transaction_t)0, p.c_str());\n// Validation: mkdir may fail; handle preserved."
+    },
+    {
+      "name": "xs_rm",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 256) p.resize(256);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\n( void ) xs_rm(h, (xs_transaction_t)0, p.c_str());\n// Validation: removal may fail; handle preserved."
+    },
+    {
+      "name": "xs_restrict",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int);\nbool ok = xs_restrict(h, domid);\n// API guarantees false to preserve compatibility.\nFUZZ_ASSERT(ok == false, \"xs_restrict must always return false\");\n// Validation: property asserted; handle preserved."
+    },
+    {
+      "name": "xs_get_permissions",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 256) p.resize(256);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\nunsigned int num = 0;\nstruct xs_permissions *perms = xs_get_permissions(h, (xs_transaction_t)0, p.c_str(), &num);\nif (perms) { free(perms); }\n// Validation: any allocated perms are freed; handle preserved."
+    },
+    {
+      "name": "xs_set_permissions",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 256) p.resize(256);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\n// Build a small permissions array (1..3 entries). perms bits: use low bits 0x1|0x2|0x8|0x10 conservatively.\nunsigned int n = (unsigned int)(*FUZZ_PARAM(unsigned int) % 3u) + 1u; // 1..3\nstruct xs_permissions arr[3];\nfor (unsigned int i = 0; i < n; ++i) {\n    arr[i].id = *FUZZ_PARAM(unsigned int) & 0xFFFFu; // small id range\n    arr[i].perms = *FUZZ_PARAM(unsigned int) & (0x01u | 0x02u | 0x08u | 0x10u);\n}\n( void ) xs_set_permissions(h, (xs_transaction_t)0, p.c_str(), arr, n);\n// Validation: call may fail; handle preserved."
+    },
+    {
+      "name": "xs_watch",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 256) p.resize(256);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\nstd::string tok = FUZZ_PARAM_STR();\nif (tok.size() > 128) tok.resize(128);\n// Attempt to register a watch. On success, track a count for downstream check_watch/read_watch.\nbool ok = xs_watch(h, p.c_str(), tok.c_str());\nif (ok) {\n    int wc = FUZZ_GET_ATTR_INT(h, \"watch_count\");\n    FUZZ_SET_ATTR_INT(h, \"watch_count\", wc + 1);\n}\n// Validation: handle preserved; watch_count updated only on success."
+    },
+    {
+      "name": "xs_fileno",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\n// Retrieve fd for potential polling by external orchestrator; do not close it here.\nint fd = xs_fileno(h);\n( void ) fd; // We do not assert on value as behavior may vary.\n// Validation: non-destructive; handle preserved."
+    },
+    {
+      "name": "xs_check_watch",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\n// Require that we previously registered at least one watch to exercise normal path.\nif (FUZZ_GET_ATTR_INT(h, \"watch_count\") <= 0) { FUZZ_BAIL(); }\nchar **ev = xs_check_watch(h);\nif (ev) { free(ev); }\n// Validation: non-blocking; frees returned buffer; handle preserved."
+    },
+    {
+      "name": "xs_unwatch",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "// Ensure handle is alive before use.\nif (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\n// Use absolute path and a bounded token. They may or may not match a prior watch; failure is allowed.\nstd::string p = FUZZ_PARAM_STR();\nif (p.size() > 256) p.resize(256);\nif (p.empty() || p[0] != '/') p.insert(p.begin(), '/');\nstd::string tok = FUZZ_PARAM_STR();\nif (tok.size() > 128) tok.resize(128);\nbool ok = xs_unwatch(h, p.c_str(), tok.c_str());\nif (ok) {\n    // Best-effort accounting: decrement watch_count if we believe one exists.\n    int wc = FUZZ_GET_ATTR_INT(h, \"watch_count\");\n    if (wc > 0) FUZZ_SET_ATTR_INT(h, \"watch_count\", wc - 1);\n}\n// Validation: function may legitimately fail; handle persists as output."
+    },
+    {
+      "name": "xs_transaction_start",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        },
+        {
+          "name": "t_ptr",
+          "type": "xs_transaction_t *"
+        }
+      ],
+      "code": "// Start a transaction on a live handle.\nif (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nxs_transaction_t t = xs_transaction_start(h);\n// On failure, API returns XBT_NULL (0); bail to avoid creating invalid transaction objects.\nif (t == (xs_transaction_t)0) { FUZZ_BAIL(); }\n// Persist the transaction id in a heap object for cross-stub lifetime management.\nxs_transaction_t *t_ptr = (xs_transaction_t*)malloc(sizeof(xs_transaction_t));\nif (!t_ptr) { FUZZ_BAIL(); }\n*t_ptr = t;\n// Track ownership and liveness to ensure correct end semantics later.\nFUZZ_SET_ATTR_PTR(t_ptr, \"owner\", h);\nFUZZ_SET_ATTR_INT(t_ptr, \"alive\", 1);\n// Outputs: return both the handle (still usable) and the transaction pointer."
+    },
+    {
+      "name": "xs_transaction_end",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        },
+        {
+          "name": "t_ptr",
+          "type": "xs_transaction_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "// Enforce that handle and transaction are alive and correctly paired.\nif (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(t_ptr, \"alive\") == 0) { FUZZ_BAIL(); }\nvoid *owner = FUZZ_GET_ATTR_PTR(t_ptr, \"owner\");\nif (owner != (void*)h) { FUZZ_BAIL(); }\n// Randomly choose abort vs commit.\nbool abort_flag = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n// Invoke end; false with errno==EAGAIN implies caller should retry, but we simply finish lifecycle here.\n( void ) xs_transaction_end(h, *t_ptr, abort_flag);\n// Mark transaction invalid and drop it from outputs to prevent reuse.\nFUZZ_SET_ATTR_INT(t_ptr, \"alive\", 0);\nfree(t_ptr);\n// Validation: handle persists; transaction consumed regardless of success/failure."
+    },
+    {
+      "name": "xs_introduce_domain",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;           // keep IDs in a small range\nunsigned long mfn = (unsigned long)(*FUZZ_PARAM(unsigned long));    // MFN treated as opaque here\nunsigned int evtchn = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\n( void ) xs_introduce_domain(h, domid, mfn, evtchn);\n// Validation: may fail; handle preserved."
+    },
+    {
+      "name": "xs_set_target",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\nunsigned int target = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\n( void ) xs_set_target(h, domid, target);\n// Validation: may fail; handle preserved."
+    },
+    {
+      "name": "xs_resume_domain",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\n( void ) xs_resume_domain(h, domid);\n// Validation: may fail; handle preserved."
+    },
+    {
+      "name": "xs_release_domain",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\n( void ) xs_release_domain(h, domid);\n// Validation: may fail; handle preserved."
+    },
+    {
+      "name": "xs_get_domain_path",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\nchar *path = xs_get_domain_path(h, domid);\nif (path) { free(path); }\n// Validation: free returned malloced string if any; handle preserved."
+    },
+    {
+      "name": "xs_path_is_subpath",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate two arbitrary paths (may be absolute or relative). Function cannot fail.\nstd::string parent = FUZZ_PARAM_STR();\nstd::string child = FUZZ_PARAM_STR();\nif (parent.size() > 256) parent.resize(256);\nif (child.size() > 256) child.resize(256);\nvolatile bool res = xs_path_is_subpath(parent.c_str(), child.c_str());\n( void ) res;\n// Validation: pure function, no side effects; no inputs/outputs managed."
+    },
+    {
+      "name": "xs_is_domain_introduced",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\nvolatile bool introduced = xs_is_domain_introduced(h, domid);\n( void ) introduced;\n// Validation: result may be false on failure or not introduced; handle preserved."
+    },
+    {
+      "name": "xs_get_features_supported",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int features = 0u;\n( void ) xs_get_features_supported(h, &features);\n// Validation: boolean return may be false; handle preserved; features is a local outparam."
+    },
+    {
+      "name": "xs_get_features_domain",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\nunsigned int features = 0u;\n( void ) xs_get_features_domain(h, domid, &features);\n// Validation: may fail; handle preserved; features is a local outparam."
+    },
+    {
+      "name": "xs_set_features_domain",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nunsigned int domid = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\n// Provide a random bitmap; constrain to lower 16 bits for stability.\nunsigned int features = *FUZZ_PARAM(unsigned int) & 0xFFFFu;\n( void ) xs_set_features_domain(h, domid, features);\n// Validation: may fail; handle preserved."
+    },
+    {
+      "name": "xs_control_command",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\n// Command string: keep bounded length and ensure non-empty.\nstd::string cmd = FUZZ_PARAM_STR();\nif (cmd.size() > 128) cmd.resize(128);\nif (cmd.empty()) cmd = \"x\";\n// Optional payload: either NULL/0 or small binary blob.\nvoid *data_ptr = nullptr;\nunsigned int data_len = 0u;\nif (((*FUZZ_PARAM(unsigned int)) & 1u) != 0u) {\n    std::string payload = FUZZ_PARAM_STR();\n    if (payload.size() > 512) payload.resize(512);\n    // Keep payload alive across call by storing pointer/len to its internal buffer.\n    data_ptr = (void*)payload.data();\n    data_len = (unsigned int)payload.size();\n    char *resp = xs_control_command(h, cmd.c_str(), data_ptr, data_len);\n    if (resp) { free(resp); }\n} else {\n    char *resp = xs_control_command(h, cmd.c_str(), nullptr, 0u);\n    if (resp) { free(resp); }\n}\n// Validation: response, if any, is freed; handle preserved."
+    },
+    {
+      "name": "xs_debug_command",
+      "inputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "h",
+          "type": "struct xs_handle *"
+        }
+      ],
+      "code": "if (FUZZ_GET_ATTR_INT(h, \"alive\") == 0) { FUZZ_BAIL(); }\nstd::string cmd = FUZZ_PARAM_STR();\nif (cmd.size() > 128) cmd.resize(128);\nif (cmd.empty()) cmd = \"x\";\nvoid *data_ptr = nullptr;\nunsigned int data_len = 0u;\nif (((*FUZZ_PARAM(unsigned int)) & 1u) != 0u) {\n    std::string payload = FUZZ_PARAM_STR();\n    if (payload.size() > 512) payload.resize(512);\n    data_ptr = (void*)payload.data();\n    data_len = (unsigned int)payload.size();\n    char *resp = xs_debug_command(h, cmd.c_str(), data_ptr, data_len);\n    if (resp) { free(resp); }\n} else {\n    char *resp = xs_debug_command(h, cmd.c_str(), nullptr, 0u);\n    if (resp) { free(resp); }\n}\n// Validation: deprecated API exercised; any response freed; handle preserved."
+    },
+    {
+      "name": "xs_suspend_evtchn_port",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a small-range domain id and call; ignore result which may be negative on error.\nint domid = (int)(*FUZZ_PARAM(unsigned int) & 0xFFFFu);\nint port = xs_suspend_evtchn_port(domid);\n( void ) port;\n// Validation: pure query w.r.t. fuzzer; no managed inputs/outputs."
+    },
+    {
+      "name": "xs_daemon_rundir",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call the API to fetch the daemon run directory path.\nconst char *p = xs_daemon_rundir();\n// Requirement: handle possible NULL defensively.\nif (!p) { FUZZ_BAIL(); }\n// Treat as read-only; validate it appears NUL-terminated within a bounded scan.\n// Use a bounded strnlen to avoid walking unbounded memory.\nsize_t max_scan = 4096; // upper bound for safety\nsize_t n = 0;\nwhile (n < max_scan && p[n] != '\\0') { ++n; }\nif (n == 0 || n >= max_scan) { FUZZ_BAIL(); }\n// Lightly touch contents to exercise memory; do not modify or free.\nvolatile char first = p[0];\nvolatile char last = p[n - 1];\n(void)first; (void)last;\n// Validation: Ensured non-NULL and NUL-terminated within 4096 bytes; string left read-only and unmanaged."
+    },
+    {
+      "name": "xs_daemon_socket",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call the API to fetch the daemon socket path.\nconst char *p = xs_daemon_socket();\n// Requirement: handle possible NULL defensively.\nif (!p) { FUZZ_BAIL(); }\n// Validate NUL-termination within a safe bound, treat as read-only.\nsize_t max_scan = 4096;\nsize_t n = 0;\nwhile (n < max_scan && p[n] != '\\0') { ++n; }\nif (n == 0 || n >= max_scan) { FUZZ_BAIL(); }\n// Touch a couple of characters to exercise read-only access.\nvolatile char first = p[0];\nvolatile char last = p[n - 1];\n(void)first; (void)last;\n// Validation: Verified non-NULL and sane termination; no writes or frees performed."
+    },
+    {
+      "name": "xs_daemon_socket_ro",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call the API to fetch the read-only daemon socket path.\nconst char *p = xs_daemon_socket_ro();\n// Requirement: handle possible NULL defensively.\nif (!p) { FUZZ_BAIL(); }\n// Validate NUL-termination within a safe bound, treat as read-only.\nsize_t max_scan = 4096;\nsize_t n = 0;\nwhile (n < max_scan && p[n] != '\\0') { ++n; }\nif (n == 0 || n >= max_scan) { FUZZ_BAIL(); }\n// Touch a couple of characters to exercise read-only access.\nvolatile char first = p[0];\nvolatile char last = p[n - 1];\n(void)first; (void)last;\n// Validation: Checked for non-NULL and proper termination; no lifetime or ownership changes."
+    },
+    {
+      "name": "xs_strings_to_perms",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a bounded number of permission entries to parse.\nunsigned int raw = *FUZZ_PARAM(unsigned int);\nunsigned int num = raw % 16; // cap to keep allocations small (< 2048 bytes total)\n// Prepare the input specification string (NUL-terminated by std::string::c_str()).\nstd::string spec = FUZZ_PARAM_STR();\n// Ensure capacity for at least 'num' entries as required.\nstd::vector<xs_permissions> buf;\nbuf.resize(num);\n// Invoke the parser. On failure, bail to avoid using partial results.\nbool ok = xs_strings_to_perms(buf.data(), num, spec.c_str());\nif (!ok) { FUZZ_BAIL(); }\n// Post-success: lightly validate structure boundaries and touch fields to increase coverage.\n// We do not assert on bit semantics since internal bits may be used by the implementation.\nunsigned int acc_id = 0; unsigned int acc_perms = 0;\nfor (unsigned int i = 0; i < num; ++i) {\n    acc_id ^= buf[i].id;\n    acc_perms |= buf[i].perms; // union of observed bits\n}\nvolatile unsigned int sink = acc_id ^ acc_perms; (void)sink;\n// Validation: Provided exact capacity (>= num), supplied a valid NUL-terminated string, and honored the boolean return by bailing on failure; no objects are leaked or mis-owned."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "xs_write_all",
+      "reason": "Requires a valid writable POSIX file descriptor and platform-specific flags; creating such an fd safely without headers or side effects is out of scope for this fuzzer stub."
+    },
+    {
+      "name": "xs_read_watch",
+      "reason": "This API is blocking by design; invoking it in a fuzz harness risks indefinite hangs without external event generation."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "xs_open",
+      "data_types": []
+    },
+    {
+      "name": "xs_close",
+      "data_types": []
+    },
+    {
+      "name": "xs_daemon_open",
+      "data_types": []
+    },
+    {
+      "name": "xs_domain_open",
+      "data_types": []
+    },
+    {
+      "name": "xs_daemon_open_readonly",
+      "data_types": []
+    },
+    {
+      "name": "xs_daemon_close",
+      "data_types": []
+    },
+    {
+      "name": "xs_daemon_destroy_postfork",
+      "data_types": []
+    },
+    {
+      "name": "xs_restrict",
+      "data_types": []
+    },
+    {
+      "name": "xs_fileno",
+      "data_types": []
+    },
+    {
+      "name": "xs_check_watch",
+      "data_types": []
+    },
+    {
+      "name": "xs_transaction_start",
+      "data_types": []
+    },
+    {
+      "name": "xs_transaction_end",
+      "data_types": []
+    },
+    {
+      "name": "xs_introduce_domain",
+      "data_types": []
+    },
+    {
+      "name": "xs_set_target",
+      "data_types": []
+    },
+    {
+      "name": "xs_resume_domain",
+      "data_types": []
+    },
+    {
+      "name": "xs_release_domain",
+      "data_types": []
+    },
+    {
+      "name": "xs_get_domain_path",
+      "data_types": []
+    },
+    {
+      "name": "xs_is_domain_introduced",
+      "data_types": []
+    },
+    {
+      "name": "xs_get_features_supported",
+      "data_types": []
+    },
+    {
+      "name": "xs_get_features_domain",
+      "data_types": []
+    },
+    {
+      "name": "xs_set_features_domain",
+      "data_types": []
+    },
+    {
+      "name": "xs_suspend_evtchn_port",
+      "data_types": []
+    },
+    {
+      "name": "xs_daemon_rundir",
+      "data_types": []
+    },
+    {
+      "name": "xs_daemon_socket",
+      "data_types": []
+    },
+    {
+      "name": "xs_daemon_socket_ro",
+      "data_types": []
+    },
+    {
+      "name": "xs_directory",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "xs_read",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "xs_write",
+      "data_types": [
+        "filesystem path string",
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "xs_mkdir",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "xs_rm",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "xs_get_permissions",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "xs_set_permissions",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "xs_watch",
+      "data_types": [
+        "filesystem path string",
+        "generic identifier string"
+      ]
+    },
+    {
+      "name": "xs_unwatch",
+      "data_types": [
+        "filesystem path string",
+        "generic identifier string"
+      ]
+    },
+    {
+      "name": "xs_path_is_subpath",
+      "data_types": [
+        "filesystem path string",
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "xs_control_command",
+      "data_types": [
+        "command string",
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "xs_debug_command",
+      "data_types": [
+        "command string",
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "xs_strings_to_perms",
+      "data_types": [
+        "permissions spec string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path string",
+      "description": "A NUL-terminated string representing a path-like key, typically absolute (starting with '/') for Xenstore nodes. May contain slashes to denote hierarchy; treated as a generic filesystem-style path."
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "description": "An opaque byte buffer of arbitrary contents and length; not required to be valid text or follow any encoding. Used for payloads or value data."
+    },
+    {
+      "data_type": "generic identifier string",
+      "description": "A short NUL-terminated string used as an opaque token/identifier for correlating events or registrations. No specific format required."
+    },
+    {
+      "data_type": "command string",
+      "description": "A NUL-terminated ASCII/UTF-8 text command keyword sent to a control/debug interface. Content is free-form but expected to be textual command names or arguments."
+    },
+    {
+      "data_type": "permissions spec string",
+      "description": "A NUL-terminated textual specification describing permission entries for Xenstore. Format is implementation-defined (e.g., owner and per-domain entries with read/write flags), potentially multiple entries encoded in a single string."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for Xenstore-like filesystem path strings and related tokens/data.\n# Targets FUZZ_PARAM_STR uses in stubs for:\n# - paths (mostly absolute, limited length), tokens (arbitrary strings), and data payload (arbitrary bytes).\n# We pack multiple interesting strings into one bytes buffer separated by NUL so that\n# consecutive FUZZ_PARAM_STR() calls consume them in order. We also include some\n# extra entries to allow the fuzzer to pull additional strings when needed.\n#\n# Layout (all NUL-terminated C strings, concatenated):\n#   [path1]\\0[path2]\\0[data]\\0[token1]\\0[token2]\\0[parent]\\0[child]\\0... possibly more\n# Each component is crafted to be valid and exercise different behaviors.\n\nMAX_TOTAL = 4096\n\nABS_PREFIXES = [\n    \"/\",                     # root\n    \"/local\",                # typical xenstore subtree\n    \"/tool\",                 # toolstack subtree\n    \"/vm\",                   # VMs\n    \"/devices\",              # devices\n    \"/xapi\",                 # other mgmt stacks\n]\n\nREL_PREFIXES = [\n    \"domU\", \"dom0\", \"tmp\", \"var\", \"etc\"\n]\n\nCOMP_ALNUM = string.ascii_letters + string.digits\nCOMP_SAFE = COMP_ALNUM + \"-_:.@\"\n\ndef _rand_comp(r: random.Random, min_len=1, max_len=16) -> str:\n    n = r.randint(min_len, max_len)\n    return ''.join(r.choice(COMP_SAFE) for _ in range(n))\n\ndef _path_abs(r: random.Random, max_segs=6) -> str:\n    # Build an absolute path with 1..max_segs components.\n    base = r.choice(ABS_PREFIXES)\n    segs = r.randint(0, max_segs)\n    parts = [base]\n    for _ in range(segs):\n        parts.append(_rand_comp(r))\n    p = '/'.join(s.strip('/') for s in parts if s != '/')\n    if not p.startswith('/'):\n        p = '/' + p\n    return p\n\ndef _path_rel(r: random.Random, max_segs=4) -> str:\n    base = r.choice(REL_PREFIXES)\n    segs = r.randint(0, max_segs)\n    parts = [base] + [_rand_comp(r) for _ in range(segs)]\n    return '/'.join(parts)\n\ndef _with_trailing_slash(r: random.Random, p: str) -> str:\n    return p if r.random() < 0.5 else (p.rstrip('/') + '/')\n\ndef _maybe_duplicate_sep(r: random.Random, p: str) -> str:\n    # Occasionally insert // between components to test normalization behavior safely\n    if r.random() < 0.3:\n        return p.replace('/', '//', 1)\n    return p\n\ndef _bounded(s: str, limit: int) -> str:\n    if len(s) <= limit:\n        return s\n    # keep head and tail with an ellipsis-like marker to remain valid\n    head = s[: max(1, limit - 10)]\n    return head\n\ndef _make_token(r: random.Random, limit=128) -> str:\n    # Arbitrary token string; may include spaces and punctuation but avoid NUL\n    alphabet = COMP_SAFE + \" +#,$%^&*()[]{}\"\"'\" + \"~\"\n    n = r.randint(0, min(64, limit))\n    return ''.join(r.choice(alphabet) for _ in range(n))\n\ndef _make_data(r: random.Random, limit=512) -> str:\n    # Data payload as a UTF-8 friendly string; may include newlines and binary-ish escapes\n    # Avoid NUL to keep single C-string; fuzzer passes length separately.\n    alphabet = ''.join(chr(c) for c in range(32, 127) if c != '\\\\0') + \"\\n\\t\\r\"\n    n = r.randint(0, limit)\n    return ''.join(r.choice(alphabet) for _ in range(n))\n\ndef _interesting_pairs(r: random.Random) -> List[str]:\n    # For xs_path_is_subpath tests: generate pairs covering equal, parent, sibling, relative, and absolute/relative mixes.\n    pairs = []\n    parent = _path_abs(r)\n    child_under = parent.rstrip('/') + '/' + _rand_comp(r)\n    pairs.extend([parent, child_under])\n\n    # Equal paths\n    eq = _path_abs(r)\n    pairs.extend([eq, eq])\n\n    # Sibling vs parent\n    p2 = _path_abs(r)\n    sib1 = p2.rstrip('/') + '/' + _rand_comp(r)\n    sib2 = p2.rstrip('/') + '/' + _rand_comp(r)\n    pairs.extend([sib1, sib2])\n\n    # Relative paths (never parent/child by definition in header)\n    relp = _path_rel(r)\n    relc = relp + '/' + _rand_comp(r)\n    pairs.extend([relp, relc])\n\n    # Absolute vs relative\n    pairs.extend([_path_abs(r), _path_rel(r)])\n\n    # Trailing slash variants\n    base = _path_abs(r)\n    pairs.extend([_with_trailing_slash(r, base), base])\n\n    # Mixed double slashes\n    base2 = _maybe_duplicate_sep(r, _path_abs(r))\n    pairs.extend([base2, base2.rstrip('/') + '/' + _rand_comp(r)])\n\n    return pairs\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    out: List[bytes] = []\n\n    # Primary paths used by mkdir/write/read/rm/get_permissions/set_permissions/watch/unwatch\n    # Create a few absolute paths of varying depth\n    paths = []\n    for _ in range(5):\n        p = _path_abs(r)\n        p = _maybe_duplicate_sep(r, p)\n        p = _with_trailing_slash(r, p)\n        p = _bounded(p, 256)\n        if not p.startswith('/'):\n            p = '/' + p\n        paths.append(p)\n\n    # Include some fixed-interesting paths commonly present in Xenstore\n    fixed = [\n        \"/\", \"/local/domain/0\", \"/tool\", \"/vm\", \"/devices\", \"/local/domain/0/name\",\n    ]\n    for p in fixed:\n        paths.append(_bounded(p, 256))\n\n    # Data payload for xs_write\n    data = _make_data(r, 512)\n\n    # Tokens for xs_watch/xs_unwatch\n    tokens = [_make_token(r, 128) for _ in range(3)]\n\n    # Pairs for xs_path_is_subpath repeated calls\n    pairs = _interesting_pairs(r)\n\n    # Assemble order roughly matching consumption: many stubs start with path\n    for p in paths:\n        out.append(p.encode('utf-8') + b\"\\x00\")\n\n    # Provide a data buffer next (used by xs_write)\n    out.append(data.encode('utf-8') + b\"\\x00\")\n\n    # Tokens\n    for t in tokens:\n        out.append(t.encode('utf-8') + b\"\\x00\")\n\n    # Add multiple parent/child pairs\n    for s in pairs:\n        out.append(s.encode('utf-8') + b\"\\x00\")\n\n    # Ensure total size bound\n    blob = b\"\".join(out)\n    if len(blob) > MAX_TOTAL:\n        blob = blob[:MAX_TOTAL - 1] + b\"\\x00\"\n\n    return blob\n"
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "generator": "import random\nimport struct\nimport string\nfrom typing import List, Tuple\n\n# This generator targets fuzzer stubs that use FUZZ_PARAM_STR to build:\n# - Xenstore absolute paths (must start with '/') with max len ~256\n# - Command strings (non-empty, <=128)\n# - Optional binary payloads (<=512)\n# - Arbitrary data values for xs_write (<=512)\n# The harness will request strings/filenames repeatedly; we provide a single\n# buffer containing multiple, clearly delimited sections so the fuzzer can\n# split or reuse segments to seed FUZZ_PARAM_STR and optional payloads.\n# The data are VALID inputs: well-formed absolute paths and sensible command\n# tokens, plus arbitrary but coherent binary payloads.\n\nMAX_TOTAL = 4096\n\nCOMMAND_CORPUS = [\n    # Common xenstored control/debug commands across implementations\n    b\"get-perms\", b\"set-perms\", b\"get-domain-path\", b\"introduce\",\n    b\"resume\", b\"release\", b\"is-introduced\", b\"get-features\",\n    b\"set-features\", b\"debug\", b\"help\", b\"version\",\n    # Edge-ish tokens and variants\n    b\"\\x00\",  # though FUZZ_PARAM_STR likely stops at NUL, include for variety\n    b\"x\", b\"cmd\", b\"noop\", b\"echo\", b\"stats\"\n]\n\n# Build interesting absolute paths exercising different shapes.\n# Xenstore uses Unix-like key paths.\nPATH_PREFIXES = [b\"/\", b\"/local\", b\"/tool\", b\"/vm\", b\"/xen\", b\"/libxl\",\n                 b\"/device\", b\"/device/vif\", b\"/device/vbd\", b\"/attr\",\n                 b\"/data\", b\"/error\", b\"/transactions\"]\n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    l = rng.randint(min_len, max_len)\n    alphabet = string.ascii_letters + string.digits + \"-_:.\"  # safe for paths/cmds\n    return ''.join(rng.choice(alphabet) for _ in range(l)).encode('ascii')\n\ndef _rand_blob(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    l = rng.randint(min_len, max_len)\n    # Mix texty and binary bytes\n    blob = bytearray()\n    for _ in range(l):\n        if rng.random() < 0.75:\n            blob.append(rng.randint(0x20, 0x7e))  # printable ASCII\n        else:\n            blob.append(rng.randint(0x00, 0xff))\n    return bytes(blob)\n\ndef _build_path(rng: random.Random) -> bytes:\n    # Ensure absolute path starting with '/'; length cap 256 in stub\n    base = rng.choice(PATH_PREFIXES)\n    parts = []\n    # Variable depth 0..6\n    depth = rng.randint(0, 6)\n    for _ in range(depth):\n        # Sometimes include numbers/hex-like, domainish segments\n        choice = rng.random()\n        if choice < 0.2:\n            parts.append(b\"dom-\" + str(rng.randint(0, 4095)).encode())\n        elif choice < 0.4:\n            parts.append(b\"vm-\" + _rand_ascii(rng, 4, 8))\n        elif choice < 0.6:\n            parts.append(_rand_ascii(rng, 1, 10))\n        elif choice < 0.8:\n            parts.append(b\"uuid-\" + _rand_ascii(rng, 8, 8))\n        else:\n            parts.append(b\"k\" + str(rng.getrandbits(16)).encode())\n    path = base\n    for p in parts:\n        if not path.endswith(b\"/\"):\n            path += b\"/\"\n        path += p\n    # Occasionally end with slash or a key-like leaf\n    if rng.random() < 0.5 and not path.endswith(b\"/\"):\n        # Add a leaf name\n        leaf = rng.choice([b\"name\", b\"state\", b\"backend\", b\"frontend\",\n                           b\"read\", b\"write\", b\"features\", b\"control\",\n                           b\"ring\", b\"event-channel\"]) + (\n            b\"-\" + _rand_ascii(rng, 1, 6) if rng.random() < 0.3 else b\"\"\n        )\n        if not path.endswith(b\"/\"):\n            path += b\"/\"\n        path += leaf\n    elif rng.random() < 0.2:\n        path += b\"/\"\n    # Cap to 256\n    return path[:256]\n\ndef _build_command(rng: random.Random) -> bytes:\n    if rng.random() < 0.6:\n        cmd = rng.choice(COMMAND_CORPUS)\n        if cmd == b\"\\x00\":\n            # Avoid empty result after C-string parsing; replace with 'x'\n            return b\"x\"\n        return cmd[:128]\n    # Random token-like command\n    return _rand_ascii(rng, 1, 32)[:128]\n\ndef _section(tag: bytes, payload: bytes) -> bytes:\n    # Tag (4 bytes) + length (u16 LE) + payload; keeps total under MAX_TOTAL\n    l = len(payload)\n    if l > 0xFFFF:\n        payload = payload[:0xFFFF]\n        l = len(payload)\n    return tag + struct.pack('<H', l) + payload\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    sections: List[bytes] = []\n\n    # Produce multiple candidate paths, commands, and payloads for the harness\n    num_paths = rng.randint(3, 8)\n    for _ in range(num_paths):\n        sections.append(_section(b\"PATH\", _build_path(rng)))\n\n    num_cmds = rng.randint(3, 8)\n    for _ in range(num_cmds):\n        sections.append(_section(b\"CMD\\x00\", _build_command(rng)))\n\n    # Data buffers for xs_write values (<=512)\n    num_data = rng.randint(3, 8)\n    for _ in range(num_data):\n        # Mix sizes: small, medium, edge 0 and 512\n        roll = rng.random()\n        if roll < 0.1:\n            payload = b\"\"  # zero-length valid data\n        elif roll < 0.2:\n            payload = _rand_blob(rng, 512, 512)  # exact cap\n        elif roll < 0.6:\n            payload = _rand_blob(rng, 1, 64)\n        else:\n            payload = _rand_blob(rng, 65, 512)\n        sections.append(_section(b\"DATA\", payload))\n\n    # Optional binary payloads for control/debug commands\n    num_pl = rng.randint(3, 8)\n    for _ in range(num_pl):\n        roll = rng.random()\n        if roll < 0.3:\n            payload = b\"\"  # triggers NULL/0 path in harness sometimes\n        else:\n            payload = _rand_blob(rng, 1, 512)\n        sections.append(_section(b\"PLD\\x00\", payload))\n\n    # Add a compact index header for convenience: counts of each kind\n    header = struct.pack(\n        '<4sHHHH', b'XSIN', num_paths, num_cmds, num_data, num_pl\n    )\n\n    out = header + b''.join(sections)\n    return out[:MAX_TOTAL]\n"
+    },
+    {
+      "data_type": "generic identifier string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for Xenstore watch/unwatch fuzzers expecting strings:\n# - FUZZ_PARAM_STR supplies both the path and the token in these stubs.\n# - The stub ensures:\n#   * path is absolute: it will prepend '/' if missing; we should often provide valid absolute paths already\n#   * max lengths: path <= 256, token <= 128 after stub-side truncation\n# - Interesting valid inputs include:\n#   * various absolute paths with differing depths and characters\n#   * well-known xenstore-like prefixes (e.g., /local/domain/<id>/, /tool, /vm)\n#   * edge cases: root '/', empty token, repeated slashes, trailing slashes\n#   * matching pairs of path+token likely to hit success paths across calls\n# Since our generator only returns one buffer consumed by successive FUZZ_PARAM_STR() calls,\n# we will encode multiple candidate strings separated by NUL bytes, letting the fuzzer framework\n# consume them sequentially. Remaining reads will yield empty strings (still valid; stub will prefix '/').\n\nMAX_TOTAL = 4096\n\nIDENT_CHARS = string.ascii_letters + string.digits + \"-_:.@+\"\n\n# Some realistic xenstore path bases\nBASES = [\n    \"/\",  # root\n    \"/local/domain/\",\n    \"/local/domain/0/\",\n    \"/vm/\",\n    \"/tool/\",\n    \"/device/\",\n    \"/libxl/\",\n    \"/xapi/\",\n]\n\nLEAFS = [\n    \"name\", \"state\", \"backend\", \"frontend\", \"console\", \"device-model\",\n    \"hotplug\", \"control\", \"data\", \"features\", \"params\", \"status\",\n]\n\nTOKENS_COMMON = [\n    \"\",  # empty token is allowed\n    \"t\", \"watch\", \"unwatch\", \"evt\", \"dom0\", \"domU\",\n    \"alpha123\", \"TOKEN-001\", \"pathmatch\", \"*\",\n]\n\n\ndef rand_ident(rng: random.Random, min_len: int = 1, max_len: int = 16) -> str:\n    n = rng.randint(min_len, max_len)\n    return ''.join(rng.choice(IDENT_CHARS) for _ in range(n))\n\n\ndef make_path(rng: random.Random) -> str:\n    # Build a plausible absolute xenstore path, bounded to ~200 chars\n    base = rng.choice(BASES)\n    path = base\n    # If base is just '/', we may add segments; if base already ends with '/', keep appending\n    depth = rng.randint(0, 4)\n    # Sometimes choose a domain id segment if base expects it\n    if base.endswith(\"/local/domain/\"):\n        path += str(rng.randint(0, 1024)) + \"/\"\n    # Add additional segments\n    for _ in range(depth):\n        seg_choice = rng.randint(0, 3)\n        if seg_choice == 0:\n            seg = rng.choice(LEAFS)\n        elif seg_choice == 1:\n            seg = rand_ident(rng, 1, 12)\n        else:\n            # numeric segment like domain id or index\n            seg = str(rng.randint(0, 1_000_000))\n        # Occasionally add repeated slashes or trailing slash later\n        path += seg + \"/\"\n    # Optionally end at a leaf without trailing slash\n    if path != \"/\" and rng.random() < 0.6:\n        # remove last slash\n        if path.endswith(\"/\"):\n            path = path[:-1]\n    # Introduce occasional repeated slashes (still valid for many string compares in callers)\n    if rng.random() < 0.2:\n        path = path.replace(\"//\", \"/\")  # normalize first\n        insert_pos = rng.randint(1, max(1, len(path)-1))\n        path = path[:insert_pos] + \"/\" + path[insert_pos:]\n    # Ensure absolute and length bound (<256 as per stub cap)\n    if not path.startswith(\"/\"):\n        path = \"/\" + path\n    if len(path) > 250:\n        path = path[:250]\n    return path\n\n\ndef make_token(rng: random.Random) -> str:\n    # Make short NUL-terminated identifier strings; the fuzzer stub caps at 128.\n    choice = rng.random()\n    if choice < 0.2:\n        return rng.choice(TOKENS_COMMON)\n    elif choice < 0.4:\n        return rand_ident(rng, 1, 8)\n    elif choice < 0.6:\n        return rand_ident(rng, 9, 24)\n    elif choice < 0.8:\n        # include path-like token to test correlation handling\n        return \"tok-\" + rand_ident(rng, 1, 16)\n    else:\n        # numeric token\n        return str(rng.randint(0, 1_000_000))\n\n\ndef build_sequence(rng: random.Random, count: int) -> List[bytes]:\n    seq: List[bytes] = []\n    # Create interleaved pairs: path, token, possibly more pairs to exercise multiple calls\n    for _ in range(count):\n        p = make_path(rng)\n        t = make_token(rng)\n        seq.append(p.encode('utf-8'))\n        seq.append(t.encode('utf-8'))\n    # Add a couple of matching repeats to allow xs_unwatch to potentially match an earlier watch\n    if seq:\n        # Duplicate a prior pair\n        idx = rng.randrange(0, len(seq)//2) * 2\n        seq.append(seq[idx])\n        seq.append(seq[idx+1])\n    return seq\n\n\ndef pack_cstrings(items: List[bytes]) -> bytes:\n    # Join with NULs, and ensure final NUL termination so subsequent reads can still get empty strings\n    out = b\"\\x00\".join(items) + b\"\\x00\"\n    if len(out) > MAX_TOTAL:\n        out = out[:MAX_TOTAL]\n        # ensure termination\n        if not out.endswith(b\"\\x00\"):\n            out = out[:-1] + b\"\\x00\"\n    return out\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Decide how many path/token pairs to include; each pair contributes two C-strings\n    pair_count = rng.randint(2, 6)\n    seq = build_sequence(rng, pair_count)\n    # Include some extras to cover edge cases: root path and empty token, and an extremely short token\n    seq.extend([\n        b\"/\", b\"\",  # root with empty token\n        b\"/local/domain/0\", b\"dom0\",\n        b\"/vm/\" + rand_ident(rng,1,8).encode('utf-8'), b\"t\",\n    ])\n    return pack_cstrings(seq)\n"
+    },
+    {
+      "data_type": "command string",
+      "generator": "import random\nimport struct\nimport string\nfrom typing import List\n\n# This generator focuses on producing valid, interesting command strings (and optional payloads)\n# for xs_control_command/xs_debug_command fuzzers. The fuzzer obtains:\n# - cmd via FUZZ_PARAM_STR() (truncated to 128 and forced non-empty)\n# - possibly a payload via FUZZ_PARAM_STR() (truncated to 512) gated by a random unsigned int\n# We therefore produce a single bytes buffer encoded as:\n# [u32 flags][u32 cmd_len][cmd bytes][u32 payload_len][payload bytes]\n# Where:\n# - flags bit0 decides whether a payload is provided (matches fuzzer's branch)\n# - cmd_len in [1,128]\n# - payload_len in [0,512] (0 allowed but only used if flags bit0==1; if bit0==0 we set payload_len=0 and omit payload bytes)\n# The strings are UTF-8 textual commands, with a corpus including common/interesting command names and arguments\n# that are likely valid for xenstored control/debug channels (typical in-tree commands vary by build, but we\n# include broadly plausible verbs and admin/debug knobs).\n# The output is a single contiguous buffer <= 4096 bytes.\n\n_CMD_KEYWORDS = [\n    # generic admin/debug commands often found across daemon control interfaces\n    \"help\", \"version\", \"ping\", \"stats\", \"status\", \"dump\", \"reload\", \"reconfigure\",\n    \"log\", \"loglevel\", \"set-log-level\", \"trace\", \"gc\", \"mempool-stats\",\n    # xenstored/xenstore related plausible commands\n    \"get-perms\", \"set-perms\", \"get-domain-path\", \"watch\", \"unwatch\", \"list\", \"ls\",\n    \"read\", \"write\", \"mkdir\", \"rm\", \"get-features\", \"set-features\", \"introduce\",\n    \"release-domain\", \"resume-domain\", \"is-domain-introduced\", \"set-target\",\n    # debug/experimental knobs\n    \"debug\", \"debug-keys\", \"enable-feature\", \"disable-feature\", \"feature-bitmap\",\n]\n\n# Some argument fragments for command construction\n_ARG_FRAGMENTS = [\n    \"domid=0\", \"domid=1\", \"domid=42\", \"target=0\", \"target=7\",\n    \"path=/\", \"path=/local/domain/0\", \"path=/tool\", \"path=/vm/0000-0000\",\n    \"token=t0\", \"token=alpha\", \"token=watch-✶\",\n    \"perms=ro\", \"perms=rw\", \"id=0\", \"id=42\",\n    \"key=k1\", \"key=long-key\", \"value=on\", \"value=off\", \"value=hello\",\n    \"mfn=0\", \"eventchn=10\",\n]\n\n# Some payload templates with binary-friendly content (still valid as bytes)\n_PAYLOAD_TEMPLATES: List[bytes] = [\n    b\"\",  # empty allowed\n    b\"ok\\n\",\n    b\"true\",\n    b\"false\",\n    b\"rw\",\n    b\"ro\",\n    b\"value=on\\n\",\n    b\"value=off\\n\",\n    b\"{\\\"op\\\":\\\"set\\\",\\\"key\\\":\\\"k1\\\",\\\"value\\\":\\\"v\\\"}\",\n    b\"path=/local/domain/0\\n\",\n]\n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    length = rng.randint(min_len, max_len)\n    alphabet = string.ascii_letters + string.digits + \"-_:./=, +\"\n    return ''.join(rng.choice(alphabet) for _ in range(length))\n\ndef _build_cmd(rng: random.Random) -> str:\n    # Compose a command with keyword and optional arguments\n    kw = rng.choice(_CMD_KEYWORDS)\n    # Decide argument style\n    style = rng.randrange(4)\n    parts = [kw]\n    if style == 0:\n        # No args\n        pass\n    elif style == 1:\n        # One or two known fragments\n        parts += rng.sample(_ARG_FRAGMENTS, k=rng.randint(1, 2))\n    elif style == 2:\n        # Key/value CLI-ish: kw key value\n        k = rng.choice([\"key\", \"path\", \"token\", \"domid\", \"target\", \"perms\"])  # simple keys\n        v = rng.choice([\n            \"/\", \"/local/domain/0\", \"/tool\", \"/vm/0000-0000\", \"0\", \"1\", \"42\", \"rw\", \"ro\", \"alpha\"\n        ])\n        parts += [k, v]\n    else:\n        # Mixed: known fragments + random tail\n        parts += rng.sample(_ARG_FRAGMENTS, k=rng.randint(1, 3))\n        parts.append(_rand_ascii(rng, 1, 12))\n    cmd = ' '.join(parts)\n    # Enforce non-empty and length <=128; fuzzer will truncate further if longer\n    if not cmd:\n        cmd = \"x\"\n    if len(cmd) > 128:\n        cmd = cmd[:128]\n    return cmd\n\ndef _build_payload(rng: random.Random, max_len: int = 512) -> bytes:\n    # Choose between template, repeated pattern, utf-8 text, or small binary span\n    choice = rng.randrange(4)\n    if choice == 0:\n        data = rng.choice(_PAYLOAD_TEMPLATES)\n    elif choice == 1:\n        # UTF-8 text payload resembling a config or kv pairs\n        parts = []\n        n = rng.randint(1, 6)\n        for _ in range(n):\n            k = rng.choice([\"key\", \"value\", \"path\", \"domid\", \"token\", \"perms\"])  # simple keys\n            v = rng.choice([\n                \"on\", \"off\", \"0\", \"1\", \"42\", \"/\", \"/local/domain/0\", \"alpha\", \"rw\", \"ro\"\n            ])\n            parts.append(f\"{k}={v}\")\n        data = ('\\n'.join(parts) + '\\n').encode('utf-8')\n    elif choice == 2:\n        # Repeated deterministic pattern\n        pat = rng.choice([b\"A\", b\"AB\", b\"0123456789\", b\"rw\", b\"ro\"]) \\\n              * rng.randint(1, 64)\n        data = pat\n    else:\n        # Small binary with some structured numbers\n        nums = [rng.getrandbits(32) for _ in range(rng.randint(2, 8))]\n        data = b\"BIN\\x00\" + b\"\".join(struct.pack(\"<I\", n) for n in nums)\n    if len(data) > max_len:\n        data = data[:max_len]\n    return data\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide whether to include payload (bit0 like the fuzzer does)\n    include_payload = rng.choice([True, False])\n    flags = 1 if include_payload else 0\n\n    cmd = _build_cmd(rng)\n    cmd_bytes = cmd.encode('utf-8', errors='ignore')\n    if not cmd_bytes:\n        cmd_bytes = b\"x\"\n    if len(cmd_bytes) > 128:\n        cmd_bytes = cmd_bytes[:128]\n\n    if include_payload:\n        payload = _build_payload(rng, 512)\n    else:\n        payload = b\"\"\n\n    # Construct buffer: [flags][cmd_len][cmd][payload_len][payload]\n    buf = bytearray()\n    buf += struct.pack('<I', flags)\n    buf += struct.pack('<I', len(cmd_bytes))\n    buf += cmd_bytes\n    buf += struct.pack('<I', len(payload))\n    buf += payload\n\n    # Ensure size limit\n    if len(buf) > 4096:\n        buf = buf[:4096]\n    return bytes(buf)\n"
+    },
+    {
+      "data_type": "permissions spec string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for Xenstore permissions specification strings for xs_strings_to_perms.\n# The exact grammar is implementation-defined in different libxenstore versions, but\n# historically supported forms include combinations like:\n#   - owner:<domid> [r][w]\n#   - <domid>:[r][w]\n#   - dom<domid>:[r][w]\n#   - <domid> r,w   or  <domid> = rw\n#   - comma/space/semicolon separated lists\n#   - tokens like \"READ\", \"WRITE\", \"+r\", \"-w\"\n#   - hex/octal ids, signed/unsigned variants\n# To maximize valid parses across variants, we synthesize strings using a mixture\n# of common patterns and separators while keeping the whole buffer under 4096 bytes.\n\nMAX_BYTES = 4096\n\n# Common separators that many parsers accept between entries\nENTRY_SEPS = [\",\", \";\", \" \", \"\\n\", \"\\t\", \"  \", \" , \", \" ; \"]\n\n# Permission encodings seen across implementations\nPERM_PATTERNS = [\n    \"rw\",           # both\n    \"r\",            # read\n    \"w\",            # write\n    \"\",             # none / owner-only depending on context\n    \"READ\",         # verbose tokens\n    \"WRITE\",\n    \"READ|WRITE\",\n    \"r|w\",\n    \"r,w\",\n    \"+r+w\",\n    \"+r\",\n    \"+w\",\n    \"-r\",\n    \"-w\",\n]\n\n# Entry patterns. We create several forms to hit different branches in parsers.\n# Placeholders: {id} and {perms}\nENTRY_PATTERNS = [\n    \"{id}:{perms}\",            # simple colon separation\n    \"owner:{id} {perms}\",      # explicit owner keyword\n    \"dom{idd}:{perms}\",        # dom-prefixed id\n    \"{id}={perms}\",            # equals style\n    \"{id} {perms}\",            # space separated\n    \"{id}({perms})\",           # parentheses\n    \"{id}[{perms}]\",           # brackets\n    \"id={id};perms={perms}\",   # key=value pairs\n]\n\n# Some whitespace variants to exercise tokenization\nWS = [\"\", \" \", \"\\t\", \"\\n\", \"  \"]\n\n\ndef _rand_domid(rng: random.Random) -> str:\n    # Mix of decimal, hex, and signed-looking values; many parsers accept unsigned\n    choice = rng.randint(0, 4)\n    if choice == 0:\n        return str(rng.randint(0, 0xFFFF))\n    if choice == 1:\n        return hex(rng.randint(0, 0xFFFF))  # e.g., 0x1af\n    if choice == 2:\n        return str(rng.randint(0, 2**31 - 1))\n    if choice == 3:\n        return str(rng.randint(0, 100))  # small common domids\n    return str(rng.randint(0, 4096))\n\n\ndef _rand_perms(rng: random.Random) -> str:\n    base = rng.choice(PERM_PATTERNS)\n    # Occasionally mix cases or add surrounding whitespace\n    if rng.random() < 0.3:\n        base = base.upper()\n    elif rng.random() < 0.3:\n        base = base.lower()\n    # Sometimes expand symbolic rw into verbose format for diversity\n    if base == \"rw\" and rng.random() < 0.4:\n        base = \"READ,WRITE\"\n    # Optionally insert spaces around separators\n    base = base.replace(\",\", rng.choice([\",\", \", \", \" , \"]))\n    base = base.replace(\"|\", rng.choice([\"|\", \" | \"]))\n    # Optionally empty perms (some entries may only set owner)\n    if rng.random() < 0.05:\n        base = \"\"\n    return base\n\n\ndef _make_entry(rng: random.Random) -> str:\n    pid = _rand_domid(rng)\n    perms = _rand_perms(rng)\n    pat = rng.choice(ENTRY_PATTERNS)\n    # For the dom{idd} pattern, ensure a pure decimal id for readability\n    idd = str(rng.randint(0, 9999))\n    entry = pat.format(id=pid, idd=pid, perms=perms)\n    # Random surrounding whitespace\n    pre = rng.choice(WS)\n    post = rng.choice(WS)\n    return f\"{pre}{entry}{post}\"\n\n\ndef _compose_spec(rng: random.Random, target_entries: int) -> str:\n    parts: List[str] = []\n    # Frequently include an explicit owner first to satisfy parsers that expect it.\n    if rng.random() < 0.8:\n        owner_id = _rand_domid(rng)\n        owner_perm = rng.choice([\"rw\", \"r\", \"w\", \"READ,WRITE\", \"READ\", \"WRITE\"]) if rng.random() < 0.9 else \"\"\n        parts.append(f\"owner:{owner_id} {owner_perm}\".strip())\n    # Add additional entries\n    for _ in range(max(0, target_entries - len(parts))):\n        parts.append(_make_entry(rng))\n    # Join with varied separators\n    spec = \"\"\n    for i, p in enumerate(parts):\n        if i:\n            spec += rng.choice(ENTRY_SEPS)\n        spec += p\n    # Occasionally wrap whole spec in extraneous whitespace\n    spec = rng.choice(WS) + spec + rng.choice(WS)\n    # Cap length to MAX_BYTES-1 for NUL terminator safety in consumers\n    return spec[: MAX_BYTES - 1]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a bounded number of permission entries (the fuzzer caps at <16)\n    num = rng.randint(0, 15)\n    spec = _compose_spec(rng, num if num > 0 else rng.randint(1, 8))\n\n    # Return as UTF-8 bytes with NUL terminator probability; some parsers only\n    # read up to the first NUL through c_str() anyway, but explicit termination\n    # can help ensure exact boundaries in some harnesses.\n    data = spec.encode(\"utf-8\", errors=\"strict\")\n    if len(data) >= MAX_BYTES:\n        data = data[: MAX_BYTES - 1]\n    if rng.random() < 0.5:\n        data += b\"\\x00\"\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5640,
+            "output_tokens": 618,
+            "total_tokens": 6258
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3952,
+            "output_tokens": 241,
+            "total_tokens": 4193
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5891,
+            "output_tokens": 7690,
+            "total_tokens": 13581
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 25300,
+            "output_tokens": 12842,
+            "total_tokens": 38142
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9627,
+            "output_tokens": 447,
+            "total_tokens": 10074
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 307.9376573562622,
+    "scan_objects": 20.639291524887085,
+    "validate_objects": 0.3190000057220459,
+    "scan_functions": 0,
+    "synthesis": 253.01235723495483,
+    "fill": 0,
+    "classify": 6.061972618103027,
+    "build_generators": 27.90081787109375
+  }
+}

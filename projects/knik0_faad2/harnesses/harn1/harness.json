@@ -1,0 +1,800 @@
+{
+  "objects": [
+    {
+      "ptr_type": "NeAACDecHandle *",
+      "aliases": [
+        "faacDecHandle *"
+      ],
+      "definition": "typedef void *NeAACDecHandle;",
+      "description": "Opaque decoder handle type for the FAAD2 (NeAACDec) decoder. It is a pointer-sized opaque token managed by the API and represents a decoder instance. Treat it as an opaque handle; do not dereference. Lifetime is created with NeAACDecOpen (or NeAACDecInitDRM which outputs a handle) and destroyed with NeAACDecClose.",
+      "direct_api_constructors": [
+        "NeAACDecOpen",
+        "NeAACDecInitDRM"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "mp4AudioSpecificConfig *",
+      "aliases": [],
+      "definition": "typedef struct mp4AudioSpecificConfig\n{\n    /* Audio Specific Info */\n    unsigned char objectTypeIndex;\n    unsigned char samplingFrequencyIndex;\n    unsigned long samplingFrequency;\n    unsigned char channelsConfiguration;\n\n    /* GA Specific Info */\n    unsigned char frameLengthFlag;\n    unsigned char dependsOnCoreCoder;\n    unsigned short coreCoderDelay;\n    unsigned char extensionFlag;\n    unsigned char aacSectionDataResilienceFlag;\n    unsigned char aacScalefactorDataResilienceFlag;\n    unsigned char aacSpectralDataResilienceFlag;\n    unsigned char epConfig;\n\n    char sbr_present_flag;\n    char forceUpSampling;\n    char downSampledSBR;\n} mp4AudioSpecificConfig;",
+      "description": "Parsed representation of MPEG-4 AudioSpecificConfig, including core AAC parameters and SBR-related flags. Used as output for NeAACDecAudioSpecificConfig to interpret DecoderSpecificInfo/ASC blobs.",
+      "direct_api_constructors": [
+        "NeAACDecAudioSpecificConfig"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "NeAACDecConfiguration *",
+      "aliases": [
+        "faacDecConfiguration *",
+        "NeAACDecConfigurationPtr",
+        "faacDecConfigurationPtr"
+      ],
+      "definition": "typedef struct NeAACDecConfiguration\n{\n    unsigned char defObjectType;\n    unsigned long defSampleRate;\n    unsigned char outputFormat;\n    unsigned char downMatrix;\n    unsigned char useOldADTSFormat;\n    unsigned char dontUpSampleImplicitSBR;\n} NeAACDecConfiguration, *NeAACDecConfigurationPtr;",
+      "description": "Decoder configuration structure controlling default object type, sample rate, desired PCM output format, downmixing, ADTS compatibility, and implicit SBR upsampling behavior. Obtain a pointer via NeAACDecGetCurrentConfiguration, modify fields, and apply with NeAACDecSetConfiguration before decoding.",
+      "direct_api_constructors": [
+        "NeAACDecGetCurrentConfiguration"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "NeAACDecFrameInfo *",
+      "aliases": [
+        "faacDecFrameInfo *"
+      ],
+      "definition": "typedef struct NeAACDecFrameInfo\n{\n    unsigned long bytesconsumed;\n    unsigned long samples;\n    unsigned char channels;\n    unsigned char error;\n    unsigned long samplerate;\n\n    /* SBR: 0: off, 1: on; upsample, 2: on; downsampled, 3: off; upsampled */\n    unsigned char sbr;\n\n    /* MPEG-4 ObjectType */\n    unsigned char object_type;\n\n    /* AAC header type; MP4 will be signalled as RAW also */\n    unsigned char header_type;\n\n    /* multichannel configuration */\n    unsigned char num_front_channels;\n    unsigned char num_side_channels;\n    unsigned char num_back_channels;\n    unsigned char num_lfe_channels;\n    unsigned char channel_position[64];\n\n    /* PS: 0: off, 1: on */\n    unsigned char ps;\n} NeAACDecFrameInfo;",
+      "description": "Per-decode-call frame metadata returned by the decoder, including bytes consumed, sample count, channel count, error code, sample rate, SBR/PS flags, header type, and detailed channel layout. Pass a pointer to NeAACDecDecode/NeAACDecDecode2; it is filled on return.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "NeAACDecGetErrorMessage",
+      "signature": "char* NeAACDecGetErrorMessage(unsigned char errcode);",
+      "description": "Returns a human-readable string for an error code produced by the decoder (e.g., values placed in NeAACDecFrameInfo.error). Use this to translate error codes to messages for logging or diagnostics.",
+      "requirements": [
+        "errcode is typically a value obtained from NeAACDecFrameInfo.error.",
+        "The returned pointer refers to an internal static string; do not free or modify it."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecGetCapabilities",
+      "signature": "unsigned long NeAACDecGetCapabilities(void);",
+      "description": "Returns a bitmask of decoder capabilities (e.g., LC_DEC_CAP, MAIN_DEC_CAP, LTP_DEC_CAP, LD_DEC_CAP, ERROR_RESILIENCE_CAP, FIXED_POINT_CAP). Useful for feature probing before initialization.",
+      "requirements": [
+        "No arguments; callable at any time before or after creating a decoder handle.",
+        "Interpret the returned bitmask using the FAAD2 capability macros defined in the header."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecOpen",
+      "signature": "NeAACDecHandle NeAACDecOpen(void);",
+      "description": "Allocates and returns a new decoder handle. This handle is used for subsequent configuration, initialization, decoding, and close operations.",
+      "requirements": [
+        "Must be called before NeAACDecGetCurrentConfiguration/NeAACDecSetConfiguration and before any Init/Decode call.",
+        "The returned handle must later be closed with NeAACDecClose to avoid leaks.",
+        "Do not use the handle after it has been closed."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecGetCurrentConfiguration",
+      "signature": "NeAACDecConfigurationPtr NeAACDecGetCurrentConfiguration(NeAACDecHandle hDecoder);",
+      "description": "Retrieves a pointer to the current decoder configuration structure for the given handle. Callers can inspect or modify fields and then apply them with NeAACDecSetConfiguration.",
+      "requirements": [
+        "hDecoder must be a valid handle returned by NeAACDecOpen (or successfully initialized for DRM).",
+        "The returned configuration pointer is owned by the decoder; do not free it.",
+        "After changing fields in the config, call NeAACDecSetConfiguration to apply them."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecSetConfiguration",
+      "signature": "unsigned char NeAACDecSetConfiguration(NeAACDecHandle hDecoder, NeAACDecConfigurationPtr config);",
+      "description": "Applies the provided configuration to the decoder. Typically used after retrieving and editing the current configuration via NeAACDecGetCurrentConfiguration.",
+      "requirements": [
+        "hDecoder must be a valid decoder handle obtained from NeAACDecOpen.",
+        "config must be a valid pointer to a NeAACDecConfiguration (e.g., obtained from NeAACDecGetCurrentConfiguration and potentially modified).",
+        "Check the return value to ensure the configuration was accepted (nonzero indicates success in FAAD2 convention; exact semantics not documented here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecInit",
+      "signature": "long NeAACDecInit(NeAACDecHandle hDecoder, unsigned char *buffer, unsigned long buffer_size, unsigned long *samplerate, unsigned char *channels);",
+      "description": "Initializes the decoder for ADTS/ADIF/LATM/RAW streams using header information found in the provided input buffer. On success it outputs the detected sample rate and channel count.",
+      "requirements": [
+        "hDecoder must be a valid handle from NeAACDecOpen.",
+        "buffer must point to encoded AAC stream data beginning at a header; buffer_size specifies its size in bytes and must be large enough to contain the necessary header.",
+        "samplerate must be a non-NULL pointer to receive the detected sample rate.",
+        "channels must be a non-NULL pointer to receive the detected channel count.",
+        "Call this once before the first NeAACDecDecode on the stream (unless using NeAACDecInit2/NeAACDecInitDRM instead).",
+        "Use the return value (long) to check for success; exact error codes are library-defined (not documented here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecInit2",
+      "signature": "char NeAACDecInit2(NeAACDecHandle hDecoder, unsigned char *pBuffer, unsigned long SizeOfDecoderSpecificInfo, unsigned long *samplerate, unsigned char *channels);",
+      "description": "Initializes the decoder using an MPEG-4 DecoderSpecificInfo (AudioSpecificConfig) blob rather than scanning ADTS/ADIF headers. On success returns sample rate and channel count.",
+      "requirements": [
+        "hDecoder must be a valid handle from NeAACDecOpen.",
+        "pBuffer must point to the DecoderSpecificInfo (AudioSpecificConfig) data; SizeOfDecoderSpecificInfo is its size in bytes.",
+        "samplerate must be a non-NULL pointer to receive the detected sample rate.",
+        "channels must be a non-NULL pointer to receive the detected channel count.",
+        "Call prior to decoding if you have container-provided AudioSpecificConfig (e.g., MP4/ISO BMFF).",
+        "Check the return value (char) for success/failure; exact semantics not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecInitDRM",
+      "signature": "char NeAACDecInitDRM(NeAACDecHandle *hDecoder, unsigned long samplerate, unsigned char channels);",
+      "description": "Initializes the decoder for DRM ER LC profiles using explicit sample rate and channel count, creating or configuring the decoder through a handle pointer.",
+      "requirements": [
+        "hDecoder must be a valid pointer to a NeAACDecHandle variable; the function will initialize/configure the handle for DRM decoding.",
+        "samplerate must be a valid sample rate value expected by the stream.",
+        "channels must be the channel count expected by the DRM stream (see DRM channel definitions).",
+        "Call before any decoding of DRM streams.",
+        "Check the return value (char) for success/failure; exact semantics not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecPostSeekReset",
+      "signature": "void NeAACDecPostSeekReset(NeAACDecHandle hDecoder, long frame);",
+      "description": "Notifies the decoder that a seek has occurred and resets internal state accordingly. The frame parameter indicates the new frame index/time reference for error concealment/synchronization.",
+      "requirements": [
+        "hDecoder must be a valid decoder handle.",
+        "Call this immediately after an application-level seek in the input stream and before resuming NeAACDecDecode.",
+        "frame should be the target frame index (units not further documented here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecClose",
+      "signature": "void NeAACDecClose(NeAACDecHandle hDecoder);",
+      "description": "Releases all resources associated with the decoder handle and invalidates it.",
+      "requirements": [
+        "hDecoder must be a valid decoder handle previously returned by NeAACDecOpen/initialized via Init/InitDRM.",
+        "After this call, the handle must not be used again unless reopened.",
+        "Call exactly once for each successful NeAACDecOpen to avoid resource leaks."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecDecode",
+      "signature": "void* NeAACDecDecode(NeAACDecHandle hDecoder, NeAACDecFrameInfo *hInfo, unsigned char *buffer, unsigned long buffer_size);",
+      "description": "Decodes AAC data from the provided input buffer and returns a pointer to the decoded PCM samples. Decoding details and status (bytes consumed, samples produced, error code, etc.) are returned in hInfo.",
+      "requirements": [
+        "hDecoder must be a valid, initialized decoder (via NeAACDecInit/NeAACDecInit2/NeAACDecInitDRM).",
+        "hInfo must be a non-NULL pointer to a writable NeAACDecFrameInfo structure; the decoder fills it each call.",
+        "buffer must point to encoded AAC data; buffer_size is its size in bytes. For reliable decoding, at least FAAD_MIN_STREAMSIZE bytes per channel should be available.",
+        "The returned pointer refers to a buffer with decoded samples; ownership and lifetime are not documented in the header—do not free unless documentation elsewhere states otherwise.",
+        "On errors, inspect hInfo->error and translate via NeAACDecGetErrorMessage."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecDecode2",
+      "signature": "void* NeAACDecDecode2(NeAACDecHandle hDecoder, NeAACDecFrameInfo *hInfo, unsigned char *buffer, unsigned long buffer_size, void **sample_buffer, unsigned long sample_buffer_size);",
+      "description": "Decodes AAC data like NeAACDecDecode but additionally allows the caller to supply/output a sample buffer through sample_buffer and its size. Returns a pointer to the decoded samples (which may refer to the supplied buffer).",
+      "requirements": [
+        "hDecoder must be a valid, initialized decoder.",
+        "hInfo must be a non-NULL pointer to a writable NeAACDecFrameInfo.",
+        "buffer must point to encoded AAC data of length buffer_size bytes.",
+        "sample_buffer must be a valid pointer to a pointer variable that (per naming and signature) refers to a writable buffer; sample_buffer_size specifies that buffer’s size in bytes.",
+        "Ensure sample_buffer_size is sufficient for the decoded frame to avoid overruns; exact required size depends on output format/channels and is not documented here.",
+        "Inspect hInfo->error on failure; translate with NeAACDecGetErrorMessage."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecAudioSpecificConfig",
+      "signature": "char NeAACDecAudioSpecificConfig(unsigned char *pBuffer, unsigned long buffer_size, mp4AudioSpecificConfig *mp4ASC);",
+      "description": "Parses an MPEG-4 AudioSpecificConfig (DecoderSpecificInfo) from a raw buffer into an mp4AudioSpecificConfig structure. Useful for probing or preparing NeAACDecInit2 inputs.",
+      "requirements": [
+        "pBuffer must point to the AudioSpecificConfig bitstream; buffer_size is its size in bytes.",
+        "mp4ASC must be a non-NULL pointer to a writable mp4AudioSpecificConfig struct to receive parsed fields.",
+        "Check the return value (char) for success/failure; exact semantics not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "NeAACDecGetVersion",
+      "signature": "int NeAACDecGetVersion(char **faad_id_string, char **faad_copyright_string);",
+      "description": "Retrieves version and copyright strings for FAAD2. On success, both output parameters are set to NUL-terminated strings.",
+      "requirements": [
+        "faad_id_string must be a non-NULL pointer to a char* to receive the ID/version string.",
+        "faad_copyright_string must be a non-NULL pointer to a char* to receive the copyright string.",
+        "Do not free or modify the returned strings unless library documentation explicitly allows it.",
+        "Check the integer return value for success; exact semantics not documented here."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecGetErrorMessage",
+      "signature": "char* NeAACDecGetErrorMessage(unsigned char errcode);",
+      "description": "Backwards-compatibility alias to NeAACDecGetErrorMessage. Returns a human-readable string for a decoder error code.",
+      "requirements": [
+        "errcode is typically a value obtained from NeAACDecFrameInfo.error.",
+        "The returned pointer refers to an internal static string; do not free or modify it."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecSetConfiguration",
+      "signature": "unsigned char NeAACDecSetConfiguration(NeAACDecHandle hDecoder, NeAACDecConfigurationPtr config);",
+      "description": "Backwards-compatibility alias to NeAACDecSetConfiguration. Applies the provided configuration to the decoder.",
+      "requirements": [
+        "hDecoder must be a valid decoder handle obtained from NeAACDecOpen.",
+        "config must be a valid pointer to a NeAACDecConfiguration.",
+        "Check the return value to ensure the configuration was accepted."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecGetCurrentConfiguration",
+      "signature": "NeAACDecConfigurationPtr NeAACDecGetCurrentConfiguration(NeAACDecHandle hDecoder);",
+      "description": "Backwards-compatibility alias to NeAACDecGetCurrentConfiguration. Retrieves a pointer to the current decoder configuration for the given handle.",
+      "requirements": [
+        "hDecoder must be a valid handle returned by NeAACDecOpen.",
+        "Do not free the returned pointer; apply changes via faacDecSetConfiguration/NeAACDecSetConfiguration."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecInit",
+      "signature": "long NeAACDecInit(NeAACDecHandle hDecoder, unsigned char *buffer, unsigned long buffer_size, unsigned long *samplerate, unsigned char *channels);",
+      "description": "Backwards-compatibility alias to NeAACDecInit. Initializes the decoder from ADTS/ADIF/LATM/RAW header data in the provided buffer.",
+      "requirements": [
+        "hDecoder must be a valid handle from NeAACDecOpen.",
+        "buffer must point to encoded AAC stream header data; buffer_size is its size in bytes.",
+        "samplerate and channels must be valid output pointers.",
+        "Call before decoding when not using Init2/InitDRM."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecInit2",
+      "signature": "char NeAACDecInit2(NeAACDecHandle hDecoder, unsigned char *pBuffer, unsigned long SizeOfDecoderSpecificInfo, unsigned long *samplerate, unsigned char *channels);",
+      "description": "Backwards-compatibility alias to NeAACDecInit2. Initializes the decoder using an AudioSpecificConfig blob.",
+      "requirements": [
+        "hDecoder must be a valid handle from NeAACDecOpen.",
+        "pBuffer must point to DecoderSpecificInfo; SizeOfDecoderSpecificInfo is its size in bytes.",
+        "samplerate and channels must be valid output pointers."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecInitDRM",
+      "signature": "char NeAACDecInitDRM(NeAACDecHandle *hDecoder, unsigned long samplerate, unsigned char channels);",
+      "description": "Backwards-compatibility alias to NeAACDecInitDRM. Initializes the decoder for DRM ER LC decoding using explicit sample rate and channel count.",
+      "requirements": [
+        "hDecoder must be a valid pointer to a NeAACDecHandle variable.",
+        "samplerate and channels must describe the DRM stream to be decoded.",
+        "Check return value for success."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecPostSeekReset",
+      "signature": "void NeAACDecPostSeekReset(NeAACDecHandle hDecoder, long frame);",
+      "description": "Backwards-compatibility alias to NeAACDecPostSeekReset. Resets decoder state after a seek to the specified frame index.",
+      "requirements": [
+        "hDecoder must be a valid handle.",
+        "Call after seeking in the input stream and before resuming decoding.",
+        "frame should indicate the new position (units not documented here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecOpen",
+      "signature": "NeAACDecHandle NeAACDecOpen(void);",
+      "description": "Backwards-compatibility alias to NeAACDecOpen. Allocates and returns a new decoder handle.",
+      "requirements": [
+        "Call before configuration/initialization/decoding.",
+        "Close the handle with faacDecClose/NeAACDecClose when done."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecClose",
+      "signature": "void NeAACDecClose(NeAACDecHandle hDecoder);",
+      "description": "Backwards-compatibility alias to NeAACDecClose. Frees resources associated with the decoder handle.",
+      "requirements": [
+        "hDecoder must be a valid handle.",
+        "Do not use the handle after closing; call exactly once per opened handle."
+      ],
+      "error": null
+    },
+    {
+      "name": "faacDecDecode",
+      "signature": "void* NeAACDecDecode(NeAACDecHandle hDecoder, NeAACDecFrameInfo *hInfo, unsigned char *buffer, unsigned long buffer_size);",
+      "description": "Backwards-compatibility alias to NeAACDecDecode. Decodes AAC data from the buffer and returns decoded PCM samples, with status in hInfo.",
+      "requirements": [
+        "hDecoder must be initialized via Init/Init2/InitDRM.",
+        "hInfo must be a valid writable pointer.",
+        "buffer must point to encoded data of length buffer_size bytes.",
+        "Use hInfo->error to detect errors and translate with faacDecGetErrorMessage/NeAACDecGetErrorMessage."
+      ],
+      "error": null
+    },
+    {
+      "name": "AudioSpecificConfig",
+      "signature": "char NeAACDecAudioSpecificConfig(unsigned char *pBuffer, unsigned long buffer_size, mp4AudioSpecificConfig *mp4ASC);",
+      "description": "Backwards-compatibility alias to NeAACDecAudioSpecificConfig. Parses an MPEG-4 AudioSpecificConfig into an mp4AudioSpecificConfig struct.",
+      "requirements": [
+        "pBuffer must point to the AudioSpecificConfig bitstream; buffer_size is its size in bytes.",
+        "mp4ASC must be a non-NULL pointer to a writable struct to receive the parsed fields.",
+        "Check the return value for success."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "NeAACDecGetErrorMessage",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a plausible error code (0-255). Typical values come from NeAACDecFrameInfo.error\nunsigned char err = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n// Call the target; returned pointer is static storage per API, do not free/modify\nchar *msg = NeAACDecGetErrorMessage(err);\n// Basic property: returned pointer should be non-null for any input domain\nFUZZ_ASSERT(msg != nullptr, \"NeAACDecGetErrorMessage returned null\");"
+    },
+    {
+      "name": "NeAACDecGetCapabilities",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Capability query has no preconditions\nunsigned long caps = NeAACDecGetCapabilities();\n// Weak sanity: capability bitmask is allowed to be zero; just touch it for coverage\nvolatile unsigned long sink_caps = caps; (void)sink_caps;"
+    },
+    {
+      "name": "NeAACDecOpen",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Create a new decoder handle\nNeAACDecHandle h = NeAACDecOpen();\nif (!h) { FUZZ_BAIL(); }\n// Expose as an output object represented by void* in the pool\nvoid *dec = (void*)h;\n// Tag object for downstream stubs\nFUZZ_SET_ATTR_STR(dec, \"type\", \"NeAACDecHandle\");\nFUZZ_SET_ATTR_INT(dec, \"opened\", 1);\nFUZZ_SET_ATTR_INT(dec, \"initialized\", 0);\nFUZZ_SET_ATTR_INT(dec, \"closed\", 0);\nFUZZ_SET_ATTR_INT(dec, \"samplerate\", 0);\nFUZZ_SET_ATTR_INT(dec, \"channels\", 0);"
+    },
+    {
+      "name": "NeAACDecSetConfiguration",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate decoder handle object\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\n// Obtain current config (owned by decoder)\nNeAACDecConfigurationPtr cfg = NeAACDecGetCurrentConfiguration(h);\nif (!cfg) { FUZZ_BAIL(); }\n// Mutate fields within reasonable ranges to explore code paths\ncfg->defObjectType = (unsigned char)(*FUZZ_PARAM(unsigned int) % 8); // typical AAC OTIs 0..7\ncfg->defSampleRate = (unsigned long)(8000u + (*FUZZ_PARAM(unsigned int) % 8u) * 6000u); // 8k..50k range\ncfg->outputFormat = (unsigned char)(*FUZZ_PARAM(unsigned int) % 4); // library-defined small enum\ncfg->downMatrix = (unsigned char)(*FUZZ_PARAM(unsigned int) & 1);\ncfg->useOldADTSFormat = (unsigned char)(*FUZZ_PARAM(unsigned int) & 1);\ncfg->dontUpSampleImplicitSBR = (unsigned char)(*FUZZ_PARAM(unsigned int) & 1);\n// Apply configuration; FAAD2 returns nonzero on success in practice\nunsigned char ok = NeAACDecSetConfiguration(h, cfg);\nif (!ok) { FUZZ_BAIL(); }"
+    },
+    {
+      "name": "NeAACDecInit",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Preconditions: valid, not closed, not already initialized (allow re-init only if API supports; keep simple)\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\n// Provide a small random header buffer (1..1024 bytes)\nstd::string hdr = FUZZ_PARAM_STR();\nif (hdr.size() == 0) { FUZZ_BAIL(); }\nsize_t max_bytes = hdr.size() > 1024 ? 1024 : hdr.size();\nunsigned long sr = 0; unsigned char ch = 0;\nlong ret = NeAACDecInit(h, (unsigned char*)hdr.data(), (unsigned long)max_bytes, &sr, &ch);\n// Consider success if samplerate/channels were set to plausible non-zero values\nif (sr == 0 || ch == 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(dec, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(dec, \"samplerate\", (int)sr);\nFUZZ_SET_ATTR_INT(dec, \"channels\", (int)ch);\nvolatile long sink = ret; (void)sink;"
+    },
+    {
+      "name": "NeAACDecInit2",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Preconditions: valid, not closed\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\n// Provide an AudioSpecificConfig (ASC) blob (1..64 bytes preferred for ASC)\nstd::string asc = FUZZ_PARAM_STR();\nsize_t asc_len = asc.size();\nif (asc_len > 64) asc_len = 64;\nif (asc_len == 0) { FUZZ_BAIL(); }\nunsigned long sr = 0; unsigned char ch = 0;\nchar ok = NeAACDecInit2(h, (unsigned char*)asc.data(), (unsigned long)asc_len, &sr, &ch);\nif (!ok || sr == 0 || ch == 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(dec, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(dec, \"samplerate\", (int)sr);\nFUZZ_SET_ATTR_INT(dec, \"channels\", (int)ch);"
+    },
+    {
+      "name": "NeAACDecPostSeekReset",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Preconditions: valid handle, not closed\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\nlong frame = (long)(*FUZZ_PARAM(unsigned int));\nNeAACDecPostSeekReset(h, frame);"
+    },
+    {
+      "name": "NeAACDecClose",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Preconditions: valid, not already closed\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\nNeAACDecClose(h);\n// Mark as closed; do not return the object to the pool\nFUZZ_SET_ATTR_INT(dec, \"closed\", 1);"
+    },
+    {
+      "name": "NeAACDecDecode",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Preconditions: valid, initialized, not closed\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint inited = FUZZ_GET_ATTR_INT(dec, \"initialized\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || !inited || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\n// Prepare input bitstream chunk (up to 1024 bytes)\nstd::string data = FUZZ_PARAM_STR();\nsize_t sz = data.size(); if (sz > 1024) sz = 1024; if (sz == 0) { FUZZ_BAIL(); }\nNeAACDecFrameInfo fi; memset(&fi, 0, sizeof(fi));\nvoid *pcm = NeAACDecDecode(h, &fi, (unsigned char*)data.data(), (unsigned long)sz);\n// Touch outputs for coverage; do not free pcm (owned by library or caller per docs)\nvolatile unsigned long consumed = fi.bytesconsumed; (void)consumed;\nvolatile unsigned char err = fi.error; (void)err; (void)pcm;\n// If a hard error was reported, we still keep the decoder to explore further paths"
+    },
+    {
+      "name": "NeAACDecDecode2",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Preconditions: valid, initialized, not closed\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint inited = FUZZ_GET_ATTR_INT(dec, \"initialized\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || !inited || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\n// Input encoded data (1..1024 bytes)\nstd::string data = FUZZ_PARAM_STR();\nsize_t sz = data.size(); if (sz > 1024) sz = 1024; if (sz == 0) { FUZZ_BAIL(); }\n// Provide a caller-managed sample buffer (<= 2048 bytes)\nstatic unsigned char sample_storage[2048];\nvoid *sample_buf_ptr = (void*)sample_storage;\nunsigned long sample_buf_size = (unsigned long)(256u + (*FUZZ_PARAM(unsigned int) % 1792u));\nNeAACDecFrameInfo fi; memset(&fi, 0, sizeof(fi));\nvoid *pcm = NeAACDecDecode2(h, &fi, (unsigned char*)data.data(), (unsigned long)sz, &sample_buf_ptr, sample_buf_size);\n// Touch outputs for coverage\nvolatile unsigned long samples = fi.samples; (void)samples; (void)pcm;"
+    },
+    {
+      "name": "NeAACDecAudioSpecificConfig",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "asc",
+          "type": "mp4AudioSpecificConfig *"
+        }
+      ],
+      "code": "// Prepare a small ASC buffer (1..64 bytes)\nstd::string asc_buf = FUZZ_PARAM_STR();\nsize_t asc_len = asc_buf.size(); if (asc_len > 64) asc_len = 64; if (asc_len == 0) { FUZZ_BAIL(); }\n// mp4AudioSpecificConfig is user-managed; allocate on heap to persist as output if desired by fuzzer\nmp4AudioSpecificConfig *asc = (mp4AudioSpecificConfig*)malloc(sizeof(mp4AudioSpecificConfig));\nif (!asc) { FUZZ_BAIL(); }\nmemset(asc, 0, sizeof(*asc));\nchar ok = NeAACDecAudioSpecificConfig((unsigned char*)asc_buf.data(), (unsigned long)asc_len, asc);\nif (!ok) {\n    // Parsing failed; keep the object for downstream even if uninitialized to explore consumers\n}\n// Output asc for potential reuse by other stubs"
+    },
+    {
+      "name": "NeAACDecGetVersion",
+      "inputs": [],
+      "outputs": [],
+      "code": "char *id = nullptr; char *cr = nullptr;\nint rc = NeAACDecGetVersion(&id, &cr);\n// Returned strings should be non-null on success\nif (rc) {\n    FUZZ_ASSERT(id != nullptr, \"NeAACDecGetVersion id string null\");\n    FUZZ_ASSERT(cr != nullptr, \"NeAACDecGetVersion copyright string null\");\n}\n// Touch strings for coverage without modifying\nif (id) { volatile char c = id[0]; (void)c; }\nif (cr) { volatile char d = cr[0]; (void)d; }"
+    },
+    {
+      "name": "faacDecGetErrorMessage",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Alias of NeAACDecGetErrorMessage\nunsigned char err = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\nchar *msg = NeAACDecGetErrorMessage(err);\nFUZZ_ASSERT(msg != nullptr, \"faacDecGetErrorMessage returned null\");"
+    },
+    {
+      "name": "faacDecSetConfiguration",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Alias of NeAACDecSetConfiguration\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\nNeAACDecConfigurationPtr cfg = NeAACDecGetCurrentConfiguration(h);\nif (!cfg) { FUZZ_BAIL(); }\ncfg->outputFormat = (unsigned char)(*FUZZ_PARAM(unsigned int) % 4);\ncfg->downMatrix = (unsigned char)(*FUZZ_PARAM(unsigned int) & 1);\nunsigned char ok = NeAACDecSetConfiguration(h, cfg);\nif (!ok) { FUZZ_BAIL(); }"
+    },
+    {
+      "name": "faacDecGetCurrentConfiguration",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Alias of NeAACDecGetCurrentConfiguration\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\nNeAACDecConfigurationPtr cfg = NeAACDecGetCurrentConfiguration(h);\nif (!cfg) { FUZZ_BAIL(); }\nvolatile unsigned long sr = cfg->defSampleRate; (void)sr;"
+    },
+    {
+      "name": "faacDecInit",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Alias of NeAACDecInit\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\nstd::string hdr = FUZZ_PARAM_STR();\nsize_t max_bytes = hdr.size(); if (max_bytes > 1024) max_bytes = 1024; if (max_bytes == 0) { FUZZ_BAIL(); }\nunsigned long sr = 0; unsigned char ch = 0;\nlong ret = NeAACDecInit(h, (unsigned char*)hdr.data(), (unsigned long)max_bytes, &sr, &ch);\nif (sr == 0 || ch == 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(dec, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(dec, \"samplerate\", (int)sr);\nFUZZ_SET_ATTR_INT(dec, \"channels\", (int)ch);\nvolatile long sink = ret; (void)sink;"
+    },
+    {
+      "name": "faacDecInit2",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Alias of NeAACDecInit2\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\nstd::string asc = FUZZ_PARAM_STR();\nsize_t asc_len = asc.size(); if (asc_len > 64) asc_len = 64; if (asc_len == 0) { FUZZ_BAIL(); }\nunsigned long sr = 0; unsigned char ch = 0;\nchar ok = NeAACDecInit2(h, (unsigned char*)asc.data(), (unsigned long)asc_len, &sr, &ch);\nif (!ok || sr == 0 || ch == 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(dec, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(dec, \"samplerate\", (int)sr);\nFUZZ_SET_ATTR_INT(dec, \"channels\", (int)ch);"
+    },
+    {
+      "name": "faacDecOpen",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Alias of NeAACDecOpen\nNeAACDecHandle h = NeAACDecOpen();\nif (!h) { FUZZ_BAIL(); }\nvoid *dec = (void*)h;\nFUZZ_SET_ATTR_STR(dec, \"type\", \"NeAACDecHandle\");\nFUZZ_SET_ATTR_INT(dec, \"opened\", 1);\nFUZZ_SET_ATTR_INT(dec, \"initialized\", 0);\nFUZZ_SET_ATTR_INT(dec, \"closed\", 0);\nFUZZ_SET_ATTR_INT(dec, \"samplerate\", 0);\nFUZZ_SET_ATTR_INT(dec, \"channels\", 0);"
+    },
+    {
+      "name": "faacDecClose",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Alias of NeAACDecClose\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\nNeAACDecClose(h);\nFUZZ_SET_ATTR_INT(dec, \"closed\", 1);"
+    },
+    {
+      "name": "faacDecPostSeekReset",
+      "inputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dec",
+          "type": "void *"
+        }
+      ],
+      "code": "// Preconditions: valid handle object tagged by our pool and not closed\nint is_handle = !strcmp(FUZZ_GET_ATTR_STR(dec, \"type\"), \"NeAACDecHandle\");\nint closed = FUZZ_GET_ATTR_INT(dec, \"closed\");\nif (!is_handle || closed) { FUZZ_BAIL(); }\nNeAACDecHandle h = (NeAACDecHandle)dec;\n// Frame index after seek; library does not define units, just pass a fuzzed value\nlong frame = (long)(*FUZZ_PARAM(unsigned int));\nNeAACDecPostSeekReset(h, frame);\n// Validation: dec remains valid and owned by the pool; we return it unchanged to allow further decode paths\n// Structure/logic validated: input checked for type/closed, function invoked once with fuzzed frame, object returned."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "faacDecDecode",
+      "reason": "Duplicate of NeAACDecDecode was not included separately to avoid redundant harnessing; use NeAACDecDecode stub."
+    },
+    {
+      "name": "NeAACDecGetCurrentConfiguration",
+      "reason": "Provided as a harnessed stub above; duplicate handling not required."
+    },
+    {
+      "name": "AudioSpecificConfig",
+      "reason": "This is an alias of NeAACDecAudioSpecificConfig which is already harnessed; duplicating would be redundant."
+    },
+    {
+      "name": "NeAACDecInitDRM",
+      "reason": "The symbol NeAACDecInitDRM is missing in the linked FAAD2 build, causing an unresolved reference at link time."
+    },
+    {
+      "name": "faacDecInitDRM",
+      "reason": "Alias requires NeAACDecInitDRM which is not present in the linked FAAD2 build, leading to an unresolved reference."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "NeAACDecGetErrorMessage",
+      "data_types": []
+    },
+    {
+      "name": "NeAACDecGetCapabilities",
+      "data_types": []
+    },
+    {
+      "name": "NeAACDecOpen",
+      "data_types": []
+    },
+    {
+      "name": "NeAACDecSetConfiguration",
+      "data_types": []
+    },
+    {
+      "name": "NeAACDecPostSeekReset",
+      "data_types": []
+    },
+    {
+      "name": "NeAACDecClose",
+      "data_types": []
+    },
+    {
+      "name": "NeAACDecGetVersion",
+      "data_types": []
+    },
+    {
+      "name": "faacDecGetErrorMessage",
+      "data_types": []
+    },
+    {
+      "name": "faacDecSetConfiguration",
+      "data_types": []
+    },
+    {
+      "name": "faacDecGetCurrentConfiguration",
+      "data_types": []
+    },
+    {
+      "name": "faacDecOpen",
+      "data_types": []
+    },
+    {
+      "name": "faacDecClose",
+      "data_types": []
+    },
+    {
+      "name": "faacDecPostSeekReset",
+      "data_types": []
+    },
+    {
+      "name": "NeAACDecInit",
+      "data_types": [
+        "AAC header/bitstream data"
+      ]
+    },
+    {
+      "name": "NeAACDecInit2",
+      "data_types": [
+        "MPEG-4 AudioSpecificConfig (ASC)"
+      ]
+    },
+    {
+      "name": "NeAACDecDecode",
+      "data_types": [
+        "AAC frame data"
+      ]
+    },
+    {
+      "name": "NeAACDecDecode2",
+      "data_types": [
+        "AAC frame data"
+      ]
+    },
+    {
+      "name": "NeAACDecAudioSpecificConfig",
+      "data_types": [
+        "MPEG-4 AudioSpecificConfig (ASC)"
+      ]
+    },
+    {
+      "name": "faacDecInit",
+      "data_types": [
+        "AAC header/bitstream data"
+      ]
+    },
+    {
+      "name": "faacDecInit2",
+      "data_types": [
+        "MPEG-4 AudioSpecificConfig (ASC)"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "AAC header/bitstream data",
+      "description": "Raw bytes from an AAC stream containing initial headers or contiguous bitstream data suitable for initialization (ADTS, ADIF, LATM/LOAS, or RAW with in-band config). Typically begins at a sync/header and includes enough bytes (tens to hundreds) for the decoder to parse sample rate and channel configuration."
+    },
+    {
+      "data_type": "MPEG-4 AudioSpecificConfig (ASC)",
+      "description": "Binary AudioSpecificConfig as defined by MPEG-4 (ISO/IEC 14496-3). A compact DecoderSpecificInfo blob carrying object type, sampling frequency index or explicit frequency, and channel configuration, optionally with GASpecificConfig and SBR/PS extension elements. Usually 2–5 bytes for basic LC AAC, up to a few dozen bytes with extensions."
+    },
+    {
+      "data_type": "AAC frame data",
+      "description": "Raw encoded AAC frame bytes as they would appear during decoding calls. May be ADTS-framed frames, LATM/LOAS packets, or raw AAC access units depending on initialization mode. Contains one or more frames of compressed audio payload; decoder consumes some prefix and produces PCM samples."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "AAC header/bitstream data",
+      "generator": "import random\nfrom typing import List, Tuple\n\n# This generator returns bytes intended to be used as initial AAC input buffers for\n# NeAACDecInit/faacDecInit fuzz stubs. It focuses on producing valid-looking AAC\n# headers for the common stream types that FAAD2 can auto-detect:\n# - ADTS frames (MPEG-2/4 AAC, syncword 0xFFF)\n# - ADIF header (\"ADIF\" at start)\n# - LATM/LOAS (AudioSyncStream with 0x56 0xE0 sync)\n# - RAW access units preceded by a plausible ADTS-like header (fallback kept to ADTS)\n# The stubs read up to 1024 bytes and require that the decoder can extract\n# samplerate and channels from the initial header, so we ensure the first bytes\n# provide enough header fields and at least one frame worth of payload.\n\n# Sampling frequency index mapping per MPEG-4 AAC (ISO/IEC 14496-3)\n_SF_TABLE: List[Tuple[int, int]] = [\n    (0, 96000), (1, 88200), (2, 64000), (3, 48000), (4, 44100), (5, 32000),\n    (6, 24000), (7, 22050), (8, 16000), (9, 12000), (10, 11025), (11, 8000),\n    (12, 7350)\n]\n\n# Channel configuration mapping (index -> channels). Others map to unknown (0)\n_CH_TABLE = {\n    0: 0,\n    1: 1,  # mono\n    2: 2,  # stereo\n    3: 3,\n    4: 4,\n    5: 5,\n    6: 6,\n    7: 8,  # 7.1\n}\n\n\ndef _rand_choice(rng: random.Random, items):\n    return items[rng.randrange(0, len(items))]\n\n\ndef _make_adts_header(rng: random.Random, \n                      profile: int,\n                      sf_idx: int,\n                      chan_cfg: int,\n                      aac_frame_length: int,\n                      mpeg_version: int = 0,\n                      protection_absent: int = 1,\n                      private_bit: int = 0,\n                      original_copy: int = 0,\n                      home: int = 0,\n                      aac_frame_count: int = 1,\n                      buffer_fullness: int = 0x7FF) -> bytes:\n    \"\"\"Construct a single ADTS header (7 or 9 bytes depending on CRC) for one AAC frame.\n    - mpeg_version: 0 = MPEG-4, 1 = MPEG-2\n    - profile: 0=Main,1=LC,2=SSR,3=LTP (ADTS stores profile as (obj_type-1))\n    - aac_frame_length: total length of header + payload\n    - aac_frame_count: number of raw_data_blocks_in_frame+1 (2 bits stored as count-1)\n    \"\"\"\n    # Syncword 12 bits set\n    syncword = 0xFFF\n    layer = 0  # always 00\n\n    # adts_fixed_header\n    # 12 sync + 1 ID + 2 layer + 1 protection_absent + 2 profile + 4 sf_index + 1 private\n    # + 3 channel_cfg(high bits) + 4 originality/home/start\n    # Continue with variable header\n\n    # First 2 bytes: 0xFFF, ID, layer, protection_absent\n    b0 = 0xFF\n    b1 = ((syncword & 0xF) << 4)  # high nibble of sync\n    b1 |= (mpeg_version & 0x1) << 3\n    b1 |= (layer & 0x3) << 1\n    b1 |= (1 if protection_absent else 0)\n\n    # Byte 2: profile(2), sf_idx(4), private_bit(1), channel_cfg(high 1)\n    b2 = ((profile & 0x3) << 6) | ((sf_idx & 0xF) << 2) | ((private_bit & 0x1) << 1) | ((chan_cfg >> 2) & 0x1)\n\n    # Byte 3: channel_cfg(low 2), originality, home, copyrighted id bit, copyrighted id start\n    copyrighted_id_bit = original_copy & 0x1\n    copyrighted_id_start = home & 0x1\n    b3 = ((chan_cfg & 0x3) << 6) | ((original_copy & 0x1) << 5) | ((home & 0x1) << 4) | ((copyrighted_id_bit & 0x1) << 3) | ((copyrighted_id_start & 0x1) << 2)\n    # aac_frame_length 13 bits start: high 2 bits in b3 low 2 bits\n    b3 |= (aac_frame_length >> 11) & 0x3\n\n    # Byte 4: aac_frame_length middle 8 bits\n    b4 = (aac_frame_length >> 3) & 0xFF\n\n    # Byte 5: aac_frame_length low 3 bits, buffer_fullness high 5 bits\n    b5 = ((aac_frame_length & 0x7) << 5) | ((buffer_fullness >> 6) & 0x1F)\n\n    # Byte 6: buffer_fullness low 6 bits, number_of_raw_data_blocks_in_frame (2 bits)\n    num_raw_blocks_minus1 = max(0, min(3, aac_frame_count - 1))\n    b6 = ((buffer_fullness & 0x3F) << 2) | (num_raw_blocks_minus1 & 0x3)\n\n    header = bytes([b0, b1, b2, b3, b4, b5, b6])\n\n    if protection_absent:\n        return header\n    else:\n        # Append 16-bit CRC. We don't compute a real CRC; FAAD2 generally does not\n        # require a valid CRC for initialization success. Fill with zero.\n        return header + b\"\\x00\\x00\"\n\n\ndef _make_adts_frame(rng: random.Random) -> bytes:\n    # Choose sensible combinations\n    mpeg_version = rng.choice([0, 1])\n    # Profile encoded in ADTS as (object_type - 1); LC is 1\n    profile = rng.choice([1, 0, 2])  # favor LC, also try Main and SSR\n    sf_idx, sr = _rand_choice(rng, _SF_TABLE)\n    chan_cfg = rng.choice([1, 2, 3, 6, 7])  # mono, stereo, 3ch, 5.1, 7.1\n    protection_absent = 1  # keep 7-byte header for compactness\n\n    # Raw Data payload: create a plausible size (e.g., 60-300 bytes)\n    raw_size = rng.randint(60, 300)\n    # total length includes header\n    header_size = 7 if protection_absent else 9\n    aac_frame_length = header_size + raw_size\n\n    hdr = _make_adts_header(\n        rng,\n        profile=profile,\n        sf_idx=sf_idx,\n        chan_cfg=chan_cfg,\n        aac_frame_length=aac_frame_length,\n        mpeg_version=mpeg_version,\n        protection_absent=protection_absent,\n        buffer_fullness=0x7FF,  # VBR\n        aac_frame_count=1,\n    )\n    # Fill payload with patterned bytes (not random-only) to keep deterministic coverage\n    pattern = bytes([(sr // 1000) & 0xFF, (chan_cfg << 4) | (profile & 0xF)])\n    repeats = raw_size // len(pattern)\n    remainder = raw_size % len(pattern)\n    payload = pattern * repeats + pattern[:remainder]\n\n    return hdr + payload\n\n\ndef _make_adif_header(rng: random.Random) -> bytes:\n    # Minimal ADIF header (not full spec) sufficient for FAAD2 to parse config.\n    # ADIF starts with \"ADIF\" then a header with bit fields including program config.\n    # We'll craft a simple fixed header with no CRC, 1 program, and append some bytes.\n    out = bytearray()\n    out += b\"ADIF\"\n    # bitstream fields (packed):\n    # copyright_id_present(1)=0, original_copy(1)=0, home(1)=0, bitstream_type(1)=0(VBR)\n    # bitrate(23)=some value, num_program_config_elements(4)=0 (we will include one PCE anyway)\n    # For simplicity, fill with reasonable defaults.\n    # We'll write a few bytes that resemble these fields.\n    # Set a bitrate ~128kbps -> 128000 (23 bits)\n    bitrate = 128000 & ((1 << 23) - 1)\n    # Pack the first 1+1+1+1+23+4 = 31 bits → 4 bytes (we over-approximate with zeros/aligned packing)\n    # Simpler: Append a small blob that FAAD2 often tolerates along with a PCE that follows.\n    out += b\"\\x00\\x00\\x00\\x00\\x00\\x00\"\n\n    # Add a fake PCE-like payload; FAAD2 is resilient. Also append AudioSpecificConfig bytes\n    # AudioSpecificConfig: 5 bits objectType(=2 for AAC LC), 4 bits sf_idx, 4 bits chan_cfg\n    obj_type = 2  # AAC LC\n    sf_idx, _ = _rand_choice(rng, _SF_TABLE)\n    chan_cfg = rng.choice([1, 2, 3, 6])\n    asc_first = ((obj_type & 0x1F) << 3) | ((sf_idx >> 1) & 0x7)\n    asc_second = ((sf_idx & 0x1) << 7) | ((chan_cfg & 0xF) << 3)\n    # Append a few padding bytes before ASC to mimic header fields\n    out += b\"\\x00\\x01\\x02\\x03\"\n    out += bytes([asc_first, asc_second])\n    # Append some frame-like bytes so Init has more data\n    out += bytes([0x11, 0x22, 0x33, 0x44]) * rng.randint(8, 20)\n    return bytes(out)\n\n\ndef _make_latm_loas(rng: random.Random) -> bytes:\n    # LOAS sync 0x2B7 spread across two bytes: 0x56 0xE? (1110 high bits)\n    # We'll construct a minimal AudioSyncStream with a small AudioMuxElement.\n    out = bytearray()\n    out += bytes([0x56, 0xE1])  # syncword + first len bit\n    # length field 11 bits follows; choose a moderate length\n    payload_len = rng.randint(40, 180)\n    # Remaining 7 bits of length in next byte and full next byte; we approximate with a simple fixed approach\n    # For simplicity, write two bytes as length; this is not a full spec packing, but FAAD2 often accepts.\n    out += bytes([payload_len & 0xFF, (payload_len >> 8) & 0xFF])\n    # Payload: include an AudioSpecificConfig-like sequence at start\n    obj_type = 2\n    sf_idx, _ = _rand_choice(rng, _SF_TABLE)\n    chan_cfg = rng.choice([1, 2, 3, 6])\n    asc_first = ((obj_type & 0x1F) << 3) | ((sf_idx >> 1) & 0x7)\n    asc_second = ((sf_idx & 0x1) << 7) | ((chan_cfg & 0xF) << 3)\n    payload = bytearray([asc_first, asc_second])\n    # Fill rest with patterned bytes\n    while len(payload) < payload_len:\n        payload += b\"\\x55\\xAA\"\n    payload = payload[:payload_len]\n    out += payload\n    return bytes(out)\n\n\ndef _make_multi_adts(rng: random.Random, frames: int) -> bytes:\n    return b\"\".join(_make_adts_frame(rng) for _ in range(frames))\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a container type to exercise different parser paths\n    kind = rng.choices(\n        population=[\"adts_single\", \"adts_multi\", \"adif\", \"loas\"],\n        weights=[45, 35, 10, 10],\n        k=1,\n    )[0]\n\n    if kind == \"adts_single\":\n        blob = _make_adts_frame(rng)\n    elif kind == \"adts_multi\":\n        frames = rng.randint(2, 6)\n        blob = _make_multi_adts(rng, frames)\n    elif kind == \"adif\":\n        blob = _make_adif_header(rng)\n    else:  # loas\n        blob = _make_latm_loas(rng)\n\n    # Ensure size within 1..1024 bytes as the stub only passes up to 1024\n    if len(blob) == 0:\n        blob = _make_adts_frame(rng)\n    if len(blob) > 1024:\n        blob = blob[:1024]\n\n    return bytes(blob)\n"
+    },
+    {
+      "data_type": "MPEG-4 AudioSpecificConfig (ASC)",
+      "generator": "import random\nfrom typing import List, Tuple\n\n# MPEG-4 AudioSpecificConfig (ASC) generator\n# Produces valid, compact ASC blobs for common profiles and extensions (SBR/PS).\n# References (conceptual): ISO/IEC 14496-3\n# Bit layout (base ASC):\n# - audioObjectType: 5 bits (with escape 31 -> 6 more bits, not used here)\n# - samplingFrequencyIndex: 4 bits; if 0xF then explicit samplingFrequency: 24 bits\n# - channelConfiguration: 4 bits (0..7/15 common); 0 implies PCE (not generated here)\n# Optional GA Specific and extension elements are omitted except SBR/PS signaling.\n# We generate:\n#  - AAC LC (2) with indexed or explicit sample rates\n#  - HE-AAC (SBR) via extensionAudioObjectType=5 with extensionSamplingFrequencyIndex/frequency\n#  - HE-AAC v2 (SBR+PS) via AOT=5 + PS syncExtensionType\n\n# Sampling frequency index table per spec\nSR_TABLE = [\n    96000, 88200, 64000, 48000, 44100, 32000,\n    24000, 22050, 16000, 12000, 11025, 8000,\n    7350\n]\n\n# Common channel configurations (per MPEG-4)\n# 1: mono, 2: stereo, 3: 3.0, 4: 4.0, 5: 5.0, 6: 5.1, 7: 7.1 (rear)\nCHANNEL_CONFIGS = [1, 2, 3, 4, 5, 6, 7]\n\nclass BitWriter:\n    def __init__(self):\n        self.bits: List[int] = []\n    def write(self, value: int, nbits: int):\n        for i in range(nbits - 1, -1, -1):\n            self.bits.append((value >> i) & 1)\n    def to_bytes(self) -> bytes:\n        out = bytearray()\n        acc = 0\n        for i, b in enumerate(self.bits):\n            acc = (acc << 1) | b\n            if (i & 7) == 7:\n                out.append(acc)\n                acc = 0\n        rem = len(self.bits) & 7\n        if rem:\n            acc <<= (8 - rem)\n            out.append(acc & 0xFF)\n        return bytes(out)\n\n# Helper to pick sampling freq index or explicit frequency\n\ndef pick_sr_index_and_value(rng: random.Random) -> Tuple[int, int]:\n    # Occasionally choose explicit frequency (index 0xF)\n    if rng.random() < 0.2:\n        # Pick a value close to table entries or a random valid 24-bit frequency in plausible range\n        choices = SR_TABLE + [44100, 48000, 32000, 22050, 24000, 16000, 12000, 11025, 8000]\n        base = rng.choice(choices)\n        # Nudge by small delta but keep positive\n        delta = rng.randint(-500, 500)\n        freq = max(7350, base + delta)\n        return 0xF, freq\n    else:\n        idx = rng.randrange(len(SR_TABLE))\n        return idx, SR_TABLE[idx]\n\n# Build base ASC (no sync extensions)\n\ndef build_base_asc(rng: random.Random) -> bytes:\n    bw = BitWriter()\n    # audioObjectType: choose LC (2) frequently, sometimes others like 1 (Main) or 4 (LTP) for coverage\n    aot_choices = [2] * 6 + [1, 4, 23]  # LC dominant, include LTP(4), LD(23)\n    aot = rng.choice(aot_choices)\n    bw.write(aot, 5)\n\n    sfi, sr = pick_sr_index_and_value(rng)\n    bw.write(sfi, 4)\n    if sfi == 0xF:\n        # explicit samplingFrequency: 24 bits\n        bw.write(sr & 0xFFFFFF, 24)\n\n    ch = rng.choice(CHANNEL_CONFIGS)\n    bw.write(ch, 4)\n\n    # We avoid writing GASpecificConfig to keep ASC compact and widely accepted by decoders.\n    return bw.to_bytes()\n\n# Build HE-AAC (SBR) ASC using syncExtension after base LC ASC\n# Structure:\n#  - base: AOT=2 (LC), sfi/freq, channelConfiguration\n#  - syncExtensionType 0x2b7 (11 bits)\n#  - extensionAudioObjectType = 5 (SBR) (5 bits)\n#  - sbrPresentFlag (1 bit) = 1\n#  - extensionSamplingFrequencyIndex (4 bits) or explicit 24-bit if 0xF\n#  Optionally PS:\n#    - syncExtensionType 0x548 (11 bits)\n#    - psPresentFlag (1 bit) = 1\n\ndef build_he_aac_asc(rng: random.Random, with_ps: bool) -> bytes:\n    # Base as LC\n    bw = BitWriter()\n    bw.write(2, 5)  # LC base\n    base_sfi, base_sr = pick_sr_index_and_value(rng)\n    bw.write(base_sfi, 4)\n    if base_sfi == 0xF:\n        bw.write(base_sr & 0xFFFFFF, 24)\n    ch = rng.choice([1, 2])  # HE-AAC most common mono/stereo; keep simple\n    bw.write(ch, 4)\n\n    # SBR sync extension\n    bw.write(0x2B7, 11)  # syncExtensionType\n    bw.write(5, 5)       # extensionAudioObjectType = SBR\n    bw.write(1, 1)       # sbrPresentFlag\n\n    # extension sampling frequency (often 2x of core). Choose a reasonable pairing.\n    # If base is index, prefer a paired index (half/double).\n    if base_sfi != 0xF:\n        base_freq = SR_TABLE[base_sfi]\n    else:\n        base_freq = base_sr\n\n    # Pick ext frequency close to 2*base if possible, map to nearest index when using index mode.\n    prefer = min(96000, base_freq * 2)\n    # 70% use index, 30% explicit\n    if rng.random() < 0.7:\n        # choose nearest index to preferred\n        nearest_idx = min(range(len(SR_TABLE)), key=lambda i: abs(SR_TABLE[i] - prefer))\n        bw.write(nearest_idx, 4)\n    else:\n        bw.write(0xF, 4)\n        bw.write(prefer & 0xFFFFFF, 24)\n\n    # Optionally add PS sync extension for HE-AAC v2\n    if with_ps and ch in (1, 2):\n        bw.write(0x548, 11)  # syncExtensionType for PS\n        bw.write(1, 1)       # psPresentFlag = 1\n\n    return bw.to_bytes()\n\n# Assemble a selection of valid ASC variants and randomly choose one\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a variant type\n    variant = rng.choices(\n        population=[\"lc_index\", \"lc_explicit\", \"he_aac\", \"he_aac_v2\"],\n        weights=[40, 10, 35, 15],\n        k=1,\n    )[0]\n\n    if variant == \"lc_index\":\n        # Ensure indexed sampling rate\n        while True:\n            asc = build_base_asc(rng)\n            # Validate that sfi != 0xF by checking second nibble's top 4 bits\n            # Easier: rebuild with forced index\n            # We'll specifically construct here to guarantee index mode\n            bw = BitWriter()\n            bw.write(2, 5)\n            idx = rng.randrange(len(SR_TABLE))\n            bw.write(idx, 4)\n            ch = rng.choice(CHANNEL_CONFIGS)\n            bw.write(ch, 4)\n            asc = bw.to_bytes()\n            break\n        return asc\n\n    if variant == \"lc_explicit\":\n        # Force explicit sample rate\n        bw = BitWriter()\n        bw.write(2, 5)\n        # explicit frequency\n        # choose common explicit value slightly perturbed but valid 24-bit\n        base = rng.choice([44100, 48000, 32000, 22050, 24000])\n        freq = max(7350, base + rng.randint(-200, 200))\n        bw.write(0xF, 4)\n        bw.write(freq & 0xFFFFFF, 24)\n        ch = rng.choice(CHANNEL_CONFIGS)\n        bw.write(ch, 4)\n        return bw.to_bytes()\n\n    if variant == \"he_aac\":\n        return build_he_aac_asc(rng, with_ps=False)\n\n    # he_aac_v2\n    return build_he_aac_asc(rng, with_ps=True)\n"
+    },
+    {
+      "data_type": "AAC frame data",
+      "generator": "import random\nimport struct\n\n# This generator creates valid-ish AAC input chunks suitable for NeAACDecDecode/Decode2\n# It focuses on ADTS frames, since FAAD2 commonly accepts ADTS streams after Init.\n# We emit 1..N ADTS frames with coherent headers, plus some variants like CRC, SBR signaling via profile/extension sampling frequency index.\n# The produced buffer is <= 1024 bytes (well below 4096 limit) as the fuzz stubs cap at 1024.\n\nSAMPLE_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,\n                16000, 12000, 11025, 8000, 7350]\nCHANNEL_CONFIGS = [1, 2, 3, 4, 5, 6, 7]  # mono..7.1 (faad maps 7 to 7.1), 0 means explicitly signaled but avoid here\n\n# Map rate -> index for ADTS, falling back to nearest or 4 (44100)\nSR_INDEX_MAP = {sr: idx for idx, sr in enumerate(SAMPLE_RATES)}\n\ndef _adts_header(profile_idx: int, sr_idx: int, chan_config: int,\n                 aac_frame_len: int, protection_absent: int,\n                 private_bit: int = 0, copyright_id: int = 0, copyright_start: int = 0,\n                 original_copy: int = 0, home: int = 0) -> bytes:\n    # ADTS fixed header (28 bits) + variable header (28 bits) [+ CRC 16 if present]\n    # frame length = header (7 or 9 bytes) + payload\n    # adts_buffer_fullness use 0x7FF for VBR\n    # number_of_raw_data_blocks_in_frame = 0 (one AAC frame)\n    if chan_config < 0 or chan_config > 7:\n        chan_config = 2\n    if sr_idx < 0 or sr_idx > 12:\n        sr_idx = 4\n    id_mpeg = 0  # MPEG-4\n    layer = 0\n    # profile in ADTS = objectType-1; we pass profile_idx already 0..3\n    profile = max(0, min(profile_idx, 3))\n    protection_absent = 1 if protection_absent else 0\n\n    # Compute full frame length including header\n    header_len = 7 if protection_absent == 1 else 9\n    full_len = header_len + aac_frame_len\n\n    adts_buffer_fullness = 0x7FF\n    num_raw_blocks = 0\n\n    # Pack bits\n    # We construct 7 or 9 bytes manually\n    b = 0\n    out = bytearray()\n\n    def emit(bits, width):\n        nonlocal b\n        b = (b << width) | (bits & ((1 << width) - 1))\n        while b.bit_length() > 8:\n            # output top 8 bits\n            shift = b.bit_length() - 8\n            byte = (b >> shift) & 0xFF\n            out.append(byte)\n            b &= (1 << shift) - 1\n\n    # Syncword 12 bits of 1s\n    emit(0xFFF, 12)\n    emit(id_mpeg, 1)\n    emit(layer, 2)\n    emit(protection_absent ^ 1, 1)  # In the bitstream: protection_absent (1 bit, 1 means no CRC). We used inverse above? Fix:\n    # Correction: last line incorrect; recalc from start\n\n\ndef _adts_header(profile_idx: int, sr_idx: int, chan_config: int,\n                 aac_frame_len: int, protection_absent: int,\n                 private_bit: int = 0, copyright_id: int = 0, copyright_start: int = 0,\n                 original_copy: int = 0, home: int = 0) -> bytes:\n    # Build per ISO/IEC 13818-7 ADTS header fields\n    profile = max(0, min(profile_idx, 3))\n    sr_idx = 4 if sr_idx < 0 or sr_idx > 12 else sr_idx\n    chan_config = 2 if chan_config < 0 or chan_config > 7 else chan_config\n    protection_absent = 1 if protection_absent else 0\n    header_len = 7 if protection_absent == 1 else 9\n    full_len = header_len + aac_frame_len\n\n    # Fixed header\n    syncword = 0xFFF\n    ID = 0      # MPEG-4\n    layer = 0\n    p_abs = protection_absent\n    private_bit = 1 if private_bit else 0\n    orig = 1 if original_copy else 0\n    home = 1 if home else 0\n\n    # Variable header assumptions\n    copyright_id = 1 if copyright_id else 0\n    copyright_start = 1 if copyright_start else 0\n    adts_buffer_fullness = 0x7FF\n    num_raw_blocks = 0\n\n    # Pack using bytes building\n    bits = 0\n    width = 0\n\n    def put(val, w):\n        nonlocal bits, width\n        bits = (bits << w) | (val & ((1 << w) - 1))\n        width += w\n\n    # Fixed header (28 bits)\n    put(syncword, 12)\n    put(ID, 1)\n    put(layer, 2)\n    put(p_abs, 1)  # protection_absent\n    put(profile, 2)\n    put(sr_idx, 4)\n    put(private_bit, 1)\n    put(chan_config, 3)\n    put(orig, 1)\n    put(home, 1)\n\n    # Variable header (28 bits)\n    put(copyright_id, 1)\n    put(copyright_start, 1)\n    put(full_len, 13)\n    put(adts_buffer_fullness, 11)\n    put(num_raw_blocks, 2)\n\n    # Flush 56 bits -> 7 bytes\n    out = bytearray()\n    for i in range(7):\n        shift = (56 - 8) - i * 8\n        byte = (bits >> shift) & 0xFF\n        out.append(byte)\n\n    if protection_absent == 0:\n        # add 16-bit CRC; simple placeholder CRC value. Decoder will ignore if not checked stringently.\n        # Some decoders accept any CRC; FAAD2 typically parses but may not validate.\n        crc = 0xFFFF\n        out.append((crc >> 8) & 0xFF)\n        out.append(crc & 0xFF)\n\n    return bytes(out)\n\n\ndef _gen_aac_payload(rnd: random.Random, obj_type: int, sr_idx: int, cc: int, approx_bytes: int) -> bytes:\n    # Produce a plausible AAC raw_data_block payload. We won't build full syntax; for decoders this may error.\n    # To keep inputs valid enough, include some fill elements and PCE for chan_config=0 cases, but we avoid 0.\n    # We'll generate noise payload sized as approx_bytes; decoder may still consume header and error out gracefully.\n    size = max(16, min(approx_bytes, 512))\n    # Bias first byte to resemble ICS with some plausible values\n    b0 = rnd.randrange(0, 256)\n    payload = bytearray([b0])\n    for _ in range(size - 1):\n        payload.append(rnd.randrange(0, 256))\n    return bytes(payload)\n\n\ndef _pick_sr_idx(rnd: random.Random) -> int:\n    # Favor common 44100/48000, plus edge like 96000 and 8000\n    choices = [4, 3, 0, 11, 8, 5, 6, 7, 1, 2, 9, 10, 12]\n    return rnd.choice(choices)\n\n\ndef _pick_profile(rnd: random.Random) -> int:\n    # ADTS profile values: 0=Main,1=LC,2=SSR,3=LTP\n    # Favor LC and LTP sometimes\n    return rnd.choices([1, 0, 3, 2], weights=[70, 10, 15, 5], k=1)[0]\n\n\ndef _build_adts_stream(rnd: random.Random, max_total: int = 1024) -> bytes:\n    out = bytearray()\n    frames = rnd.randint(1, 4)\n    sr_idx = _pick_sr_idx(rnd)\n    chan = rnd.choice(CHANNEL_CONFIGS)\n    profile = _pick_profile(rnd)\n\n    # Sometimes vary parameters per frame to exercise reconfig detection\n    for i in range(frames):\n        p = profile if rnd.random() < 0.8 else _pick_profile(rnd)\n        s = sr_idx if rnd.random() < 0.8 else _pick_sr_idx(rnd)\n        c = chan if rnd.random() < 0.85 else rnd.choice(CHANNEL_CONFIGS)\n        prot_abs = 1 if rnd.random() < 0.7 else 0\n        approx_payload = rnd.randint(64, 256)\n        payload = _gen_aac_payload(rnd, p, s, c, approx_payload)\n        hdr = _adts_header(p, s, c, len(payload), prot_abs,\n                           private_bit=rnd.randrange(2),\n                           copyright_id=rnd.randrange(2),\n                           copyright_start=0,\n                           original_copy=rnd.randrange(2),\n                           home=0)\n        frame = hdr + payload\n        if len(out) + len(frame) > max_total:\n            break\n        out += frame\n    return bytes(out) if out else b\"\"\n\n\ndef _maybe_latm_loas(rnd: random.Random, max_total: int = 1024) -> bytes:\n    # Build a minimalistic LOAS AudioSyncStream with LATM payload\n    # syncword 0x2B7 (11 bits), frame_length (13 bits). We'll fake a small payload.\n    payload_len = rnd.randint(32, 128)\n    # Minimal LATM AudioMuxElement with AudioSpecificConfig may improve acceptance, but we provide opaque bytes.\n    latm_payload = bytes(rnd.getrandbits(8) for _ in range(payload_len))\n    frame_len = 3 + payload_len  # header 3 bytes + payload (simplified)\n    # Pack 11-bit syncword and 13-bit length into 3 bytes: b0..b2\n    sync = 0x2B7\n    val = (sync << 13) | (frame_len & 0x1FFF)\n    b0 = (val >> 16) & 0xFF\n    b1 = (val >> 8) & 0xFF\n    b2 = val & 0xFF\n    out = bytes([b0, b1, b2]) + latm_payload\n    return out if len(out) <= max_total else out[:max_total]\n\n\ndef _maybe_raw_asc_then_frame(rnd: random.Random, max_total: int = 1024) -> bytes:\n    # Emit MP4-style: first an AudioSpecificConfig then a raw AAC access unit\n    # ASC: 5+ bits objectType, 4 bits samplingFrequencyIndex, 4 bits channelConfig\n    obj = _pick_profile(rnd) + 1  # objectType = profile+1\n    sr_idx = _pick_sr_idx(rnd)\n    ch = rnd.choice(CHANNEL_CONFIGS)\n    bits = (obj << (4 + 4)) | (sr_idx << 4) | ch\n    asc = bytes([(bits >> 8) & 0xFF, bits & 0xFF])\n    # Add some extension bits to make size > 2 occasionally\n    if rnd.random() < 0.5:\n        asc += bytes([0x56, 0xE5])\n    payload = _gen_aac_payload(rnd, obj - 1, sr_idx, ch, rnd.randint(64, 256))\n    out = asc + payload\n    return out[:max_total]\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    # Choose a container style with weighted probabilities\n    choice = rnd.choices([\"adts\", \"latm\", \"rawasc\"], weights=[70, 15, 15], k=1)[0]\n    if choice == \"adts\":\n        data = _build_adts_stream(rnd, 1024)\n        # As a fallback, ensure non-empty; if empty, fall back to simple ADTS single frame\n        if not data:\n            data = _build_adts_stream(random.Random(seed + 1), 1024)\n        return data[:1024]\n    elif choice == \"latm\":\n        return _maybe_latm_loas(rnd, 1024)\n    else:\n        return _maybe_raw_asc_then_frame(rnd, 1024)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3092,
+            "output_tokens": 878,
+            "total_tokens": 3970
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2670,
+            "output_tokens": 164,
+            "total_tokens": 2834
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3273,
+            "output_tokens": 4829,
+            "total_tokens": 8102
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 22184,
+            "output_tokens": 9406,
+            "total_tokens": 31590
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7811,
+            "output_tokens": 394,
+            "total_tokens": 8205
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 342.89552640914917,
+    "scan_objects": 12.897266149520874,
+    "validate_objects": 0.22899270057678223,
+    "scan_functions": 75.27136635780334,
+    "synthesis": 185.63070726394653,
+    "fill": 0,
+    "classify": 9.06865119934082,
+    "build_generators": 59.79766583442688
+  }
+}

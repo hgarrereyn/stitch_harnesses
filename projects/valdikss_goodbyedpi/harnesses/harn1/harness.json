@@ -1,0 +1,206 @@
+{
+  "objects": [
+    {
+      "ptr_type": "UT_hash_bucket *",
+      "aliases": [],
+      "definition": "typedef struct UT_hash_bucket {\n   struct UT_hash_handle *hh_head;\n   unsigned count;\n\n   /* expand_mult is normally set to 0. In this situation, the max chain length\n    * threshold is enforced at its default value, HASH_BKT_CAPACITY_THRESH. (If\n    * the bucket's chain exceeds this length, bucket expansion is triggered).\n    * However, setting expand_mult to a non-zero value delays bucket expansion\n    * (that would be triggered by additions to this particular bucket)\n    * until its chain length reaches a *multiple* of HASH_BKT_CAPACITY_THRESH.\n    * (The multiplier is simply expand_mult+1). The whole idea of this\n    * multiplier is to reduce bucket expansions, since they are expensive, in\n    * situations where we know that a particular bucket tends to be overused.\n    * It is better to let its chain length grow to a longer yet-still-bounded\n    * value, than to do an O(n) bucket expansion too often.\n    */\n   unsigned expand_mult;\n\n} UT_hash_bucket;",
+      "description": "Bucket structure used internally by uthash; represents a single bucket in the hash table and holds the head of the bucket's collision chain, item count, and an expansion multiplier to influence bucket growth policy.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "UT_hash_table *"
+      ]
+    },
+    {
+      "ptr_type": "UT_hash_table *",
+      "aliases": [],
+      "definition": "typedef struct UT_hash_table {\n   UT_hash_bucket *buckets;\n   unsigned num_buckets, log2_num_buckets;\n   unsigned num_items;\n   struct UT_hash_handle *tail; /* tail hh in app order, for fast append    */\n   ptrdiff_t hho; /* hash handle offset (byte pos of hash handle in element */\n\n   /* in an ideal situation (all buckets used equally), no bucket would have\n    * more than ceil(#items/#buckets) items. that's the ideal chain length. */\n   unsigned ideal_chain_maxlen;\n\n   /* nonideal_items is the number of items in the hash whose chain position\n    * exceeds the ideal chain maxlen. these items pay the penalty for an uneven\n    * hash distribution; reaching them in a chain traversal takes >ideal steps */\n   unsigned nonideal_items;\n\n   /* ineffective expands occur when a bucket doubling was performed, but\n    * afterward, more than half the items in the hash had nonideal chain\n    * positions. If this happens on two consecutive expansions we inhibit any\n    * further expansion, as it's not helping; this happens when the hash\n    * function isn't a good fit for the key domain. When expansion is inhibited\n    * the hash will still work, albeit no longer in constant time. */\n   unsigned ineff_expands, noexpand;\n\n   uint32_t signature; /* used only to find hash tables in external analysis */\n#ifdef HASH_BLOOM\n   uint32_t bloom_sig; /* used only to test bloom exists in external analysis */\n   uint8_t *bloom_bv;\n   uint8_t bloom_nbits;\n#endif\n\n} UT_hash_table;",
+      "description": "Core uthash table metadata. Manages bucket array, counts, handle offset, and optional bloom filter data. Typically allocated and managed internally via macros; user code doesn't create this directly.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "UT_hash_handle *"
+      ]
+    },
+    {
+      "ptr_type": "UT_hash_handle *",
+      "aliases": [],
+      "definition": "typedef struct UT_hash_handle {\n   struct UT_hash_table *tbl;\n   void *prev;                       /* prev element in app order      */\n   void *next;                       /* next element in app order      */\n   struct UT_hash_handle *hh_prev;   /* previous hh in bucket order    */\n   struct UT_hash_handle *hh_next;   /* next hh in bucket order        */\n   const void *key;                  /* ptr to enclosing struct's key  */\n   unsigned keylen;                  /* enclosing struct's key len     */\n   unsigned hashv;                   /* result of hash-fcn(key)        */\n} UT_hash_handle;",
+      "description": "Per-element hash linkage inserted into user-defined structs to make them hashable with uthash. Stores links for bucket chain and app-order list, key pointer/length, hash value, and back-pointer to the owning table.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "repl_str",
+      "signature": "char *repl_str(const char *str, const char *from, const char *to);",
+      "description": "Replace occurrences of substring \"from\" in the input string \"str\" with \"to\" and return a char* to the resulting string. Typical usage is string find-and-replace; ownership/allocation of the returned buffer is not documented here and is therefore unknown. Case sensitivity, behavior when \"from\" is empty, and limits on replacement count are also not documented and thus unknown.",
+      "requirements": [
+        "str must be a valid pointer to a NUL-terminated string.",
+        "from must be a valid pointer to a NUL-terminated string.",
+        "to must be a valid pointer to a NUL-terminated string.",
+        "Returned pointer ownership, allocation method, and required deallocation are unknown from this header; callers should inspect the implementation or documentation before freeing.",
+        "Behavior when \"from\" is an empty string is unspecified in this header and may cause undefined behavior in some implementations."
+      ],
+      "error": null
+    },
+    {
+      "name": "getdelim",
+      "signature": "ssize_t getdelim(char **lineptr, size_t *n, int delimiter, FILE *stream);",
+      "description": "Read a line of input from stream, delimited by the specified delimiter character, into a buffer managed via lineptr and n. On success, returns the number of bytes read (including the delimiter if encountered, excluding the terminating NUL) and ensures *lineptr points to a NUL-terminated buffer large enough to hold the data. This is the standard POSIX getdelim behavior; this header declares it conditionally when the platform lacks it.",
+      "requirements": [
+        "lineptr must be non-NULL and must point to a char* variable.",
+        "n must be non-NULL and must point to a size_t variable indicating the size of the buffer referenced by *lineptr.",
+        "If *lineptr is NULL or *n is 0, the function will allocate a buffer; on success the caller is responsible for freeing *lineptr with free().",
+        "If *lineptr is not NULL and *n > 0, *lineptr must point to a buffer of at least *n bytes; the function may realloc this buffer to grow it. After a successful call, *lineptr and *n may be updated and the old buffer may be invalid.",
+        "stream must be a valid FILE* opened for reading.",
+        "delimiter is an int; only the low-order unsigned char is used as the delimiter.",
+        "On success, returns the number of bytes read as a non-negative ssize_t; on failure or end-of-file before any bytes are read, returns -1 and may set errno.",
+        "The resulting buffer is NUL-terminated."
+      ],
+      "error": null
+    },
+    {
+      "name": "getline",
+      "signature": "ssize_t getline(char **lineptr, size_t *n, FILE *stream);",
+      "description": "Read an entire line from stream, delimited by a newline ('\\n'), into a buffer managed via lineptr and n. On success, returns the number of bytes read (including the newline if present, excluding the terminating NUL) and ensures *lineptr points to a NUL-terminated buffer large enough to hold the data. This is the standard POSIX getline behavior; this header declares it conditionally when the platform lacks it.",
+      "requirements": [
+        "lineptr must be non-NULL and must point to a char* variable.",
+        "n must be non-NULL and must point to a size_t variable indicating the size of the buffer referenced by *lineptr.",
+        "If *lineptr is NULL or *n is 0, the function will allocate a buffer; on success the caller is responsible for freeing *lineptr with free().",
+        "If *lineptr is not NULL and *n > 0, *lineptr must point to a buffer of at least *n bytes; the function may realloc this buffer to grow it. After a successful call, *lineptr and *n may be updated and the old buffer may be invalid.",
+        "stream must be a valid FILE* opened for reading.",
+        "On success, returns the number of bytes read as a non-negative ssize_t; on failure or end-of-file before any bytes are read, returns -1 and may set errno.",
+        "The resulting buffer is NUL-terminated."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "repl_str",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate NUL-terminated input strings via the fuzzer runtime.\nstd::string s_str = FUZZ_PARAM_STR();\nstd::string s_from = FUZZ_PARAM_STR();\nstd::string s_to = FUZZ_PARAM_STR();\n\n// Enforce documented requirements: parameters must be valid C strings.\n// FUZZ_PARAM_STR() guarantees non-empty and NUL-terminated via c_str().\n// Behavior for empty \"from\" is unspecified; bail out to avoid UB.\nif (s_from.empty()) { FUZZ_BAIL(); }\n\nconst char *str = s_str.c_str();\nconst char *from = s_from.c_str();\nconst char *to = s_to.c_str();\n\n// Call target function. Ownership of the returned buffer is unknown; do not free it here.\nchar *out = repl_str(str, from, to);\n\n// If the implementation signals failure by returning NULL, bail.\nif (!out) { FUZZ_BAIL(); }\n\n// Optionally sanity-check that the output looks like a C string by probing for a NUL\n// within a bounded window; skip strict assertions since allocation/ownership are unknown.\n// No further actions to avoid leaks/double-frees; the harness runtime will reclaim process memory on reset.\n\n// Validation: Inputs are valid NUL-terminated strings; we avoid empty \"from\"; we accept either success (non-NULL) or bail on NULL."
+    },
+    {
+      "name": "getdelim",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare stream with random file data.\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *stream = fopen(path, \"rb\");\nif (!stream) { FUZZ_BAIL(); }\n\n// Decide initial buffer state: either let getdelim allocate, or provide a preallocated buffer.\nunsigned int choice = *FUZZ_PARAM(unsigned int);\nchar *lineptr_local = nullptr;\nsize_t n_local = 0;\n\nif ((choice & 1u) != 0u) {\n    // Provide an initial buffer in [1, 1024] bytes.\n    size_t cap = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\n    lineptr_local = (char *)malloc(cap);\n    if (!lineptr_local) { fclose(stream); FUZZ_BAIL(); }\n    // Fill with random data to catch code that assumes initial contents.\n    for (size_t i = 0; i < cap; ++i) { lineptr_local[i] = (char)(*FUZZ_PARAM(unsigned int) & 0xFF); }\n    // Ensure it's still a valid C buffer by keeping a trailing NUL somewhere.\n    lineptr_local[cap - 1] = '\\0';\n    n_local = cap;\n}\n\nchar *lp = lineptr_local;\nsize_t n = n_local;\n\n// Choose a delimiter; only low-order unsigned char is used.\nint delimiter = (int)(*FUZZ_PARAM(unsigned int) & 0xFF);\n\n// Call target function.\nssize_t r = getdelim(&lp, &n, delimiter, stream);\n\n// Postconditions and cleanup.\nif (r >= 0) {\n    // On success, lp must be non-NULL and the buffer must be NUL-terminated at index r.\n    FUZZ_ASSERT(lp != nullptr, \"getdelim succeeded but *lineptr is NULL\");\n    FUZZ_ASSERT(lp[(size_t)r] == '\\0', \"getdelim result is not NUL-terminated at reported length\");\n}\n\n// Free any allocated buffer (either our own or the one allocated/realloc'd by getdelim on success).\nif (lp) { free(lp); }\n\nfclose(stream);\n\n// Validation: Enforced non-NULL pointers, valid FILE*, and delimiter constraints; asserted POSIX postconditions on success and cleaned up allocations/stream."
+    },
+    {
+      "name": "getline",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare stream with random file data.\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *stream = fopen(path, \"rb\");\nif (!stream) { FUZZ_BAIL(); }\n\n// Decide initial buffer state: either let getline allocate, or provide a preallocated buffer.\nunsigned int choice = *FUZZ_PARAM(unsigned int);\nchar *lineptr_local = nullptr;\nsize_t n_local = 0;\n\nif ((choice & 1u) != 0u) {\n    // Provide an initial buffer in [1, 1024] bytes.\n    size_t cap = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\n    lineptr_local = (char *)malloc(cap);\n    if (!lineptr_local) { fclose(stream); FUZZ_BAIL(); }\n    for (size_t i = 0; i < cap; ++i) { lineptr_local[i] = (char)(*FUZZ_PARAM(unsigned int) & 0xFF); }\n    lineptr_local[cap - 1] = '\\0';\n    n_local = cap;\n}\n\nchar *lp = lineptr_local;\nsize_t n = n_local;\n\n// Call target function.\nssize_t r = getline(&lp, &n, stream);\n\n// Postconditions and cleanup.\nif (r >= 0) {\n    FUZZ_ASSERT(lp != nullptr, \"getline succeeded but *lineptr is NULL\");\n    FUZZ_ASSERT(lp[(size_t)r] == '\\0', \"getline result is not NUL-terminated at reported length\");\n}\n\nif (lp) { free(lp); }\n\nfclose(stream);\n\n// Validation: Enforced valid FILE*; handled both allocation modes; asserted POSIX postconditions on success and cleaned up all resources."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "repl_str",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "getdelim",
+      "data_types": [
+        "arbitrary binary file data"
+      ]
+    },
+    {
+      "name": "getline",
+      "data_types": [
+        "text file with newlines"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "C string",
+      "description": "A NUL-terminated byte string as used by C APIs. May contain any bytes except the terminating NUL; typical expectation is readable text but binary-safe up to the first NUL. Provided via std::string::c_str() in the stub."
+    },
+    {
+      "data_type": "arbitrary binary file data",
+      "description": "A file whose contents are arbitrary bytes (0x00–0xFF) with no format guarantees. Suitable for functions that read raw streams or parse data with custom delimiters."
+    },
+    {
+      "data_type": "text file with newlines",
+      "description": "A file intended to represent textual data where lines are separated by newline characters (\\n). Bytes may be arbitrary, but the presence or absence of newlines affects line-oriented readers like getline."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "C string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets C strings consumed by repl_str(str, from, to).\n# The fuzzer stub pulls three strings from a single buffer source, so we\n# emit them concatenated with NUL separators: str\\0from\\0to\\0\n# Requirements:\n# - All are valid NUL-terminated C strings.\n# - s_from must be non-empty (stub bails if empty).\n# Strategy:\n# - Create diverse cases for find/replace behavior:\n#   * No-op (from not present), single/multiple replacements, overlapping-like patterns,\n#     prefix/suffix replacements, entire-string replacement, special chars, long strings.\n#   * \"to\" may be shorter, equal, longer than \"from\" to exercise allocation growth/shrink.\n# - Ensure total buffer <= 4096 bytes.\n\nMAX_TOTAL = 4096\n\nPRINTABLE = string.ascii_letters + string.digits + string.punctuation + \" \"\n\n\ndef _rand_printable(r: random.Random, min_len: int, max_len: int) -> str:\n    n = r.randint(min_len, max_len)\n    return \"\".join(r.choice(PRINTABLE) for _ in range(n))\n\n\ndef _repeat_pattern(r: random.Random, unit: str, repeats_range=(1, 50)) -> str:\n    k = r.randint(*repeats_range)\n    return unit * k\n\n\ndef _make_overlapping_case(r: random.Random) -> tuple[str, str, str]:\n    # Example: str=\"aaaaa\", from=\"aa\", to=\"b\" or \"aaa\" to stress step/overlap handling.\n    a = r.choice(\"abc\")\n    base = a * r.randint(3, 50)\n    frm = a * r.randint(1, 3)\n    # Ensure from occurs and is non-empty\n    if len(frm) == 0:\n        frm = a\n    to_choices = [\n        r.choice(\"xyz\") * r.randint(1, 3),\n        a * r.randint(1, 4),\n        _rand_printable(r, 1, 6),\n    ]\n    to = r.choice(to_choices)\n    return base, frm, to\n\n\ndef _make_word_boundary_case(r: random.Random) -> tuple[str, str, str]:\n    # Replace a word in a sentence-like string\n    words = [\n        \"alpha\", \"beta\", \"gamma\", \"delta\", \"epsilon\",\n        \"foo\", \"bar\", \"baz\", \"qux\", \"quux\", \"corge\"\n    ]\n    target = r.choice(words)\n    # Build sentence with multiple occurrences\n    tokens = []\n    for _ in range(r.randint(3, 20)):\n        w = r.choice(words)\n        if r.random() < 0.4:\n            w = target\n        tokens.append(w)\n    sep = r.choice([\" \", \", \", \"; \", \"|\", \"\\t\"])  # include some separators\n    s = sep.join(tokens)\n    frm = target\n    to = r.choice(words + [target.upper(), target*2, target[:2], \"X\", \"\"])  # allow empty replacement\n    return s, frm, to\n\n\ndef _make_prefix_suffix_case(r: random.Random) -> tuple[str, str, str]:\n    base = _rand_printable(r, 5, 40)\n    prefix = _rand_printable(r, 1, 6)\n    suffix = _rand_printable(r, 1, 6)\n    variant = r.choice([\"prefix\", \"suffix\", \"both\", \"none\"])\n    s = base\n    if variant in (\"prefix\", \"both\"):\n        s = prefix + s\n    if variant in (\"suffix\", \"both\"):\n        s = s + suffix\n    frm = prefix if r.random() < 0.5 else suffix\n    to_len_relation = r.choice([\"shorter\", \"equal\", \"longer\"]) \n    if to_len_relation == \"shorter\":\n        to = _rand_printable(r, 0, max(0, len(frm)-1)) if len(frm) > 0 else \"\"\n    elif to_len_relation == \"equal\":\n        to = _rand_printable(r, len(frm), len(frm)) if len(frm) > 0 else \"\"\n    else:\n        to = _rand_printable(r, len(frm)+1, len(frm)+6) if len(frm) > 0 else _rand_printable(r, 1, 6)\n    # Ensure from appears at least once\n    if frm not in s:\n        s = frm + s + frm\n    return s, frm, to\n\n\ndef _make_entire_string_case(r: random.Random) -> tuple[str, str, str]:\n    s = _rand_printable(r, 1, 60)\n    frm = s  # whole string replacement\n    to = _rand_printable(r, 0, 80)\n    return s, frm, to\n\n\ndef _make_binary_like_case(r: random.Random) -> tuple[str, str, str]:\n    # Include non-printable except NUL; use bytes in range 1..255 avoiding NUL\n    def rand_bytes(n: int) -> bytes:\n        return bytes([r.randint(1, 255) for _ in range(n)])\n    s = rand_bytes(r.randint(10, 120)).decode('latin1')\n    start = r.randint(0, max(0, len(s) - 2))\n    end = min(len(s), start + r.randint(1, 6))\n    frm = s[start:end]\n    if len(frm) == 0:\n        frm = chr(r.randint(1, 255))\n    to = rand_bytes(r.randint(0, 16)).decode('latin1')\n    return s, frm, to\n\n\ndef _make_long_multi_replace_case(r: random.Random) -> tuple[str, str, str]:\n    unit = _rand_printable(r, 1, 8)\n    s = _repeat_pattern(r, unit, (20, 400))\n    # Choose a sub-fragment of the unit to ensure many hits\n    if len(unit) == 1:\n        frm = unit\n    else:\n        i = r.randint(0, len(unit) - 1)\n        j = r.randint(i + 1, len(unit))\n        frm = unit[i:j]\n    # to length varies\n    to = _rand_printable(r, 0, 12)\n    return s, frm, to\n\n\ndef _ensure_non_empty_from(triple: tuple[str, str, str], r: random.Random) -> tuple[str, str, str]:\n    s, frm, to = triple\n    if frm == \"\":\n        # replace with a character likely present\n        frm = r.choice(string.ascii_lowercase or \"a\")\n        if frm not in s:\n            s = frm + s\n    return s, frm, to\n\n\ndef _clip_total(s: str, frm: str, to: str) -> tuple[str, str, str]:\n    # Keep total bytes with three NULs under MAX_TOTAL\n    overhead = 3  # three terminators\n    max_payload = MAX_TOTAL - overhead\n    # If too long, truncate s first, then frm, then to\n    encoded_len = len(s.encode('latin1', 'ignore')) + len(frm.encode('latin1', 'ignore')) + len(to.encode('latin1', 'ignore'))\n    if encoded_len <= max_payload:\n        return s, frm, to\n    # Truncate proportionally\n    parts = [s, frm, to]\n    lens = [len(x) for x in parts]\n    total = sum(lens)\n    if total == 0:\n        return s, frm, to\n    scale = max_payload / total\n    new_parts: List[str] = []\n    for i, x in enumerate(parts):\n        new_len = max(0, min(len(x), int(len(x) * scale)))\n        new_parts.append(x[:new_len])\n    return tuple(new_parts)  # type: ignore\n\n\ndef _assemble(s: str, frm: str, to: str) -> bytes:\n    # Encode using latin1 to preserve raw bytes 1..255; avoid NUL injection inside strings\n    # Ensure no embedded NULs: replace any accidental NUL with '\\x01'\n    def sanitize(t: str) -> bytes:\n        b = t.encode('latin1', 'ignore')\n        return b.replace(b\"\\x00\", b\"\\x01\")\n    bs = sanitize(s)\n    bfrom = sanitize(frm)\n    bto = sanitize(to)\n    return bs + b\"\\x00\" + bfrom + b\"\\x00\" + bto + b\"\\x00\"\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    makers = [\n        _make_overlapping_case,\n        _make_word_boundary_case,\n        _make_prefix_suffix_case,\n        _make_entire_string_case,\n        _make_binary_like_case,\n        _make_long_multi_replace_case,\n    ]\n    s, frm, to = _ensure_non_empty_from(r.choice(makers)(r), r)\n    s, frm, to = _clip_total(s, frm, to)\n    buf = _assemble(s, frm, to)\n    # As an extra guard, ensure size limit\n    if len(buf) > MAX_TOTAL:\n        buf = buf[:MAX_TOTAL-1] + b\"\\x00\"\n    return buf\n"
+    },
+    {
+      "data_type": "arbitrary binary file data",
+      "generator": "import random\nimport os\nimport struct\n\n# Generator for interesting arbitrary binary file data aimed at exercising getdelim\n# behaviors with various delimiters and buffer growth patterns. The file\n# may contain many lines separated by a wide variety of delimiter bytes,\n# including edge cases like NUL, newline, high-bit values, and long runs\n# without delimiters to force realloc/growth.\n\nMAX_SIZE = 4096\n\nCOMMON_DELIMS = [\n    0x0A,  # \\n\n    0x00,  # NUL\n    0x0D,  # \\r\n    0x09,  # \\t\n    0xFF,  # 255\n    0x7F,  # DEL\n    0x3A,  # ':'\n    0x7C,  # '|'\n    0x2C,  # ','\n]\n\nPRINTABLES = [i for i in range(0x20, 0x7F)]\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _chunk_plain(rng: random.Random, length: int) -> bytes:\n    # Mostly printable with occasional binary noise\n    out = bytearray()\n    for _ in range(length):\n        if rng.random() < 0.10:\n            out.append(rng.randrange(256))\n        else:\n            out.append(rng.choice(PRINTABLES))\n    return bytes(out)\n\n\ndef _chunk_repeated(rng: random.Random, byte_val: int, length: int) -> bytes:\n    return bytes([byte_val]) * length\n\n\ndef _chunk_increasing(rng: random.Random, length: int, start: int | None = None) -> bytes:\n    if start is None:\n        start = rng.randrange(256)\n    return bytes(((start + i) & 0xFF) for i in range(length))\n\n\ndef _chunk_patterned(rng: random.Random, length: int) -> bytes:\n    # Mix of small integers, UTF-8-like, and boundary bytes\n    pattern = [0x00, 0xFF, 0x01, 0x7F, 0x80, 0xC2, 0xA9, 0xE2, 0x82, 0xAC]\n    out = bytearray()\n    for _ in range(length):\n        if rng.random() < 0.6:\n            out.append(rng.choice(pattern))\n        else:\n            out.append(rng.randrange(256))\n    return bytes(out)\n\n\ndef _with_delimiter(rng: random.Random, data: bytes, delim: int | None) -> bytes:\n    if delim is None:\n        return data\n    return data + bytes([delim])\n\n\ndef _make_section(rng: random.Random, target_delim: int | None, max_payload: int) -> bytes:\n    # Build one or more chunks and optionally terminate with target_delim.\n    # Lengths chosen to cover small, medium, and large reads.\n    out = bytearray()\n\n    # Number of chunks within a section\n    chunks = rng.randint(1, 4)\n    for i in range(chunks):\n        # Choose chunk strategy\n        strategy = rng.choice([\n            'plain', 'repeated', 'increasing', 'patterned', 'random'\n        ])\n        # Choose size profiles; include sizes around typical realloc thresholds\n        size_profile = rng.choice([\n            rng.randint(0, 8),        # tiny\n            rng.randint(9, 32),       # small\n            rng.randint(33, 256),     # medium\n            rng.randint(257, 1024),   # large\n        ])\n        size = min(size_profile, max_payload - len(out))\n        if size <= 0:\n            break\n\n        if strategy == 'plain':\n            out += _chunk_plain(rng, size)\n        elif strategy == 'repeated':\n            out += _chunk_repeated(rng, rng.randrange(256), size)\n        elif strategy == 'increasing':\n            out += _chunk_increasing(rng, size)\n        elif strategy == 'patterned':\n            out += _chunk_patterned(rng, size)\n        else:\n            out += _rand_bytes(rng, size)\n\n    # Occasionally insert the delimiter within payload to create multiple reads\n    if target_delim is not None and len(out) > 0 and rng.random() < 0.3:\n        insert_pos = rng.randrange(0, len(out))\n        out[insert_pos:insert_pos] = bytes([target_delim])\n\n    # Optionally end section with delimiter to finalize the line for that delimiter\n    if rng.random() < 0.8:\n        out = bytearray(_with_delimiter(rng, bytes(out), target_delim))\n\n    # Occasionally inject a different delimiter inside to vary behavior when\n    # the fuzzer chooses a non-matching delimiter.\n    if rng.random() < 0.25:\n        other = rng.choice(COMMON_DELIMS)\n        if target_delim is None or other != target_delim:\n            if len(out) < max_payload:\n                out += bytes([other])\n\n    return bytes(out[:max_payload])\n\n\ndef _build_file(rng: random.Random) -> bytes:\n    # Choose a primary delimiter we will feature in the file, but also include\n    # other delimiters to exercise mismatch cases.\n    primary_delim = rng.choice(COMMON_DELIMS + [rng.randrange(256)])\n\n    # Plan total size under MAX_SIZE with some variability\n    target_size = rng.randint(128, MAX_SIZE)\n\n    out = bytearray()\n\n    # Header: include hints and edge bytes to test initial reads\n    header_modes = [\n        b\"\",                       # no header\n        b\"# header\\n\",             # text header\n        b\"\\x00\\x00\\x00\\x00\",       # leading NULs\n        b\"BOM\\xEF\\xBB\\xBF\",         # pseudo-BOM tag\n        b\"LEN\",                      # token\n    ]\n    header = rng.choice(header_modes)\n    out += header\n\n    # Optionally include a length-prefixed binary block to create long segments\n    if rng.random() < 0.5:\n        block_len = rng.randint(32, 512)\n        # 4-byte little-endian length then content without the primary delimiter\n        out += struct.pack('<I', block_len)\n        block = bytearray(_rand_bytes(rng, block_len))\n        # Reduce chance of accidental primary delimiter to create long read regions\n        for i in range(len(block)):\n            if block[i] == primary_delim and rng.random() < 0.85:\n                block[i] = (block[i] + 1) & 0xFF\n        out += block\n        # Sometimes terminate with the primary delimiter\n        if rng.random() < 0.7:\n            out += bytes([primary_delim])\n\n    # Generate multiple sections aimed at mixing delimiter presence and absence\n    while len(out) < target_size:\n        # Sometimes choose no delimiter to force EOF-terminated line\n        use_delim = primary_delim if rng.random() < 0.75 else None\n        remaining = target_size - len(out)\n        sec = _make_section(rng, use_delim, max_payload=min(1024, remaining))\n        if not sec:\n            break\n        out += sec\n\n        # Occasionally add very long delimiter-free region to test growth\n        if rng.random() < 0.2 and len(out) < target_size:\n            long_len = min(rng.randint(256, 1200), target_size - len(out))\n            # Avoid primary delimiter deliberately\n            chunk = bytearray(_rand_bytes(rng, long_len))\n            if use_delim is not None:\n                for i in range(len(chunk)):\n                    if chunk[i] == use_delim and rng.random() < 0.9:\n                        chunk[i] = (chunk[i] + 2) & 0xFF\n            out += chunk\n\n            # Maybe finalize with a different delimiter\n            if rng.random() < 0.5:\n                out += bytes([rng.choice(COMMON_DELIMS)])\n\n    # Footer: sometimes ensure the file ends without a trailing delimiter\n    if rng.random() < 0.5 and len(out) > 0 and out[-1] in COMMON_DELIMS:\n        out.pop()\n\n    # Ensure not exceeding MAX_SIZE\n    return bytes(out[:MAX_SIZE])\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    return _build_file(rng)\n"
+    },
+    {
+      "data_type": "text file with newlines",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator creates a text file buffer with varied line structures to exercise getline():\n# - Mixture of very short and very long lines\n# - Presence/absence of trailing newline\n# - Lines with only delimiter (\"\\n\"), empty lines, and whitespace-only lines\n# - Lines containing NUL (\"\\x00\") and other non-ASCII bytes (valid as bytes; getline treats as ordinary)\n# - Varied line endings: predominantly \\n, with occasional CRLF sequences embedded before \\n to test robustness\n# - Final line extremely long to force internal realloc/growth paths\n# - Random but seeded for reproducibility\n\nMAX_SIZE = 4096\n\ndef _rand_bytes(rng: random.Random, length: int) -> bytes:\n    # Mix printable, whitespace, and some binary bytes\n    choices = (\n        [ord('\\t'), ord(' '), ord('\\r')] * 2\n        + [0]  # NUL within a line\n        + list(range(33, 127))  # printable ASCII excluding space\n        + [0x80, 0xFF, 0x7F, 0x01]\n    )\n    return bytes(rng.choice(choices) for _ in range(length))\n\ndef _make_line(rng: random.Random, kind: str, target_len: int) -> bytes:\n    if kind == \"empty\":\n        return b\"\\n\"\n    if kind == \"whitespace\":\n        body = rng.choice([b\" \", b\"\\t\", b\"\\r\"]) * max(1, target_len)\n        return body + b\"\\n\"\n    if kind == \"binary\":\n        body = _rand_bytes(rng, max(1, target_len))\n        return body + b\"\\n\"\n    if kind == \"ascii\":\n        letters = (string.ascii_letters + string.digits + \" _-.,:;!?\")\n        body = ''.join(rng.choice(letters) for _ in range(max(1, target_len))).encode('utf-8')\n        return body + b\"\\n\"\n    if kind == \"crlf\":\n        body = _rand_bytes(rng, max(1, target_len))\n        # embed CR before LF, still terminate with LF so getline stops\n        return body + b\"\\r\\n\"\n    return b\"\\n\"\n\ndef _compose_file(rng: random.Random) -> bytes:\n    parts: List[bytes] = []\n    size = 0\n\n    # Header segment with a variety of short lines\n    kinds = [\"empty\", \"whitespace\", \"ascii\", \"binary\", \"crlf\"]\n    for _ in range(rng.randint(3, 10)):\n        kind = rng.choice(kinds)\n        ln = _make_line(rng, kind, rng.randint(0, 32))\n        if size + len(ln) > MAX_SIZE:\n            break\n        parts.append(ln)\n        size += len(ln)\n\n    # Insert a very long line to force reallocation paths\n    long_len = rng.randint(600, 1600)\n    # Prefer ASCII for long line to keep it \"texty\", but include occasional NULs\n    if rng.random() < 0.2:\n        long_line = _make_line(rng, \"binary\", long_len)\n    else:\n        # Mostly printable, sprinkle some NULs\n        base = _make_line(rng, \"ascii\", long_len)\n        b = bytearray(base)\n        for _ in range(rng.randint(1, 8)):\n            if len(b) > 1:\n                pos = rng.randrange(0, len(b) - 1)  # avoid overwriting final \\n\n                b[pos] = 0\n        long_line = bytes(b)\n    if size + len(long_line) <= MAX_SIZE:\n        parts.append(long_line)\n        size += len(long_line)\n\n    # A cluster of medium lines\n    for _ in range(rng.randint(3, 8)):\n        kind = rng.choice([\"ascii\", \"binary\", \"whitespace\", \"crlf\"])\n        ln = _make_line(rng, kind, rng.randint(40, 160))\n        if size + len(ln) > MAX_SIZE:\n            break\n        parts.append(ln)\n        size += len(ln)\n\n    # Optionally add a final line without trailing newline to test EOF without delimiter\n    if rng.random() < 0.6:\n        tail_kind = rng.choice([\"ascii\", \"binary\", \"whitespace\"])\n        tail_len = rng.randint(1, 256)\n        if tail_kind == \"ascii\":\n            letters = (string.ascii_letters + string.digits + \" _-.,:;!?\")\n            body = ''.join(rng.choice(letters) for _ in range(tail_len)).encode('utf-8')\n        elif tail_kind == \"whitespace\":\n            body = rng.choice([b\" \", b\"\\t\"]) * tail_len\n        else:\n            body = _rand_bytes(rng, tail_len)\n        if size + len(body) <= MAX_SIZE:\n            parts.append(body)\n            size += len(body)\n\n    # Ensure not empty; if empty, add a single newline\n    if not parts:\n        parts.append(b\"\\n\")\n\n    # Trim if over budget (should not happen due to checks, but be safe)\n    data = b\"\".join(parts)\n    return data[:MAX_SIZE]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    return _compose_file(rng)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 14609,
+            "output_tokens": 973,
+            "total_tokens": 15582
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 14187,
+            "output_tokens": 25,
+            "total_tokens": 14212
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 14629,
+            "output_tokens": 1651,
+            "total_tokens": 16280
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5528,
+            "output_tokens": 2735,
+            "total_tokens": 8263
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4325,
+            "output_tokens": 223,
+            "total_tokens": 4548
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 134.23148345947266,
+    "scan_objects": 15.674360990524292,
+    "validate_objects": 0.20000553131103516,
+    "scan_functions": 40.38412547111511,
+    "synthesis": 42.67068290710449,
+    "fill": 0,
+    "classify": 4.665406227111816,
+    "build_generators": 30.636255979537964
+  }
+}

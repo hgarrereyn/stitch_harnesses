@@ -1,0 +1,339 @@
+{
+  "objects": [
+    {
+      "ptr_type": "table_hash_func *",
+      "aliases": [],
+      "definition": "typedef TABLE_HASH_FUNC(table_hash_func);",
+      "description": "Function type for hashing a key: unsigned long f(void* key). Used by the hashtable to map keys to bucket indices.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "struct table *"
+      ]
+    },
+    {
+      "ptr_type": "table_compare_func *",
+      "aliases": [],
+      "definition": "typedef TABLE_COMPARE_FUNC(table_compare_func);",
+      "description": "Function type for comparing two keys: int f(void* key_a, void* key_b). Should return 0 for equality and non-zero otherwise (exact contract not stated). Used by the hashtable to compare keys.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "struct table *"
+      ]
+    },
+    {
+      "ptr_type": "struct bucket *",
+      "aliases": [],
+      "definition": "struct bucket\n{\n  void* key;\n  void* value;\n  struct bucket* next;\n};",
+      "description": "Chaining node for collision handling in the hashtable. Holds a key, its value, and a pointer to the next bucket in the chain.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "struct table *"
+      ]
+    },
+    {
+      "ptr_type": "struct table *",
+      "aliases": [],
+      "definition": "struct table\n{\n  int count;\n  int capacity;\n  float max_load;\n  table_hash_func* hash;\n  table_compare_func* cmp;\n  struct bucket** buckets;\n};",
+      "description": "Open-hash (separate chaining) hashtable. Stores item count, capacity, load-factor threshold, function pointers for hashing and key comparison, and an array of bucket-chain heads.",
+      "direct_api_constructors": [
+        "table_init"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "table_init",
+      "signature": "void table_init(struct table* table, int capacity, table_hash_func hash, table_compare_func cmp);",
+      "description": "Initializes a hashtable instance with a given initial capacity and the caller-provided hash and compare functions for keys. Use this before any other table_* operation to set up storage, load factor, and the function pointers used for hashing and equality. The function types are: unsigned long (*hash)(void* key) and int (*cmp)(void* a, void* b). Details like default max_load behavior are not documented in this header.",
+      "requirements": [
+        "table must be a non-null pointer to a struct table storage the caller owns and can modify.",
+        "capacity should be a positive integer (inferred; negative or zero capacities are not meaningful for a hashtable).",
+        "hash must be a valid, non-null function compatible with the key representation the table will store; it must return equal values for keys considered equal by cmp (inferred).",
+        "cmp must be a valid, non-null function compatible with the key representation; its equality semantics must be consistent with hash (inferred; typical C convention is cmp(a,b) == 0 means equal).",
+        "table must not have been previously initialized or must be in a state safe to reinitialize (inferred; double-initialization without free/clear may leak).",
+        "After successful initialization, call table_free to release resources when done (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "table_free",
+      "signature": "void table_free(struct table* table);",
+      "description": "Releases all resources owned by the hashtable. After calling this, the table should not be used unless reinitialized. Intended as the counterpart to table_init.",
+      "requirements": [
+        "table must be a non-null pointer to a struct table previously initialized by table_init (inferred).",
+        "Do not call any other table_* operations on table after table_free unless table_init is called again (inferred).",
+        "The function does not document whether it frees user-provided value pointers; assume it only frees internal storage and not the objects pointed to by value (inferred; ownership of values remains with the caller)."
+      ],
+      "error": null
+    },
+    {
+      "name": "table_clear",
+      "signature": "void table_clear(struct table* table);",
+      "description": "Removes all entries from the hashtable, leaving it empty but still initialized and usable. Intended for reusing an existing table without destroying its allocation. Capacity behavior is not specified in the header.",
+      "requirements": [
+        "table must be a non-null pointer to a struct table previously initialized by table_init (inferred).",
+        "After clearing, the table remains valid for further insertions and lookups (inferred).",
+        "The function does not document whether it frees user-provided value pointers; assume it only frees internal node/key storage and not the objects pointed to by value (inferred; ownership of values remains with the caller)."
+      ],
+      "error": null
+    },
+    {
+      "name": "table_add",
+      "signature": "unknown (macro, not a function)",
+      "description": "Macro wrapper that inserts or updates an entry in the hash table by forwarding to _table_add(table, key, sizeof(*key), value). It computes the key size at compile time using sizeof(*key), avoiding manual size specification. Intended usage: pass an initialized struct table*, a pointer to a key object (e.g., &my_int or &my_struct), and a value pointer. Behavior on duplicate keys, ownership, and lifetime are not documented in this header; based on the _table_add signature, the key bytes are likely copied using the computed size, while value is stored as the provided pointer.",
+      "requirements": [
+        "table must be a valid, non-null pointer to a struct table previously initialized via table_init with appropriate hash and compare functions.",
+        "key must be a non-null pointer expression where sizeof(*key) is a valid compile-time expression (i.e., key points to a complete object type).",
+        "The size of *key in bytes must fit into an int, since the macro passes sizeof(*key) to the int key_size parameter of _table_add.",
+        "hash and cmp function pointers inside table (set by table_init) must accept pointers compatible with the key representation used and must be able to hash/compare such keys.",
+        "value may be any pointer; ownership and lifetime requirements are not specified in this header (unknown).",
+        "Thread-safety and behavior on duplicate keys or collisions are not documented (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "_table_add",
+      "signature": "void _table_add(struct table* table, void* key, int key_size, void* value);",
+      "description": "Inserts or associates a key with a value in the hashtable. This low-level insertion API takes a raw pointer to the key bytes and an explicit key_size, and stores the value pointer. Behavior on duplicate keys (overwrite vs. reject) is not documented in the header.",
+      "requirements": [
+        "table must be a non-null pointer to a struct table previously initialized by table_init (inferred).",
+        "key must be a non-null pointer to a buffer containing the key data; the buffer must be readable for key_size bytes at the time of the call.",
+        "key_size must be a positive integer greater than 0 and must match the actual size of the key object (inferred).",
+        "The provided hash and cmp functions used during table_init must be compatible with the byte representation passed via key/key_size (inferred).",
+        "value is stored as a pointer without copying; the caller manages the lifetime of the object pointed to by value (inferred).",
+        "Thread-safety is not specified; assume calls must be externally synchronized if used from multiple threads (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "table_remove",
+      "signature": "void table_remove(struct table* table, void* key);",
+      "description": "Removes the entry associated with key from the hashtable, if present. Uses the hash and compare functions provided at initialization to locate the key. Behavior when the key is not found is not documented in the header (likely a no-op).",
+      "requirements": [
+        "table must be a non-null pointer to a struct table previously initialized by table_init (inferred).",
+        "key must be a non-null pointer compatible with the hash and cmp functions (same representation used for insertion) (inferred).",
+        "The function does not document whether it frees the value pointer; assume only internal storage associated with the entry is released, not the object pointed to by value (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "table_find",
+      "signature": "void* table_find(struct table* table, void* key);",
+      "description": "Looks up key in the hashtable and returns the associated value pointer if found. Uses the hash and compare functions provided at initialization. If the key is not found, typical behavior would be to return NULL, though this is not explicitly documented in the header.",
+      "requirements": [
+        "table must be a non-null pointer to a struct table previously initialized by table_init (inferred).",
+        "key must be a non-null pointer compatible with the hash and cmp functions (same representation used for insertion) (inferred).",
+        "Caller must handle a possible NULL return to indicate not found (inferred).",
+        "The returned pointer is the stored value pointer; no transfer of ownership is implied (inferred)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "table_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "code": "// Choose a small positive initial capacity (>=1)\nint capacity = (int)(*FUZZ_PARAM(unsigned int) % 128u) + 1;\n\n// Provide captureless function pointers compatible with c-string keys.\n// Hash: djb2 over bytes until first '\\0'.\nauto hash = +[](void* key) -> unsigned long {\n    const unsigned char* s = (const unsigned char*)key;\n    if (!s) { return 0ul; }\n    unsigned long h = 5381ul;\n    while (*s) { h = ((h << 5) + h) + (unsigned long)(*s++); }\n    return h;\n};\n// Compare: strcmp-like semantics; returns 0 when equal.\nauto cmp = +[](void* a, void* b) -> int {\n    const unsigned char* pa = (const unsigned char*)a;\n    const unsigned char* pb = (const unsigned char*)b;\n    if (pa == pb) { return 0; }\n    if (!pa || !pb) { return pa ? 1 : (pb ? -1 : 0); }\n    while (*pa && (*pa == *pb)) { ++pa; ++pb; }\n    return (int)(*pa) - (int)(*pb);\n};\n\n// Allocate the struct table storage owned by the caller (fuzzer harness) and initialize it.\nstruct table* table = new struct table;  // caller-owned storage\nif (!table) { FUZZ_BAIL(); }\n\n// Initialize the hashtable instance\ntable_init(table, capacity, hash, cmp);\n\n// Track state and key format for downstream stubs\nFUZZ_SET_ATTR_INT(table, \"initialized\", 1);\nFUZZ_SET_ATTR_STR(table, \"key_fmt\", \"cstring\");\nFUZZ_SET_ATTR_INT(table, \"has_known\", 0);\nFUZZ_SET_ATTR_PTR(table, \"known_key\", nullptr);\nFUZZ_SET_ATTR_PTR(table, \"known_value\", nullptr);\n\n// Validation: ensure table is marked initialized for later API usage\nFUZZ_ASSERT(FUZZ_GET_ATTR_INT(table, \"initialized\") == 1, \"table_init must set initialized state\");"
+    },
+    {
+      "name": "table_free",
+      "inputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce precondition: table must be previously initialized\nif (FUZZ_GET_ATTR_INT(table, \"initialized\") != 1) { FUZZ_BAIL(); }\n\n// If we tracked any heap-allocated known key/value, release them now since the API\n// is not expected to free user values.\n{\n    void* kptr = FUZZ_GET_ATTR_PTR(table, \"known_key\");\n    void* vptr = FUZZ_GET_ATTR_PTR(table, \"known_value\");\n    if (kptr) { delete[] (char*)kptr; FUZZ_SET_ATTR_PTR(table, \"known_key\", nullptr); }\n    if (vptr) { delete[] (char*)vptr; FUZZ_SET_ATTR_PTR(table, \"known_value\", nullptr); }\n    FUZZ_SET_ATTR_INT(table, \"has_known\", 0);\n}\n\n// Invoke the target function\ntable_free(table);\n\n// Mark as deinitialized. The underlying storage is caller-owned; we drop it from pool.\nFUZZ_SET_ATTR_INT(table, \"initialized\", 0);\n\n// Validation: After free, the table should not be used unless reinitialized"
+    },
+    {
+      "name": "table_clear",
+      "inputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "code": "// Enforce precondition: table must be previously initialized\nif (FUZZ_GET_ATTR_INT(table, \"initialized\") != 1) { FUZZ_BAIL(); }\n\n// Clear all entries; table remains usable\ntable_clear(table);\n\n// If we had a tracked known key/value, they are no longer stored by the table.\nvoid* kptr = FUZZ_GET_ATTR_PTR(table, \"known_key\");\nvoid* vptr = FUZZ_GET_ATTR_PTR(table, \"known_value\");\nif (kptr) { delete[] (char*)kptr; FUZZ_SET_ATTR_PTR(table, \"known_key\", nullptr); }\nif (vptr) { delete[] (char*)vptr; FUZZ_SET_ATTR_PTR(table, \"known_value\", nullptr); }\nFUZZ_SET_ATTR_INT(table, \"has_known\", 0);\n\n// Validation: Table remains initialized and returned to pool\nFUZZ_ASSERT(FUZZ_GET_ATTR_INT(table, \"initialized\") == 1, \"table must remain initialized after clear\");"
+    },
+    {
+      "name": "_table_add",
+      "inputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "code": "// Preconditions: initialized table, using c-string key semantics matching our function pointers\nif (FUZZ_GET_ATTR_INT(table, \"initialized\") != 1) { FUZZ_BAIL(); }\nif (std::string(FUZZ_GET_ATTR_STR(table, \"key_fmt\")) != std::string(\"cstring\")) { FUZZ_BAIL(); }\n\n// Generate a random c-string key and ensure the buffer includes the null terminator for key_size\nstd::string key = FUZZ_PARAM_STR();\n// Bound the key size for performance and to keep key_size within int\nif (key.size() > 1023u) { key.resize(1023u); }\nconst void* key_buf = (const void*)key.c_str();\nint key_size = (int)(key.size() + 1); // include null terminator for our strcmp-based cmp\nif (key_size <= 0) { FUZZ_BAIL(); }\n\n// Generate a small heap-allocated value buffer to store as the value pointer (user-managed)\nstd::string val_src = FUZZ_PARAM_STR();\nif (val_src.size() > 255u) { val_src.resize(255u); }\nint vlen = (int)val_src.size();\nchar* value = new char[vlen + 1];\nif (!value) { FUZZ_BAIL(); }\nfor (int i = 0; i < vlen; ++i) { value[i] = val_src[i]; }\nvalue[vlen] = '\\0';\n\n// Perform the insertion\n_table_add(table, (void*)key_buf, key_size, (void*)value);\n\n// Track this inserted key/value as a known pair for later remove/find validation.\n// Make a heap copy of the key string so we can reuse it safely across stubs.\nchar* key_copy = new char[key_size];\nif (!key_copy) { FUZZ_BAIL(); }\nfor (int i = 0; i < key_size; ++i) { key_copy[i] = ((const char*)key_buf)[i]; }\n\n// If a previous known pair exists, free it to avoid leaks; we keep only the latest known pair.\nvoid* prev_k = FUZZ_GET_ATTR_PTR(table, \"known_key\");\nvoid* prev_v = FUZZ_GET_ATTR_PTR(table, \"known_value\");\nif (prev_k) { delete[] (char*)prev_k; }\nif (prev_v) { delete[] (char*)prev_v; }\n\nFUZZ_SET_ATTR_PTR(table, \"known_key\", (void*)key_copy);\nFUZZ_SET_ATTR_PTR(table, \"known_value\", (void*)value);\nFUZZ_SET_ATTR_INT(table, \"has_known\", 1);\n\n// Validation: key_size is positive and matches the copied buffer length by construction"
+    },
+    {
+      "name": "table_remove",
+      "inputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "code": "// Preconditions: initialized table, using c-string keys\nif (FUZZ_GET_ATTR_INT(table, \"initialized\") != 1) { FUZZ_BAIL(); }\nif (std::string(FUZZ_GET_ATTR_STR(table, \"key_fmt\")) != std::string(\"cstring\")) { FUZZ_BAIL(); }\n\nint has_known = FUZZ_GET_ATTR_INT(table, \"has_known\");\nconst char* key_ptr = nullptr;\nstd::string fallback;\nif (has_known) {\n    key_ptr = (const char*)FUZZ_GET_ATTR_PTR(table, \"known_key\");\n} else {\n    // No tracked key; remove with a random c-string key (may or may not exist)\n    fallback = FUZZ_PARAM_STR();\n    if (fallback.size() > 1023u) { fallback.resize(1023u); }\n    key_ptr = fallback.c_str();\n}\nif (!key_ptr) { FUZZ_BAIL(); }\n\n// Perform the removal attempt\ntable_remove(table, (void*)key_ptr);\n\n// If we removed the tracked key (best-effort assumption), drop our tracked heap objects\nif (has_known) {\n    void* kptr = FUZZ_GET_ATTR_PTR(table, \"known_key\");\n    void* vptr = FUZZ_GET_ATTR_PTR(table, \"known_value\");\n    if (kptr) { delete[] (char*)kptr; FUZZ_SET_ATTR_PTR(table, \"known_key\", nullptr); }\n    if (vptr) { delete[] (char*)vptr; FUZZ_SET_ATTR_PTR(table, \"known_value\", nullptr); }\n    FUZZ_SET_ATTR_INT(table, \"has_known\", 0);\n}\n\n// Validation: table remains initialized after removal\nFUZZ_ASSERT(FUZZ_GET_ATTR_INT(table, \"initialized\") == 1, \"table must remain initialized after remove\");"
+    },
+    {
+      "name": "table_find",
+      "inputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "table",
+          "type": "struct table *"
+        }
+      ],
+      "code": "// Preconditions: initialized table, using c-string keys\nif (FUZZ_GET_ATTR_INT(table, \"initialized\") != 1) { FUZZ_BAIL(); }\nif (std::string(FUZZ_GET_ATTR_STR(table, \"key_fmt\")) != std::string(\"cstring\")) { FUZZ_BAIL(); }\n\nint has_known = FUZZ_GET_ATTR_INT(table, \"has_known\");\nconst char* key_ptr = nullptr;\nstd::string fallback;\nif (has_known) {\n    key_ptr = (const char*)FUZZ_GET_ATTR_PTR(table, \"known_key\");\n} else {\n    // Probe a random key\n    fallback = FUZZ_PARAM_STR();\n    if (fallback.size() > 1023u) { fallback.resize(1023u); }\n    key_ptr = fallback.c_str();\n}\nif (!key_ptr) { FUZZ_BAIL(); }\n\n// Lookup\nvoid* found = table_find(table, (void*)key_ptr);\n\n// If we have a known inserted pair and we haven't cleared/removed, the lookup should succeed\nif (has_known) {\n    void* expected = FUZZ_GET_ATTR_PTR(table, \"known_value\");\n    FUZZ_ASSERT(found == expected, \"table_find must return the stored value for the known key\");\n}\n\n// Validation: table remains initialized and usable\nFUZZ_ASSERT(FUZZ_GET_ATTR_INT(table, \"initialized\") == 1, \"table must remain initialized after find\");"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "table_add",
+      "reason": "table_add is a macro, not a linkable function; it cannot be directly targeted by the fuzzer harness without including and expanding project headers."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "table_init",
+      "data_types": []
+    },
+    {
+      "name": "table_free",
+      "data_types": []
+    },
+    {
+      "name": "table_clear",
+      "data_types": []
+    },
+    {
+      "name": "_table_add",
+      "data_types": [
+        "C string",
+        "arbitrary byte string"
+      ]
+    },
+    {
+      "name": "table_remove",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "table_find",
+      "data_types": [
+        "C string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "C string",
+      "description": "A NUL-terminated string of bytes suitable for C APIs expecting char* terminated by '\\0'. May contain any byte values except the terminating NUL; length is determined by the first NUL. In this context, generated from FUZZ_PARAM_STR() and passed via c_str() with an explicit size including the terminator."
+    },
+    {
+      "data_type": "arbitrary byte string",
+      "description": "An uninterpreted sequence of bytes of arbitrary content and length. Here it represents the payload copied into a heap buffer to be stored as the table value pointer; it is not parsed or interpreted by the target functions."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "C string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces valid C-strings (including the terminating NUL when used\n# via std::string::c_str() + explicit size) tailored for a hashtable that uses\n# strcmp-like comparison and c-string keys. The fuzzer stubs bound key length to\n# <= 1023 and value length to <= 255. We generate varied yet valid strings that\n# aim to exercise edge cases and typical cases: empty, short, medium, long,\n# repeated patterns, mixed cases, digits, punctuation, whitespace, UTF-8-like\n# bytes (non-ASCII but still non-NUL), and collision-prone variants.\n\n# We return bytes that FUZZ_PARAM_STR can consume as the initial interesting buffer.\n# The harness will call FUZZ_PARAM_STR multiple times (for keys and values), so we\n# pack several newline-separated candidate strings in one buffer. The fuzzer infra\n# typically slices inputs; providing many candidates increases useful coverage.\n\nMAX_TOTAL = 4096\nMAX_KEY = 1023\nMAX_VAL = 255\n\nSAFE_ASCII = (\n    string.ascii_lowercase + string.ascii_uppercase + string.digits +\n    \" _-.,:/\\\\@#%+*=()[]{}<>?&!$^|~\"  # punctuation and symbols (no NUL)\n)\n\n# Some non-ASCII UTF-8 sequences (2- and 3-byte) that avoid embedded NUL bytes\nUTF8_FRAGMENTS = [\n    b\"\\xc2\\xa9\",   # ©\n    b\"\\xc2\\xae\",   # ®\n    b\"\\xc2\\xb0\",   # °\n    b\"\\xc2\\xbf\",   # ¿\n    b\"\\xc3\\xa9\",   # é\n    b\"\\xc3\\xb1\",   # ñ\n    b\"\\xce\\xb1\",   # α\n    b\"\\xce\\xb2\",   # β\n    b\"\\xe2\\x82\\xac\", # €\n    b\"\\xe2\\x98\\x83\", # ☃\n]\n\n\ndef _rand_ascii(rng: random.Random, n: int) -> bytes:\n    return ''.join(rng.choice(SAFE_ASCII) for _ in range(n)).encode('utf-8')\n\n\ndef _rand_utf8ish(rng: random.Random, n: int) -> bytes:\n    # Build a sequence mixing ascii and multibyte UTF-8 fragments\n    out: List[bytes] = []\n    while sum(len(x) for x in out) < n:\n        if rng.random() < 0.6:\n            # ascii run\n            run = rng.randint(1, min(16, n))\n            out.append(_rand_ascii(rng, run))\n        else:\n            out.append(rng.choice(UTF8_FRAGMENTS))\n    b = b''.join(out)\n    return b[:n]\n\n\ndef _pattern_repeat(seed_bytes: bytes, total: int) -> bytes:\n    if not seed_bytes:\n        return b''\n    return (seed_bytes * (total // len(seed_bytes) + 1))[:total]\n\n\ndef _interesting_strings(rng: random.Random) -> List[bytes]:\n    items: List[bytes] = []\n\n    # Edge cases\n    items.append(b\"\")  # empty string\n    items.append(b\"a\")\n    items.append(b\"0\")\n    items.append(b\" \")\n    items.append(b\"\\t\\t\\t\")\n    items.append(b\"\\n\")\n    items.append(b\"A\" * 1)\n    items.append(b\"A\" * 2)\n    items.append(b\"A\" * 3)\n\n    # Boundary sizes near value/key limits\n    items.append(b\"x\" * 15)\n    items.append(b\"y\" * 63)\n    items.append(b\"z\" * 127)\n    items.append(b\"w\" * 255)  # near value cap\n    items.append(b\"k\" * 511)\n    items.append(b\"m\" * 1023)  # near key cap\n\n    # Mixed content\n    items.append(b\"Key_123\")\n    items.append(b\"key_123\")\n    items.append(b\"KEY_123\")\n    items.append(b\"CaseSensitive\")\n    items.append(b\"casesensitive\")\n    items.append(b\"path/like/value\")\n    items.append(b\"path\\\\like\\\\value\")\n    items.append(b\"email:test@example.com\")\n    items.append(b\"punct-._:;!@#$%^&*()[]{}<>\")\n\n    # Whitespace variations\n    items.append(b\" leading\")\n    items.append(b\"trailing \")\n    items.append(b\"  surrounded  \")\n    items.append(b\"multi\\nline\")\n\n    # Numeric forms\n    items.append(b\"0\")\n    items.append(b\"00\")\n    items.append(b\"0001\")\n    items.append(b\"18446744073709551615\")  # max uint64\n    items.append(b\"-1\")\n\n    # Collison-prone prefixes (common hash stressors)\n    items.append(b\"aaaaaab\")\n    items.append(b\"aaaaaac\")\n    items.append(b\"aaaaaad\")\n    items.append(b\"abcabcabcabc\")\n\n    # UTF-8-ish\n    items.append(b\"caf\" + b\"\\xc3\\xa9\")  # café\n    items.append(b\"na\" + b\"\\xc3\\xaf\" + b\"ve\")  # naïve\n    items.append(b\"snow\" + b\"\\xe2\\x98\\x83\")\n\n    # Random sized ascii and utf8-like strings\n    for _ in range(8):\n        n = rng.randint(1, 64)\n        items.append(_rand_ascii(rng, n))\n    for _ in range(6):\n        n = rng.randint(2, 72)\n        items.append(_rand_utf8ish(rng, n))\n\n    # Repeated patterns to probe table behavior\n    items.append(_pattern_repeat(b\"ab\", 50))\n    items.append(_pattern_repeat(b\"ABC\", 90))\n    items.append(_pattern_repeat(b\"xyz123\", 120))\n\n    # Long random entries around limits\n    items.append(_rand_ascii(rng, 200))\n    items.append(_rand_ascii(rng, 254))\n    items.append(_rand_ascii(rng, 255))\n    items.append(_rand_ascii(rng, 512))\n    items.append(_rand_ascii(rng, 800))\n    items.append(_rand_ascii(rng, 1000))\n    items.append(_rand_ascii(rng, 1023))\n\n    # Deduplicate while preserving order\n    seen = set()\n    uniq: List[bytes] = []\n    for s in items:\n        if s not in seen and len(s) <= MAX_KEY:\n            uniq.append(s)\n            seen.add(s)\n\n    return uniq\n\n\ndef _pack_lines(candidates: List[bytes], rng: random.Random, budget: int) -> bytes:\n    # Assemble newline-separated strings within budget\n    out = bytearray()\n    # Shuffle to vary distribution across calls with same seed variety\n    candidates = candidates.copy()\n    rng.shuffle(candidates)\n\n    for s in candidates:\n        # Ensure no embedded NULs; FUZZ_PARAM_STR reads until NUL\n        if b\"\\x00\" in s:\n            continue\n        # We delimit with newline to offer multiple distinct strings\n        line = s\n        if len(out) + len(line) + 1 > budget:\n            break\n        out += line + b\"\\n\"\n    # Ensure at least one line\n    if not out:\n        out = bytearray(b\"\\n\")\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Create a pool of interesting c-strings suited for both keys and values.\n    candidates = _interesting_strings(rng)\n\n    # Slightly bias to include a small value-like string block as well\n    for _ in range(10):\n        n = rng.randint(0, min(64, MAX_VAL))\n        candidates.append(_rand_ascii(rng, n))\n\n    buf = _pack_lines(candidates, rng, min(MAX_TOTAL, 4096))\n    return buf\n"
+    },
+    {
+      "data_type": "arbitrary byte string",
+      "generator": "import random\nimport struct\nimport string\n\n# This generator targets the _table_add fuzzer stub which expects:\n# - FUZZ_PARAM_STR used for the key: a C-string (null-terminated) with strcmp semantics.\n# - FUZZ_PARAM_STR used for the value payload: arbitrary bytes copied into a heap buffer and null-terminated by the stub.\n# The fuzzer framework will split the returned buffer among FUZZ_PARAM_STR calls.\n# Our strategy: produce two concatenated, length-prefixed strings so each FUZZ_PARAM_STR can extract a meaningful, valid substring.\n# We embed interesting edge cases for C-strings (empty, various sizes, mixed ASCII/binary-safe bytes) but keep total size <= 4096.\n\nMAX_TOTAL = 4096\n\n# Helper to build a diversified c-string-like payload (without embedded nulls; fuzzer will use c_str())\n# Include edge cases: empty, short, max-boundary (1023), whitespace, path-like, unicode-ish (UTF-8), and random printable.\n\ndef _interesting_cstrings(rnd: random.Random):\n    cases = []\n    # Empty string\n    cases.append(\"\")\n    # Short typical keys\n    cases.extend([\n        \"a\",\n        \"key\",\n        \"value\",\n        \"id\",\n        \"name\",\n        \"alpha123\",\n        \"user:1001\",\n        \"k=v\",\n    ])\n    # Whitespace and punctuation\n    cases.extend([\n        \" \",\n        \"\\t\\n\\r\",\n        \"key with spaces\",\n        \"comma,semicolon;pipe|ampersand&\",\n    ])\n    # Path-like and scoped identifiers\n    cases.extend([\n        \"/\",\n        \"/tmp/file.txt\",\n        \"C:\\\\path\\\\to\\\\file\",\n        \"ns::Class::method\",\n        \"domain.com/resource?id=42\",\n    ])\n    # UTF-8 examples (valid, no embedded NUL)\n    cases.extend([\n        \"κλειδί\",        # Greek\n        \"ключ\",           # Cyrillic\n        \"鍵\",             # CJK\n        \"emoji-😀\",\n    ])\n    # Boundary near 1023 bytes\n    long_a = \"a\" * 1023\n    long_mix = (\"ABcd0123_-.\" * 100)[:1023]\n    cases.extend([long_a, long_mix])\n\n    # Random printable of random length up to 1023\n    def rnd_printable(n):\n        alphabet = string.ascii_letters + string.digits + string.punctuation + \" \"\n        return \"\".join(rnd.choice(alphabet) for _ in range(n))\n\n    for _ in range(8):\n        cases.append(rnd_printable(rnd.randint(0, 1023)))\n\n    # Shuffle for diversity\n    rnd.shuffle(cases)\n    return cases\n\n# Helper to build arbitrary byte payload for value; fuzzer copies exactly these bytes and appends NUL itself.\n# We provide varied contents including zero-length and binary-looking bytes but avoid embedded NUL here as it is fine; value is treated as bytes.\n\ndef _interesting_value_blobs(rnd: random.Random):\n    blobs = []\n    # Empty and small\n    blobs.append(b\"\")\n    blobs.extend([b\"x\", b\"data\", b\"\\x00\", b\"\\x00\\x01\\x02\\x03\"])  # allow NULs; value is arbitrary bytes\n\n    # Repeated patterns\n    blobs.extend([\n        b\"A\" * 16,\n        b\"\\xff\" * 32,\n        (b\"ABCDEF\" * 20)[:100],\n    ])\n\n    # UTF-8 text bytes\n    for s in [\n        \"hello, world\",\n        \"lorem ipsum dolor sit amet\",\n        \"παράδειγμα\",\n        \"данные\",\n        \"数据\",\n        \"emoji-😀\",\n    ]:\n        blobs.append(s.encode(\"utf-8\"))\n\n    # Random sized up to 255 as per stub cap\n    for _ in range(8):\n        n = rnd.randint(0, 255)\n        blobs.append(bytes(rnd.getrandbits(8) for _ in range(n)))\n\n    rnd.shuffle(blobs)\n    return blobs\n\n# Simple length-prefixed concatenation encoder for two FUZZ_PARAM_STR consumptions.\n# We use: [u16 len1][bytes key][u16 len2][bytes val] and ensure total <= 4096.\n\ndef _pack_two_lp_strings(key_bytes: bytes, val_bytes: bytes) -> bytes:\n    # Trim to stub limits: key <= 1023, val <= 255\n    if len(key_bytes) > 1023:\n        key_bytes = key_bytes[:1023]\n    if len(val_bytes) > 255:\n        val_bytes = val_bytes[:255]\n    # FUZZ_PARAM_STR expects UTF-8-ish or raw; we provide raw bytes and rely on consumer treating as string buffer.\n    # Lengths stored as little-endian uint16\n    buf = struct.pack(\"<H\", len(key_bytes)) + key_bytes + struct.pack(\"<H\", len(val_bytes)) + val_bytes\n    if len(buf) > MAX_TOTAL:\n        buf = buf[:MAX_TOTAL]\n    return buf\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Build candidate keys and values\n    keys = _interesting_cstrings(rnd)\n    vals = _interesting_value_blobs(rnd)\n\n    # Choose combinations designed to trigger different branches/behaviors\n    # Occasionally pick extreme sizes, otherwise random mix\n    choice_mode = rnd.randint(0, 4)\n    if choice_mode == 0:\n        key = max(keys, key=len)\n        val = max(vals, key=len)\n    elif choice_mode == 1:\n        key = min(keys, key=len)\n        val = min(vals, key=len)\n    else:\n        key = rnd.choice(keys)\n        val = rnd.choice(vals)\n\n    # Ensure key has no embedded NUL since strcmp-based cmp uses c_str()\n    if \"\\x00\" in key:\n        key = key.replace(\"\\x00\", \" \")\n\n    key_bytes = key.encode(\"utf-8\", errors=\"surrogatepass\")\n    val_bytes = val if isinstance(val, (bytes, bytearray)) else bytes(val)\n\n    payload = _pack_two_lp_strings(key_bytes, val_bytes)\n\n    # Add a small amount of trailing slack random bytes to let the fuzzer framework\n    # consume additional FUZZ_PARAM_STR calls if any future stubs read more.\n    slack_len = rnd.randint(0, max(0, 128 - len(payload) % 128))\n    slack = bytes(rnd.getrandbits(8) for _ in range(slack_len))\n\n    out = payload + slack\n    if len(out) > MAX_TOTAL:\n        out = out[:MAX_TOTAL]\n    return out\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 898,
+            "output_tokens": 450,
+            "total_tokens": 1348
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 476,
+            "output_tokens": 37,
+            "total_tokens": 513
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2751,
+            "output_tokens": 5512,
+            "total_tokens": 8263
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5569,
+            "output_tokens": 6728,
+            "total_tokens": 12297
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4478,
+            "output_tokens": 193,
+            "total_tokens": 4671
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 291.7397298812866,
+    "scan_objects": 6.522205591201782,
+    "validate_objects": 0.2139730453491211,
+    "scan_functions": 107.81070804595947,
+    "synthesis": 137.6610643863678,
+    "fill": 0,
+    "classify": 4.800535440444946,
+    "build_generators": 34.730128049850464
+  }
+}

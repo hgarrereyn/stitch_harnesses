@@ -1,0 +1,1126 @@
+{
+  "objects": [
+    {
+      "ptr_type": "xrpl::Number *",
+      "aliases": [],
+      "definition": "namespace xrpl {\n\nclass Number;\n\nstd::string\nto_string(Number const& amount);\n\ntemplate <typename T>\nconstexpr bool\nisPowerOfTen(T value)\n{\n    while (value >= 10 && value % 10 == 0)\n        value /= 10;\n    return value == 1;\n}\n\nclass Number\n{\n    using rep = std::int64_t;\n    rep mantissa_{0};\n    int exponent_{std::numeric_limits<int>::lowest()};\n\npublic:\n    // The range for the mantissa when normalized\n    constexpr static std::int64_t minMantissa = 1'000'000'000'000'000LL;\n    static_assert(isPowerOfTen(minMantissa));\n    constexpr static std::int64_t maxMantissa = minMantissa * 10 - 1;\n    static_assert(maxMantissa == 9'999'999'999'999'999LL);\n\n    // The range for the exponent when normalized\n    constexpr static int minExponent = -32768;\n    constexpr static int maxExponent = 32768;\n\n    struct unchecked\n    {\n        explicit unchecked() = default;\n    };\n\n    explicit constexpr Number() = default;\n\n    Number(rep mantissa);\n    explicit Number(rep mantissa, int exponent);\n    explicit constexpr Number(rep mantissa, int exponent, unchecked) noexcept;\n\n    constexpr rep\n    mantissa() const noexcept;\n    constexpr int\n    exponent() const noexcept;\n\n    constexpr Number\n    operator+() const noexcept;\n    constexpr Number\n    operator-() const noexcept;\n    Number&\n    operator++();\n    Number\n    operator++(int);\n    Number&\n    operator--();\n    Number\n    operator--(int);\n\n    Number&\n    operator+=(Number const& x);\n    Number&\n    operator-=(Number const& x);\n\n    Number&\n    operator*=(Number const& x);\n    Number&\n    operator/=(Number const& x);\n\n    static constexpr Number\n    min() noexcept;\n    static constexpr Number\n    max() noexcept;\n    static constexpr Number\n    lowest() noexcept;\n\n    /** Conversions to Number are implicit and conversions away from Number\n     *  are explicit. This design encourages and facilitates the use of Number\n     *  as the preferred type for floating point arithmetic as it makes\n     *  \"mixed mode\" more convenient, e.g. MPTAmount + Number.\n     */\n    explicit\n    operator rep() const;  // round to nearest, even on tie\n\n    friend constexpr bool\n    operator==(Number const& x, Number const& y) noexcept\n    {\n        return x.mantissa_ == y.mantissa_ && x.exponent_ == y.exponent_;\n    }\n\n    friend constexpr bool\n    operator!=(Number const& x, Number const& y) noexcept\n    {\n        return !(x == y);\n    }\n\n    friend constexpr bool\n    operator<(Number const& x, Number const& y) noexcept\n    {\n        // If the two amounts have different signs (zero is treated as positive)\n        // then the comparison is true iff the left is negative.\n        bool const lneg = x.mantissa_ < 0;\n        bool const rneg = y.mantissa_ < 0;\n\n        if (lneg != rneg)\n            return lneg;\n\n        // Both have same sign and the left is zero: the right must be\n        // greater than 0.\n        if (x.mantissa_ == 0)\n            return y.mantissa_ > 0;\n\n        // Both have same sign, the right is zero and the left is non-zero.\n        if (y.mantissa_ == 0)\n            return false;\n\n        // Both have the same sign, compare by exponents:\n        if (x.exponent_ > y.exponent_)\n            return lneg;\n        if (x.exponent_ < y.exponent_)\n            return !lneg;\n\n        // If equal exponents, compare mantissas\n        return x.mantissa_ < y.mantissa_;\n    }\n\n    /** Return the sign of the amount */\n    constexpr int\n    signum() const noexcept\n    {\n        return (mantissa_ < 0) ? -1 : (mantissa_ ? 1 : 0);\n    }\n\n    Number\n    truncate() const noexcept;\n\n    friend constexpr bool\n    operator>(Number const& x, Number const& y) noexcept\n    {\n        return y < x;\n    }\n\n    friend constexpr bool\n    operator<=(Number const& x, Number const& y) noexcept\n    {\n        return !(y < x);\n    }\n\n    friend constexpr bool\n    operator>=(Number const& x, Number const& y) noexcept\n    {\n        return !(x < y);\n    }\n\n    friend std::ostream&\n    operator<<(std::ostream& os, Number const& x)\n    {\n        return os << to_string(x);\n    }\n\n    // Thread local rounding control.  Default is to_nearest\n    enum rounding_mode { to_nearest, towards_zero, downward, upward };\n    static rounding_mode\n    getround();\n    // Returns previously set mode\n    static rounding_mode\n    setround(rounding_mode mode);\n\nprivate:\n    static thread_local rounding_mode mode_;\n\n    void\n    normalize();\n    constexpr bool\n    isnormal() const noexcept;\n\n    class Guard;\n};\n\nconstexpr static Number numZero{};\n\ninline constexpr Number::Number(rep mantissa, int exponent, unchecked) noexcept\n    : mantissa_{mantissa}, exponent_{exponent}\n{\n}\n\ninline Number::Number(rep mantissa, int exponent)\n    : mantissa_{mantissa}, exponent_{exponent}\n{\n    normalize();\n}\n\ninline Number::Number(rep mantissa) : Number{mantissa, 0}\n{\n}\n\ninline constexpr Number::rep\nNumber::mantissa() const noexcept\n{\n    return mantissa_;\n}\n\ninline constexpr int\nNumber::exponent() const noexcept\n{\n    return exponent_;\n}\n\ninline constexpr Number\nNumber::operator+() const noexcept\n{\n    return *this;\n}\n\ninline constexpr Number\nNumber::operator-() const noexcept\n{\n    auto x = *this;\n    x.mantissa_ = -x.mantissa_;\n    return x;\n}\n\ninline Number&\nNumber::operator++()\n{\n    *this += Number{1000000000000000, -15, unchecked{}};\n    return *this;\n}\n\ninline Number\nNumber::operator++(int)\n{\n    auto x = *this;\n    ++(*this);\n    return x;\n}\n\ninline Number&\nNumber::operator--()\n{\n    *this -= Number{1000000000000000, -15, unchecked{}};\n    return *this;\n}\n\ninline Number\nNumber::operator--(int)\n{\n    auto x = *this;\n    --(*this);\n    return x;\n}\n\ninline Number&\nNumber::operator-=(Number const& x)\n{\n    return *this += -x;\n}\n\ninline Number\noperator+(Number const& x, Number const& y)\n{\n    auto z = x;\n    z += y;\n    return z;\n}\n\ninline Number\noperator-(Number const& x, Number const& y)\n{\n    auto z = x;\n    z -= y;\n    return z;\n}\n\ninline Number\noperator*(Number const& x, Number const& y)\n{\n    auto z = x;\n    z *= y;\n    return z;\n}\n\ninline Number\noperator/(Number const& x, Number const& y)\n{\n    auto z = x;\n    z /= y;\n    return z;\n}\n\ninline constexpr Number\nNumber::min() noexcept\n{\n    return Number{minMantissa, minExponent, unchecked{}};\n}\n\ninline constexpr Number\nNumber::max() noexcept\n{\n    return Number{maxMantissa, maxExponent, unchecked{}};\n}\n\ninline constexpr Number\nNumber::lowest() noexcept\n{\n    return -Number{maxMantissa, maxExponent, unchecked{}};\n}\n\ninline constexpr bool\nNumber::isnormal() const noexcept\n{\n    auto const abs_m = mantissa_ < 0 ? -mantissa_ : mantissa_;\n    return minMantissa <= abs_m && abs_m <= maxMantissa &&\n        minExponent <= exponent_ && exponent_ <= maxExponent;\n}\n\ninline constexpr Number\nabs(Number x) noexcept\n{\n    if (x < Number{})\n        x = -x;\n    return x;\n}\n\n// Returns f^n\n// Uses a log_2(n) number of multiplications\n\nNumber\npower(Number const& f, unsigned n);\n\n// Returns f^(1/d)\n// Uses Newton–Raphson iterations until the result stops changing\n// to find the root of the polynomial g(x) = x^d - f\n\nNumber\nroot(Number f, unsigned d);\n\nNumber\nroot2(Number f);\n\n// Returns f^(n/d)\n\nNumber\npower(Number const& f, unsigned n, unsigned d);\n\n// Return 0 if abs(x) < limit, else returns x\n\ninline constexpr Number\nsquelch(Number const& x, Number const& limit) noexcept\n{\n    if (abs(x) < limit)\n        return Number{};\n    return x;\n}\n\nclass saveNumberRoundMode\n{\n    Number::rounding_mode mode_;\n\npublic:\n    ~saveNumberRoundMode()\n    {\n        Number::setround(mode_);\n    }\n    explicit saveNumberRoundMode(Number::rounding_mode mode) noexcept\n        : mode_{mode}\n    {\n    }\n    saveNumberRoundMode(saveNumberRoundMode const&) = delete;\n    saveNumberRoundMode&\n    operator=(saveNumberRoundMode const&) = delete;\n};\n\n// saveNumberRoundMode doesn't do quite enough for us.  What we want is a\n// Number::RoundModeGuard that sets the new mode and restores the old mode\n// when it leaves scope.  Since Number doesn't have that facility, we'll\n// build it here.\nclass NumberRoundModeGuard\n{\n    saveNumberRoundMode saved_;\n\npublic:\n    explicit NumberRoundModeGuard(Number::rounding_mode mode) noexcept\n        : saved_{Number::setround(mode)}\n    {\n    }\n\n    NumberRoundModeGuard(NumberRoundModeGuard const&) = delete;\n\n    NumberRoundModeGuard&\n    operator=(NumberRoundModeGuard const&) = delete;\n};\n\n}  // namespace xrpl",
+      "description": "Arbitrary-precision-like decimal number type for xrpl with 64-bit mantissa and integer exponent, supporting normalization, arithmetic, comparisons, rounding modes, and utility functions. Contains nested struct unchecked for constructing without normalization, an internal rounding_mode enum, and a private Guard forward declaration. Also provides helper classes saveNumberRoundMode and NumberRoundModeGuard to manage thread-local rounding mode. Details of normalize(), arithmetic operators, rounding implementation, and Guard are in the corresponding source file.",
+      "direct_api_constructors": [
+        "xrpl::Number::Number(rep)",
+        "xrpl::Number::Number(rep,int)",
+        "xrpl::Number::Number(rep,int,unchecked)",
+        "xrpl::Number::min()",
+        "xrpl::Number::max()",
+        "xrpl::Number::lowest()"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "xrpl::Number::unchecked *",
+      "aliases": [],
+      "definition": "struct unchecked\n    {\n        explicit unchecked() = default;\n    };",
+      "description": "Tag type to request unchecked construction of xrpl::Number without normalization. Used to signal that provided mantissa and exponent are already normalized or that normalization should be skipped.",
+      "direct_api_constructors": [
+        "xrpl::Number::Number(rep,int,xrpl::Number::unchecked)"
+      ],
+      "owned_by": [
+        "xrpl::Number *"
+      ]
+    },
+    {
+      "ptr_type": "xrpl::Number::rounding_mode *",
+      "aliases": [],
+      "definition": "enum rounding_mode { to_nearest, towards_zero, downward, upward };",
+      "description": "Enumeration of rounding modes controlling Number conversions and arithmetic: round to nearest (ties to even), toward zero, toward −∞ (downward), toward +∞ (upward). Stored thread-locally via Number::mode_.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "xrpl::Number *"
+      ]
+    },
+    {
+      "ptr_type": "xrpl::saveNumberRoundMode *",
+      "aliases": [],
+      "definition": "class saveNumberRoundMode\n{\n    Number::rounding_mode mode_;\n\npublic:\n    ~saveNumberRoundMode()\n    {\n        Number::setround(mode_);\n    }\n    explicit saveNumberRoundMode(Number::rounding_mode mode) noexcept\n        : mode_{mode}\n    {\n    }\n    saveNumberRoundMode(saveNumberRoundMode const&) = delete;\n    saveNumberRoundMode&\n    operator=(saveNumberRoundMode const&) = delete;\n};",
+      "description": "RAII helper that restores the previously active Number::rounding_mode on destruction. Construct with the current mode (typically the result of Number::setround) and it will set that mode back in its destructor.",
+      "direct_api_constructors": [
+        "xrpl::saveNumberRoundMode::saveNumberRoundMode(xrpl::Number::rounding_mode)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "xrpl::NumberRoundModeGuard *",
+      "aliases": [],
+      "definition": "class NumberRoundModeGuard\n{\n    saveNumberRoundMode saved_;\n\npublic:\n    explicit NumberRoundModeGuard(Number::rounding_mode mode) noexcept\n        : saved_{Number::setround(mode)}\n    {\n    }\n\n    NumberRoundModeGuard(NumberRoundModeGuard const&) = delete;\n\n    NumberRoundModeGuard&\n    operator=(NumberRoundModeGuard const&) = delete;\n};",
+      "description": "RAII guard that sets a new Number::rounding_mode for the current scope and restores the previous mode upon destruction, implemented using saveNumberRoundMode and Number::setround.",
+      "direct_api_constructors": [
+        "xrpl::NumberRoundModeGuard::NumberRoundModeGuard(xrpl::Number::rounding_mode)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "beast::Zero *",
+      "aliases": [],
+      "definition": "namespace beast {\n\nstruct Zero\n{\n    explicit Zero() = default;\n};\n\nnamespace {\nstatic constexpr Zero zero{};\n}\n\n/** Default implementation of signum calls the method on the class. */\ntemplate <typename T>\nauto\nsignum(T const& t)\n{\n    return t.signum();\n}\n\nnamespace detail {\nnamespace zero_helper {\n\n// For argument dependent lookup to function properly, calls to signum must\n// be made from a namespace that does not include overloads of the function..\ntemplate <class T>\nauto\ncall_signum(T const& t)\n{\n    return signum(t);\n}\n\n}  // namespace zero_helper\n}  // namespace detail\n\n// Handle operators where T is on the left side using signum.\n\ntemplate <typename T>\nbool\noperator==(T const& t, Zero)\n{\n    return detail::zero_helper::call_signum(t) == 0;\n}\n\ntemplate <typename T>\nbool\noperator!=(T const& t, Zero)\n{\n    return detail::zero_helper::call_signum(t) != 0;\n}\n\ntemplate <typename T>\nbool\noperator<(T const& t, Zero)\n{\n    return detail::zero_helper::call_signum(t) < 0;\n}\n\ntemplate <typename T>\nbool\noperator>(T const& t, Zero)\n{\n    return detail::zero_helper::call_signum(t) > 0;\n}\n\ntemplate <typename T>\nbool\noperator>=(T const& t, Zero)\n{\n    return detail::zero_helper::call_signum(t) >= 0;\n}\n\ntemplate <typename T>\nbool\noperator<=(T const& t, Zero)\n{\n    return detail::zero_helper::call_signum(t) <= 0;\n}\n\n// Handle operators where T is on the right side by\n// reversing the operation, so that T is on the left side.\n\ntemplate <typename T>\nbool\noperator==(Zero, T const& t)\n{\n    return t == zero;\n}\n\ntemplate <typename T>\nbool\noperator!=(Zero, T const& t)\n{\n    return t != zero;\n}\n\ntemplate <typename T>\nbool\noperator<(Zero, T const& t)\n{\n    return t > zero;\n}\n\ntemplate <typename T>\nbool\noperator>(Zero, T const& t)\n{\n    return t < zero;\n}\n\ntemplate <typename T>\nbool\noperator>=(Zero, T const& t)\n{\n    return t <= zero;\n}\n\ntemplate <typename T>\nbool\noperator<=(Zero, T const& t)\n{\n    return t >= zero;\n}\n\n}  // namespace beast",
+      "description": "Sentinel type used to enable efficient comparisons of user-defined numeric-like types to zero via signum-based operators. Also defines an internal anonymous-namespace constexpr instance `zero` for ADL-based comparisons.",
+      "direct_api_constructors": [
+        "beast::Zero::Zero()"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "xrpl::to_string",
+      "signature": "std::string to_string(xrpl::Number const& amount);",
+      "description": "Converts a Number to its string representation. Intended for human-readable formatting and used by operator<<. The exact format is not defined in this header (unknown), but it should represent the numeric value of amount.",
+      "requirements": [
+        "amount must be a valid xrpl::Number instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::mantissa",
+      "signature": "constexpr xrpl::Number::rep mantissa() const noexcept;",
+      "description": "Returns the underlying mantissa (signed 64-bit integer) of the Number.",
+      "requirements": [
+        "The Number object must be initialized (default-constructed is valid)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::exponent",
+      "signature": "constexpr int exponent() const noexcept;",
+      "description": "Returns the exponent of the Number.",
+      "requirements": [
+        "The Number object must be initialized (default-constructed is valid)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator+",
+      "signature": "constexpr xrpl::Number operator+() const noexcept;",
+      "description": "Unary plus; returns the Number unchanged.",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator-",
+      "signature": "constexpr xrpl::Number operator-() const noexcept;",
+      "description": "Unary negation; returns a Number with the mantissa sign flipped.",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator++",
+      "signature": "xrpl::Number& operator++();",
+      "description": "Pre-increment. Increments the Number by 1.",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator++",
+      "signature": "xrpl::Number operator++(int);",
+      "description": "Post-increment. Returns the previous value and increments this Number by 1.",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator--",
+      "signature": "xrpl::Number& operator--();",
+      "description": "Pre-decrement. Decrements the Number by 1.",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator--",
+      "signature": "xrpl::Number operator--(int);",
+      "description": "Post-decrement. Returns the previous value and decrements this Number by 1.",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator+=",
+      "signature": "xrpl::Number& operator+=(xrpl::Number const& x);",
+      "description": "Adds x to this Number in-place.",
+      "requirements": [
+        "This Number and x must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator-=",
+      "signature": "xrpl::Number& operator-=(xrpl::Number const& x);",
+      "description": "Subtracts x from this Number in-place.",
+      "requirements": [
+        "This Number and x must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator*=",
+      "signature": "xrpl::Number& operator*=(xrpl::Number const& x);",
+      "description": "Multiplies this Number by x in-place.",
+      "requirements": [
+        "This Number and x must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator/=",
+      "signature": "xrpl::Number& operator/=(xrpl::Number const& x);",
+      "description": "Divides this Number by x in-place.",
+      "requirements": [
+        "This Number and x must be initialized Numbers.",
+        "x must not represent zero to avoid division by zero (inferred from typical division semantics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::min",
+      "signature": "static constexpr xrpl::Number min() noexcept;",
+      "description": "Returns the smallest positive-magnitude normalized Number (with mantissa = minMantissa and exponent = minExponent).",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::max",
+      "signature": "static constexpr xrpl::Number max() noexcept;",
+      "description": "Returns the largest normalized Number (with mantissa = maxMantissa and exponent = maxExponent).",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::lowest",
+      "signature": "static constexpr xrpl::Number lowest() noexcept;",
+      "description": "Returns the lowest (most negative) normalized Number (the negation of max()).",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::operator xrpl::Number::rep",
+      "signature": "explicit operator xrpl::Number::rep() const;",
+      "description": "Explicit conversion to the underlying integer type (rep). Rounds to nearest, with ties to even.",
+      "requirements": [
+        "Callers must use an explicit cast/static_cast to invoke this conversion.",
+        "Be aware of rounding: conversion rounds to nearest, ties to even (stated in comment)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::operator==",
+      "signature": "constexpr bool operator==(xrpl::Number const& x, xrpl::Number const& y) noexcept;",
+      "description": "Compares two Numbers for exact equality of mantissa and exponent.",
+      "requirements": [
+        "x and y must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::operator!=",
+      "signature": "constexpr bool operator!=(xrpl::Number const& x, xrpl::Number const& y) noexcept;",
+      "description": "Returns true if x and y are not exactly equal in mantissa or exponent.",
+      "requirements": [
+        "x and y must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::operator<",
+      "signature": "constexpr bool operator<(xrpl::Number const& x, xrpl::Number const& y) noexcept;",
+      "description": "Strict-weak ordering for Numbers with special-case handling of zero sign and comparing by exponent then mantissa.",
+      "requirements": [
+        "x and y must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::signum",
+      "signature": "constexpr int signum() const noexcept;",
+      "description": "Returns -1 if negative, 0 if zero, or 1 if positive.",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::truncate",
+      "signature": "xrpl::Number truncate() const noexcept;",
+      "description": "Returns a truncated version of the Number (likely removing any fractional component). Exact behavior is not defined in this header (unknown).",
+      "requirements": [
+        "The Number object must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::operator>",
+      "signature": "constexpr bool operator>(xrpl::Number const& x, xrpl::Number const& y) noexcept;",
+      "description": "Returns y < x.",
+      "requirements": [
+        "x and y must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::operator<=",
+      "signature": "constexpr bool operator<=(xrpl::Number const& x, xrpl::Number const& y) noexcept;",
+      "description": "Returns !(y < x).",
+      "requirements": [
+        "x and y must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::operator>=",
+      "signature": "constexpr bool operator>=(xrpl::Number const& x, xrpl::Number const& y) noexcept;",
+      "description": "Returns !(x < y).",
+      "requirements": [
+        "x and y must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::operator<<",
+      "signature": "std::ostream& operator<<(std::ostream& os, xrpl::Number const& x);",
+      "description": "Streams a Number to an output stream by delegating to xrpl::to_string(x).",
+      "requirements": [
+        "os must be a valid std::ostream reference.",
+        "x must be an initialized Number."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::getround",
+      "signature": "static xrpl::Number::rounding_mode getround();",
+      "description": "Returns the current thread-local rounding mode for Number operations. Default is to_nearest.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "xrpl::Number::setround",
+      "signature": "static xrpl::Number::rounding_mode setround(xrpl::Number::rounding_mode mode);",
+      "description": "Sets the current thread-local rounding mode for Number operations and returns the previously-set mode.",
+      "requirements": [
+        "mode must be a valid xrpl::Number::rounding_mode value."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::abs",
+      "signature": "constexpr xrpl::Number abs(xrpl::Number x) noexcept;",
+      "description": "Returns the absolute value of x.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "xrpl::power",
+      "signature": "xrpl::Number power(xrpl::Number const& f, unsigned n);",
+      "description": "Computes f raised to the integer power n using O(log n) multiplications.",
+      "requirements": [
+        "f must be an initialized Number."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::power",
+      "signature": "xrpl::Number power(xrpl::Number const& f, unsigned n, unsigned d);",
+      "description": "Computes f raised to the rational power n/d.",
+      "requirements": [
+        "d must be nonzero (inferred from rational exponent semantics).",
+        "f must be an initialized Number."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::root",
+      "signature": "xrpl::Number root(xrpl::Number f, unsigned d);",
+      "description": "Computes the d-th root of f (i.e., f^(1/d)) using Newton–Raphson iterations until the result stops changing.",
+      "requirements": [
+        "d must be nonzero (inferred from the definition of 1/d).",
+        "Convergence characteristics and domain restrictions (e.g., negative f for even d) are unspecified in this header (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::root2",
+      "signature": "xrpl::Number root2(xrpl::Number f);",
+      "description": "Computes the square root of f. Implementation details are not provided here; likely uses Newton–Raphson.",
+      "requirements": [
+        "Domain restrictions (e.g., negative f) are unspecified in this header (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "xrpl::squelch",
+      "signature": "constexpr xrpl::Number squelch(xrpl::Number const& x, xrpl::Number const& limit) noexcept;",
+      "description": "Returns 0 if abs(x) < limit; otherwise returns x. Useful for suppressing small magnitudes.",
+      "requirements": [
+        "x and limit must be initialized Numbers."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::signum",
+      "signature": "template <typename T>\nauto signum(T const& t);",
+      "description": "Default signum helper that calls t.signum(). Used to support Zero-comparisons for types providing a signum method or an ADL-visible signum overload.",
+      "requirements": [
+        "T must provide either a member t.signum() or there must be an ADL-resolved free function signum(T const&) returning a positive, zero, or negative value."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator==",
+      "signature": "template <typename T>\nbool operator==(T const& t, beast::Zero);",
+      "description": "Returns true if signum(t) == 0. Enables efficient comparison t == 0 for types supporting signum.",
+      "requirements": [
+        "T must be usable with signum as defined in the beast zero-helper (member or ADL)."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator==",
+      "signature": "template <typename T>\nbool operator==(beast::Zero, T const& t);",
+      "description": "Returns true if t == zero (i.e., signum(t) == 0). Right-hand T overload delegates to the left-hand overloads.",
+      "requirements": [
+        "T must be usable with signum via the corresponding left-hand overload."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator!=",
+      "signature": "template <typename T>\nbool operator!=(T const& t, beast::Zero);",
+      "description": "Returns true if signum(t) != 0.",
+      "requirements": [
+        "T must be usable with signum as defined in the beast zero-helper (member or ADL)."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator!=",
+      "signature": "template <typename T>\nbool operator!=(beast::Zero, T const& t);",
+      "description": "Returns true if t != zero (i.e., signum(t) != 0).",
+      "requirements": [
+        "T must be usable with signum via the corresponding left-hand overload."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator<",
+      "signature": "template <typename T>\nbool operator<(T const& t, beast::Zero);",
+      "description": "Returns true if signum(t) < 0.",
+      "requirements": [
+        "T must be usable with signum as defined in the beast zero-helper (member or ADL)."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator<",
+      "signature": "template <typename T>\nbool operator<(beast::Zero, T const& t);",
+      "description": "Returns true if t > zero (i.e., signum(t) > 0).",
+      "requirements": [
+        "T must be usable with signum via the corresponding left-hand overload."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator>",
+      "signature": "template <typename T>\nbool operator>(T const& t, beast::Zero);",
+      "description": "Returns true if signum(t) > 0.",
+      "requirements": [
+        "T must be usable with signum as defined in the beast zero-helper (member or ADL)."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator>",
+      "signature": "template <typename T>\nbool operator>(beast::Zero, T const& t);",
+      "description": "Returns true if t < zero (i.e., signum(t) < 0).",
+      "requirements": [
+        "T must be usable with signum via the corresponding left-hand overload."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator>=",
+      "signature": "template <typename T>\nbool operator>=(T const& t, beast::Zero);",
+      "description": "Returns true if signum(t) >= 0.",
+      "requirements": [
+        "T must be usable with signum as defined in the beast zero-helper (member or ADL)."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator>=",
+      "signature": "template <typename T>\nbool operator>=(beast::Zero, T const& t);",
+      "description": "Returns true if t <= zero (i.e., signum(t) <= 0).",
+      "requirements": [
+        "T must be usable with signum via the corresponding left-hand overload."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator<=",
+      "signature": "template <typename T>\nbool operator<=(T const& t, beast::Zero);",
+      "description": "Returns true if signum(t) <= 0.",
+      "requirements": [
+        "T must be usable with signum as defined in the beast zero-helper (member or ADL)."
+      ],
+      "error": null
+    },
+    {
+      "name": "beast::operator<=",
+      "signature": "template <typename T>\nbool operator<=(beast::Zero, T const& t);",
+      "description": "Returns true if t >= zero (i.e., signum(t) >= 0).",
+      "requirements": [
+        "T must be usable with signum via the corresponding left-hand overload."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "xrpl::Number::mantissa",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Accessor: returns underlying mantissa; object must be initialized.\n(void)num->mantissa();\n// Return the unmodified object."
+    },
+    {
+      "name": "xrpl::Number::exponent",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Accessor: returns exponent; object must be initialized.\n(void)num->exponent();\n// Return the unmodified object."
+    },
+    {
+      "name": "xrpl::Number::operator+",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "num_plus",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Unary plus should return the same value; input remains unchanged.\nxrpl::Number res = +(*num);\n// Create a persistent copy of the result to return.\nxrpl::Number *num_plus = new xrpl::Number(res);\n// Return both original and result."
+    },
+    {
+      "name": "xrpl::Number::operator-",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "num_neg",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Unary negation flips the sign of the mantissa; input remains unchanged.\nxrpl::Number res = -(*num);\n// Persist the result.\nxrpl::Number *num_neg = new xrpl::Number(res);\n// Return both original and result."
+    },
+    {
+      "name": "xrpl::Number::min",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "min_num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Construct the smallest positive-magnitude normalized Number.\nxrpl::Number res = xrpl::Number::min();\nxrpl::Number *min_num = new xrpl::Number(res);\n// Provide the new persistent object."
+    },
+    {
+      "name": "xrpl::Number::max",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "max_num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Construct the largest normalized Number.\nxrpl::Number res = xrpl::Number::max();\nxrpl::Number *max_num = new xrpl::Number(res);\n// Provide the new persistent object."
+    },
+    {
+      "name": "xrpl::Number::lowest",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "low_num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Construct the lowest (most negative) normalized Number.\nxrpl::Number res = xrpl::Number::lowest();\nxrpl::Number *low_num = new xrpl::Number(res);\n// Provide the new persistent object."
+    },
+    {
+      "name": "xrpl::operator==",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Exact equality compares mantissa and exponent.\nbool eq = (*x == *y);\n// Basic consistency check with reflexivity: x == x must be true.\nif (!(*x == *x)) { FUZZ_BAIL(); }\n(void)eq;\n// Return both inputs."
+    },
+    {
+      "name": "xrpl::operator!=",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Inequality is negation of exact equality (mantissa or exponent differ).\nbool ne = (*x != *y);\n// Self-inequality must be false.\nif (*x != *x) { FUZZ_BAIL(); }\n(void)ne;\n// Return both inputs."
+    },
+    {
+      "name": "xrpl::operator<",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Strict-weak ordering with special-case zero handling.\nbool lt = (*x < *y);\n// Irreflexivity: x < x must be false.\nif (*x < *x) { FUZZ_BAIL(); }\n(void)lt;\n// Return both inputs."
+    },
+    {
+      "name": "xrpl::Number::signum",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Returns -1, 0, or 1 based on the sign of mantissa.\nint s = num->signum();\nif (s < -1 || s > 1) { FUZZ_BAIL(); }\n(void)s;\n// Return the input."
+    },
+    {
+      "name": "xrpl::operator>",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Compare using > and cross-check with < for consistency.\nbool gt = (*x > *y);\nbool lt_rev = (*y < *x);\n// Consistency: x > y must be equivalent to y < x\nif (gt != lt_rev) { FUZZ_BAIL(); }\n// Irreflexivity: x > x must be false\nif (*x > *x) { FUZZ_BAIL(); }\n(void)gt; (void)lt_rev;\n// Return both inputs unchanged."
+    },
+    {
+      "name": "xrpl::operator<=",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// <= should be the negation of (y < x)\nbool le = (*x <= *y);\nbool not_y_lt_x = !(*y < *x);\nif (le != not_y_lt_x) { FUZZ_BAIL(); }\n// Reflexivity: x <= x must be true\nif (!(*x <= *x)) { FUZZ_BAIL(); }\n(void)le; (void)not_y_lt_x;\n// Return both inputs unchanged."
+    },
+    {
+      "name": "xrpl::operator>=",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "y",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// >= should be the negation of (x < y)\nbool ge = (*x >= *y);\nbool not_x_lt_y = !(*x < *y);\nif (ge != not_x_lt_y) { FUZZ_BAIL(); }\n// Reflexivity: x >= x must be true\nif (!(*x >= *x)) { FUZZ_BAIL(); }\n(void)ge; (void)not_x_lt_y;\n// Return both inputs unchanged."
+    },
+    {
+      "name": "xrpl::abs",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "abs_x",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Compute absolute value and validate non-negativity.\nxrpl::Number r = xrpl::abs(*x);\nif (r.signum() < 0) { FUZZ_BAIL(); }\n// Symmetry check: abs(x) == abs(-x)\nif (!(r == xrpl::abs(-(*x)))) { FUZZ_BAIL(); }\n// Persist the result\nxrpl::Number *abs_x = new xrpl::Number(r);\n// Return original and result."
+    },
+    {
+      "name": "xrpl::squelch",
+      "inputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "limit",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "limit",
+          "type": "xrpl::Number *"
+        },
+        {
+          "name": "sq",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Apply squelch: returns 0 if abs(x) < limit, else returns x.\nxrpl::Number r = xrpl::squelch(*x, *limit);\n// Property checks based on definition\nxrpl::Number ax = xrpl::abs(*x);\nbool suppressed = ax < *limit; // uses operator< which is inline\nif (suppressed) {\n    // When suppressed, result must be zero.\n    if (r.signum() != 0) { FUZZ_BAIL(); }\n} else {\n    // Otherwise, result must equal x.\n    if (!(r == *x)) { FUZZ_BAIL(); }\n}\n// Persist the result\nxrpl::Number *sq = new xrpl::Number(r);\n// Return inputs and result."
+    },
+    {
+      "name": "beast::signum",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Exercise beast::signum template with T = xrpl::Number via member signum().\nint s1 = beast::signum(*num);\nint s2 = num->signum();\n// Invariants: value must be in {-1,0,1} and match the member signum()\nif (s1 < -1 || s1 > 1) { FUZZ_BAIL(); }\nif (s1 != s2) { FUZZ_BAIL(); }\n(void)s1; (void)s2;\n// Validation: Returns input unchanged; properties checked for range and consistency."
+    },
+    {
+      "name": "beast::operator==",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Compare xrpl::Number to beast::Zero using both overloads for coverage.\nbeast::Zero z;\nbool a = (*num == z);      // T == Zero\nbool b = (z == *num);      // Zero == T (delegates to the other)\n// Consistency: both overloads must agree\nif (a != b) { FUZZ_BAIL(); }\n// Semantics: equality to zero iff signum() == 0\nif (a != (num->signum() == 0)) { FUZZ_BAIL(); }\n(void)a; (void)b;\n// Validation: Input preserved; verifies overload agreement and zero-equality semantics."
+    },
+    {
+      "name": "beast::operator!=",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Inequality with beast::Zero using both overloads.\nbeast::Zero z;\nbool a = (*num != z);      // T != Zero\nbool b = (z != *num);      // Zero != T\n// Consistency between overloads\nif (a != b) { FUZZ_BAIL(); }\n// Semantics: inequality to zero iff signum() != 0\nif (a != (num->signum() != 0)) { FUZZ_BAIL(); }\n// And should be logical negation of operator== semantics\nif (a == (*num == z)) { FUZZ_BAIL(); }\n(void)a; (void)b;\n// Validation: Input preserved; checks overload agreement and relation to equality."
+    },
+    {
+      "name": "beast::operator<",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Less-than comparisons against Zero on both sides.\nbeast::Zero z;\nbool a = (*num < z);   // signum(num) < 0\nbool b = (z < *num);   // signum(num) > 0 (because it reverses to t > zero)\nint s = num->signum();\n// Semantics\nif (a != (s < 0)) { FUZZ_BAIL(); }\nif (b != (s > 0)) { FUZZ_BAIL(); }\n// Asymmetry around zero: at most one of (num<0) and (0<num) is true\nif (a && b) { FUZZ_BAIL(); }\n(void)a; (void)b;\n// Validation: Preserves input; enforces sign-based ordering semantics for both overloads."
+    },
+    {
+      "name": "beast::operator>",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Greater-than comparisons against Zero on both sides.\nbeast::Zero z;\nbool a = (*num > z);   // signum(num) > 0\nbool b = (z > *num);   // signum(num) < 0\nint s = num->signum();\n// Semantics\nif (a != (s > 0)) { FUZZ_BAIL(); }\nif (b != (s < 0)) { FUZZ_BAIL(); }\n// At most one of (num>0) and (0>num) is true\nif (a && b) { FUZZ_BAIL(); }\n(void)a; (void)b;\n// Validation: Preserves input; verifies sign-based > semantics and overload agreement."
+    },
+    {
+      "name": "beast::operator>=",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Greater-equal comparisons against Zero on both sides.\nbeast::Zero z;\nbool a = (*num >= z);  // signum(num) >= 0\nbool b = (z >= *num);  // signum(num) <= 0\nint s = num->signum();\n// Semantics\nif (a != (s >= 0)) { FUZZ_BAIL(); }\nif (b != (s <= 0)) { FUZZ_BAIL(); }\n// Relationship with strict comparisons\nif (a != !(*num < z)) { FUZZ_BAIL(); }\nif (b != !(z < *num)) { FUZZ_BAIL(); }\n(void)a; (void)b;\n// Validation: Input preserved; checks equivalence to negated < and sign-based semantics."
+    },
+    {
+      "name": "beast::operator<=",
+      "inputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "num",
+          "type": "xrpl::Number *"
+        }
+      ],
+      "code": "// Less-equal comparisons against Zero on both sides.\nbeast::Zero z;\nbool a = (*num <= z);  // signum(num) <= 0\nbool b = (z <= *num);  // signum(num) >= 0\nint s = num->signum();\n// Semantics\nif (a != (s <= 0)) { FUZZ_BAIL(); }\nif (b != (s >= 0)) { FUZZ_BAIL(); }\n// Relationship with strict comparisons\nif (a != !(*num > z)) { FUZZ_BAIL(); }\nif (b != !(z > *num)) { FUZZ_BAIL(); }\n(void)a; (void)b;\n// Validation: Input preserved; checks equivalence to negated > and sign-based semantics."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "xrpl::to_string",
+      "reason": "The function is declared but not defined inline, causing unresolved symbol link errors in this environment."
+    },
+    {
+      "name": "xrpl::Number::operator++",
+      "reason": "Depends on non-inline operator+= implementation, leading to unresolved symbol link errors."
+    },
+    {
+      "name": "xrpl::Number::operator--",
+      "reason": "Depends on non-inline operator+= via operator-=, leading to unresolved symbol link errors."
+    },
+    {
+      "name": "xrpl::Number::operator+=",
+      "reason": "Member implementation is not inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::Number::operator-=",
+      "reason": "Implemented in source not linked here; inline wrapper calls operator+= which is unavailable."
+    },
+    {
+      "name": "xrpl::Number::operator*=",
+      "reason": "Member implementation is not inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::Number::operator/=",
+      "reason": "Member implementation is not inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::Number::operator xrpl::Number::rep",
+      "reason": "The conversion operator is not defined inline and thus cannot be linked in this environment."
+    },
+    {
+      "name": "xrpl::Number::truncate",
+      "reason": "Member implementation is not inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::operator<<",
+      "reason": "Operator<< delegates to xrpl::to_string which is not linked in this environment."
+    },
+    {
+      "name": "xrpl::Number::getround",
+      "reason": "Static function is not defined inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::Number::setround",
+      "reason": "Static function is not defined inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::power",
+      "reason": "Function is not defined inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::root",
+      "reason": "Function is not defined inline and is unavailable in this build, causing link errors."
+    },
+    {
+      "name": "xrpl::root2",
+      "reason": "Function is not defined inline and is unavailable in this build, causing link errors."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "xrpl::Number::mantissa",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::Number::exponent",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::Number::operator+",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::Number::operator-",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::Number::min",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::Number::max",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::Number::lowest",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::operator==",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::operator!=",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::operator<",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::Number::signum",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::operator>",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::operator<=",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::operator>=",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::abs",
+      "data_types": []
+    },
+    {
+      "name": "xrpl::squelch",
+      "data_types": []
+    },
+    {
+      "name": "beast::signum",
+      "data_types": []
+    },
+    {
+      "name": "beast::operator==",
+      "data_types": []
+    },
+    {
+      "name": "beast::operator!=",
+      "data_types": []
+    },
+    {
+      "name": "beast::operator<",
+      "data_types": []
+    },
+    {
+      "name": "beast::operator>",
+      "data_types": []
+    },
+    {
+      "name": "beast::operator>=",
+      "data_types": []
+    },
+    {
+      "name": "beast::operator<=",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3627,
+            "output_tokens": 4068,
+            "total_tokens": 7695
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3205,
+            "output_tokens": 343,
+            "total_tokens": 3548
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3996,
+            "output_tokens": 5366,
+            "total_tokens": 9362
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 40394,
+            "output_tokens": 9491,
+            "total_tokens": 49885
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 304.5348267555237,
+    "scan_objects": 37.49289131164551,
+    "validate_objects": 1.1511199474334717,
+    "scan_functions": 72.96215105056763,
+    "synthesis": 192.86011385917664,
+    "fill": 0,
+    "classify": 0.06746149063110352,
+    "build_generators": 0.00007605552673339844
+  }
+}

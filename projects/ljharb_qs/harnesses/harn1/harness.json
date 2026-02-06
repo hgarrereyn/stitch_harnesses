@@ -1,0 +1,187 @@
+{
+  "objects": [
+    {
+      "ptr_type": "char *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom types are defined in this header. The only symbols present are three C functions operating on C strings: qs_stringify, qs_parse_value, and qs_free. Since no structs, enums, typedefs, or classes are introduced here, there are no custom pointer types to document.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "qs_stringify",
+      "signature": "char* qs_stringify(const char* key, const char* value);",
+      "description": "Constructs a query-string fragment from a key/value pair and returns it as a newly allocated C string (e.g., \"key=value\"). Intended for building URL query strings. Memory management details are not documented in this header; based on naming patterns and the presence of qs_free, the returned buffer is likely heap-allocated by this library and should be released with qs_free. Exact formatting/escaping rules (e.g., percent-encoding, handling of NULL or empty inputs) are unknown.",
+      "requirements": [
+        "key must be a valid, null-terminated C string pointer (non-NULL).",
+        "value must be a valid, null-terminated C string pointer (non-NULL).",
+        "The returned pointer is to a dynamically allocated buffer owned by the caller; free it with qs_free (inferred from the API pattern).",
+        "Do not assume any specific encoding or escaping behavior; verify externally if needed (behavior unknown).",
+        "Defensively check the return value for NULL before use, as allocation or input handling behavior is not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "qs_parse_value",
+      "signature": "char* qs_parse_value(const char* query, const char* key);",
+      "description": "Parses a URL-style query string and returns the value associated with the given key as a newly allocated C string. Suitable for extracting a single parameter value from a query like \"a=1&b=2\". Memory management is not explicitly documented; by convention with qs_free present, the returned buffer is likely allocated by this library and should be freed with qs_free. Matching rules (case sensitivity, first vs. multiple matches, decoding of percent-encoding or '+' to space) are unknown.",
+      "requirements": [
+        "query must be a valid, null-terminated C string pointer (non-NULL) representing a query string (e.g., \"k=v&x=y\").",
+        "key must be a valid, null-terminated C string pointer (non-NULL).",
+        "The returned pointer, if non-NULL, is a dynamically allocated buffer owned by the caller; free it with qs_free (inferred from the API pattern).",
+        "Defensively check the return value for NULL before use; not found keys or parse errors may result in no value (semantics not documented).",
+        "Do not assume specific decoding/normalization behavior (percent-encoding, '+' handling, repeated keys) without external confirmation."
+      ],
+      "error": null
+    },
+    {
+      "name": "qs_free",
+      "signature": "void qs_free(char* s);",
+      "description": "Frees memory allocated by this query-string library. Intended counterpart to functions that return heap-allocated strings (e.g., qs_stringify, qs_parse_value). Exact semantics (e.g., NULL tolerance) are not documented here.",
+      "requirements": [
+        "s must be a pointer previously returned by this library (e.g., from qs_stringify or qs_parse_value).",
+        "Do not pass arbitrary pointers, stack memory, or memory freed by other allocators.",
+        "Do not call qs_free more than once on the same pointer (no double-free).",
+        "Do not use the pointer after it has been freed.",
+        "Behavior on s == NULL is not specified; pass non-NULL to be safe."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "qs_stringify",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "char *"
+        }
+      ],
+      "code": "// Generate non-NULL, null-terminated C strings for key and value\nstd::string key_str = FUZZ_PARAM_STR();\nstd::string val_str = FUZZ_PARAM_STR();\nconst char *key = key_str.c_str();\nconst char *value = val_str.c_str();\n\n// Invoke target; returns newly allocated buffer on success\nchar *s = qs_stringify(key, value);\n\n// Defensive: if allocation or handling failed, bail to avoid emitting a NULL output\nif (!s) { FUZZ_BAIL(); }\n\n// Track ownership and origin so qs_free can validate proper usage\nFUZZ_SET_ATTR_INT(s, \"qs_owned\", 1);\nFUZZ_SET_ATTR_STR(s, \"origin\", \"stringify\");\nFUZZ_SET_ATTR_INT(s, \"freed\", 0);\n\n// Validation summary: inputs satisfy non-NULL C-string requirement; output is non-NULL and marked as library-owned for safe later free."
+    },
+    {
+      "name": "qs_parse_value",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "char *"
+        }
+      ],
+      "code": "// Build a plausible query string and a lookup key; ensure both are valid C strings\nstd::string k = FUZZ_PARAM_STR();\nstd::string v = FUZZ_PARAM_STR();\nstd::string noise1 = FUZZ_PARAM_STR();\nstd::string noise2 = FUZZ_PARAM_STR();\n\n// Select a construction mode to exercise different parsing paths\nunsigned mode = (*FUZZ_PARAM(unsigned int)) % 3u;\nstd::string query_str;\nswitch (mode) {\n    case 0:\n        // Exact key-value present\n        query_str = k + \"=\" + v;\n        break;\n    case 1:\n        // Mixed parameters; target key in the middle\n        query_str = std::string(\"a=\") + noise1 + \"&\" + k + \"=\" + v + \"&b=\" + noise2;\n        break;\n    default:\n        // Duplicate and trailing separators\n        query_str = k + \"=\" + v + \"&\" + k + \"=\" + noise1 + \"&&c=\" + noise2;\n        break;\n}\n\nconst char *query = query_str.c_str();\nconst char *key = k.c_str();\n\n// Invoke target; may return NULL if not found or on error — we bail to avoid NULL outputs\nchar *s = qs_parse_value(query, key);\nif (!s) { FUZZ_BAIL(); }\n\n// Track ownership and origin so qs_free can validate proper usage\nFUZZ_SET_ATTR_INT(s, \"qs_owned\", 1);\nFUZZ_SET_ATTR_STR(s, \"origin\", \"parse_value\");\nFUZZ_SET_ATTR_INT(s, \"freed\", 0);\n\n// Validation summary: inputs are valid C-strings; non-NULL output is marked as library-owned to enable safe qs_free later."
+    },
+    {
+      "name": "qs_free",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "char *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce that s originated from this library and was not already freed\nint owned = FUZZ_GET_ATTR_INT(s, \"qs_owned\");\nint already_freed = FUZZ_GET_ATTR_INT(s, \"freed\");\nif (owned != 1) { FUZZ_BAIL(); }\nif (already_freed == 1) { FUZZ_BAIL(); }\n\n// Mark as freed in metadata before releasing to prevent any accidental reuse\nFUZZ_SET_ATTR_INT(s, \"freed\", 1);\n\n// Invoke target free; do not return s as output to drop it from the pool\nqs_free(s);\n\n// Validation summary: only library-allocated, not-yet-freed pointers are accepted; pointer is dropped after free to avoid double free."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "qs_free",
+      "data_types": []
+    },
+    {
+      "name": "qs_stringify",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "qs_parse_value",
+      "data_types": [
+        "URL query string",
+        "arbitrary string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary string",
+      "description": "A generic byte sequence interpreted as a null-terminated text string. No specific format or character restrictions; may include any bytes except embedded null when used via C string APIs. Suitable for inputs like general keys or values that do not require structured formatting."
+    },
+    {
+      "data_type": "URL query string",
+      "description": "Text formatted like a URL query component, typically consisting of key=value pairs separated by '&'. Keys and values may be empty, duplicated, or include percent-encoding or '+'. Examples: \"a=1&b=2\", \"k=v\", \"a=&b=c\", or strings with extra '&' separators."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# This generator targets C-string consumers in qs_stringify and qs_parse_value.\n# It returns a single bytes buffer that the harness will split to feed FUZZ_PARAM_STR\n# and FUZZ_PARAM(unsigned) calls. We therefore craft a container format consisting of\n# multiple null-terminated C-strings followed by an optional 4-byte little-endian\n# unsigned integer. All strings are valid (no embedded NUL) and exercise URL query\n# edge cases: percent-encodings, plus-as-space, empty values, duplicate keys,\n# reserved characters, Unicode (UTF-8), and long segments.\n#\n# Layout:\n#   [count:1 byte]\n#   Then count C-strings, each as: data bytes (no NUL) + '\\x00'\n#   Then a 4-byte LE unsigned \"mode\" value to drive branch selection.\n#\n# The fuzz stubs request FUZZ_PARAM_STR several times; supplying a pool of\n# interesting strings lets different calls draw diverse, valid inputs. The\n# embedded mode biases qs_parse_value's switch(mode%3).\n\nURL_SAFE = \"-._~\"\nRESERVED = \":/?#[]@!$&'()*+,;=\"\nHEX = \"0123456789ABCDEF\"\n\ndef _rand_utf8(r: random.Random, min_len: int, max_len: int) -> str:\n    # Mix ASCII, Latin-1, BMP, and some emoji\n    n = r.randint(min_len, max_len)\n    out = []\n    for _ in range(n):\n        bucket = r.random()\n        if bucket < 0.60:\n            out.append(chr(r.choice(list(range(0x20, 0x7F)))))  # visible ASCII\n        elif bucket < 0.75:\n            out.append(chr(r.randint(0xA0, 0xFF)))  # Latin-1 printable\n        elif bucket < 0.95:\n            # BMP excluding surrogates\n            while True:\n                cp = r.randint(0x0100, 0xFFFF)\n                if not (0xD800 <= cp <= 0xDFFF):\n                    break\n            out.append(chr(cp))\n        else:\n            out.append(chr(r.choice([0x1F600, 0x1F642, 0x1F680, 0x1F4A9, 0x1F44D])))\n    return \"\".join(out)\n\ndef _percent_encode(r: random.Random, s: str) -> str:\n    # Apply percent-encoding to a subset of bytes to keep it valid\n    b = s.encode('utf-8', errors='strict')\n    out = []\n    for byte in b:\n        if byte in b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\" or chr(byte) in URL_SAFE:\n            out.append(chr(byte))\n        else:\n            if r.random() < 0.5:\n                out.append(\"%\" + HEX[(byte >> 4) & 0xF] + HEX[byte & 0xF])\n            else:\n                out.append(chr(byte))\n    return \"\".join(out)\n\ndef _kv_pair(r: random.Random) -> Tuple[str, str]:\n    # Generate a key and value exploring various cases\n    key_modes = [\n        lambda: \"key\",\n        lambda: \"k\",\n        lambda: \"\",\n        lambda: _percent_encode(r, _rand_utf8(r, 1, 8)),\n        lambda: \"dup\",\n        lambda: \"sp ace\",\n        lambda: \"plus+sign\",\n        lambda: \"res\" + r.choice(list(RESERVED)),\n    ]\n    val_modes = [\n        lambda: \"value\",\n        lambda: \"\",\n        lambda: _percent_encode(r, _rand_utf8(r, 0, 16)),\n        lambda: \"a b c\",\n        lambda: \"+plus+as+space+\",\n        lambda: \"%2Fpath%2Fseg\",\n        lambda: \"100%25\",\n        lambda: \"中文/пример\",\n    ]\n    k = r.choice(key_modes)()\n    v = r.choice(val_modes)()\n    # Ensure C-string validity (no embedded NUL); our builders avoid NULs inherently.\n    if \"\\x00\" in k:\n        k = k.replace(\"\\x00\", \"_\")\n    if \"\\x00\" in v:\n        v = v.replace(\"\\x00\", \"_\")\n    return k, v\n\ndef _interesting_strings(r: random.Random) -> List[str]:\n    items: List[str] = []\n\n    # Baseline simple cases\n    items += [\"a\", \"b\", \"key\", \"value\", \"dup\", \"\"]\n\n    # Keys and values with URL-reserved chars and separators\n    items += [\"a=b\", \"x&y\", \"=startsWithEq\", \"trailing=\", \"&&\", \"?q=s\", \"#frag\"]\n\n    # Percent-encoding and plus handling\n    items += [\"a%20b\", \"plus+space\", \"%2F\", \"%3D\", \"%26\", \"C%2B%2B\"]\n\n    # Unicode\n    items += [\"café\", \"naïve\", \"日本語\", \"emoji😀\", \"Русский\", \"العربية\"]\n\n    # Randomized utf8 and percent-encoded variants\n    for _ in range(6):\n        s = _rand_utf8(r, 1, 12)\n        items.append(s)\n        items.append(_percent_encode(r, s))\n\n    # Longish components to test allocation paths\n    long_key = \"k\" * r.randint(32, 96)\n    long_val = \"v\" * r.randint(64, 256)\n    items += [long_key, long_val]\n\n    # Empty to exercise empty value/empty key\n    items += [\"\"]\n\n    # Ensure no embedded NULs\n    items = [s.replace(\"\\x00\", \"_\") for s in items]\n    return items\n\ndef _build_buffer(strings: List[str], mode: int, limit: int = 4096) -> bytes:\n    # Count limited to 255 for single-byte count\n    count = min(len(strings), 255)\n    parts = [bytes([count])]\n    total = 1\n    for s in strings[:count]:\n        b = s.encode('utf-8') + b\"\\x00\"\n        if total + len(b) + 4 > limit:  # keep room for mode\n            break\n        parts.append(b)\n        total += len(b)\n    parts.append(mode.to_bytes(4, 'little'))\n    data = b\"\".join(parts)\n    # Final safety: cap size\n    return data[:limit]\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Build a pool of interesting strings used by both stubs\n    pool = _interesting_strings(r)\n\n    # Add specifically crafted pairs to directly feed qs_parse_value construction\n    for _ in range(3):\n        k, v = _kv_pair(r)\n        pool.extend([k, v])\n\n    # Ensure presence of duplicates for duplicate key path\n    pool.extend([\"dup\", \"v1\", \"v2\"])  # duplicate key name used in pairs elsewhere\n\n    # Bias some edge separators which will be concatenated by the fuzzer stub\n    pool.extend([\"&\", \"=\", \"&&c=tail\", \"a=1&b=2\", \"x=%20y\"])    \n\n    # Choose a mode value to steer qs_parse_value's switch branch and variety\n    # 0,1,2 directly exercise the three cases; add random upper bits to test masking\n    mode_choice = r.choice([0, 1, 2])\n    mode = (r.getrandbits(29) << 3) | mode_choice\n\n    # Shuffle to diversify which FUZZ_PARAM_STR gets what\n    r.shuffle(pool)\n\n    # Build the serialized multi-string buffer with trailing mode\n    return _build_buffer(pool, mode)\n"
+    },
+    {
+      "data_type": "URL query string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# This generator produces valid URL query strings intended to exercise qs_parse_value.\n# The fuzzer stub constructs the final query from FUZZ_PARAM_STR pieces and a key/value.\n# We therefore output a single buffer that, when used for FUZZ_PARAM_STR and filename\n# by the harness, likely yields interesting combinations. Since the harness calls\n# FUZZ_PARAM_STR multiple times, most fuzzing frameworks split the provided initial\n# buffer into segments; we encode multiple newline-separated tokens so each call can\n# consume a distinct, valid string. This approach avoids malformed UTF-8 assumptions\n# but keeps everything ASCII and URL-safe.\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_.*\"\nKEY_CHARS = string.ascii_letters + string.digits + \"_-\"\n\nPCT_HEX = \"0123456789ABCDEF\"\n\n\ndef _rand_choice(rng: random.Random, s: str) -> str:\n    return s[rng.randrange(len(s))]\n\n\ndef percent_encode(rng: random.Random, s: str, ratio: float) -> str:\n    # Encode roughly ratio of characters as %HH; leave others intact.\n    out = []\n    for ch in s:\n        if ch == ' ':\n            # sometimes encode space as +\n            if rng.random() < 0.5:\n                out.append('+')\n                continue\n        if rng.random() < ratio:\n            b = ord(ch) & 0xFF\n            out.append('%')\n            out.append(PCT_HEX[(b >> 4) & 0xF])\n            out.append(PCT_HEX[b & 0xF])\n        else:\n            out.append(ch)\n    return ''.join(out)\n\n\ndef make_key(rng: random.Random) -> str:\n    # Keys common patterns: empty, simple, mixed, repeated words\n    mode = rng.randrange(6)\n    if mode == 0:\n        return \"\"  # empty key path\n    elif mode == 1:\n        return \"a\"\n    elif mode == 2:\n        return \"key\"\n    elif mode == 3:\n        return \"id_%d\" % rng.randint(0, 999)\n    elif mode == 4:\n        # include dot and dash\n        length = rng.randint(1, 12)\n        chars = KEY_CHARS + \".-\"\n        return ''.join(rng.choice(chars) for _ in range(length))\n    else:\n        # mixed case\n        length = rng.randint(1, 16)\n        return ''.join(rng.choice(KEY_CHARS) for _ in range(length))\n\n\ndef make_value(rng: random.Random) -> str:\n    mode = rng.randrange(7)\n    if mode == 0:\n        return \"\"\n    elif mode == 1:\n        return \"0\"\n    elif mode == 2:\n        return \"true\"\n    elif mode == 3:\n        return \"hello world\"  # has space to exercise '+' or %20\n    elif mode == 4:\n        # numbers and dots\n        return \"%d.%d\" % (rng.randint(0, 9999), rng.randint(0, 9999))\n    elif mode == 5:\n        # path-like\n        raw = \"/\".join(\n            ''.join(rng.choice(SAFE_CHARS) for _ in range(rng.randint(1, 6)))\n            for _ in range(rng.randint(1, 4))\n        )\n        return raw\n    else:\n        # random safe with occasional spaces\n        length = rng.randint(0, 24)\n        pool = SAFE_CHARS + \" \"\n        raw = ''.join(rng.choice(pool) for _ in range(length))\n        return raw\n\n\ndef maybe_encode(rng: random.Random, s: str) -> str:\n    if not s:\n        return s\n    mode = rng.randrange(4)\n    if mode == 0:\n        return s  # plain\n    elif mode == 1:\n        return percent_encode(rng, s, ratio=0.3)\n    elif mode == 2:\n        # encode everything non-alnum\n        out = []\n        for ch in s:\n            if ch.isalnum():\n                out.append(ch)\n            elif ch == ' ':\n                out.append('+' if rng.random() < 0.7 else '%20')\n            else:\n                out.append('%' + format(ord(ch) & 0xFF, '02X'))\n        return ''.join(out)\n    else:\n        # lowercase hex in percent-encoding sometimes\n        enc = percent_encode(rng, s, ratio=0.6)\n        # randomly lowercase hex digits after %\n        tmp = []\n        i = 0\n        while i < len(enc):\n            if enc[i] == '%' and i + 2 < len(enc):\n                tmp.append('%')\n                tmp.append(enc[i+1].lower() if rng.random() < 0.5 else enc[i+1])\n                tmp.append(enc[i+2].lower() if rng.random() < 0.5 else enc[i+2])\n                i += 3\n            else:\n                tmp.append(enc[i])\n                i += 1\n        return ''.join(tmp)\n\n\ndef make_noise(rng: random.Random) -> str:\n    # arbitrary values for unrelated keys\n    v = make_value(rng)\n    return maybe_encode(rng, v)\n\n\ndef assemble_queries(rng: random.Random, k: str, v: str, noise1: str, noise2: str) -> List[str]:\n    kv = f\"{k}={v}\"\n    queries = []\n    # Mode 0: exact key=value\n    queries.append(kv)\n    # Mode 1: mixed parameters, target in middle\n    queries.append(f\"a={noise1}&{kv}&b={noise2}\")\n    # Mode 2: duplicates and trailing separators\n    queries.append(f\"{kv}&{k}={noise1}&&c={noise2}\")\n    # Additional variants to widen coverage\n    # repeated key three times\n    queries.append(f\"x=1&{kv}&{k}=&{k}={noise2}\")\n    # leading separator and empty assignment\n    queries.append(f\"&{kv}&&{k}=&=noval&{k}={noise1}\")\n    # key present without equal sign plus with value\n    queries.append(f\"flag&{kv}&{k}\")\n    return queries\n\n\ndef make_bundle(rng: random.Random) -> bytes:\n    # Produce a bundle of tokens intended for FUZZ_PARAM_STR consumption.\n    # We place: key, value, noise1, noise2, followed by several prebuilt query strings.\n    key_raw = make_key(rng)\n    val_raw = make_value(rng)\n    noise1_raw = make_noise(rng)\n    noise2_raw = make_noise(rng)\n\n    # Encode key/value separately for realistic behavior\n    key_enc = maybe_encode(rng, key_raw)\n    val_enc = maybe_encode(rng, val_raw)\n\n    queries = assemble_queries(rng, key_enc, val_enc, noise1_raw, noise2_raw)\n\n    # Also include standalone tokens that the harness might pick up as FUZZ_PARAM_STR\n    tokens: List[str] = []\n    tokens.append(key_enc)\n    tokens.append(val_enc)\n    tokens.append(noise1_raw)\n    tokens.append(noise2_raw)\n\n    # Include some alternative encodings of the same key/value to test matching nuances\n    tokens.append(maybe_encode(rng, key_raw))\n    tokens.append(maybe_encode(rng, val_raw))\n\n    # Append queries\n    tokens.extend(queries)\n\n    # Ensure total size constraint\n    joined = \"\\n\".join(tokens)\n    b = joined.encode('utf-8', errors='strict')\n    if len(b) > 4096:\n        # trim from the end if oversized\n        b = b[:4096]\n    return b\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    return make_bundle(rng)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 748,
+            "output_tokens": 96,
+            "total_tokens": 844
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 326,
+            "output_tokens": 26,
+            "total_tokens": 352
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 769,
+            "output_tokens": 1511,
+            "total_tokens": 2280
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4427,
+            "output_tokens": 2473,
+            "total_tokens": 6900
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2495,
+            "output_tokens": 187,
+            "total_tokens": 2682
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 145.65678763389587,
+    "scan_objects": 2.4932990074157715,
+    "validate_objects": 0.19648313522338867,
+    "scan_functions": 49.76731204986572,
+    "synthesis": 43.220733880996704,
+    "fill": 0,
+    "classify": 3.6821491718292236,
+    "build_generators": 46.295369386672974
+  }
+}

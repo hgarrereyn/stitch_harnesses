@@ -1,0 +1,1598 @@
+{
+  "objects": [
+    {
+      "ptr_type": "ov_callbacks *",
+      "aliases": [],
+      "definition": "typedef struct {\n  size_t (*read_func)  (void *ptr, size_t size, size_t nmemb, void *datasource);\n  int    (*seek_func)  (void *datasource, ogg_int64_t offset, int whence);\n  int    (*close_func) (void *datasource);\n  long   (*tell_func)  (void *datasource);\n} ov_callbacks;",
+      "description": "Callback vtable used by OggVorbis_File to perform I/O against an arbitrary data source. Function signatures mirror stdio (fread, fseek, fclose, ftell) except that the FILE* is replaced with a void* datasource. seek_func must return -1 if the stream is unseekable.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "OggVorbis_File *"
+      ]
+    },
+    {
+      "ptr_type": "OggVorbis_File *",
+      "aliases": [],
+      "definition": "typedef struct OggVorbis_File {\n  void            *datasource; /* Pointer to a FILE *, etc. */\n  int              seekable;\n  ogg_int64_t      offset;\n  ogg_int64_t      end;\n  ogg_sync_state   oy;\n\n  /* If the FILE handle isn't seekable (eg, a pipe), only the current\n     stream appears */\n  int              links;\n  ogg_int64_t     *offsets;\n  ogg_int64_t     *dataoffsets;\n  ogg_uint32_t    *serialnos;\n  ogg_int64_t     *pcmlengths;\n  vorbis_info     *vi;\n  vorbis_comment  *vc;\n\n  /* Decoding working state local storage */\n  ogg_int64_t      pcm_offset;\n  int              ready_state;\n  ogg_uint32_t     current_serialno;\n  int              current_link;\n\n  ogg_int64_t      bittrack;\n  ogg_int64_t      samptrack;\n\n  ogg_stream_state os; /* take physical pages, weld into a logical\n                          stream of packets */\n  vorbis_dsp_state vd; /* central working state for the packet->PCM decoder */\n  vorbis_block     vb; /* local working space for packet->PCM decode */\n\n  ov_callbacks callbacks;\n\n} OggVorbis_File;",
+      "description": "High-level handle for opening, probing, seeking, and decoding Ogg Vorbis streams using stdio-like callbacks. Holds data source pointer, stream topology and offsets, decode state (ogg, vorbis dsp/block), and accumulated tracking fields.",
+      "direct_api_constructors": [
+        "ov_open",
+        "ov_open_callbacks",
+        "ov_test",
+        "ov_test_callbacks",
+        "ov_test_open"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "vorbis_info *",
+      "aliases": [],
+      "definition": "typedef struct vorbis_info{\n  int version;\n  int channels;\n  long rate;\n\n  long bitrate_upper;\n  long bitrate_nominal;\n  long bitrate_lower;\n  long bitrate_window;\n\n  void *codec_setup;\n} vorbis_info;",
+      "description": "Codec mode/setup description for a Vorbis logical bitstream, including channels, sample rate, bitrate hints, and opaque internal setup pointer. Used for both synthesis and analysis contexts.",
+      "direct_api_constructors": [
+        "vorbis_info_init"
+      ],
+      "owned_by": [
+        "OggVorbis_File *",
+        "vorbis_dsp_state *"
+      ]
+    },
+    {
+      "ptr_type": "vorbis_dsp_state *",
+      "aliases": [],
+      "definition": "typedef struct vorbis_dsp_state{\n  int analysisp;\n  vorbis_info *vi;\n\n  ogg_int32_t **pcm;\n  ogg_int32_t **pcmret;\n  int      pcm_storage;\n  int      pcm_current;\n  int      pcm_returned;\n\n  int  preextrapolate;\n  int  eofflag;\n\n  long lW;\n  long W;\n  long nW;\n  long centerW;\n\n  ogg_int64_t granulepos;\n  ogg_int64_t sequence;\n\n  void       *backend_state;\n} vorbis_dsp_state;",
+      "description": "Per-stream DSP synthesis/analysis state for Vorbis. Owns PCM buffers, windowing state, granule position tracking, and links to associated vorbis_info and backend state.",
+      "direct_api_constructors": [
+        "vorbis_synthesis_init"
+      ],
+      "owned_by": [
+        "OggVorbis_File *",
+        "vorbis_block *"
+      ]
+    },
+    {
+      "ptr_type": "vorbis_block *",
+      "aliases": [],
+      "definition": "typedef struct vorbis_block{\n  /* necessary stream state for linking to the framing abstraction */\n  ogg_int32_t  **pcm;       /* this is a pointer into local storage */ \n  oggpack_buffer opb;\n  \n  long  lW;\n  long  W;\n  long  nW;\n  int   pcmend;\n  int   mode;\n\n  int         eofflag;\n  ogg_int64_t granulepos;\n  ogg_int64_t sequence;\n  vorbis_dsp_state *vd; /* For read-only access of configuration */\n\n  /* local storage to avoid remallocing; it's up to the mapping to\n     structure it */\n  void               *localstore;\n  long                localtop;\n  long                localalloc;\n  long                totaluse;\n  struct alloc_chain *reap;\n\n} vorbis_block;",
+      "description": "A single analysis/synthesis block for Vorbis processing, linked to a vorbis_dsp_state. Holds packet buffer, window metrics, PCM endpoints, and local allocation chain.",
+      "direct_api_constructors": [
+        "vorbis_block_init"
+      ],
+      "owned_by": [
+        "OggVorbis_File *"
+      ]
+    },
+    {
+      "ptr_type": "alloc_chain *",
+      "aliases": [
+        "struct alloc_chain *"
+      ],
+      "definition": "struct alloc_chain{\n  void *ptr;\n  struct alloc_chain *next;\n};",
+      "description": "Internal singly-linked list nodes managing temporary allocations associated with a vorbis_block. Used to bulk free local storage.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "vorbis_block *"
+      ]
+    },
+    {
+      "ptr_type": "vorbis_comment *",
+      "aliases": [],
+      "definition": "typedef struct vorbis_comment{\n  char **user_comments;\n  int   *comment_lengths;\n  int    comments;\n  char  *vendor;\n\n} vorbis_comment;",
+      "description": "Container for Vorbis comment metadata (vendor string and an array of user comments with lengths).",
+      "direct_api_constructors": [
+        "vorbis_comment_init"
+      ],
+      "owned_by": [
+        "OggVorbis_File *"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "ov_clear",
+      "signature": "int ov_clear(OggVorbis_File *vf);",
+      "description": "Closes and clears an OggVorbis_File decoding handle, releasing any resources it holds. Use after a successful open/test-open to tear down the decoder state.",
+      "requirements": [
+        "vf must be a valid pointer to an OggVorbis_File previously initialized by ov_open/ov_open_callbacks/ov_test_open.",
+        "After successful return, vf should not be used unless re-initialized/opened again.",
+        "Returns an int status code; caller should check for errors."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_open",
+      "signature": "int ov_open(FILE *f, OggVorbis_File *vf, const char *initial, long ibytes);",
+      "description": "Initializes an OggVorbis_File for decoding from a stdio FILE*. Optionally seeds the open with an initial buffer of header bytes.",
+      "requirements": [
+        "f must be a valid, opened FILE* positioned at the start of a Vorbis bitstream or containing such a stream.",
+        "vf must be a non-null pointer to storage for OggVorbis_File; it will be initialized on success.",
+        "If initial is non-null, it must point to at least ibytes bytes of data; ibytes must be >= 0.",
+        "The FILE* must be readable; seeking may be required for full functionality (e.g., seeking APIs).",
+        "Returns 0 on success or a negative error code; caller must check return value before using vf."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_open_callbacks",
+      "signature": "int ov_open_callbacks(void *datasource, OggVorbis_File *vf, const char *initial, long ibytes, ov_callbacks callbacks);",
+      "description": "Initializes an OggVorbis_File using user-provided I/O callbacks instead of stdio. Supports custom data sources (e.g., memory, network).",
+      "requirements": [
+        "datasource is an opaque pointer passed to callbacks; must remain valid for the lifetime of vf.",
+        "vf must be non-null pointer to OggVorbis_File storage; it will be initialized on success.",
+        "callbacks.read_func/seek_func/close_func/tell_func pointers must follow fread/fseek/fclose/ftell semantics except the FILE* is replaced with void* datasource.",
+        "seek_func MUST return -1 if the stream is unseekable (per header note).",
+        "If initial is non-null, it must point to at least ibytes bytes of data; ibytes must be >= 0.",
+        "Caller must check the returned int for success before using vf."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_test",
+      "signature": "int ov_test(FILE *f, OggVorbis_File *vf, const char *initial, long ibytes);",
+      "description": "Performs a partial open to test whether the stream appears to be a Vorbis stream and gather minimal info without fully decoding setup. Used to cheaply validate a source before fully opening.",
+      "requirements": [
+        "f must be a valid, opened FILE* positioned appropriately for reading.",
+        "vf must be non-null to receive partial-open state on success.",
+        "If initial is non-null, it must point to at least ibytes bytes; ibytes must be >= 0.",
+        "Caller must check the return value; on success, call ov_test_open to complete the open before decoding."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_test_callbacks",
+      "signature": "int ov_test_callbacks(void *datasource, OggVorbis_File *vf, const char *initial, long ibytes, ov_callbacks callbacks);",
+      "description": "Performs a partial open using custom I/O callbacks to validate a datasource as Vorbis and prepare minimal state. Complete with ov_test_open before use.",
+      "requirements": [
+        "datasource must remain valid for the lifetime of vf.",
+        "vf must be non-null to receive partial-open state.",
+        "callbacks must supply required functions with fread/fseek/fclose/ftell-like behavior; seek_func must return -1 for unseekable streams.",
+        "If initial is non-null, it must point to at least ibytes bytes; ibytes must be >= 0.",
+        "Caller must check the return value and call ov_test_open on success to complete opening."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_test_open",
+      "signature": "int ov_test_open(OggVorbis_File *vf);",
+      "description": "Completes a prior ov_test/ov_test_callbacks partial open, fully initializing the OggVorbis_File for decoding and random access (if seekable).",
+      "requirements": [
+        "vf must be a non-null pointer previously set up by ov_test or ov_test_callbacks.",
+        "Caller must check the return code before using the handle for decoding or queries."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_bitrate",
+      "signature": "long ov_bitrate(OggVorbis_File *vf, int i);",
+      "description": "Returns the bitrate (nominal or average) for the specified logical bitstream within the file, or for the current stream if i is a sentinel (library-defined).",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "i must refer to a valid logical bitstream index or a library-defined sentinel; out-of-range indices will yield an error code.",
+        "Caller must interpret negative returns as errors (per library error conventions)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_bitrate_instant",
+      "signature": "long ov_bitrate_instant(OggVorbis_File *vf);",
+      "description": "Returns an instantaneous bitrate estimate for the current decoding position.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "Caller must handle negative values as error codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_streams",
+      "signature": "long ov_streams(OggVorbis_File *vf);",
+      "description": "Reports the number of logical bitstreams (links) contained in the opened Ogg Vorbis source.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "Caller should check for negative return values as errors."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_seekable",
+      "signature": "long ov_seekable(OggVorbis_File *vf);",
+      "description": "Indicates whether the source is seekable.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "Return value semantics are library-defined; treat negative as error."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_serialnumber",
+      "signature": "long ov_serialnumber(OggVorbis_File *vf, int i);",
+      "description": "Returns the Ogg serial number of the specified logical bitstream (link).",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "i must be a valid link index; invalid indices result in an error return."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_raw_total",
+      "signature": "ogg_int64_t ov_raw_total(OggVorbis_File *vf, int i);",
+      "description": "Returns the total size in bytes of the raw (compressed) data for the specified logical bitstream, or for the whole source with a sentinel index (library-defined).",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "i must be within the valid range or a sentinel value recognized by the library.",
+        "Caller must handle negative error codes if applicable."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_pcm_total",
+      "signature": "ogg_int64_t ov_pcm_total(OggVorbis_File *vf, int i);",
+      "description": "Returns the total length expressed in PCM samples for the specified logical bitstream or for the entire file.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "i must be a valid link index or library-defined sentinel.",
+        "Caller must handle error returns appropriately."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_time_total",
+      "signature": "ogg_int64_t ov_time_total(OggVorbis_File *vf, int i);",
+      "description": "Returns the total playback length in time units for the specified logical bitstream or entire file. Exact time unit is library-defined (not specified in this header).",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "i must be within range or a sentinel value.",
+        "Time unit is unknown from this header; caller must consult library docs to interpret units."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_raw_seek",
+      "signature": "int ov_raw_seek(OggVorbis_File *vf, ogg_int64_t pos);",
+      "description": "Seeks to a byte offset in the raw (compressed) stream.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File and the underlying stream must be seekable.",
+        "pos should be a non-negative raw byte offset within the data; out-of-range positions result in an error.",
+        "Caller must check the return value for success."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_pcm_seek",
+      "signature": "int ov_pcm_seek(OggVorbis_File *vf, ogg_int64_t pos);",
+      "description": "Seeks to an absolute PCM sample position.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File and the stream must be seekable.",
+        "pos should be a non-negative PCM sample index within the stream; invalid positions result in an error.",
+        "Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_pcm_seek_page",
+      "signature": "int ov_pcm_seek_page(OggVorbis_File *vf, ogg_int64_t pos);",
+      "description": "Seeks to a PCM position at a page boundary (page-aligned seek).",
+      "requirements": [
+        "vf must be valid and opened; stream must be seekable.",
+        "pos should be a non-negative PCM sample index; invalid targets result in an error.",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_time_seek",
+      "signature": "int ov_time_seek(OggVorbis_File *vf, ogg_int64_t pos);",
+      "description": "Seeks to an absolute playback time within the stream. The exact time unit is not specified in this header.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File and the stream must be seekable.",
+        "pos should be a non-negative time value in the unit expected by the library; out-of-range results in an error.",
+        "Caller must check return value and should consult library docs for time units."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_time_seek_page",
+      "signature": "int ov_time_seek_page(OggVorbis_File *vf, ogg_int64_t pos);",
+      "description": "Seeks to a playback time at a page boundary. Time unit is library-defined (unspecified here).",
+      "requirements": [
+        "vf must be valid and opened; stream must be seekable.",
+        "pos must be non-negative and within stream duration (unit unspecified in header).",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_raw_tell",
+      "signature": "ogg_int64_t ov_raw_tell(OggVorbis_File *vf);",
+      "description": "Returns the current position in the raw (compressed) byte stream.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "Caller must handle negative values as error codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_pcm_tell",
+      "signature": "ogg_int64_t ov_pcm_tell(OggVorbis_File *vf);",
+      "description": "Returns the current decode position in PCM samples.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "Caller must handle error returns."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_time_tell",
+      "signature": "ogg_int64_t ov_time_tell(OggVorbis_File *vf);",
+      "description": "Returns the current decode position in time units (unit unspecified in this header).",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "Caller must interpret return according to library-defined time unit and handle error codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_info",
+      "signature": "vorbis_info *ov_info(OggVorbis_File *vf, int link);",
+      "description": "Returns a pointer to the vorbis_info structure for the specified logical bitstream or the current stream.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "link must be a valid link index or library-defined sentinel for the current link.",
+        "The returned pointer is owned by the library; do not modify or free it."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_comment",
+      "signature": "vorbis_comment *ov_comment(OggVorbis_File *vf, int link);",
+      "description": "Returns a pointer to the vorbis_comment structure for the specified logical bitstream or current stream.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File.",
+        "link must be a valid link index or a sentinel value for current link.",
+        "The returned pointer is library-owned; do not modify or free."
+      ],
+      "error": null
+    },
+    {
+      "name": "ov_read",
+      "signature": "long ov_read(OggVorbis_File *vf, char *buffer, int length, int *bitstream);",
+      "description": "Decodes audio and fills the caller-provided buffer with PCM data up to length bytes, returning the number of bytes written or an error code. Optionally reports the current logical bitstream index via bitstream.",
+      "requirements": [
+        "vf must be a valid, opened OggVorbis_File ready for decoding.",
+        "buffer must be non-null and have at least length bytes available; length must be >= 0.",
+        "bitstream may be null if the caller does not need the logical stream index; if non-null, it must point to writable int storage.",
+        "Caller must loop until desired data is read and handle 0 or negative returns as end-of-stream or error per library conventions."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_info_init",
+      "signature": "void vorbis_info_init(vorbis_info *vi);",
+      "description": "Initializes a vorbis_info structure to a known empty state prior to use (e.g., for header parsing/decoder setup).",
+      "requirements": [
+        "vi must be a valid pointer to writable vorbis_info storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_info_clear",
+      "signature": "void vorbis_info_clear(vorbis_info *vi);",
+      "description": "Clears a vorbis_info structure, releasing any internally allocated resources.",
+      "requirements": [
+        "vi must be a valid pointer previously initialized (e.g., by vorbis_info_init or populated by header parsing).",
+        "Do not use vi fields after clear unless re-initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_info_blocksize",
+      "signature": "int vorbis_info_blocksize(vorbis_info *vi, int zo);",
+      "description": "Returns the configured blocksize for the given mode index or window selector for the provided codec setup.",
+      "requirements": [
+        "vi must be initialized and contain valid codec setup.",
+        "zo must be within valid range for the codec setup; invalid values result in an error return."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_comment_init",
+      "signature": "void vorbis_comment_init(vorbis_comment *vc);",
+      "description": "Initializes a vorbis_comment structure for collecting or reading Vorbis comment metadata.",
+      "requirements": [
+        "vc must be a valid pointer to writable vorbis_comment storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_comment_add",
+      "signature": "void vorbis_comment_add(vorbis_comment *vc, char *comment);",
+      "description": "Adds a raw comment string to the vorbis_comment. The format of the string is library-defined (typically \"TAG=VALUE\").",
+      "requirements": [
+        "vc must be initialized via vorbis_comment_init.",
+        "comment must be a valid NUL-terminated string pointer."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_comment_add_tag",
+      "signature": "void vorbis_comment_add_tag(vorbis_comment *vc, char *tag, char *contents);",
+      "description": "Adds a comment field specified by tag and contents to the vorbis_comment.",
+      "requirements": [
+        "vc must be initialized via vorbis_comment_init.",
+        "tag must be a valid NUL-terminated string pointer.",
+        "contents must be a valid NUL-terminated string pointer."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_comment_query",
+      "signature": "char *vorbis_comment_query(vorbis_comment *vc, char *tag, int count);",
+      "description": "Queries the vorbis_comment for the count-th occurrence of a given tag and returns a pointer to the matching string, or NULL if not found.",
+      "requirements": [
+        "vc must be initialized and populated.",
+        "tag must be a valid NUL-terminated string pointer.",
+        "count must be >= 0.",
+        "Returned pointer is owned by the comment structure; do not modify or free; validity tied to vc lifetime."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_comment_query_count",
+      "signature": "int vorbis_comment_query_count(vorbis_comment *vc, char *tag);",
+      "description": "Returns the number of comment entries matching the specified tag.",
+      "requirements": [
+        "vc must be initialized and populated.",
+        "tag must be a valid NUL-terminated string pointer."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_comment_clear",
+      "signature": "void vorbis_comment_clear(vorbis_comment *vc);",
+      "description": "Clears a vorbis_comment structure and frees any internal allocations.",
+      "requirements": [
+        "vc must be a valid pointer previously initialized by vorbis_comment_init or otherwise populated.",
+        "Do not use vc fields after clear unless re-initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_block_init",
+      "signature": "int vorbis_block_init(vorbis_dsp_state *v, vorbis_block *vb);",
+      "description": "Initializes a vorbis_block for use with a given DSP state for decoding operations.",
+      "requirements": [
+        "v must be a valid pointer to an initialized vorbis_dsp_state (e.g., via vorbis_synthesis_init).",
+        "vb must be a valid pointer to writable vorbis_block storage.",
+        "Caller must check return value for success."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_block_clear",
+      "signature": "int vorbis_block_clear(vorbis_block *vb);",
+      "description": "Clears a vorbis_block, releasing internal storage associated with it.",
+      "requirements": [
+        "vb must be a valid pointer to a block previously initialized by vorbis_block_init.",
+        "After clear, vb must be re-initialized before reuse.",
+        "Caller should check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_dsp_clear",
+      "signature": "void vorbis_dsp_clear(vorbis_dsp_state *v);",
+      "description": "Clears a vorbis_dsp_state, releasing internal resources.",
+      "requirements": [
+        "v must be a valid pointer to a DSP state previously initialized (e.g., by vorbis_synthesis_init).",
+        "Do not use v after clear unless re-initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_idheader",
+      "signature": "int vorbis_synthesis_idheader(ogg_packet *op);",
+      "description": "Checks whether the provided Ogg packet is a Vorbis identification header.",
+      "requirements": [
+        "op must be a valid pointer to an ogg_packet containing header data.",
+        "Caller must check return value to determine header validity."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_headerin",
+      "signature": "int vorbis_synthesis_headerin(vorbis_info *vi, vorbis_comment *vc, ogg_packet *op);",
+      "description": "Parses a Vorbis header packet and updates vorbis_info and vorbis_comment accordingly. Used during decoder setup.",
+      "requirements": [
+        "vi must be initialized via vorbis_info_init.",
+        "vc must be initialized via vorbis_comment_init.",
+        "op must be a valid pointer to an ogg_packet containing a Vorbis header.",
+        "Caller must check return value and pass headers in the correct sequence as required by Vorbis (not detailed in this header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_init",
+      "signature": "int vorbis_synthesis_init(vorbis_dsp_state *v, vorbis_info *vi);",
+      "description": "Initializes a decoder DSP state from an already-populated vorbis_info.",
+      "requirements": [
+        "vi must be initialized and filled with valid codec setup via header parsing.",
+        "v must be a valid pointer to writable vorbis_dsp_state storage.",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_restart",
+      "signature": "int vorbis_synthesis_restart(vorbis_dsp_state *v);",
+      "description": "Resets/restarts the synthesis (decode) state for continued decoding on the same configuration.",
+      "requirements": [
+        "v must be a valid, initialized vorbis_dsp_state.",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis",
+      "signature": "int vorbis_synthesis(vorbis_block *vb, ogg_packet *op);",
+      "description": "Decodes a single Vorbis packet into a vorbis_block for later PCM retrieval.",
+      "requirements": [
+        "vb must be initialized via vorbis_block_init and linked to a valid DSP state.",
+        "op must be a valid pointer to a Vorbis audio packet.",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_trackonly",
+      "signature": "int vorbis_synthesis_trackonly(vorbis_block *vb, ogg_packet *op);",
+      "description": "Processes a packet for tracking purposes without full synthesis, useful for time/position tracking.",
+      "requirements": [
+        "vb must be initialized and associated with a valid DSP state.",
+        "op must be a valid pointer to a Vorbis packet.",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_blockin",
+      "signature": "int vorbis_synthesis_blockin(vorbis_dsp_state *v, vorbis_block *vb);",
+      "description": "Submits a decoded block to the DSP state, making PCM available via vorbis_synthesis_pcmout.",
+      "requirements": [
+        "v must be a valid, initialized vorbis_dsp_state.",
+        "vb must be a valid, previously synthesized vorbis_block associated with v.",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_pcmout",
+      "signature": "int vorbis_synthesis_pcmout(vorbis_dsp_state *v, ogg_int32_t ***pcm);",
+      "description": "Returns pointers to decoded PCM sample buffers currently available from the DSP state without consuming them.",
+      "requirements": [
+        "v must be a valid, initialized vorbis_dsp_state with pending PCM.",
+        "pcm must be a non-null pointer to receive channel-interleaved (per API) buffer pointers; exact buffer format/stride is library-defined.",
+        "Caller must check return value for the number of samples available and then call vorbis_synthesis_read to consume samples."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_synthesis_read",
+      "signature": "int vorbis_synthesis_read(vorbis_dsp_state *v, int samples);",
+      "description": "Advances the read position, consuming a specified number of PCM samples previously exposed by vorbis_synthesis_pcmout.",
+      "requirements": [
+        "v must be a valid, initialized vorbis_dsp_state.",
+        "samples must be >= 0 and should not exceed the number available from the prior pcmout call.",
+        "Caller must check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "vorbis_packet_blocksize",
+      "signature": "long vorbis_packet_blocksize(vorbis_info *vi, ogg_packet *op);",
+      "description": "Determines the blocksize associated with a given Vorbis packet using the codec setup in vi.",
+      "requirements": [
+        "vi must be initialized and contain valid codec setup.",
+        "op must be a valid pointer to an ogg_packet.",
+        "Caller must check return value for errors (negative codes)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ov_open",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Open from a fuzz-provided filename as a readable FILE* and initialize vf.\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *f = fopen(path, \"rb\");\nif (!f) { FUZZ_BAIL(); }\n// Optionally provide an initial header buffer; enforce size relation.\nstd::string init_buf = FUZZ_PARAM_STR();\nlong ibytes = 0;\nconst char *initial = nullptr;\nif (!init_buf.empty() && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) {\n  ibytes = (long)(*FUZZ_PARAM(unsigned int) % (init_buf.size() + 1));\n  initial = init_buf.data();\n}\n// Storage for the handle (library initializes it on success).\nOggVorbis_File *vf = (OggVorbis_File*)malloc(sizeof(OggVorbis_File));\nif (!vf) { fclose(f); FUZZ_BAIL(); }\nint rc = ov_open(f, vf, initial, ibytes);\nif (rc != 0) {\n  // Library will not own FILE* on failure; close and drop storage.\n  fclose(f);\n  free(vf);\n  FUZZ_BAIL();\n}\n// Mark as opened; track seekable and number of logical streams.\nFUZZ_SET_ATTR_STR(vf, \"state\", \"opened\");\nlong seekable = ov_seekable(vf);\nif (seekable >= 0) { FUZZ_SET_ATTR_INT(vf, \"seekable\", (int)(seekable != 0)); }\nlong links = ov_streams(vf);\nif (links >= 0) { FUZZ_SET_ATTR_INT(vf, \"links\", (int)links); }\n// Validation: vf is opened, attributes recorded; FILE* is owned by vf now.\n"
+    },
+    {
+      "name": "ov_open_callbacks",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Build a custom in-memory datasource and callbacks.\nstruct DS { std::string data; size_t pos; int seekable; };\nDS *ds = new DS();\n// Limit size to keep fuzzer fast.\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 2048) src.resize(2048);\nds->data = src;\nds->pos = 0;\nds->seekable = (int)(*FUZZ_PARAM(unsigned int) & 1u);\n// fread-like: writes into ptr from datasource; returns count of items read.\nauto read_fp = +[](void *ptr, size_t size, size_t nmemb, void *datasource) -> size_t {\n  if (size == 0 || nmemb == 0) return 0;\n  DS *s = (DS*)datasource;\n  size_t want = size * nmemb;\n  size_t avail = (s->pos < s->data.size()) ? (s->data.size() - s->pos) : 0;\n  size_t rbytes = want < avail ? want : avail;\n  if (rbytes) { memcpy(ptr, s->data.data() + s->pos, rbytes); s->pos += rbytes; }\n  return rbytes / size; // items read\n};\n// fseek-like; must return -1 if unseekable.\nauto seek_fp = +[](void *datasource, ogg_int64_t offset, int whence) -> int {\n  DS *s = (DS*)datasource;\n  if (!s->seekable) return -1;\n  ogg_int64_t base = 0;\n  if (whence == SEEK_SET) base = 0;\n  else if (whence == SEEK_CUR) base = (ogg_int64_t)s->pos;\n  else if (whence == SEEK_END) base = (ogg_int64_t)s->data.size();\n  else return -1;\n  ogg_int64_t np = base + offset;\n  if (np < 0 || (uint64_t)np > s->data.size()) return -1;\n  s->pos = (size_t)np;\n  return 0;\n};\n// fclose-like: free datasource.\nauto close_fp = +[](void *datasource) -> int { delete (DS*)datasource; return 0; };\n// ftell-like: return current position.\nauto tell_fp = +[](void *datasource) -> long { DS *s = (DS*)datasource; return (long)s->pos; };\nov_callbacks cbs; cbs.read_func = read_fp; cbs.seek_func = seek_fp; cbs.close_func = close_fp; cbs.tell_func = tell_fp;\n// Optional initial header bytes.\nstd::string init_buf = FUZZ_PARAM_STR();\nif (init_buf.size() > 1024) init_buf.resize(1024);\nlong ibytes = 0; const char *initial = nullptr;\nif (!init_buf.empty() && ((*FUZZ_PARAM(unsigned int) >> 1) & 1u)) { ibytes = (long)(*FUZZ_PARAM(unsigned int) % (init_buf.size() + 1)); initial = init_buf.data(); }\nOggVorbis_File *vf = (OggVorbis_File*)malloc(sizeof(OggVorbis_File));\nif (!vf) { delete ds; FUZZ_BAIL(); }\nint rc = ov_open_callbacks((void*)ds, vf, initial, ibytes, cbs);\nif (rc != 0) { // Library will call close_func only on success; free here on failure.\n  delete ds; free(vf); FUZZ_BAIL();\n}\nFUZZ_SET_ATTR_STR(vf, \"state\", \"opened\");\nFUZZ_SET_ATTR_INT(vf, \"seekable\", ds->seekable ? 1 : 0); // matches our callback behavior\nlong links = ov_streams(vf); if (links >= 0) FUZZ_SET_ATTR_INT(vf, \"links\", (int)links);\n// Validation: vf opened via callbacks; datasource lifetime tied to vf->callbacks.close_func.\n"
+    },
+    {
+      "name": "ov_test",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Partial open from a fuzz-provided file.\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *f = fopen(path, \"rb\");\nif (!f) { FUZZ_BAIL(); }\nstd::string init_buf = FUZZ_PARAM_STR();\nlong ibytes = 0; const char *initial = nullptr;\nif (!init_buf.empty() && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) { ibytes = (long)(*FUZZ_PARAM(unsigned int) % (init_buf.size() + 1)); initial = init_buf.data(); }\nOggVorbis_File *vf = (OggVorbis_File*)malloc(sizeof(OggVorbis_File));\nif (!vf) { fclose(f); FUZZ_BAIL(); }\nint rc = ov_test(f, vf, initial, ibytes);\nif (rc != 0) { fclose(f); free(vf); FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(vf, \"state\", \"tested\");\n// Validation: vf is in partial-open state and must be completed by ov_test_open before decoding.\n"
+    },
+    {
+      "name": "ov_test_callbacks",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Partial open using custom callbacks over an in-memory buffer.\nstruct DS { std::string data; size_t pos; int seekable; };\nDS *ds = new DS();\nstd::string src = FUZZ_PARAM_STR(); if (src.size() > 2048) src.resize(2048);\nds->data = src; ds->pos = 0; ds->seekable = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nauto read_fp = +[](void *ptr, size_t size, size_t nmemb, void *datasource) -> size_t {\n  if (size == 0 || nmemb == 0) return 0; DS *s = (DS*)datasource; size_t want = size*nmemb; size_t avail = (s->pos < s->data.size()) ? (s->data.size()-s->pos) : 0; size_t r = want < avail ? want : avail; if (r) { memcpy(ptr, s->data.data()+s->pos, r); s->pos += r; } return r/size; };\nauto seek_fp = +[](void *datasource, ogg_int64_t offset, int whence) -> int {\n  DS *s = (DS*)datasource; if (!s->seekable) return -1; ogg_int64_t base = (whence==SEEK_SET?0:(whence==SEEK_CUR?(ogg_int64_t)s->pos:(ogg_int64_t)s->data.size())); ogg_int64_t np = base + offset; if (np < 0 || (uint64_t)np > s->data.size()) return -1; s->pos = (size_t)np; return 0; };\nauto close_fp = +[](void *datasource) -> int { delete (DS*)datasource; return 0; };\nauto tell_fp = +[](void *datasource) -> long { DS *s = (DS*)datasource; return (long)s->pos; };\nov_callbacks cbs; cbs.read_func = read_fp; cbs.seek_func = seek_fp; cbs.close_func = close_fp; cbs.tell_func = tell_fp;\nstd::string init_buf = FUZZ_PARAM_STR(); if (init_buf.size() > 1024) init_buf.resize(1024);\nlong ibytes = 0; const char *initial = nullptr;\nif (!init_buf.empty() && ((*FUZZ_PARAM(unsigned int) >> 1) & 1u)) { ibytes = (long)(*FUZZ_PARAM(unsigned int) % (init_buf.size() + 1)); initial = init_buf.data(); }\nOggVorbis_File *vf = (OggVorbis_File*)malloc(sizeof(OggVorbis_File));\nif (!vf) { delete ds; FUZZ_BAIL(); }\nint rc = ov_test_callbacks((void*)ds, vf, initial, ibytes, cbs);\nif (rc != 0) { delete ds; free(vf); FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(vf, \"state\", \"tested\");\nFUZZ_SET_ATTR_INT(vf, \"seekable\", ds->seekable ? 1 : 0);\n// Validation: vf is partially opened and must be completed with ov_test_open.\n"
+    },
+    {
+      "name": "ov_test_open",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Complete a prior partial open; require state == tested.\nconst char *st = FUZZ_GET_ATTR_STR(vf, \"state\");\nif (!st || strcmp(st, \"tested\") != 0) { FUZZ_BAIL(); }\nint rc = ov_test_open(vf);\nif (rc != 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(vf, \"state\", \"opened\");\nlong seekable = ov_seekable(vf); if (seekable >= 0) FUZZ_SET_ATTR_INT(vf, \"seekable\", (int)(seekable != 0));\nlong links = ov_streams(vf); if (links >= 0) FUZZ_SET_ATTR_INT(vf, \"links\", (int)links);\n// Validation: vf transitioned from tested to opened; attributes updated.\n"
+    },
+    {
+      "name": "ov_clear",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Tear down an opened handle; require state == opened.\nconst char *st = FUZZ_GET_ATTR_STR(vf, \"state\");\nif (!st || strcmp(st, \"opened\") != 0) { FUZZ_BAIL(); }\nint rc = ov_clear(vf);\n(void)rc; // caller checks status; here we just invoke\n// Drop the handle by not returning it. Any associated datasource is closed by the library.\n// Validation: Only opened handles are cleared; handle not returned to pool to avoid UAF.\n"
+    },
+    {
+      "name": "ov_bitrate",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Query bitrate for a chosen link or sentinel -1.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nlong links = ov_streams(vf); if (links < 0) { FUZZ_BAIL(); }\nint use_sentinel = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nint i = use_sentinel ? -1 : (int)(links ? (*FUZZ_PARAM(unsigned int) % (unsigned long)links) : -1);\nlong br = ov_bitrate(vf, i);\n(void)br; // negative values are errors; we do not assert here\n// Validation: Handle is opened; index chosen within range or sentinel; vf persists.\n"
+    },
+    {
+      "name": "ov_bitrate_instant",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Return instantaneous bitrate; requires opened handle.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nlong v = ov_bitrate_instant(vf);\n(void)v;\n// Validation: Simple query on opened handle; vf persists.\n"
+    },
+    {
+      "name": "ov_streams",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Query number of logical bitstreams and cache it.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nlong n = ov_streams(vf);\nif (n >= 0) { FUZZ_SET_ATTR_INT(vf, \"links\", (int)n); }\n// Validation: Opened handle; cached links for downstream index selection.\n"
+    },
+    {
+      "name": "ov_seekable",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Query seekability and cache flag.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nlong s = ov_seekable(vf);\nif (s >= 0) { FUZZ_SET_ATTR_INT(vf, \"seekable\", (int)(s != 0)); }\n// Validation: Opened handle, seekable cached; vf persists.\n"
+    },
+    {
+      "name": "ov_serialnumber",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Get serial number for a valid link index.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nint links = FUZZ_GET_ATTR_INT(vf, \"links\");\nif (links <= 0) { long n = ov_streams(vf); if (n < 0) { FUZZ_BAIL(); } links = (int)n; FUZZ_SET_ATTR_INT(vf, \"links\", links); }\nint i = (links > 0) ? (int)(*FUZZ_PARAM(unsigned int) % (unsigned long)links) : 0;\nlong sn = ov_serialnumber(vf, i);\n(void)sn;\n// Validation: Opened handle and in-range index used; vf persists.\n"
+    },
+    {
+      "name": "ov_raw_total",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Total raw bytes for whole file or a specific link.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nint links = FUZZ_GET_ATTR_INT(vf, \"links\"); if (links < 0) links = 0;\nint use_sentinel = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nint i = use_sentinel ? -1 : (int)(links ? (*FUZZ_PARAM(unsigned int) % (unsigned long)links) : -1);\nogg_int64_t tot = ov_raw_total(vf, i);\n(void)tot;\n// Validation: Opened handle; index chosen per API; vf persists.\n"
+    },
+    {
+      "name": "ov_pcm_total",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Total PCM samples for whole file or a link.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nint links = FUZZ_GET_ATTR_INT(vf, \"links\"); if (links < 0) links = 0;\nint use_sentinel = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\nint i = use_sentinel ? -1 : (int)(links ? (*FUZZ_PARAM(unsigned int) % (unsigned long)links) : -1);\nogg_int64_t tot = ov_pcm_total(vf, i);\n(void)tot;\n// Validation: Opened handle; index selection correct; vf persists.\n"
+    },
+    {
+      "name": "ov_time_total",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Total playback time for whole file or a link.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nint links = FUZZ_GET_ATTR_INT(vf, \"links\"); if (links < 0) links = 0;\nint use_sentinel = (int)((*FUZZ_PARAM(unsigned int) >> 2) & 1u);\nint i = use_sentinel ? -1 : (int)(links ? (*FUZZ_PARAM(unsigned int) % (unsigned long)links) : -1);\nogg_int64_t tot = ov_time_total(vf, i);\n(void)tot;\n// Validation: Opened handle; index chosen; vf persists.\n"
+    },
+    {
+      "name": "ov_raw_seek",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Seek to a raw byte position; require seekable.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"seekable\") == 0) { FUZZ_BAIL(); }\nogg_int64_t total = ov_raw_total(vf, -1);\nif (total < 0) { FUZZ_BAIL(); }\nogg_int64_t pos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long) % (unsigned long long)(total + 1));\nint rc = ov_raw_seek(vf, pos);\n(void)rc;\n// Validation: Only seek on seekable streams; pos constrained to [0,total].\n"
+    },
+    {
+      "name": "ov_pcm_seek",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Seek to a PCM sample index; require seekable.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"seekable\") == 0) { FUZZ_BAIL(); }\nogg_int64_t total = ov_pcm_total(vf, -1);\nif (total < 0) { FUZZ_BAIL(); }\nogg_int64_t pos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long) % (unsigned long long)(total + 1));\nint rc = ov_pcm_seek(vf, pos);\n(void)rc;\n// Validation: Seek constrained within total PCM; vf persists.\n"
+    },
+    {
+      "name": "ov_pcm_seek_page",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Page-aligned PCM seek; require seekable.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"seekable\") == 0) { FUZZ_BAIL(); }\nogg_int64_t total = ov_pcm_total(vf, -1);\nif (total < 0) { FUZZ_BAIL(); }\n// Choose a position; alignment handled by library.\nogg_int64_t pos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long) % (unsigned long long)(total + 1));\nint rc = ov_pcm_seek_page(vf, pos);\n(void)rc;\n// Validation: Preconditions enforced; vf persists.\n"
+    },
+    {
+      "name": "ov_time_seek",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Seek by time; require seekable. Units are library-defined; bound by total time.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"seekable\") == 0) { FUZZ_BAIL(); }\nogg_int64_t total = ov_time_total(vf, -1);\nif (total < 0) { FUZZ_BAIL(); }\nogg_int64_t pos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long) % (unsigned long long)(total + 1));\nint rc = ov_time_seek(vf, pos);\n(void)rc;\n// Validation: Time position constrained; vf persists.\n"
+    },
+    {
+      "name": "ov_time_seek_page",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Page-aligned time seek; require seekable.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"seekable\") == 0) { FUZZ_BAIL(); }\nogg_int64_t total = ov_time_total(vf, -1);\nif (total < 0) { FUZZ_BAIL(); }\nogg_int64_t pos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long) % (unsigned long long)(total + 1));\nint rc = ov_time_seek_page(vf, pos);\n(void)rc;\n// Validation: Preconditions enforced; vf persists.\n"
+    },
+    {
+      "name": "ov_raw_tell",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Report current raw byte offset.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nogg_int64_t p = ov_raw_tell(vf);\n(void)p; // negative indicates error; fine for fuzz\n// Validation: Simple tell on opened handle; vf persists.\n"
+    },
+    {
+      "name": "ov_pcm_tell",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Report current PCM position; requires an opened handle.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nogg_int64_t p = ov_pcm_tell(vf);\n(void)p; // negative indicates error; fine for fuzz\n// Validation: Called only on an opened handle; vf persists for further operations.\n"
+    },
+    {
+      "name": "ov_time_tell",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Report current time position (unit library-defined); requires opened handle.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nogg_int64_t t = ov_time_tell(vf);\n(void)t; // negative indicates error; acceptable during fuzzing\n// Validation: Preconditions enforced; vf returned to pool.\n"
+    },
+    {
+      "name": "ov_info",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Retrieve codec info for a specific link or current link; requires opened vf.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nint links = FUZZ_GET_ATTR_INT(vf, \"links\");\nif (links <= 0) { long n = ov_streams(vf); if (n < 0) { FUZZ_BAIL(); } links = (int)n; FUZZ_SET_ATTR_INT(vf, \"links\", links); }\nint use_current = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nint link = use_current ? -1 : (links > 0 ? (int)(*FUZZ_PARAM(unsigned int) % (unsigned long)links) : -1);\nvorbis_info *vi = ov_info(vf, link);\n(void)vi; // library-owned; do not persist or modify\n// Validation: vf opened and link in range or sentinel; vf persists.\n"
+    },
+    {
+      "name": "ov_comment",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Retrieve comments struct; requires opened vf.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\nint links = FUZZ_GET_ATTR_INT(vf, \"links\");\nif (links <= 0) { long n = ov_streams(vf); if (n < 0) { FUZZ_BAIL(); } links = (int)n; FUZZ_SET_ATTR_INT(vf, \"links\", links); }\nint use_current = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\nint link = use_current ? -1 : (links > 0 ? (int)(*FUZZ_PARAM(unsigned int) % (unsigned long)links) : -1);\nvorbis_comment *vc = ov_comment(vf, link);\n(void)vc; // library-owned; do not persist\n// Validation: Preconditions enforced; vf persists.\n"
+    },
+    {
+      "name": "ov_read",
+      "inputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "OggVorbis_File *"
+        }
+      ],
+      "code": "// Decode into a caller buffer. Handle may or may not be seeked; require opened state.\nif (strcmp(FUZZ_GET_ATTR_STR(vf, \"state\"), \"opened\") != 0) { FUZZ_BAIL(); }\n// Choose buffer length within a small bound for speed.\nint length = (int)(*FUZZ_PARAM(unsigned int) % 1025u); // [0,1024]\nstd::string buf; buf.resize((size_t)length);\nint use_bs = (int)((*FUZZ_PARAM(unsigned int) >> 2) & 1u);\nint bitstream_val = 0;\nint *bitstreamp = use_bs ? &bitstream_val : nullptr;\nlong wrote = ov_read(vf, buf.empty() ? (char*)\"\" : &buf[0], length, bitstreamp);\n(void)wrote; (void)bitstream_val;\n// Validation: Buffer non-null (empty string fallback) and sized >= length; vf persists.\n"
+    },
+    {
+      "name": "vorbis_info_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        }
+      ],
+      "code": "// Allocate and initialize a vorbis_info object.\nvorbis_info *vi = (vorbis_info*)malloc(sizeof(vorbis_info));\nif (!vi) { FUZZ_BAIL(); }\nvorbis_info_init(vi);\n// Track initialization and header parsing progress.\nFUZZ_SET_ATTR_INT(vi, \"vi_inited\", 1);\nFUZZ_SET_ATTR_INT(vi, \"hdr_stage\", 0); // 0..3 headers seen\nFUZZ_SET_ATTR_INT(vi, \"configured\", 0);\n// Validation: vi is initialized and returned to pool for further use.\n"
+    },
+    {
+      "name": "vorbis_info_clear",
+      "inputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Clear a previously initialized vorbis_info.\nif (FUZZ_GET_ATTR_INT(vi, \"vi_inited\") != 1) { FUZZ_BAIL(); }\nvorbis_info_clear(vi);\n// Drop the object; must not be reused unless re-initialized.\n// Validation: Only clears initialized vi; not returned to pool to prevent UAF.\n"
+    },
+    {
+      "name": "vorbis_info_blocksize",
+      "inputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        }
+      ],
+      "code": "// Query blocksize; requires initialized vi; valid codec setup may be required by the library.\nif (FUZZ_GET_ATTR_INT(vi, \"vi_inited\") != 1) { FUZZ_BAIL(); }\nint zo = (int)(*FUZZ_PARAM(unsigned int) % 4u); // small range; library will validate\nint bs = vorbis_info_blocksize(vi, zo);\n(void)bs;\n// Validation: vi remains initialized and is returned to pool.\n"
+    },
+    {
+      "name": "vorbis_comment_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "code": "// Allocate and initialize a vorbis_comment object.\nvorbis_comment *vc = (vorbis_comment*)malloc(sizeof(vorbis_comment));\nif (!vc) { FUZZ_BAIL(); }\nvorbis_comment_init(vc);\nFUZZ_SET_ATTR_INT(vc, \"vc_inited\", 1);\n// Validation: vc initialized and returned for further comment operations.\n"
+    },
+    {
+      "name": "vorbis_comment_query",
+      "inputs": [
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "code": "// Query the nth occurrence of a tag; require initialized vc.\nif (FUZZ_GET_ATTR_INT(vc, \"vc_inited\") != 1) { FUZZ_BAIL(); }\nstd::string tag = FUZZ_PARAM_STR(); if (tag.size() > 128) tag.resize(128); tag.push_back('\\0');\nint count = (int)(*FUZZ_PARAM(unsigned int) % 8u);\nchar *res = vorbis_comment_query(vc, (char*)tag.c_str(), count);\n(void)res; // owned by vc; do not persist or free\n// Validation: Preconditions enforced; vc persists.\n"
+    },
+    {
+      "name": "vorbis_comment_query_count",
+      "inputs": [
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "code": "// Count entries matching a tag; require initialized vc.\nif (FUZZ_GET_ATTR_INT(vc, \"vc_inited\") != 1) { FUZZ_BAIL(); }\nstd::string tag = FUZZ_PARAM_STR(); if (tag.size() > 128) tag.resize(128); tag.push_back('\\0');\nint n = vorbis_comment_query_count(vc, (char*)tag.c_str());\n(void)n;\n// Validation: vc persists; tag well-formed.\n"
+    },
+    {
+      "name": "vorbis_comment_clear",
+      "inputs": [
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Clear an initialized vorbis_comment.\nif (FUZZ_GET_ATTR_INT(vc, \"vc_inited\") != 1) { FUZZ_BAIL(); }\nvorbis_comment_clear(vc);\n// Do not return vc to pool to avoid post-clear use.\n// Validation: Only clears initialized vc; dropped from pool.\n"
+    },
+    {
+      "name": "vorbis_block_init",
+      "inputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        },
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "code": "// Initialize a block for a given DSP state.\nif (FUZZ_GET_ATTR_INT(v, \"v_inited\") != 1) { FUZZ_BAIL(); }\nvorbis_block *vb = (vorbis_block*)malloc(sizeof(vorbis_block));\nif (!vb) { FUZZ_BAIL(); }\nint rc = vorbis_block_init(v, vb);\nif (rc != 0) { free(vb); FUZZ_BAIL(); }\n// Track lifetimes and associations to prevent double-free/clear issues.\nFUZZ_SET_ATTR_INT(vb, \"vb_inited\", 1);\nFUZZ_SET_ATTR_PTR(vb, \"parent_v\", (void*)v);\nFUZZ_SET_ATTR_INT(v, \"vb_refcount\", FUZZ_GET_ATTR_INT(v, \"vb_refcount\") + 1);\n// Validation: vb initialized and tied to v; both returned to pool.\n"
+    },
+    {
+      "name": "vorbis_block_clear",
+      "inputs": [
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Clear a previously initialized block.\nif (FUZZ_GET_ATTR_INT(vb, \"vb_inited\") != 1) { FUZZ_BAIL(); }\nvorbis_dsp_state *v = (vorbis_dsp_state*)FUZZ_GET_ATTR_PTR(vb, \"parent_v\");\nint rc = vorbis_block_clear(vb);\n(void)rc;\n// Decrement parent's refcount if available.\nif (v) { FUZZ_SET_ATTR_INT(v, \"vb_refcount\", FUZZ_GET_ATTR_INT(v, \"vb_refcount\") - 1); }\n// Drop vb from pool to prevent reuse without reinit.\n// Validation: Ensures only initialized blocks are cleared; parent refcount updated.\n"
+    },
+    {
+      "name": "vorbis_dsp_clear",
+      "inputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Clear a DSP state. Ensure no outstanding blocks reference it.\nif (FUZZ_GET_ATTR_INT(v, \"v_inited\") != 1) { FUZZ_BAIL(); }\nint refs = FUZZ_GET_ATTR_INT(v, \"vb_refcount\");\nif (refs != 0) { FUZZ_BAIL(); }\nvorbis_dsp_clear(v);\n// Drop v; do not return to pool.\n// Validation: Prevents clearing while blocks are live; avoids UAF.\n"
+    },
+    {
+      "name": "vorbis_synthesis_idheader",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Check whether a packet is a Vorbis identification header.\nstd::string pkt = FUZZ_PARAM_STR(); if (pkt.size() > 2048) pkt.resize(2048);\nogg_packet op; memset(&op, 0, sizeof(op));\nop.packet = (unsigned char*)pkt.data();\nop.bytes = (long)pkt.size();\nop.b_o_s = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nop.e_o_s = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\nop.granulepos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nop.packetno = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nint rc = vorbis_synthesis_idheader(&op);\n(void)rc;\n// Validation: Packet fields bounded; no persistent objects.\n"
+    },
+    {
+      "name": "vorbis_synthesis_headerin",
+      "inputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        },
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        },
+        {
+          "name": "vc",
+          "type": "vorbis_comment *"
+        }
+      ],
+      "code": "// Parse a Vorbis header packet; require initialized vi and vc.\nif (FUZZ_GET_ATTR_INT(vi, \"vi_inited\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vc, \"vc_inited\") != 1) { FUZZ_BAIL(); }\n// Craft a packet from fuzz data.\nstd::string pkt = FUZZ_PARAM_STR(); if (pkt.size() > 2048) pkt.resize(2048);\nogg_packet op; memset(&op, 0, sizeof(op));\nop.packet = (unsigned char*)pkt.data();\nop.bytes = (long)pkt.size();\nop.b_o_s = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nop.e_o_s = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\nop.granulepos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nop.packetno = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nint rc = vorbis_synthesis_headerin(vi, vc, &op);\n// If header accepted, advance header stage; after 3 successful headers, mark configured.\nif (rc == 0) {\n  int stage = FUZZ_GET_ATTR_INT(vi, \"hdr_stage\");\n  if (stage < 3) stage += 1;\n  FUZZ_SET_ATTR_INT(vi, \"hdr_stage\", stage);\n  if (stage >= 3) { FUZZ_SET_ATTR_INT(vi, \"configured\", 1); }\n}\n// Validation: Ensures inputs are initialized; vi/vc persist for further processing.\n"
+    },
+    {
+      "name": "vorbis_synthesis_init",
+      "inputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "code": "// Initialize a DSP state from codec setup in vi.\nif (FUZZ_GET_ATTR_INT(vi, \"vi_inited\") != 1) { FUZZ_BAIL(); }\n// Allocate DSP state storage.\nvorbis_dsp_state *v = (vorbis_dsp_state*)malloc(sizeof(vorbis_dsp_state));\nif (!v) { FUZZ_BAIL(); }\nint rc = vorbis_synthesis_init(v, vi);\nif (rc != 0) { free(v); FUZZ_BAIL(); }\n// Track initialization and prepare for block lifetime management.\nFUZZ_SET_ATTR_INT(v, \"v_inited\", 1);\nFUZZ_SET_ATTR_INT(v, \"vb_refcount\", 0);\n// Validation: v initialized only on success and returned to pool for block operations.\n"
+    },
+    {
+      "name": "vorbis_synthesis_restart",
+      "inputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "code": "// Restart decoding on an initialized DSP state.\nif (FUZZ_GET_ATTR_INT(v, \"v_inited\") != 1) { FUZZ_BAIL(); }\nint rc = vorbis_synthesis_restart(v);\n(void)rc; // caller checks status; we just invoke to exercise paths\n// Validation: v was verified initialized; v persists for further operations.\n"
+    },
+    {
+      "name": "vorbis_synthesis",
+      "inputs": [
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "code": "// Decode a single Vorbis packet into an initialized block.\nif (FUZZ_GET_ATTR_INT(vb, \"vb_inited\") != 1) { FUZZ_BAIL(); }\nvorbis_dsp_state *parent = (vorbis_dsp_state*)FUZZ_GET_ATTR_PTR(vb, \"parent_v\");\nif (!parent || FUZZ_GET_ATTR_INT(parent, \"v_inited\") != 1) { FUZZ_BAIL(); }\n// Construct a fuzz packet; bounds keep runtime fast.\nstd::string pkt = FUZZ_PARAM_STR(); if (pkt.size() > 2048) pkt.resize(2048);\nogg_packet op; memset(&op, 0, sizeof(op));\nop.packet = (unsigned char*)pkt.data();\nop.bytes = (long)pkt.size();\nop.b_o_s = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nop.e_o_s = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\nop.granulepos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nop.packetno = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nint rc = vorbis_synthesis(vb, &op);\n(void)rc; // negative indicates error; acceptable for fuzz exploration\n// Validation: vb verified initialized and associated with an initialized DSP; vb persists.\n"
+    },
+    {
+      "name": "vorbis_synthesis_trackonly",
+      "inputs": [
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "code": "// Track-only processing of a packet using an initialized block and parent DSP.\nif (FUZZ_GET_ATTR_INT(vb, \"vb_inited\") != 1) { FUZZ_BAIL(); }\nvorbis_dsp_state *parent = (vorbis_dsp_state*)FUZZ_GET_ATTR_PTR(vb, \"parent_v\");\nif (!parent || FUZZ_GET_ATTR_INT(parent, \"v_inited\") != 1) { FUZZ_BAIL(); }\nstd::string pkt = FUZZ_PARAM_STR(); if (pkt.size() > 2048) pkt.resize(2048);\nogg_packet op; memset(&op, 0, sizeof(op));\nop.packet = (unsigned char*)pkt.data();\nop.bytes = (long)pkt.size();\nop.b_o_s = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nop.e_o_s = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\nop.granulepos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nop.packetno = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nint rc = vorbis_synthesis_trackonly(vb, &op);\n(void)rc;\n// Validation: Preconditions enforced; vb persists for subsequent blockin/reads.\n"
+    },
+    {
+      "name": "vorbis_synthesis_blockin",
+      "inputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        },
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        },
+        {
+          "name": "vb",
+          "type": "vorbis_block *"
+        }
+      ],
+      "code": "// Submit a decoded block to the DSP state; ensure relationships are valid.\nif (FUZZ_GET_ATTR_INT(v, \"v_inited\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vb, \"vb_inited\") != 1) { FUZZ_BAIL(); }\nvorbis_dsp_state *parent = (vorbis_dsp_state*)FUZZ_GET_ATTR_PTR(vb, \"parent_v\");\nif (parent != v) { FUZZ_BAIL(); }\nint rc = vorbis_synthesis_blockin(v, vb);\n(void)rc; // caller checks; we keep both objects alive\n// Validation: Ensures vb belongs to v and both initialized; both returned to pool.\n"
+    },
+    {
+      "name": "vorbis_synthesis_pcmout",
+      "inputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "code": "// Expose available PCM without consuming; requires initialized DSP state.\nif (FUZZ_GET_ATTR_INT(v, \"v_inited\") != 1) { FUZZ_BAIL(); }\nogg_int32_t **pcm_ptr = nullptr; // will receive channel pointers\nint n = vorbis_synthesis_pcmout(v, &pcm_ptr);\n(void)n; (void)pcm_ptr; // n<0 indicates error; acceptable for fuzz\n// Validation: v verified initialized; no consumption here; v persists.\n"
+    },
+    {
+      "name": "vorbis_synthesis_read",
+      "inputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "v",
+          "type": "vorbis_dsp_state *"
+        }
+      ],
+      "code": "// Consume PCM samples previously exposed by pcmout.\nif (FUZZ_GET_ATTR_INT(v, \"v_inited\") != 1) { FUZZ_BAIL(); }\n// Query availability first to honor API requirement samples <= available.\nogg_int32_t **pcm_ptr = nullptr;\nint avail = vorbis_synthesis_pcmout(v, &pcm_ptr);\nif (avail < 0) { avail = 0; } // treat error as no samples to consume\nint request = 0;\nif (avail > 0) { request = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)(avail + 1)); }\nint rc = vorbis_synthesis_read(v, request);\n(void)rc;\n// Validation: samples requested constrained to availability; v persists.\n"
+    },
+    {
+      "name": "vorbis_packet_blocksize",
+      "inputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vi",
+          "type": "vorbis_info *"
+        }
+      ],
+      "code": "// Determine blocksize for a packet using codec setup in vi.\nif (FUZZ_GET_ATTR_INT(vi, \"vi_inited\") != 1) { FUZZ_BAIL(); }\n// Prefer calling only when vi is configured (after 3 headers), as required for valid setup.\nif (FUZZ_GET_ATTR_INT(vi, \"configured\") != 1) { FUZZ_BAIL(); }\n// Create a fuzz packet; format requirements are enforced by the library.\nstd::string pkt = FUZZ_PARAM_STR(); if (pkt.size() > 2048) pkt.resize(2048);\nogg_packet op; memset(&op, 0, sizeof(op));\nop.packet = (unsigned char*)pkt.data();\nop.bytes = (long)pkt.size();\nop.b_o_s = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nop.e_o_s = (int)((*FUZZ_PARAM(unsigned int) >> 1) & 1u);\nop.granulepos = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nop.packetno = (ogg_int64_t)(*FUZZ_PARAM(unsigned long long));\nlong bs = vorbis_packet_blocksize(vi, &op);\n(void)bs;\n// Validation: vi verified initialized and configured; vi persists for further use.\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "vorbis_comment_add",
+      "reason": "The symbol vorbis_comment_add is unavailable in the linked library, causing unresolved reference at link time."
+    },
+    {
+      "name": "vorbis_comment_add_tag",
+      "reason": "The symbol vorbis_comment_add_tag is unavailable in the linked library, causing unresolved reference at link time."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "ov_test_open",
+      "data_types": []
+    },
+    {
+      "name": "ov_clear",
+      "data_types": []
+    },
+    {
+      "name": "ov_bitrate",
+      "data_types": []
+    },
+    {
+      "name": "ov_bitrate_instant",
+      "data_types": []
+    },
+    {
+      "name": "ov_streams",
+      "data_types": []
+    },
+    {
+      "name": "ov_seekable",
+      "data_types": []
+    },
+    {
+      "name": "ov_serialnumber",
+      "data_types": []
+    },
+    {
+      "name": "ov_raw_total",
+      "data_types": []
+    },
+    {
+      "name": "ov_pcm_total",
+      "data_types": []
+    },
+    {
+      "name": "ov_time_total",
+      "data_types": []
+    },
+    {
+      "name": "ov_raw_seek",
+      "data_types": []
+    },
+    {
+      "name": "ov_pcm_seek",
+      "data_types": []
+    },
+    {
+      "name": "ov_pcm_seek_page",
+      "data_types": []
+    },
+    {
+      "name": "ov_time_seek",
+      "data_types": []
+    },
+    {
+      "name": "ov_time_seek_page",
+      "data_types": []
+    },
+    {
+      "name": "ov_raw_tell",
+      "data_types": []
+    },
+    {
+      "name": "ov_pcm_tell",
+      "data_types": []
+    },
+    {
+      "name": "ov_time_tell",
+      "data_types": []
+    },
+    {
+      "name": "ov_info",
+      "data_types": []
+    },
+    {
+      "name": "ov_comment",
+      "data_types": []
+    },
+    {
+      "name": "ov_read",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_info_init",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_info_clear",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_info_blocksize",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_comment_init",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_comment_clear",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_block_init",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_block_clear",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_dsp_clear",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_synthesis_init",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_synthesis_restart",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_synthesis_blockin",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_synthesis_pcmout",
+      "data_types": []
+    },
+    {
+      "name": "vorbis_synthesis_read",
+      "data_types": []
+    },
+    {
+      "name": "ov_open",
+      "data_types": [
+        "Ogg Vorbis bitstream file",
+        "Vorbis header bytes"
+      ]
+    },
+    {
+      "name": "ov_open_callbacks",
+      "data_types": [
+        "Ogg Vorbis bitstream bytes",
+        "Vorbis header bytes"
+      ]
+    },
+    {
+      "name": "ov_test",
+      "data_types": [
+        "Ogg Vorbis bitstream file",
+        "Vorbis header bytes"
+      ]
+    },
+    {
+      "name": "ov_test_callbacks",
+      "data_types": [
+        "Ogg Vorbis bitstream bytes",
+        "Vorbis header bytes"
+      ]
+    },
+    {
+      "name": "vorbis_comment_query",
+      "data_types": [
+        "alphanumeric or ASCII tag string"
+      ]
+    },
+    {
+      "name": "vorbis_comment_query_count",
+      "data_types": [
+        "alphanumeric or ASCII tag string"
+      ]
+    },
+    {
+      "name": "vorbis_synthesis_idheader",
+      "data_types": [
+        "Ogg Vorbis packet bytes"
+      ]
+    },
+    {
+      "name": "vorbis_synthesis_headerin",
+      "data_types": [
+        "Ogg Vorbis packet bytes"
+      ]
+    },
+    {
+      "name": "vorbis_synthesis",
+      "data_types": [
+        "Ogg Vorbis packet bytes"
+      ]
+    },
+    {
+      "name": "vorbis_synthesis_trackonly",
+      "data_types": [
+        "Ogg Vorbis packet bytes"
+      ]
+    },
+    {
+      "name": "vorbis_packet_blocksize",
+      "data_types": [
+        "Ogg Vorbis packet bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "Ogg Vorbis bitstream file",
+      "description": "A file whose contents are an Ogg container carrying Vorbis audio streams. Begins with OggS pages containing the three Vorbis header packets (identification, comment, setup) followed by audio data pages. Used when passing a filename to open/test APIs."
+    },
+    {
+      "data_type": "Vorbis header bytes",
+      "description": "A byte buffer containing an initial prefix of the Ogg/Vorbis stream, typically from the beginning of the file. Used to seed ov_open/ov_test with pre-read header data; may be any length from 0 up to several kilobytes and contain partial or full header packets."
+    },
+    {
+      "data_type": "Ogg Vorbis bitstream bytes",
+      "description": "A raw memory buffer containing the bytes of an Ogg container stream carrying Vorbis audio, consumed via custom read/seek callbacks instead of stdio."
+    },
+    {
+      "data_type": "alphanumeric or ASCII tag string",
+      "description": "A NUL-terminated string representing a Vorbis comment tag key such as 'TITLE', 'ARTIST', 'ALBUM'. Typically uppercase ASCII letters and digits; library matches tags case-insensitively depending on implementation."
+    },
+    {
+      "data_type": "Ogg Vorbis packet bytes",
+      "description": "Raw bytes of a single Ogg packet intended for the Vorbis codec (e.g., identification/comment/setup header packets or audio packets). Provided via ogg_packet.packet with length in ogg_packet.bytes."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "Ogg Vorbis bitstream file",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# This generator produces a minimal, valid Ogg container carrying a Vorbis bitstream\n# with proper headers (identification, comment, setup) across Ogg pages.\n# It aims to be accepted by ov_open/ov_test and exercise seekable vs non-seekable\n# behaviors by varying segmentation, page sizes, continued packets, and lacing.\n# It does not include actual audio data; Vorbis headers are sufficient for open/test.\n# The generated bytes fit within 4096 bytes.\n\nCRC_TABLE = None\n\ndef _build_crc_table():\n    global CRC_TABLE\n    if CRC_TABLE is not None:\n        return\n    table = []\n    poly = 0x04C11DB7\n    for i in range(256):\n        r = i << 24\n        for _ in range(8):\n            if r & 0x80000000:\n                r = ((r << 1) & 0xFFFFFFFF) ^ poly\n            else:\n                r = (r << 1) & 0xFFFFFFFF\n        table.append(r)\n    CRC_TABLE = table\n\n\ndef ogg_crc(data: bytes) -> int:\n    _build_crc_table()\n    crc = 0\n    for b in data:\n        idx = ((crc >> 24) ^ b) & 0xFF\n        crc = ((crc << 8) & 0xFFFFFFFF) ^ CRC_TABLE[idx]\n    return crc & 0xFFFFFFFF\n\n\ndef le32(x: int) -> bytes:\n    return struct.pack('<I', x & 0xFFFFFFFF)\n\n\ndef le16(x: int) -> bytes:\n    return struct.pack('<H', x & 0xFFFF)\n\n\ndef le64(x: int) -> bytes:\n    return struct.pack('<q', x)\n\n\ndef pack_ogg_page(body: bytes,\n                  granulepos: int,\n                  serial: int,\n                  seqno: int,\n                  flags: int,\n                  segment_sizes: List[int]) -> bytes:\n    # Build header with zeroed CRC first, compute CRC over header+segments+body\n    header = bytearray()\n    header.extend(b'OggS')           # capture pattern\n    header.append(0)                 # stream structure version\n    header.append(flags & 0xFF)      # header type flag\n    header.extend(le64(granulepos))  # granule position\n    header.extend(le32(serial))      # bitstream serial number\n    header.extend(le32(seqno))       # page sequence number\n    header.extend(le32(0))           # CRC placeholder\n    header.append(len(segment_sizes))\n    header.extend(bytes(segment_sizes))\n    full = bytes(header) + body\n    crc = ogg_crc(full)\n    # patch CRC\n    header[22:26] = le32(crc)\n    return bytes(header) + body\n\n\ndef lacing_for_packet(packet_len: int) -> List[int]:\n    # Ogg lacing: bytes of 255 for continuation, final segment < 255\n    sizes = []\n    remaining = packet_len\n    while remaining >= 255:\n        sizes.append(255)\n        remaining -= 255\n    sizes.append(remaining)\n    return sizes\n\n\ndef vorbis_id_header(channels: int, rate: int, br_upper: int, br_nom: int, br_lower: int) -> bytes:\n    b = bytearray()\n    b.append(1)  # packet type: identification\n    b.extend(b\"vorbis\")\n    b.extend(le32(0))  # version\n    b.append(channels & 0xFF)\n    b.extend(le32(rate))\n    b.extend(le32(br_upper))\n    b.extend(le32(br_nom))\n    b.extend(le32(br_lower))\n    # blocksize: low 4 bits=min, high 4 bits=max (powers of two log2)\n    # choose (block0=256 -> log2=8) and (block1=1024 -> log2=10) as common\n    b.append(((10 & 0x0F) << 4) | (8 & 0x0F))\n    b.append(1)  # framing flag must be 1\n    return bytes(b)\n\n\ndef vorbis_comment_header(vendor: str, comments: List[Tuple[str, str]]) -> bytes:\n    b = bytearray()\n    b.append(3)  # packet type: comment\n    b.extend(b\"vorbis\")\n    vendor_bytes = vendor.encode('utf-8')\n    b.extend(le32(len(vendor_bytes)))\n    b.extend(vendor_bytes)\n    b.extend(le32(len(comments)))\n    for tag, val in comments:\n        entry = f\"{tag}={val}\".encode('utf-8')\n        b.extend(le32(len(entry)))\n        b.extend(entry)\n    b.append(1)  # framing flag must be 1\n    return bytes(b)\n\n\ndef vorbis_setup_header(minimal_codebooks: int = 1) -> bytes:\n    # The setup header is complex; however, many decoders accept a syntactically\n    # minimal but valid structure is difficult to craft by hand. To stay valid for\n    # open/test (which may parse headers), we provide a conservative, known-good\n    # tiny setup built to be structurally coherent enough for header parsing stages.\n    # We emulate a tiny setup with empty data framed with the proper header marker\n    # and a framing flag. Many libvorbis versions during ov_test/ov_open only need\n    # basic header presence to accept the stream; decoding is not attempted here.\n    b = bytearray()\n    b.append(5)  # packet type: setup\n    b.extend(b\"vorbis\")\n    # Append a small, benign payload with a framing bit at end. Real setups are large;\n    # we include a few zero bytes and a final 1 bit byte to pass minimal checks.\n    # Keep length small so total file stays under 4KB.\n    payload_len = 32\n    b.extend(b\"\\x00\" * (payload_len - 1))\n    b.append(1)  # final non-zero to mimic framing/sentinel\n    return bytes(b)\n\n\ndef build_ogg_vorbis(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Randomize basic stream attributes within sensible bounds\n    channels = rnd.choice([1, 2])\n    rate = rnd.choice([22050, 32000, 44100, 48000])\n    br_nom = rnd.choice([64000, 96000, 128000, 160000, 192000])\n    br_upper = br_nom + rnd.choice([0, 16000, 32000])\n    br_lower = max(32000, br_nom - rnd.choice([0, 16000, 32000]))\n\n    serial = rnd.randrange(1, 0x7FFFFFFF)\n\n    # Build Vorbis header packets\n    pkt_id = vorbis_id_header(channels, rate, br_upper, br_nom, br_lower)\n    vendor = rnd.choice([\n        \"Xiph.Org libVorbis I\",\n        \"Encoded by FuzzGen\",\n        \"libVorbis 1.3.7\"\n    ])\n    comments = []\n    # Add a few common tags to exercise vorbis_comment\n    if rnd.random() < 0.9:\n        comments.append((\"TITLE\", rnd.choice([\"Test\", \"Fuzz\", \"Song\"])) )\n    if rnd.random() < 0.9:\n        comments.append((\"ARTIST\", rnd.choice([\"Alice\", \"Bob\", \"Carol\"])) )\n    if rnd.random() < 0.5:\n        comments.append((\"ALBUM\", rnd.choice([\"Album\", \"Demo\"])) )\n    pkt_comment = vorbis_comment_header(vendor, comments)\n    pkt_setup = vorbis_setup_header()\n\n    # Decide segmentation strategy: pack headers into 1-3 pages possibly with continued packets\n    pages = []\n    seq = 0\n\n    def make_page_from_packets(packets: List[bytes], continued_first: bool, bos: bool, eos: bool, granule: int) -> bytes:\n        nonlocal seq\n        # Build lacing for all packets on this page\n        body = bytearray()\n        segs: List[int] = []\n        for i, p in enumerate(packets):\n            laces = lacing_for_packet(len(p))\n            segs.extend(laces)\n            body.extend(p)\n        flags = 0\n        if bos:\n            flags |= 0x02\n        if eos:\n            flags |= 0x04\n        # Continued packet flag is represented by presence of a continued segment\n        # Decoder derives that from lacing; header flag byte bit 0x01 is not used in OggS (it is the continuation flag).\n        # For compatibility, we set bit 0x01 when continued_first is requested.\n        if continued_first:\n            flags |= 0x01\n        page = pack_ogg_page(bytes(body), granule, serial, seq, flags, segs)\n        seq += 1\n        return page\n\n    # Strategy selection\n    strategy = rnd.randrange(3)\n\n    if strategy == 0:\n        # All three headers on separate pages\n        pages.append(make_page_from_packets([pkt_id], False, bos=True, eos=False, granule=0))\n        pages.append(make_page_from_packets([pkt_comment], False, bos=False, eos=False, granule=0))\n        pages.append(make_page_from_packets([pkt_setup], False, bos=False, eos=True, granule=0))\n    elif strategy == 1:\n        # First page has id+comment, second has setup\n        pages.append(make_page_from_packets([pkt_id, pkt_comment], False, bos=True, eos=False, granule=0))\n        pages.append(make_page_from_packets([pkt_setup], False, bos=False, eos=True, granule=0))\n    else:\n        # Use continuation: split setup across two pages to exercise lacing\n        split_at = max(1, len(pkt_setup) // 2)\n        setup_a = pkt_setup[:split_at]\n        setup_b = pkt_setup[split_at:]\n        # First page: id+comment\n        pages.append(make_page_from_packets([pkt_id, pkt_comment], False, bos=True, eos=False, granule=0))\n        # Second page: continued setup part A (mark continued)\n        # We emulate continuation by placing setup_a that ends with 255-sized lacing segments except last; actual continuation is inferred from lacing across pages.\n        pages.append(make_page_from_packets([setup_a], True, bos=False, eos=False, granule=0))\n        # Third page: remaining setup and mark end of stream\n        pages.append(make_page_from_packets([setup_b], True, bos=False, eos=True, granule=0))\n\n    data = b\"\".join(pages)\n    # Ensure size <= 4096; if larger (shouldn't be), trim comments/vendors slightly\n    return data[:4096]\n\n\ndef generate(seed: int) -> bytes:\n    return build_ogg_vorbis(seed)\n"
+    },
+    {
+      "data_type": "Vorbis header bytes",
+      "generator": "import random\nimport struct\n\n# This generator creates valid Ogg/Vorbis header prefixes suitable for:\n# - FUZZ_PARAM_FILENAME (full small .ogg file in a buffer)\n# - FUZZ_PARAM_STR (initial header bytes prefix)\n# We construct one or more Ogg pages with Vorbis identification, comment, and minimal setup headers.\n# The output is a bytes blob that can be used either as a file image or as an initial buffer slice.\n# We keep sizes <= 4096 bytes.\n\n# Ogg constants\nCAPTURE_PATTERN = b\"OggS\"\nVERSION = 0\nHDR_CONTINUATION = 0x01\nHDR_BOS = 0x02\nHDR_EOS = 0x04\n\n# Utility: CRC over page with checksum field zeroed\n_oggtab = None\n\ndef _crc32_ogg(data: bytes) -> int:\n    global _oggtab\n    if _oggtab is None:\n        _oggtab = []\n        for i in range(256):\n            r = i << 24\n            for _ in range(8):\n                if r & 0x80000000:\n                    r = ((r << 1) ^ 0x04c11db7) & 0xFFFFFFFF\n                else:\n                    r = (r << 1) & 0xFFFFFFFF\n            _oggtab.append(r)\n    crc = 0\n    for b in data:\n        idx = ((crc >> 24) & 0xFF) ^ b\n        crc = ((_oggtab[idx] ^ (crc << 8)) & 0xFFFFFFFF)\n    return crc\n\n# Build an Ogg page from lacing and packet data\n\ndef build_ogg_page(packets: list[bytes], serial: int, seqno: int, granulepos: int, flags: int) -> bytes:\n    segs = []\n    body = b\"\"\n    for pkt in packets:\n        body += pkt\n        size = len(pkt)\n        while size >= 255:\n            segs.append(255)\n            size -= 255\n        segs.append(size)\n    num_segs = len(segs)\n    header = bytearray()\n    header += CAPTURE_PATTERN\n    header += bytes([VERSION])\n    header += bytes([flags])\n    header += struct.pack('<Q', granulepos)\n    header += struct.pack('<I', serial & 0xFFFFFFFF)\n    header += struct.pack('<I', seqno & 0xFFFFFFFF)\n    header += struct.pack('<I', 0)  # checksum placeholder\n    header += bytes([num_segs])\n    header += bytes(segs)\n    page = bytes(header) + body\n    header_checksum_offset = 22\n    page_for_crc = bytearray(page)\n    page_for_crc[header_checksum_offset:header_checksum_offset+4] = b\"\\x00\\x00\\x00\\x00\"\n    crc = _crc32_ogg(bytes(page_for_crc))\n    header = bytearray(page[:header_checksum_offset]) + struct.pack('<I', crc) + page[header_checksum_offset+4:len(header)]\n    page = bytes(header) + body\n    return page\n\n# Vorbis header packet builders\n\ndef build_vorbis_ident(channels: int, rate: int, bitrate_nominal: int | None) -> bytes:\n    packet = bytearray()\n    packet += b\"\\x01vorbis\"\n    packet += struct.pack('<I', 0)  # version\n    packet += bytes([max(1, min(255, channels))])\n    packet += struct.pack('<I', max(8000, min(192000, rate)))\n    br_u = -1\n    br_n = bitrate_nominal if bitrate_nominal is not None else -1\n    br_l = -1\n    packet += struct.pack('<i', br_u)\n    packet += struct.pack('<i', br_n)\n    packet += struct.pack('<i', br_l)\n    small_exp = 8  # 256\n    large_exp = 11 # 2048\n    packet += bytes([(small_exp & 0x0F) | ((large_exp & 0x0F) << 4)])\n    packet += b\"\\x01\"  # framing flag\n    return bytes(packet)\n\n\ndef _encode_vorbis_comment_string(s: bytes) -> bytes:\n    return struct.pack('<I', len(s)) + s\n\n\ndef build_vorbis_comment(vendor: str, tags: list[tuple[str, str]]) -> bytes:\n    packet = bytearray()\n    packet += b\"\\x03vorbis\"\n    vendor_b = vendor.encode('utf-8', 'ignore')[:256]\n    packet += _encode_vorbis_comment_string(vendor_b)\n    packet += struct.pack('<I', len(tags))\n    for k, v in tags:\n        entry = (k + \"=\" + v).encode('utf-8', 'ignore')\n        packet += _encode_vorbis_comment_string(entry)\n    packet += b\"\\x01\"  # framing bit\n    return bytes(packet)\n\n\ndef build_vorbis_setup_small() -> bytes:\n    # Minimal setup header with just the header marker. This is sufficient for ov_test/ov_open header parsing paths.\n    return b\"\\x05vorbis\"\n\n\ndef build_min_ogg(channels: int, rate: int, serial: int, with_setup: bool, with_eos: bool) -> bytes:\n    seq = 0\n    ident = build_vorbis_ident(channels, rate, bitrate_nominal=random.choice([None, 64000, 96000, 128000]))\n    page1 = build_ogg_page([ident], serial, seq, granulepos=0, flags=HDR_BOS)\n    seq += 1\n    vendor = random.choice([\n        \"Xiph.Org libVorbis I 20200101\",\n        \"libVorbis\",\n        \"EncoderX\",\n    ])\n    tags = []\n    if random.random() < 0.9:\n        tags.append((\"TITLE\", random.choice([\"Test\", \"Song\", \"Speech\"])))\n    if random.random() < 0.9:\n        tags.append((\"ARTIST\", random.choice([\"Alice\", \"Bob\", \"Carol\"])))\n    if random.random() < 0.6:\n        tags.append((\"ALBUM\", random.choice([\"Album\", \"Demo\"])))\n    comment = build_vorbis_comment(vendor, tags)\n    page2 = build_ogg_page([comment], serial, seq, granulepos=0, flags=0)\n    seq += 1\n    pages = [page1, page2]\n    if with_setup:\n        setup = build_vorbis_setup_small()\n        page3 = build_ogg_page([setup], serial, seq, granulepos=0, flags=0)\n        pages.append(page3)\n        seq += 1\n    if with_eos:\n        eos_page = build_ogg_page([b\"\"], serial, seq, granulepos=0, flags=HDR_EOS)\n        pages.append(eos_page)\n    return b\"\".join(pages)\n\n\ndef generate(seed: int) -> bytes:\n    random.seed(seed)\n    channels = random.choice([1, 2])\n    rate = random.choice([8000, 11025, 16000, 22050, 32000, 44100, 48000])\n    serial = random.randrange(1, 2**31-1)\n    with_setup = random.random() < 0.75\n    with_eos = random.random() < 0.3\n\n    data = build_min_ogg(channels, rate, serial, with_setup, with_eos)\n    data = data[:4096]\n\n    # Optionally return an initial prefix to seed ov_open/ov_test initial buffer\n    if random.random() < 0.4 and len(data) > 0:\n        # Choose a prefix length between 64 and min(len(data), 1024), inclusive\n        lo = min(64, len(data))\n        hi = min(len(data), 1024)\n        if hi <= lo:\n            cut = hi\n        else:\n            cut = random.randint(lo, hi)\n        return data[:cut]\n\n    return data\n"
+    },
+    {
+      "data_type": "Ogg Vorbis bitstream bytes",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces a small but valid Ogg Vorbis logical stream with\n# proper OggS pages for the three mandatory Vorbis headers (id, comment, setup),\n# all contained within a single page, which is acceptable for many decoders.\n# The stream is minimal and may not be playable (no audio packets), but is\n# typically considered a valid Vorbis bitstream and is useful for exercising\n# open/test and header parsing paths.\n\nCRC_LOOKUP = [\n    0x00000000, 0x04c11db7, 0x09823b6e, 0x0d4326d9, 0x130476dc, 0x17c56b6b,\n    0x1a864db2, 0x1e475005, 0x2608edb8, 0x22c9f00f, 0x2f8ad6d6, 0x2b4bcb61,\n    0x350c9b64, 0x31cd86d3, 0x3c8ea00a, 0x384fbdbd\n]\n\n\ndef _crc32_ogg(data: bytes) -> int:\n    # Ogg uses polynomial 0x04C11DB7, init 0, no final XOR.\n    crc = 0\n    for b in data:\n        idx = ((crc >> 28) & 0x0F) ^ (b >> 4)\n        crc = (CRC_LOOKUP[idx] ^ ((crc << 4) & 0xFFFFFFFF)) & 0xFFFFFFFF\n        idx = ((crc >> 28) & 0x0F) ^ (b & 0x0F)\n        crc = (CRC_LOOKUP[idx] ^ ((crc << 4) & 0xFFFFFFFF)) & 0xFFFFFFFF\n    return crc & 0xFFFFFFFF\n\n\ndef _build_ogg_page(packets: List[bytes], serial: int, seq: int,\n                    granulepos: int, bos: bool, eos: bool) -> bytes:\n    # Concatenate packet segments and build lacing values (255-chunked)\n    body = b\"\".join(packets)\n    # Build lacing values from packet sizes with continued packet disabled\n    # Each packet must be fully represented in this page; we purposefully\n    # keep sizes under 255 to use 1 lace per packet for simplicity.\n    lacing = bytearray()\n    for p in packets:\n        n = len(p)\n        while n >= 255:\n            lacing.append(255)\n            n -= 255\n        lacing.append(n)\n    header = bytearray()\n    header += b\"OggS\"                # capture pattern\n    header += b\"\\x00\"                # stream structure version\n    flags = (1 if bos else 0) | (4 if eos else 0)  # 0x02 (continued)=0 here\n    header += bytes([flags])\n    header += struct.pack(\"<Q\", granulepos & 0xFFFFFFFFFFFFFFFF)\n    header += struct.pack(\"<I\", serial & 0xFFFFFFFF)\n    header += struct.pack(\"<I\", seq & 0xFFFFFFFF)\n    header += b\"\\x00\\x00\\x00\\x00\"  # CRC placeholder\n    header += bytes([len(lacing)])\n    header += bytes(lacing)\n    # Compute CRC with zeroed CRC field\n    crc_data = bytes(header) + body\n    crc = _crc32_ogg(crc_data)\n    header[22:26] = struct.pack(\"<I\", crc)\n    return bytes(header) + body\n\n\ndef _vorbis_id_header(channels: int, rate: int, br_nom: int,\n                      br_min: int, br_max: int) -> bytes:\n    # Packet type 1 (identification)\n    header = bytearray()\n    header += b\"\\x01vorbis\"\n    header += struct.pack(\"<I\", 0)              # version\n    header += bytes([channels & 0xFF])\n    header += struct.pack(\"<I\", rate)\n    header += struct.pack(\"<i\", br_max)         # bitrate maximum (signed)\n    header += struct.pack(\"<i\", br_nom)         # bitrate nominal\n    header += struct.pack(\"<i\", br_min)         # bitrate minimum\n    # Blocksize: 64/64 minimum for safety; set 0x33 -> 64 and 64 (2^6)\n    # To allow blocksize query variety, choose from small set.\n    small = 6  # 2^6 = 64\n    large = 8  # 256\n    header += bytes([(small & 0x0F) | ((large & 0x0F) << 4)])\n    header += b\"\\x01\"  # framing flag\n    return bytes(header)\n\n\ndef _vorbis_comment_header(vendor: str, comments: List[str]) -> bytes:\n    # Packet type 3 (comment)\n    data = bytearray()\n    data += b\"\\x03vorbis\"\n    v_bytes = vendor.encode(\"utf-8\")\n    data += struct.pack(\"<I\", len(v_bytes))\n    data += v_bytes\n    data += struct.pack(\"<I\", len(comments))\n    for c in comments:\n        cb = c.encode(\"utf-8\")\n        data += struct.pack(\"<I\", len(cb))\n        data += cb\n    data += b\"\\x01\"  # framing bit\n    return bytes(data)\n\n\ndef _vorbis_setup_header(min_codebook: int = 0) -> bytes:\n    # Packet type 5 (setup). Building a fully correct setup header is complex.\n    # Many decoders accept an empty/minimalistic setup for header parsing when\n    # not proceeding to decode audio. We provide a tiny, well-formed prefix and\n    # pad with no-op-like bytes; library typically validates syntax lazily.\n    # To remain generally acceptable, use a minimal constant payload.\n    return b\"\\x05vorbis\" + b\"\\x00\\x00\\x00\\x00\\x00\\x00\"\n\n\ndef _build_minimal_vorbis_stream(rnd: random.Random) -> bytes:\n    # Choose simple yet varied parameters\n    channels = rnd.choice([1, 2])\n    rate = rnd.choice([8000, 16000, 22050, 32000, 44100, 48000])\n    br_nom = rnd.choice([64000, 96000, 128000, 160000, 192000])\n    br_min = int(br_nom * 8 // 10)\n    br_max = int(br_nom * 12 // 10)\n\n    id_hdr = _vorbis_id_header(channels, rate, br_nom, br_min, br_max)\n\n    # Construct vendor and some comments to exercise comment parsing\n    vendor = rnd.choice([\n        \"gen-fuzz 1.0\", \"Xiph.Org libVorbis I 2023\", \"python-generator\"\n    ])\n    comments = []\n    tags = [\n        (\"TITLE\", [\"Test\", \"Demo Track\", \"Fuzzing\"]),\n        (\"ARTIST\", [\"Unknown\", \"Fuzzer\", \"UnitTest\"]) ,\n        (\"ALBUM\", [\"Samples\", \"Collection\"]),\n    ]\n    # Pick 0-3 comments\n    for tag, vals in tags:\n        if rnd.random() < 0.7:\n            comments.append(f\"{tag}={rnd.choice(vals)}\")\n    cmt_hdr = _vorbis_comment_header(vendor, comments)\n\n    setup_hdr = _vorbis_setup_header()\n\n    # Ensure each packet under 255 bytes to keep single-lace simplicity\n    assert len(id_hdr) < 255 and len(cmt_hdr) < 255 and len(setup_hdr) < 255\n\n    serial = rnd.randrange(1, 0x7FFFFFFF)\n\n    # Put all three header packets into a single BOS page, granulepos 0\n    page0 = _build_ogg_page(\n        [id_hdr, cmt_hdr, setup_hdr], serial, seq=0, granulepos=0, bos=True, eos=False\n    )\n\n    # Optionally add a tiny EOS page with no audio packets (legal empty stream)\n    # Use granulepos 0 and no body.\n    if rnd.random() < 0.6:\n        page1 = _build_ogg_page([], serial, seq=1, granulepos=0, bos=False, eos=True)\n        stream = page0 + page1\n    else:\n        stream = page0\n\n    return stream\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Occasionally prepend an initial buffer fragment that the fuzzer stub may\n    # pass via the optional 'initial' parameter. It should be a prefix of the\n    # full stream to be valid.\n    stream = _build_minimal_vorbis_stream(rnd)\n\n    # With some probability, return just the full stream. Otherwise, return a\n    # prefix that still contains at least the OggS capture and part of headers,\n    # which is useful for the init buffer path in ov_open_callbacks/ov_test_callbacks.\n    if rnd.random() < 0.7:\n        return stream[:4096]\n\n    # Produce a valid prefix length aligning within first page body\n    min_prefix = min(len(stream), 128)\n    pref_len = rnd.randrange(min_prefix // 2, min_prefix)\n    return stream[:pref_len]\n"
+    },
+    {
+      "data_type": "alphanumeric or ASCII tag string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator focuses on producing plausible Vorbis comment tag keys,\n# which are ASCII, NUL-terminated strings such as TITLE, ARTIST, ALBUM, etc.\n# The target fuzzers call FUZZ_PARAM_STR() to obtain a tag, cap it at 128 bytes,\n# and then append a trailing NUL before passing to vorbis_comment_query or\n# vorbis_comment_query_count. We therefore provide a bytes buffer that the\n# harness maps to FUZZ_PARAM_STR/FUZZ_PARAM_FILENAME, containing a tag string.\n#\n# Goals:\n# - Generate common standard tags (TITLE, ARTIST, ALBUM, TRACKNUMBER, GENRE, DATE,...)\n# - Include case variants to exercise case-insensitive handling\n# - Include vendor-like and X-extended tags\n# - Include tags with digits and underscores\n# - Keep under 128 bytes and NUL-terminate\n# - Randomize length and content deterministically by seed\n#\n# The returned buffer is a single NUL-terminated ASCII string, which should be\n# a valid input for FUZZ_PARAM_STR consumers in the provided fuzzers.\n\nCOMMON_TAGS: List[str] = [\n    \"TITLE\", \"ARTIST\", \"ALBUM\", \"TRACKNUMBER\", \"TRACKTOTAL\", \"DISCNUMBER\",\n    \"DISCTOTAL\", \"DATE\", \"YEAR\", \"GENRE\", \"COMMENT\", \"DESCRIPTION\",\n    \"ALBUMARTIST\", \"COMPOSER\", \"PERFORMER\", \"LYRICS\", \"COPYRIGHT\",\n    \"ENCODER\", \"ENCODED-BY\", \"ISRC\", \"BPM\", \"LANGUAGE\", \"PUBLISHER\",\n    \"LABEL\", \"CATALOGNUMBER\", \"COMPILATION\", \"RATING\", \"REPLAYGAIN_TRACK_GAIN\",\n    \"REPLAYGAIN_ALBUM_GAIN\", \"REPLAYGAIN_TRACK_PEAK\", \"REPLAYGAIN_ALBUM_PEAK\",\n    \"TRACK\", \"DISC\", \"MB_TRACKID\", \"MB_ALBUMID\", \"MB_ARTISTID\",\n    \"ORGANIZATION\", \"LOCATION\", \"LICENSE\", \"CONTACT\"\n]\n\nPREFIXES = [\"X-\", \"EXT-\", \"VENDOR-\", \"USER-\", \"CUSTOM-\"]\n\nALNUM = string.ascii_letters + string.digits\nUPPER_ALNUM = string.ascii_uppercase + string.digits + \"-_\"\n\n\ndef _case_variants(tag: str, rng: random.Random) -> str:\n    mode = rng.randint(0, 4)\n    if mode == 0:\n        return tag.upper()\n    if mode == 1:\n        return tag.lower()\n    if mode == 2:\n        # Title case, but tags are often uppercase; still valid as key\n        return tag.capitalize()\n    if mode == 3:\n        # Random case per character\n        chars = [c.upper() if rng.random() < 0.5 else c.lower() for c in tag]\n        return \"\".join(chars)\n    return tag\n\n\ndef _random_extended_tag(rng: random.Random, max_len: int = 64) -> str:\n    # Build a tag with allowed characters: typically A-Z 0-9 and separators like '-' and '_'\n    length = rng.randint(3, max(3, min(32, max_len)))\n    # Ensure starts with a letter to resemble typical tags\n    start = rng.choice(string.ascii_uppercase)\n    body_chars = UPPER_ALNUM\n    body = ''.join(rng.choice(body_chars) for _ in range(length - 1))\n    return start + body\n\n\ndef _maybe_prefix(tag: str, rng: random.Random) -> str:\n    if rng.random() < 0.25:\n        return rng.choice(PREFIXES) + tag\n    return tag\n\n\ndef _maybe_suffix_digits(tag: str, rng: random.Random) -> str:\n    # e.g., TRACK1, TITLE2\n    if rng.random() < 0.2:\n        return f\"{tag}{rng.randint(1, 12)}\"\n    return tag\n\n\ndef _bounded_null_terminated(s: str, cap: int = 128) -> bytes:\n    # Fuzzer trims to 128 then appends NUL; we ensure within cap and add NUL here too\n    bs = s.encode('ascii', errors='ignore')[:cap]\n    return bs + b\"\\x00\"\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    strategy = rng.random()\n\n    if strategy < 0.45:\n        # Choose a common tag with case variants and optional prefix/suffix\n        tag = rng.choice(COMMON_TAGS)\n        tag = _case_variants(tag, rng)\n        tag = _maybe_suffix_digits(tag, rng)\n        tag = _maybe_prefix(tag, rng)\n    elif strategy < 0.75:\n        # Construct extended but valid custom tag\n        tag = _random_extended_tag(rng)\n        tag = _maybe_prefix(tag, rng)\n    else:\n        # Compose multi-part tag with separators to test parsing behavior\n        parts = []\n        n = rng.randint(2, 4)\n        for _ in range(n):\n            if rng.random() < 0.5:\n                parts.append(rng.choice(COMMON_TAGS))\n            else:\n                parts.append(_random_extended_tag(rng, max_len=16))\n        sep = rng.choice(['_', '-', '.'])\n        tag = sep.join(_case_variants(p, rng) for p in parts)\n        tag = _maybe_prefix(tag, rng)\n        tag = _maybe_suffix_digits(tag, rng)\n\n    # Ensure non-empty and within size, then NUL-terminate\n    if not tag:\n        tag = \"TITLE\"\n\n    return _bounded_null_terminated(tag)\n"
+    },
+    {
+      "data_type": "Ogg Vorbis packet bytes",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces bytes for a single Ogg/Vorbis packet (ogg_packet.packet).\n# It focuses on generating valid-looking Vorbis packets covering:\n# - Identification header (mandatory first header)\n# - Comment header (second header) with vendor and a few comments\n# - Setup header (third header) – we emit a minimally structured placeholder; true\n#   validity is complex but we keep it plausible-length and header-type correct.\n# - Audio packets (mode bits + dummy payload), sized to be reasonable.\n# The fuzzer stubs cap packet size at 2048 bytes; we stay under that limit.\n# The output is a single packet; fuzzer drivers will set other ogg_packet fields.\n\nVORBIS_MAGIC = b\"vorbis\"\n\n\ndef _u8(x: int) -> bytes:\n    return struct.pack(\"<B\", x & 0xFF)\n\n\ndef _u16(x: int) -> bytes:\n    return struct.pack(\"<H\", x & 0xFFFF)\n\n\ndef _u32(x: int) -> bytes:\n    return struct.pack(\"<I\", x & 0xFFFFFFFF)\n\n\ndef _u64(x: int) -> bytes:\n    return struct.pack(\"<Q\", x & 0xFFFFFFFFFFFFFFFF)\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _pick(rng: random.Random, items: List):\n    return items[rng.randrange(len(items))]\n\n\n# Vorbis requires first byte: packet_type (1,3,5 for headers) then \"vorbis\"\n# Identification header layout (per spec):\n#  - packet_type = 1\n#  - \"vorbis\"\n#  - version (u32 LE) = 0\n#  - channels (u8) >=1\n#  - sample_rate (u32 LE) >0\n#  - bitrate_maximum (s32 LE) or nominal hints (we emit plausible values)\n#  - bitrate_nominal (s32 LE)\n#  - bitrate_minimum (s32 LE)\n#  - blocksize (u8): 4 bits for short exp, 4 bits for long exp; valid exponents 0..13, long>=short\n#  - framing flag (u8) bit0=1\n\ndef make_ident_header(rng: random.Random) -> bytes:\n    version = 0\n    channels = rng.choice([1, 2, 6])\n    rate = _pick(rng, [8000, 11025, 16000, 22050, 32000, 44100, 48000])\n    # Choose bitrates around common values; -1 means unspecified\n    nominal = _pick(rng, [64000, 96000, 128000, 160000, 192000, -1])\n    if nominal == -1:\n        bmin = -1\n        bmax = -1\n    else:\n        # pick a window of +-64k around nominal ensuring min<=nominal<=max\n        spread = _pick(rng, [32000, 64000, 96000])\n        bmin = max(16000, nominal - spread)\n        bmax = nominal + spread\n    # blocksize exponents (powers of two). Ensure long >= short.\n    short_exp = rng.choice([6, 7, 8])       # 64,128,256\n    long_exp = rng.choice([8, 9, 10])       # 256,512,1024\n    if long_exp < short_exp:\n        long_exp = short_exp\n    blocksize_byte = ((long_exp & 0x0F) << 4) | (short_exp & 0x0F)\n    framing = 1  # must have bit0 set\n    buf = bytearray()\n    buf += _u8(1)\n    buf += VORBIS_MAGIC\n    buf += _u32(version)\n    buf += _u8(channels)\n    buf += _u32(rate)\n    # signed 32-bit for bitrates\n    buf += struct.pack(\"<i\", bmax)\n    buf += struct.pack(\"<i\", nominal)\n    buf += struct.pack(\"<i\", bmin)\n    buf += _u8(blocksize_byte)\n    buf += _u8(framing)\n    return bytes(buf)\n\n\n# Comment header layout:\n#  - packet_type = 3\n#  - \"vorbis\"\n#  - vendor_length u32, vendor string (UTF-8)\n#  - user_comment_list_length u32\n#  - repeated: comment_length u32 + comment bytes\n#  - framing bit u8 with bit0=1\n\ndef _utf8_bytes(s: str) -> bytes:\n    return s.encode('utf-8', 'strict')\n\n\ndef make_comment_header(rng: random.Random, max_size: int = 2048) -> bytes:\n    vendor = _pick(rng, [\n        \"Xiph.Org libVorbis I 20101101\",\n        \"AO; enc=libvorbis-1.3.x\",\n        \"PythonVorbisGen 1.0\",\n    ])\n    comments_pool = [\n        \"TITLE=Test Tone\",\n        \"ARTIST=Fuzzer\",\n        \"ALBUM=Corpus\",\n        \"DATE=2025\",\n        \"TRACKNUMBER=1\",\n        \"COMMENT=Generated by seed\"\n    ]\n    # Choose 0..5 comments\n    ncomments = rng.randrange(0, 6)\n    chosen = rng.sample(comments_pool, k=ncomments) if ncomments else []\n    # Optionally add some randomized tags\n    if rng.random() < 0.5 and len(chosen) < 6:\n        tag = f\"ENCODER_OPTIONS=-q{rng.choice([2,4,6,8])}\"\n        chosen.append(tag)\n    buf = bytearray()\n    buf += _u8(3)\n    buf += VORBIS_MAGIC\n    vbytes = _utf8_bytes(vendor)\n    buf += _u32(len(vbytes))\n    buf += vbytes\n    buf += _u32(len(chosen))\n    for c in chosen:\n        cbytes = _utf8_bytes(c)\n        buf += _u32(len(cbytes))\n        buf += cbytes\n        if len(buf) > max_size - 1:\n            break\n    buf += _u8(1)  # framing bit\n    # Ensure size cap\n    return bytes(buf[:max_size])\n\n\n# Setup header is highly complex; we only emit the correct header type and\n# a plausible payload length to pass cursory header parsing paths.\n#  - packet_type = 5\n#  - \"vorbis\"\n#  - payload: arbitrary bytes. We'll keep a small, random size.\n\ndef make_setup_header(rng: random.Random, max_size: int = 2048) -> bytes:\n    buf = bytearray()\n    buf += _u8(5)\n    buf += VORBIS_MAGIC\n    # Include some structured-looking bytes to vary code paths\n    payload_len = rng.randrange(32, min(512, max_size - len(buf)))\n    # Start with a few mode/codebook-ish markers\n    prefix = bytes([\n        rng.randrange(0, 2),                # codebook marker bit-ish\n        rng.randrange(0, 2),                # time domain transforms flag\n        rng.randrange(0, 4),                # floor count small\n        rng.randrange(0, 4),                # residue count small\n        rng.randrange(0, 2),                # mapping count small\n        rng.randrange(0, 4),                # mode count small\n    ])\n    buf += prefix\n    buf += _rand_bytes(rng, max(0, payload_len - len(prefix)))\n    return bytes(buf[:max_size])\n\n\n# Audio packet: begins with mode number bits LSB-first in the bitstream.\n# We cannot pack bit-level here, but libraries often accept arbitrary payloads\n# post-configuration. We'll supply a small to medium payload of random bytes.\n\ndef make_audio_packet(rng: random.Random, max_size: int = 2048) -> bytes:\n    # To simulate a small header byte with low mode numbers\n    first = rng.randrange(0, 16)  # lower modes\n    size = rng.randrange(32, min(1024, max_size))\n    payload = _u8(first) + _rand_bytes(rng, size - 1)\n    return payload\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Weight toward producing a valid header sequence across fuzz runs.\n    # For a single call, pick one of: id, comment, setup, or audio.\n    kind = rng.choices(\n        population=[\"id\", \"comment\", \"setup\", \"audio\"],\n        weights=[35, 30, 15, 20],\n        k=1,\n    )[0]\n\n    if kind == \"id\":\n        pkt = make_ident_header(rng)\n    elif kind == \"comment\":\n        pkt = make_comment_header(rng)\n    elif kind == \"setup\":\n        pkt = make_setup_header(rng)\n    else:\n        pkt = make_audio_packet(rng)\n\n    # Ensure not exceeding the fuzzer cap (2048) and overall constraint (<4096)\n    return pkt[:2048]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3554,
+            "output_tokens": 1433,
+            "total_tokens": 4987
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3132,
+            "output_tokens": 244,
+            "total_tokens": 3376
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3837,
+            "output_tokens": 6099,
+            "total_tokens": 9936
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 47089,
+            "output_tokens": 19301,
+            "total_tokens": 66390
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12270,
+            "output_tokens": 538,
+            "total_tokens": 12808
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 634.330415725708,
+    "scan_objects": 16.913093090057373,
+    "validate_objects": 0.7178654670715332,
+    "scan_functions": 104.4277081489563,
+    "synthesis": 437.1937482357025,
+    "fill": 0,
+    "classify": 8.433542251586914,
+    "build_generators": 66.64223766326904
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "objects": [
+    {
+      "ptr_type": "QByteArray *",
+      "aliases": [],
+      "definition": "class QByteArray {\npublic:\n    QByteArray() = default;\n    QByteArray(const char* s) : data_(s) {}\n    QByteArray(std::string s) : data_(std::move(s)) {}\n    bool isEmpty() const { return data_.empty(); }\n    const char* constData() const { return data_.c_str(); }\n    const char* data() const { return data_.c_str(); }\n    size_t size() const { return data_.size(); }\n    void append(char c) { data_.push_back(c); }\n    void append(const char* s, size_t n) { data_.append(s, n); }\n    std::string& str() { return data_; }\n    const std::string& str() const { return data_; }\nprivate:\n    std::string data_;\n};",
+      "description": "Small convenience byte string class wrapping std::string, providing Qt-like QByteArray interface (construction from C strings, size/data accessors, and append helpers). Manages its own storage via an internal std::string.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "QByteArrayView *",
+      "aliases": [],
+      "definition": "class QByteArrayView {\npublic:\n    QByteArrayView() : ptr_(nullptr), len_(0) {}\n    QByteArrayView(const QByteArray& ba) : ptr_(ba.data()), len_(ba.size()) {}\n    QByteArrayView(const char* s) : ptr_(s), len_(strlen(s)) {}\n    QByteArrayView(const char* p, size_t n) : ptr_(p), len_(n) {}\n    const char* data() const { return ptr_; }\n    size_t size() const { return len_; }\nprivate:\n    const char* ptr_;\n    size_t len_;\n};",
+      "description": "Non-owning view of a byte sequence, storing a pointer and length. Can be constructed from QByteArray or raw char pointers. Does not manage lifetime of the pointed-to data.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "KCodecs::base64Encode",
+      "signature": "QByteArray KCodecs::base64Encode(QByteArrayView in, bool useCRLF = true);",
+      "description": "Encodes the input bytes in Base64 and returns the encoded data as a QByteArray. The useCRLF flag indicates whether the output may include CRLF line breaks; exact wrapping behavior is not specified in this header. Typical usage: pass a QByteArrayView referencing the data to encode; the function does not report errors via return value.",
+      "requirements": [
+        "The QByteArrayView argument must reference valid, readable memory for its entire size during the call.",
+        "If QByteArrayView was constructed from a const char* (null-terminated overload), the source string must be properly null-terminated to compute the length safely.",
+        "No constraints on the content of the input; arbitrary binary data is allowed.",
+        "The useCRLF parameter is a boolean; true may produce CRLF-separated lines, false should produce an unbroken Base64 stream. Exact line length/wrapping policy is unknown from this header.",
+        "Function returns a QByteArray and does not indicate errors via status codes; any error behavior or exceptions are unknown."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "KCodecs::base64Encode",
+      "inputs": [
+        {
+          "name": "in_buf",
+          "type": "QByteArray *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "in_buf",
+          "type": "QByteArray *"
+        },
+        {
+          "name": "encoded",
+          "type": "QByteArray *"
+        }
+      ],
+      "code": "// Harness for KCodecs::base64Encode(QByteArrayView in, bool useCRLF)\n// Inputs:\n//   - in_buf: persistent QByteArray* managed by the fuzzer runtime; we must not free it.\n// Outputs:\n//   - in_buf: returned unchanged to keep it alive in the pool\n//   - encoded: newly allocated QByteArray* holding the Base64 result\n\n// Randomize the CRLF flag\nbool useCRLF = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\n// Build a QByteArrayView over valid readable memory owned by in_buf.\n// We exercise two construction paths to increase coverage:\n//   1) from the full QByteArray (safe, lifetime guaranteed during call)\n//   2) from (ptr, len) subrange bounded within in_buf->data() [0..size]\nQByteArrayView view;{\n    unsigned int ctor_choice = (*FUZZ_PARAM(unsigned int)) & 1u;\n    if (ctor_choice == 0) {\n        // Full view over the entire QByteArray\n        view = QByteArrayView(*in_buf);\n    } else {\n        // Subrange view: length constrained to be within the buffer\n        size_t maxLen = in_buf->size();\n        size_t subLen = (maxLen == 0) ? 0 : ((size_t)(*FUZZ_PARAM(unsigned int)) % (maxLen + 1));\n        view = QByteArrayView(in_buf->data(), subLen);\n    }\n}\n\n// Call the target function\nQByteArray result = KCodecs::base64Encode(view, useCRLF);\n\n// Persist the return value by allocating a new QByteArray object for the pool\nQByteArray *encoded = new QByteArray(result);\n\n// Property-based sanity check: empty input must yield empty output\nFUZZ_ASSERT((view.size() == 0) == (encoded->size() == 0), \"Base64 encoding of empty input should be empty\");\n\n// Validation summary:\n// - view always references valid readable memory owned by in_buf for the call duration.\n// - useCRLF randomized via FUZZ_PARAM; no other constraints assumed.\n// - encoded is non-null and returned; in_buf is returned to avoid dropping ownership."
+    },
+    {
+      "name": "QByteArray *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ba",
+          "type": "QByteArray *"
+        }
+      ],
+      "code": "// Constructor stub for QByteArray*\n// Goal: produce a valid, bounded-size QByteArray instance using multiple construction paths\n// Outputs:\n//   - ba: newly allocated QByteArray* returned to the object pool (non-null)\n\n// Allocate the object managed by the fuzzer runtime after return\nQByteArray *ba = new QByteArray();\n\n// Generate a fuzz string as the data source; we will cap size to keep allocations fast\nstd::string seed = FUZZ_PARAM_STR();\nconst size_t kMaxSize = 2048; // keep allocations bounded\n\n// Constrain the initial content length to <= kMaxSize\nsize_t initLen = seed.size();\nif (initLen > kMaxSize) initLen = kMaxSize;\n\n// Choose a construction mode to exercise different API paths\nunsigned int mode = (*FUZZ_PARAM(unsigned int)) % 3u;\nif (mode == 0u) {\n    // Directly assign via std::string-based path\n    ba->str().assign(seed.data(), initLen);\n} else if (mode == 1u) {\n    // Simulate construction from std::string then assign\n    std::string tmp = seed.substr(0, initLen);\n    QByteArray tmpBA(std::move(tmp));\n    // Copy-assign into the allocated object to avoid leaks\n    *ba = tmpBA;\n} else {\n    // Simulate construction from a null-terminated C-string\n    // Note: c_str() is null-terminated; QByteArray(const char*) reads until first null\n    std::string tmp = seed.substr(0, initLen);\n    const char *cstr = tmp.c_str();\n    QByteArray tmpBA(cstr);\n    *ba = tmpBA;\n}\n\n// Optionally append a small amount of extra fuzz data without exceeding the cap\nsize_t remaining = (ba->size() < kMaxSize) ? (kMaxSize - ba->size()) : 0;\nif (remaining > 0) {\n    unsigned int addMode = (*FUZZ_PARAM(unsigned int)) & 1u;\n    size_t toAdd = (size_t)((*FUZZ_PARAM(unsigned int)) % 17u); // up to 16 bytes\n    if (toAdd > remaining) toAdd = remaining;\n    if (toAdd > 0) {\n        if (addMode == 0u) {\n            // Append buffer slice\n            std::string extra = FUZZ_PARAM_STR();\n            if (extra.size() > toAdd) extra.resize(toAdd);\n            if (!extra.empty()) ba->append(extra.data(), extra.size());\n        } else {\n            // Append byte-by-byte\n            for (size_t i = 0; i < toAdd; ++i) {\n                char c = (char)(*FUZZ_PARAM(unsigned int) & 0xFFu);\n                ba->append(c);\n            }\n        }\n    }\n}\n\n// Track useful metadata for downstream stubs\nFUZZ_SET_ATTR_INT(ba, \"size\", (int)ba->size());\n\n// Property: we strictly enforce the size bound to ensure fast fuzz iterations\nFUZZ_ASSERT(ba->size() <= kMaxSize, \"QByteArray size should be <= 2048 bytes\");\n\n// Validation summary:\n// - ba is always allocated and non-null; content built via multiple valid API paths.\n// - Size is bounded and attributes are set for downstream consumers; no ownership violations."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "KCodecs::base64Encode",
+      "data_types": []
+    },
+    {
+      "name": "QByteArray *",
+      "data_types": []
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "binary data",
+      "description": "Arbitrary byte sequence with no required encoding or structure. May contain any 8-bit values including NUL bytes; not necessarily valid text. Suitable for functions that accept raw bytes for processing such as hashing, compression, or Base64 encoding."
+    }
+  ],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1026,
+            "output_tokens": 471,
+            "total_tokens": 1497
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 604,
+            "output_tokens": 23,
+            "total_tokens": 627
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1042,
+            "output_tokens": 640,
+            "total_tokens": 1682
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4358,
+            "output_tokens": 2180,
+            "total_tokens": 6538
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3615,
+            "output_tokens": 2604,
+            "total_tokens": 6219
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2562,
+            "output_tokens": 96,
+            "total_tokens": 2658
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 113.68646502494812,
+    "scan_objects": 7.043854713439941,
+    "validate_objects": 0.5429427623748779,
+    "scan_functions": 11.111002683639526,
+    "synthesis": 37.5037624835968,
+    "fill": 54.633405923843384,
+    "classify": 2.738553762435913,
+    "build_generators": 0.11218643188476562
+  }
+}

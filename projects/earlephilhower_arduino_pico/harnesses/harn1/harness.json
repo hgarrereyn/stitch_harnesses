@@ -1,0 +1,412 @@
+{
+  "objects": [
+    {
+      "ptr_type": "base64_encodestep *",
+      "aliases": [],
+      "definition": "typedef enum {\n    step_A, step_B, step_C\n} base64_encodestep;",
+      "description": "Enumeration representing the internal state machine steps used during streaming Base64 encoding. Values progress through A, B, C as bytes are packed into 6-bit groups.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "base64_encodestate *"
+      ]
+    },
+    {
+      "ptr_type": "base64_encodestate *",
+      "aliases": [],
+      "definition": "typedef struct {\n    base64_encodestep step;\n    char result;\n    int stepcount;\n    int stepsnewline;\n} base64_encodestate;",
+      "description": "Mutable encoder state for streaming Base64 encoding. Tracks the current step in the 3-step cycle (step), a partial result byte (result), how many output characters have been produced (stepcount), and newline insertion cadence (stepsnewline). Initialize with base64_init_encodestate or base64_init_encodestate_nonewlines before use; then pass to base64_encode_block and finish with base64_encode_blockend.",
+      "direct_api_constructors": [
+        "base64_init_encodestate",
+        "base64_init_encodestate_nonewlines"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "base64_decodestep *",
+      "aliases": [],
+      "definition": "typedef enum {\n    step_a, step_b, step_c, step_d\n} base64_decodestep;",
+      "description": "Enumeration representing the internal state machine steps for streaming Base64 decoding. Steps a–d correspond to collecting four 6-bit values to reassemble up to three bytes.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "base64_decodestate *"
+      ]
+    },
+    {
+      "ptr_type": "base64_decodestate *",
+      "aliases": [],
+      "definition": "typedef struct {\n    base64_decodestep step;\n    char plainchar;\n} base64_decodestate;",
+      "description": "Mutable decoder state for streaming Base64 decoding. Tracks the current step (step) and an intermediate plaintext character accumulator (plainchar). Must be initialized with base64_init_decodestate before calling base64_decode_block; can be reused across calls to consume partial input.",
+      "direct_api_constructors": [
+        "base64_init_decodestate"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "base64_init_encodestate",
+      "signature": "void base64_init_encodestate(base64_encodestate* state_in);",
+      "description": "Initializes a base64_encodestate for incremental/base64 encoding with line breaks inserted (typically every 72 output characters as implied by BASE64_CHARS_PER_LINE). Use this before the first call to base64_encode_block and finalize with base64_encode_blockend. Unknowns: exact newline sequence (e.g., \"\\n\" vs \"\\r\\n\") and whether any fields beyond those in base64_encodestate are affected.",
+      "requirements": [
+        "state_in must be a valid, non-NULL pointer to writable memory.",
+        "Must be called before using the state with base64_encode_block/base64_encode_blockend.",
+        "If reusing a state for a new message, re-initialize it with this function before starting the new encode sequence.",
+        "Thread-safety: if the same state is shared across threads, external synchronization is required (reentrancy is per-state)."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_init_encodestate_nonewlines",
+      "signature": "void base64_init_encodestate_nonewlines(base64_encodestate* state_in);",
+      "description": "Initializes a base64_encodestate for incremental/base64 encoding without inserting newline characters in the output. Use this before base64_encode_block when continuous output (no line wrapping) is desired, and finalize with base64_encode_blockend.",
+      "requirements": [
+        "state_in must be a valid, non-NULL pointer to writable memory.",
+        "Must be called before using the state with base64_encode_block/base64_encode_blockend.",
+        "If reusing a state for a new message, re-initialize it with this function before starting the new encode sequence.",
+        "Thread-safety: if the same state is shared across threads, external synchronization is required (reentrancy is per-state)."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_encode_value",
+      "signature": "char base64_encode_value(char value_in);",
+      "description": "Encodes a 6-bit value to its corresponding Base64 alphabet character. Intended for internal use by the encoder. Unknowns: accepted range and behavior for values outside 0–63; exact alphabet used (standard vs URL-safe) is presumed standard but not specified here.",
+      "requirements": [
+        "value_in is expected to represent a 6-bit value (0–63). Behavior for values outside this range is unknown.",
+        "No state is required.",
+        "Return is a single character; no NUL termination concerns."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_encode_block",
+      "signature": "int base64_encode_block(const char* plaintext_in, int length_in, char* code_out, base64_encodestate* state_in);",
+      "description": "Encodes a block of binary data to Base64 using the provided encoder state, writing encoded characters to code_out. May be called repeatedly to stream input; call base64_encode_blockend after the final block to flush any remaining bytes and padding. Returns the number of characters written to code_out for this call. Newline insertion depends on how the state was initialized (with or without newlines). Unknowns: whether the function ever NUL-terminates output; caller should not assume NUL termination.",
+      "requirements": [
+        "state_in must be a valid, initialized encoder state (via base64_init_encodestate or base64_init_encodestate_nonewlines) and must be the same state used across sequential block calls for one message.",
+        "plaintext_in must point to at least length_in bytes if length_in > 0.",
+        "length_in must be >= 0 and fit in int.",
+        "code_out must point to a writable buffer large enough to hold the encoded output for the provided input and any inserted newlines for this call.",
+        "For a single-shot encode with a freshly initialized state that inserts newlines, allocate at least base64_encode_expected_len(length_in) bytes for code_out; for a state initialized with no newlines, allocate at least base64_encode_expected_len_nonewlines(length_in). For multi-call streaming, size per call should be based on the chunk length and potential newline insertions; exact newline positions depend on prior output length tracked in state.",
+        "Input and output buffers must not overlap.",
+        "The function returns the number of output characters written; caller must use this to advance the output pointer when streaming.",
+        "After processing all input blocks, the caller must invoke base64_encode_blockend to flush remaining data and padding."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_encode_blockend",
+      "signature": "int base64_encode_blockend(char* code_out, base64_encodestate* state_in);",
+      "description": "Finalizes a Base64 encoding sequence, emitting any remaining encoded characters and padding based on the current state, and returns the number of characters written. Call after the last base64_encode_block call. Newline behavior follows the state mode (with or without newlines). Unknowns: whether this function writes a trailing newline when in newline mode; not specified.",
+      "requirements": [
+        "state_in must be the same valid, initialized encoder state previously used with base64_encode_block for the current message.",
+        "code_out must point to a writable buffer large enough to hold any remaining output (padding and possibly a newline). A small fixed size (e.g., up to 5–8 bytes) is typically sufficient, but the exact maximum is not specified; caller should provide enough space to accommodate padding and a potential newline.",
+        "Input pointer is not used; do not pass NULL for state_in or code_out.",
+        "The function returns the number of characters written; caller should append this to prior output to complete the encoded message.",
+        "Must be called exactly once to finish an encoding sequence. Do not call before any base64_encode_block calls unless encoding zero bytes; behavior in that case is not specified."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_encode_chars",
+      "signature": "int base64_encode_chars(const char* plaintext_in, int length_in, char* code_out);",
+      "description": "Convenience function to encode a complete buffer of binary data to Base64 in one call, writing the encoded characters to code_out. Returns the number of characters written. Newline insertion policy is implementation-defined here; based on provided macros, output may include line breaks when length exceeds BASE64_CHARS_PER_LINE; exact newline sequence is not specified. Unknowns: whether output is NUL-terminated; caller should not assume NUL termination.",
+      "requirements": [
+        "plaintext_in must point to at least length_in bytes if length_in > 0.",
+        "length_in must be >= 0 and fit in int.",
+        "code_out must point to a writable buffer large enough for the full encoded output. If newlines are inserted, allocate at least base64_encode_expected_len(length_in) bytes; if no newlines are inserted, allocate at least base64_encode_expected_len_nonewlines(length_in). The function’s exact newline policy is not stated.",
+        "Input and output buffers must not overlap.",
+        "The function returns the number of output characters written; caller should rely on this rather than assuming NUL termination."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_init_decodestate",
+      "signature": "void base64_init_decodestate(base64_decodestate* state_in);",
+      "description": "Initializes a base64_decodestate for incremental/base64 decoding. Use before the first call to base64_decode_block and reuse the same state across sequential calls for one message.",
+      "requirements": [
+        "state_in must be a valid, non-NULL pointer to writable memory.",
+        "Must be called before using the state with base64_decode_block.",
+        "If reusing a state for a new message, re-initialize it before starting the new decode sequence.",
+        "Thread-safety: if the same state is shared across threads, external synchronization is required (reentrancy is per-state)."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_decode_value",
+      "signature": "int base64_decode_value(char value_in);",
+      "description": "Maps a Base64 alphabet character to its 6-bit decoded value. Intended for internal use by the decoder. Unknowns: return value for invalid characters (commonly negative) and handling of padding '=' or whitespace are not specified.",
+      "requirements": [
+        "value_in should be a character from the Base64 alphabet or padding '='; behavior for other inputs is unspecified.",
+        "No state is required.",
+        "Caller must handle return value conventions (e.g., negative for invalid) which are unspecified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_decode_block",
+      "signature": "int base64_decode_block(const char* code_in, const int length_in, char* plaintext_out, base64_decodestate* state_in);",
+      "description": "Decodes a block of Base64 text into binary data using the provided decoder state, writing to plaintext_out. May be called repeatedly to stream input. Returns the number of bytes written for this call. Whitespace/padding handling is not specified in this header; typical decoders ignore non-alphabet whitespace and handle '=' padding, but details are unknown here.",
+      "requirements": [
+        "state_in must be a valid, initialized decoder state (via base64_init_decodestate) and must be the same state used across sequential block calls for one message.",
+        "code_in must point to at least length_in bytes if length_in > 0.",
+        "length_in must be >= 0 and fit in int.",
+        "plaintext_out must point to a writable buffer large enough to hold the decoded output for the provided input. For a single-shot estimate, allocate at least base64_decode_expected_len(length_in) bytes; actual output may be less due to padding.",
+        "Input and output buffers must not overlap.",
+        "The function returns the number of output bytes written; caller must use this to advance the output pointer when streaming.",
+        "If padding '=' appears, it typically occurs only at the end of the final input; behavior for padding in the middle is unspecified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "base64_decode_chars",
+      "signature": "int base64_decode_chars(const char* code_in, const int length_in, char* plaintext_out);",
+      "description": "Convenience function to decode a complete Base64 character buffer in one call, writing binary output to plaintext_out. Returns the number of bytes written. Unknowns: exact handling of whitespace, invalid characters, and padding are not specified.",
+      "requirements": [
+        "code_in must point to at least length_in bytes if length_in > 0.",
+        "length_in must be >= 0 and fit in int.",
+        "plaintext_out must point to a writable buffer large enough to hold the decoded output. For sizing, allocate at least base64_decode_expected_len(length_in) bytes; actual output may be less due to padding.",
+        "Input and output buffers must not overlap.",
+        "The function returns the number of output bytes written; caller should rely on this rather than assuming NUL termination of output."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "base64_init_encodestate",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "base64_encodestate *"
+        }
+      ],
+      "code": "// Allocate a new encoder state object (user-managed struct) and initialize it\nbase64_encodestate *state = new base64_encodestate();\n// Initialize with newline-inserting mode\nbase64_init_encodestate(state);\n// Track encoder state initialization and mode for downstream stubs\nFUZZ_SET_ATTR_INT(state, \"enc_init\", 1);\nFUZZ_SET_ATTR_INT(state, \"enc_newlines\", 1);\nFUZZ_SET_ATTR_INT(state, \"enc_finalized\", 0);\nFUZZ_SET_ATTR_INT(state, \"enc_has_input\", 0);\n// Validation: state must be non-null and considered initialized\nFUZZ_ASSERT(state != nullptr, \"encoder state allocation failed\");\n// The state is returned to the pool as an output for reuse\n// Validation summary: This stub allocates, initializes, and tags a fresh encoder state for safe reuse."
+    },
+    {
+      "name": "base64_init_encodestate_nonewlines",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "base64_encodestate *"
+        }
+      ],
+      "code": "// Allocate a new encoder state object (user-managed struct) and initialize it without newlines\nbase64_encodestate *state = new base64_encodestate();\nbase64_init_encodestate_nonewlines(state);\n// Track encoder state initialization and mode for downstream stubs\nFUZZ_SET_ATTR_INT(state, \"enc_init\", 1);\nFUZZ_SET_ATTR_INT(state, \"enc_newlines\", 0);\nFUZZ_SET_ATTR_INT(state, \"enc_finalized\", 0);\nFUZZ_SET_ATTR_INT(state, \"enc_has_input\", 0);\n// Validation: state must be non-null and considered initialized\nFUZZ_ASSERT(state != nullptr, \"encoder state allocation failed\");\n// The state is returned to the pool as an output for reuse\n// Validation summary: This stub allocates, initializes (no-newlines), and tags a fresh encoder state for safe reuse."
+    },
+    {
+      "name": "base64_encode_value",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a 6-bit value in the expected range [0, 63]\nchar v = (char)(*FUZZ_PARAM(unsigned int) % 64);\n// Call the target; return value is not an object and is intentionally ignored here\n(void)base64_encode_value(v);\n// Validation summary: Supplies an in-range value to exercise mapping without managing any persistent objects."
+    },
+    {
+      "name": "base64_encode_block",
+      "inputs": [
+        {
+          "name": "state_in",
+          "type": "base64_encodestate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state_in",
+          "type": "base64_encodestate *"
+        }
+      ],
+      "code": "// Ensure the encoder state has been initialized and not yet finalized\nif (FUZZ_GET_ATTR_INT(state_in, \"enc_init\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(state_in, \"enc_finalized\") != 0) { FUZZ_BAIL(); }\n// Prepare an input chunk; cap size to keep allocations bounded and outputs safely sized\nstd::string in = FUZZ_PARAM_STR();\nint length_in = (int)in.size();\nif (length_in > 512) { length_in = 512; }\nconst char *plaintext_in = in.data();\n// Prepare an output buffer large enough for this call, accounting for expansion and potential newlines\n// For length<=512, 1024 bytes is a safe upper bound for encoded size including possible newlines\nstd::string out;\nout.resize(1024);\nchar *code_out = &out[0];\n// Invoke the target function\nint written = base64_encode_block(plaintext_in, length_in, code_out, state_in);\n// Validate returned count is within buffer bounds\nif (written < 0 || written > (int)out.size()) { FUZZ_BAIL(); }\n// Track that some input may have been processed; exact total isn't required\nif (length_in > 0) {\n    FUZZ_SET_ATTR_INT(state_in, \"enc_has_input\", 1);\n}\n// Keep state_in alive by returning it as an output\n// Validation summary: Enforces initialized, non-finalized state, provides non-overlapping buffers, bounds-checks written size, and retains state for streaming."
+    },
+    {
+      "name": "base64_encode_blockend",
+      "inputs": [
+        {
+          "name": "state_in",
+          "type": "base64_encodestate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state_in",
+          "type": "base64_encodestate *"
+        }
+      ],
+      "code": "// Finalize only if the encoder state is initialized and not already finalized\nif (FUZZ_GET_ATTR_INT(state_in, \"enc_init\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(state_in, \"enc_finalized\") != 0) { FUZZ_BAIL(); }\n// Allocate a small output buffer sufficient for padding and optional newline; 16 bytes is conservative\nchar tailbuf[16];\nchar *code_out = tailbuf;\nint written = base64_encode_blockend(code_out, state_in);\n// Check that the function did not overflow our small buffer\nif (written < 0 || written > (int)sizeof(tailbuf)) { FUZZ_BAIL(); }\n// Mark the state as finalized to prevent multiple finalize calls on the same stream\nFUZZ_SET_ATTR_INT(state_in, \"enc_finalized\", 1);\n// Keep state_in alive by returning it as an output (allowing tests of misuse or re-init later)\n// Validation summary: Ensures proper sequencing (initialized, not finalized), provides adequate tail buffer, bounds-checks written size, and marks finalized."
+    },
+    {
+      "name": "base64_encode_chars",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare an input buffer; cap size for bounded allocations\nstd::string in = FUZZ_PARAM_STR();\nint length_in = (int)in.size();\nif (length_in > 512) { length_in = 512; }\nconst char *plaintext_in = in.data();\n// Prepare an output buffer large enough for whole-message encoding\nstd::string out;\n// For length<=512, a 1024-byte buffer safely covers encoded size and line breaks\nout.resize(1024);\nchar *code_out = &out[0];\nint written = base64_encode_chars(plaintext_in, length_in, code_out);\n// Validate written does not exceed our allocation\nif (written < 0 || written > (int)out.size()) { FUZZ_BAIL(); }\n// Validation summary: Provides non-overlapping buffers with conservative capacity and verifies bounds based on return value."
+    },
+    {
+      "name": "base64_init_decodestate",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "base64_decodestate *"
+        }
+      ],
+      "code": "// Allocate and initialize a new decoder state\nbase64_decodestate *state = new base64_decodestate();\nbase64_init_decodestate(state);\n// Track initialization for downstream decode stubs\nFUZZ_SET_ATTR_INT(state, \"dec_init\", 1);\nFUZZ_ASSERT(state != nullptr, \"decoder state allocation failed\");\n// Validation summary: This stub allocates, initializes, and tags a fresh decoder state for safe reuse."
+    },
+    {
+      "name": "base64_decode_value",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide an arbitrary char (may be valid alphabet, padding, or invalid); decoder should handle it per its semantics\nchar c = (char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n( void ) base64_decode_value(c);\n// Validation summary: Exercises mapping across full char range; no persistent objects involved."
+    },
+    {
+      "name": "base64_decode_block",
+      "inputs": [
+        {
+          "name": "state_in",
+          "type": "base64_decodestate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state_in",
+          "type": "base64_decodestate *"
+        }
+      ],
+      "code": "// Ensure the decoder state has been initialized\nif (FUZZ_GET_ATTR_INT(state_in, \"dec_init\") != 1) { FUZZ_BAIL(); }\n// Prepare an input block; cap size to keep allocations bounded\nstd::string in = FUZZ_PARAM_STR();\nint length_in = (int)in.size();\nif (length_in > 512) { length_in = 512; }\nconst char *code_in = in.data();\n// Prepare an output buffer; decoded size will not exceed input length\nstd::string out;\nout.resize((size_t)length_in);\nchar *plaintext_out = &out[0];\n// Invoke the target function\nint written = base64_decode_block(code_in, length_in, plaintext_out, state_in);\n// Validate returned count is within buffer bounds\nif (written < 0 || written > (int)out.size()) { FUZZ_BAIL(); }\n// Keep state_in alive by returning it as an output for streaming usage\n// Validation summary: Enforces initialized state, uses non-overlapping buffers with safe capacity, bounds-checks written size, and preserves state."
+    },
+    {
+      "name": "base64_decode_chars",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a full input buffer; cap size to keep allocations bounded\nstd::string in = FUZZ_PARAM_STR();\nint length_in = (int)in.size();\nif (length_in > 512) { length_in = 512; }\nconst char *code_in = in.data();\n// Prepare an output buffer; decoded size will not exceed input length\nstd::string out;\nout.resize((size_t)length_in);\nchar *plaintext_out = &out[0];\n// Invoke the convenience function\nint written = base64_decode_chars(code_in, length_in, plaintext_out);\n// Validate bounds using the return value\nif (written < 0 || written > (int)out.size()) { FUZZ_BAIL(); }\n// Validation summary: Supplies non-overlapping buffers with conservative capacity and verifies bounds; no persistent objects are produced."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "base64_init_encodestate",
+      "data_types": []
+    },
+    {
+      "name": "base64_init_encodestate_nonewlines",
+      "data_types": []
+    },
+    {
+      "name": "base64_encode_value",
+      "data_types": []
+    },
+    {
+      "name": "base64_encode_blockend",
+      "data_types": []
+    },
+    {
+      "name": "base64_init_decodestate",
+      "data_types": []
+    },
+    {
+      "name": "base64_decode_value",
+      "data_types": []
+    },
+    {
+      "name": "base64_encode_block",
+      "data_types": [
+        "binary data buffer"
+      ]
+    },
+    {
+      "name": "base64_encode_chars",
+      "data_types": [
+        "binary data buffer"
+      ]
+    },
+    {
+      "name": "base64_decode_block",
+      "data_types": [
+        "Base64 text"
+      ]
+    },
+    {
+      "name": "base64_decode_chars",
+      "data_types": [
+        "Base64 text"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "binary data buffer",
+      "description": "Arbitrary raw bytes with no required encoding or character constraints. May contain any 8-bit values including NULs. Used as plaintext input to encoders or general binary-processing functions."
+    },
+    {
+      "data_type": "Base64 text",
+      "description": "A text buffer consisting primarily of Base64 alphabet characters A–Z, a–z, 0–9, '+', '/', with optional '=' padding at the end and possibly newlines/whitespace depending on implementation. Intended to represent Base64-encoded data for decoding."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "binary data buffer",
+      "generator": "import random\nimport struct\nimport zlib\n\n# This generator produces valid plaintext bytes for Base64 encoding stubs.\n# Strategy:\n# - Create a mix of lengths that exercise padding cases (len % 3 = 0/1/2),\n#   empty input, small, medium, and near the fuzz cap (<=512 bytes).\n# - Populate with diverse byte patterns: ASCII text, high-entropy random,\n#   repeating bytes, incremental sequences, zeroes, binary structures, and\n#   data likely to trigger internal newline logic when encoded (longer sizes).\n# - Keep total size <= 4096 bytes (we cap at 512 to match fuzzer expectations).\n\nASCII_WORDS = [\n    b\"\",  # empty input\n    b\"f\",\n    b\"fo\",\n    b\"foo\",\n    b\"foob\",\n    b\"fooba\",\n    b\"foobar\",\n    b\"hello world\",\n    b\"The quick brown fox jumps over the lazy dog\",\n    b\"Base64 test input with various lengths and characters!\\n\",\n]\n\nREPEAT_BYTES = [0x00, 0xFF, 0x20, 0x41, 0x7F]\n\n\ndef _choose_len(r: random.Random) -> int:\n    # Bias towards interesting modulo-3 boundaries and near limits.\n    choices = []\n    # Small exact cases\n    choices += [0, 1, 2, 3, 4, 5]\n    # Boundary near 72-char wrap in encoded output (common), achieved by plaintext len ~ (72/4)*3 = 54\n    choices += [54, 55, 56, 57]\n    # Larger chunks and near 512 cap\n    choices += [100, 127, 128, 255, 256, 300, 510, 511, 512]\n    # Add some random lengths\n    for _ in range(6):\n        choices.append(r.randint(0, 512))\n    return r.choice(choices)\n\n\ndef _pattern_ascii_words(r: random.Random) -> bytes:\n    # Choose a base ascii string and possibly repeat/truncate to target length boundaries\n    base = r.choice(ASCII_WORDS)\n    # Randomly extend with printable range to reach interesting lengths\n    target = _choose_len(r)\n    if target <= len(base):\n        return base[:target]\n    out = bytearray()\n    out.extend(base)\n    printable = bytes([i for i in range(32, 127)])\n    while len(out) < target:\n        # Append a random slice of printable\n        span = min(target - len(out), r.randint(1, 32))\n        start = r.randint(0, len(printable) - 1)\n        chunk = (printable * ((span // len(printable)) + 1))[start:start + span]\n        out.extend(chunk)\n    return bytes(out)\n\n\ndef _pattern_random(r: random.Random) -> bytes:\n    n = _choose_len(r)\n    return r.randbytes(n)\n\n\ndef _pattern_repeat(r: random.Random) -> bytes:\n    n = _choose_len(r)\n    b = r.choice(REPEAT_BYTES)\n    return bytes([b]) * n\n\n\ndef _pattern_increment(r: random.Random) -> bytes:\n    n = _choose_len(r)\n    if n == 0:\n        return b\"\"\n    start = r.randrange(256)\n    return bytes((start + i) % 256 for i in range(n))\n\n\ndef _pattern_zero_then_random(r: random.Random) -> bytes:\n    # Prefix zeros then random tail to mix compressible and random data\n    n = _choose_len(r)\n    if n == 0:\n        return b\"\"\n    z = min(n, r.choice([0, 1, 2, 3, 8, 16, 32, 64]))\n    return bytes([0]) * z + r.randbytes(n - z)\n\n\ndef _pattern_structured(r: random.Random) -> bytes:\n    # Emit a small binary structure followed by payload to create realistic data.\n    # Header: magic(4) | version(1) | flags(1) | length(2) | crc32(4) | reserved(4)\n    payload_len = r.randint(0, 400)\n    payload = r.randbytes(payload_len)\n    magic = r.choice([b\"DATA\", b\"B64\\x00\", b\"\\x89BIN\", b\"TEST\"])  # 4 bytes\n    version = r.randint(0, 5)\n    flags = r.getrandbits(8)\n    crc = zlib.crc32(payload) & 0xFFFFFFFF\n    reserved = r.getrandbits(32)\n    header = bytearray()\n    header += magic\n    header += bytes([version])\n    header += bytes([flags])\n    header += struct.pack(\"<H\", payload_len)\n    header += struct.pack(\"<I\", crc)\n    header += struct.pack(\"<I\", reserved)\n    blob = bytes(header) + payload\n    # Optionally pad to a target length that stresses modulo-3 boundaries\n    target = r.choice([len(blob), len(blob) + ((3 - (len(blob) % 3)) % 3), len(blob) + r.randint(0, 16)])\n    if target > len(blob):\n        blob += r.randbytes(target - len(blob))\n    # Ensure <=512\n    return blob[:512]\n\n\ndef _pattern_multi_block(r: random.Random) -> bytes:\n    # Construct a longer buffer (<=512) by concatenating chunks with sizes\n    # that will cause multiple internal encoder steps and likely newlines.\n    parts = []\n    remaining = r.randint(72, 512)  # long enough to potentially trigger wrapping\n    while remaining > 0:\n        chunk = r.choice([1, 2, 3, 4, 5, 16, 31, 32, 47, 48, 63, 64])\n        chunk = min(chunk, remaining)\n        pattern = r.choice([_pattern_random, _pattern_repeat, _pattern_increment])\n        # Use a local RNG state for each part to diversify\n        subr = random.Random(r.randrange(1 << 30))\n        parts.append(pattern(subr)[:chunk])\n        remaining -= chunk\n    data = b\"\".join(parts)\n    return data[:512]\n\n\nPATTERNS = [\n    _pattern_ascii_words,\n    _pattern_random,\n    _pattern_repeat,\n    _pattern_increment,\n    _pattern_zero_then_random,\n    _pattern_structured,\n    _pattern_multi_block,\n]\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Choose 1-3 patterns and concatenate to create diverse yet valid plaintext.\n    num_parts = r.choice([1, 1, 2, 2, 3])\n    parts = []\n    for _ in range(num_parts):\n        pat = r.choice(PATTERNS)\n        # Use derived seeds to vary subpatterns while keeping overall determinism\n        subr = random.Random(r.randrange(1 << 60))\n        part = pat(subr)\n        parts.append(part)\n    data = b\"\".join(parts)\n    # Enforce fuzzer cap and global size limit\n    if len(data) > 512:\n        data = data[:512]\n    if len(data) > 4096:\n        data = data[:4096]\n    return data\n"
+    },
+    {
+      "data_type": "Base64 text",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for valid/interesting Base64 text inputs, targeting decoder stubs.\n# Focus: produce mostly-valid Base64 with variations in padding, whitespace, line breaks,\n# chunking, and mixed cases. Limit total size to <= 512 (stub cap) and overall <= 4096.\n\n_B64_ALPH = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"\n_WS = [\"\\n\", \"\\r\", \"\\t\", \" \"]\n\n\ndef _rand(r: random.Random, n: int) -> int:\n    return r.randrange(n)\n\n\ndef _chunks(lst: List[str], size: int) -> List[List[str]]:\n    return [lst[i:i+size] for i in range(0, len(lst), size)]\n\n\ndef _insert_line_breaks(r: random.Random, s: str) -> str:\n    # Insert line breaks or whitespace at semi-regular intervals\n    if not s:\n        return s\n    modes = [\n        (64, \"\\n\"), (72, \"\\n\"), (76, \"\\r\\n\"), (57, \"\\n\"), (0, \"\")\n    ]\n    wrap, sep = modes[_rand(r, len(modes))]\n    if wrap == 0:\n        return s\n    out = []\n    for i in range(0, len(s), wrap):\n        out.append(s[i:i+wrap])\n    return sep.join(out)\n\n\ndef _maybe_whitespace_noise(r: random.Random, s: str) -> str:\n    if not s:\n        return s\n    # Optionally sprinkle benign whitespace the decoder may ignore\n    if r.random() < 0.5:\n        return s\n    out = []\n    for ch in s:\n        out.append(ch)\n        if r.random() < 0.04:\n            out.append(r.choice(_WS))\n    return \"\".join(out)\n\n\ndef _encode_bytes_to_base64(data: bytes) -> str:\n    # Minimal base64 encoder (standard alphabet, no newlines). We implement\n    # this to avoid external dependencies.\n    if not data:\n        return \"\"\n    out_chars = []\n    i = 0\n    n = len(data)\n    while i + 3 <= n:\n        b0, b1, b2 = data[i], data[i+1], data[i+2]\n        i += 3\n        out_chars.append(_B64_ALPH[(b0 >> 2) & 0x3F])\n        out_chars.append(_B64_ALPH[((b0 & 0x03) << 4) | (b1 >> 4)])\n        out_chars.append(_B64_ALPH[((b1 & 0x0F) << 2) | (b2 >> 6)])\n        out_chars.append(_B64_ALPH[b2 & 0x3F])\n    rem = n - i\n    if rem == 1:\n        b0 = data[i]\n        out_chars.append(_B64_ALPH[(b0 >> 2) & 0x3F])\n        out_chars.append(_B64_ALPH[(b0 & 0x03) << 4])\n        out_chars.append('=')\n        out_chars.append('=')\n    elif rem == 2:\n        b0, b1 = data[i], data[i+1]\n        out_chars.append(_B64_ALPH[(b0 >> 2) & 0x3F])\n        out_chars.append(_B64_ALPH[((b0 & 0x03) << 4) | (b1 >> 4)])\n        out_chars.append(_B64_ALPH[(b1 & 0x0F) << 2])\n        out_chars.append('=')\n    return \"\".join(out_chars)\n\n\ndef _gen_random_bytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.getrandbits(8) for _ in range(n))\n\n\ndef _gen_valid_base64_stream(r: random.Random) -> str:\n    # Create a streaming-like concatenation of chunks that decode cleanly when combined.\n    total_target = r.randint(0, 384)  # keep under 512 after formatting\n    # Choose chunk sizes to exercise decoder state machine across calls\n    chunks: List[bytes] = []\n    remaining = total_target\n    while remaining > 0:\n        sz = r.choice([0, 1, 2, 3, 5, 7, 16, 33, 64])\n        sz = min(sz, remaining)\n        chunks.append(_gen_random_bytes(r, sz))\n        remaining -= sz\n    # Encode each chunk then optionally join with or without boundaries (decoder sees one buffer)\n    parts = []\n    for i, c in enumerate(chunks):\n        enc = _encode_bytes_to_base64(c)\n        # Optionally end chunk on exact quartet to simulate mid-block boundaries\n        parts.append(enc)\n        # Optionally add whitespace between chunks\n        if i + 1 < len(chunks) and r.random() < 0.3:\n            parts.append(r.choice([\"\\n\", \"\\r\\n\", \" \", \"\\t\"]))\n    s = \"\".join(parts)\n    s = _insert_line_breaks(r, s)\n    s = _maybe_whitespace_noise(r, s)\n    return s\n\n\ndef _gen_edge_cases(r: random.Random) -> List[str]:\n    cases = []\n    # Empty input\n    cases.append(\"\")\n    # Pure padding (often invalid, but some decoders tolerate at end)\n    cases.append(\"==\")\n    cases.append(\"====\")\n    # Single quartet variants\n    for bcount in [1, 2, 3]:\n        data = _gen_random_bytes(r, bcount)\n        cases.append(_encode_bytes_to_base64(data))\n    # With whitespace only\n    cases.append(\"\\n\\r\\n\\t   \")\n    # Alphabet coverage\n    cases.append(_B64_ALPH)\n    # With CRLF wrapping at 76\n    long_data = _gen_random_bytes(r, 90)\n    s = _encode_bytes_to_base64(long_data)\n    s = \"\\r\\n\".join([s[i:i+76] for i in range(0, len(s), 76)])\n    cases.append(s)\n    # Trailing newline\n    cases.append(_encode_bytes_to_base64(_gen_random_bytes(r, 12)) + \"\\n\")\n    # Multiple newlines inside\n    mid = _encode_bytes_to_base64(_gen_random_bytes(r, 30))\n    parts = _chunks(list(mid), 20)\n    cases.append(\"\\n\".join(\"\".join(p) for p in parts))\n    return cases\n\n\ndef _mix_valid_and_ignored(r: random.Random, base: str) -> str:\n    # Insert occasional whitespace and maybe duplicate padding at the very end\n    s = _maybe_whitespace_noise(r, base)\n    if s and r.random() < 0.3:\n        # Add trailing padding or newline\n        tail = r.choice([\"=\", \"==\", \"\\n\", \"\\r\\n\", \" \\t\\n\"])\n        s = s + tail\n    return s\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Choose a strategy\n    strat = r.random()\n    if strat < 0.25:\n        # Single-shot clean encoding of random bytes\n        n = r.randint(0, 350)\n        data = _gen_random_bytes(r, n)\n        s = _encode_bytes_to_base64(data)\n        s = _insert_line_breaks(r, s)\n        s = _maybe_whitespace_noise(r, s)\n    elif strat < 0.55:\n        # Streaming-style concatenation with varied chunk sizes and whitespace\n        s = _gen_valid_base64_stream(r)\n    else:\n        # Pick from edge cases and lightly post-process\n        cases = _gen_edge_cases(r)\n        s = _mix_valid_and_ignored(r, r.choice(cases))\n\n    # Ensure the buffer size cap to match fuzzer stub expectations (<=512)\n    if len(s) > 512:\n        s = s[:512]\n\n    return s.encode(\"ascii\")\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1252,
+            "output_tokens": 482,
+            "total_tokens": 1734
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 830,
+            "output_tokens": 75,
+            "total_tokens": 905
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1329,
+            "output_tokens": 3075,
+            "total_tokens": 4404
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6490,
+            "output_tokens": 4393,
+            "total_tokens": 10883
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4943,
+            "output_tokens": 194,
+            "total_tokens": 5137
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 205.00783824920654,
+    "scan_objects": 10.726493120193481,
+    "validate_objects": 0.1882944107055664,
+    "scan_functions": 67.26789736747742,
+    "synthesis": 93.00030541419983,
+    "fill": 0,
+    "classify": 3.9564926624298096,
+    "build_generators": 29.86734390258789
+  }
+}

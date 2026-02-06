@@ -1,0 +1,717 @@
+{
+  "objects": [
+    {
+      "ptr_type": "gpu::Array *",
+      "aliases": [],
+      "definition": "struct Array {\n  WGPUBuffer buffer;\n  WGPUBufferUsage usage;\n  size_t size; // in bytes\n};",
+      "description": "GPU-side buffer metadata: raw WebGPU buffer handle, usage flags, and size in bytes. Does not own beyond releasing via pool helpers.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "gpu::Tensor",
+        "gpu::TensorPool",
+        "gpu::Bindings"
+      ]
+    },
+    {
+      "ptr_type": "gpu::Shape *",
+      "aliases": [],
+      "definition": "struct Shape {\n  static constexpr size_t kMaxRank = 8; // Maximum rank of a tensor, avoids\n                                        // dynamic allocation for shape data\n  std::array<size_t, kMaxRank> data = {0};\n  size_t rank = 0;\n  inline Shape() = default;\n  inline Shape(std::initializer_list<size_t> dims) {\n    assert(dims.size() <= kMaxRank);\n    std::copy(dims.begin(), dims.end(), data.begin());\n    rank = dims.size();\n  }\n  inline size_t &operator[](size_t index) {\n    assert(index < rank);\n    return data[index];\n  }\n  inline const size_t &operator[](size_t index) const {\n    assert(index < rank);\n    return data[index];\n  }\n};",
+      "description": "Fixed-capacity tensor shape (up to rank 8), storing dimension sizes and rank with index operators.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "gpu::Tensor",
+        "gpu::KernelCode",
+        "gpu::RawKernel",
+        "gpu::Context"
+      ]
+    },
+    {
+      "ptr_type": "gpu::Tensor *",
+      "aliases": [],
+      "definition": "struct Tensor {\n  Array data;\n  Shape shape;\n};",
+      "description": "Tensor handle combining a GPU Array (buffer) with its Shape.",
+      "direct_api_constructors": [
+        "gpu::createTensor(gpu::TensorPool &, WGPUDevice &, const gpu::Shape &, gpu::NumType, WGPUBufferUsage)",
+        "gpu::createTensor(gpu::Context &, const gpu::Shape &, gpu::NumType)",
+        "gpu::createTensor(gpu::Context &, const gpu::Shape &, gpu::NumType, const float *)",
+        "gpu::createTensor(gpu::Context &, const gpu::Shape &, gpu::NumType, const int32_t *)",
+        "gpu::createTensor(gpu::Context &, const gpu::Shape &, gpu::NumType, const half *)"
+      ],
+      "owned_by": [
+        "gpu::TensorView",
+        "gpu::Bindings",
+        "gpu::TensorPool"
+      ]
+    },
+    {
+      "ptr_type": "gpu::TensorView *",
+      "aliases": [],
+      "definition": "struct TensorView {\n  Tensor data; // non-owning view\n  size_t offset = 0;\n  size_t span = 0;\n};",
+      "description": "Non-owning slice into a Tensor buffer defined by byte offset and span.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "gpu::Bindings"
+      ]
+    },
+    {
+      "ptr_type": "gpu::Context *",
+      "aliases": [],
+      "definition": "struct Context {\n  WGPUInstance instance = nullptr;\n  WGPUAdapter adapter = nullptr;\n  WGPUDevice device = nullptr;\n  WGPUQueue queue = nullptr;\n  TensorPool pool = TensorPool(this);\n  KernelPool kernelPool = KernelPool(this);\n  WGPURequestAdapterStatus adapterStatus;\n  WGPURequestDeviceStatus deviceStatus;\n\n  // Default constructor\n  Context() = default;\n\n  Context(Context&& other) noexcept\n      : instance(other.instance),\n        adapter(other.adapter),\n        device(other.device),\n        queue(other.queue),\n        // Re‐initialize pools to point to *this*:\n        pool(this),\n        kernelPool(this),\n        adapterStatus(other.adapterStatus),\n        deviceStatus(other.deviceStatus)\n  {\n    LOG(kDefLog, kTrace, \"Moving Context ownership\");\n    // Move over the resources in the pools:\n    pool.data       = std::move(other.pool.data);\n    kernelPool.data = std::move(other.kernelPool.data);\n\n    // Null out handles in the source so its destructor won't release them.\n    other.instance = nullptr;\n    other.adapter  = nullptr;\n    other.device   = nullptr;\n    other.queue    = nullptr;\n    // other.adapterStatus = 0;\n    // other.deviceStatus = 0;\n  }\n\n  Context& operator=(Context&& other) noexcept {\n    if (this != &other) {\n      // Free any existing resources. In most cases, this should be a no-op\n      // since we typically shouldn't have two active initialized Context\n      // instances with resources acquired.\n      this->~Context();\n      // Then placement‐new a move‐constructed copy in-place:\n      new (this) Context(std::move(other));\n    }\n    return *this;\n  }\n\n  ~Context() {\n    LOG(kDefLog, kTrace, \"Destroying context\");\n    if (queue) {\n      wgpuQueueRelease(queue);\n    } else {\n      LOG(kDefLog, kTrace, \"Queue is null\");\n    }\n    if (device) {\n      wgpuDeviceRelease(device);\n      processEvents(instance);\n    } else {\n      LOG(kDefLog, kTrace, \"Device is null\");\n    }\n    if (adapter) {\n      wgpuAdapterRelease(adapter);\n      processEvents(instance);\n    } else {\n      LOG(kDefLog, kTrace, \"Adapter is null\");\n    }\n    if (instance) {\n      wgpuInstanceRelease(instance);\n    } else {\n      LOG(kDefLog, kTrace, \"Instance is null\");\n    }\n    LOG(kDefLog, kTrace, \"Context destroyed\");\n  }\n};",
+      "description": "Aggregates WebGPU instance/adapter/device/queue plus TensorPool and KernelPool. Provides RAII cleanup and move semantics.",
+      "direct_api_constructors": [
+        "gpu::createContext(const WGPUInstanceDescriptor &, const WGPURequestAdapterOptions &, const WGPUDeviceDescriptor &)",
+        "gpu::createContextByGpuIdx(int, const WGPUInstanceDescriptor &, const WGPUDeviceDescriptor &)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "gpu::TensorPool *",
+      "aliases": [],
+      "definition": "struct TensorPool {\n  inline TensorPool(Context *ctx) : ctx(ctx), data() {};\n  Context *ctx;\n  std::unordered_map<WGPUBuffer, Tensor> data;\n  ~TensorPool();\n};\n\ninline TensorPool::~TensorPool() {\n  // Need to get keys in a separate iteration, otherwise iterator is getting\n  // invalidated during erase.\n  std::vector<WGPUBuffer> keys;\n  for (auto &pair : data) {\n    keys.push_back(pair.first);\n  }\n  for (auto &key : keys) {\n    FreeTensor(*this, data[key]);\n    LOG(kDefLog, kTrace, \"Freed tensor\");\n  }\n}",
+      "description": "Owns and tracks GPU Tensors by WGPUBuffer key; frees buffers on destruction via FreeTensor.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "gpu::Context"
+      ]
+    },
+    {
+      "ptr_type": "gpu::KernelPool *",
+      "aliases": [],
+      "definition": "struct KernelPool {\n  inline KernelPool(Context *ctx) : ctx(ctx), data() {}\n  Context *ctx;\n  std::unordered_map<std::string, Kernel> data;\n  inline ~KernelPool() {\n    // Note : Some kernel resources such as commandBuffer are harvested by\n    // queue submission, explicitly destroying readback and callback buffers\n    // produces runtime errors.\n    data.clear();\n  }\n};",
+      "description": "Caches reusable kernels by string key for reuse; does not manually destroy command buffers beyond clearing shared_ptrs.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "gpu::Context"
+      ]
+    },
+    {
+      "ptr_type": "gpu::KernelCode *",
+      "aliases": [],
+      "definition": "struct KernelCode {\n  inline KernelCode(const std::string &pData = \"\", size_t workgroupSize = 256,\n                    NumType precision = kf32)\n      : data(pData), workgroupSize({workgroupSize, 1, 1}),\n        precision(precision) {\n    if (precision == kf16) {\n      data = \"enable f16;\\n\" + data;\n    }\n    replaceAll(data, \"{{workgroupSize}}\", toString({workgroupSize, 1, 1}));\n    replaceAll(data, \"{{precision}}\", toString(precision));\n    LOG(kDefLog, kTrace, \"Shader code:\\n%s\", data.c_str());\n  }\n  inline KernelCode(const std::string &pData,\n                    const Shape &workgroupSize = {256, 1, 1},\n                    NumType precision = kf32)\n      : data(pData), workgroupSize(workgroupSize), precision(precision) {\n    if (precision == kf16) {\n      data = \"enable f16;\\n\" + data;\n    }\n    replaceAll(data, \"{{workgroupSize}}\", toString(workgroupSize));\n    replaceAll(data, \"{{precision}}\", toString(precision));\n    LOG(kDefLog, kInfo, \"Shader code:\\n%s\", data.c_str());\n  }\n  inline KernelCode(const std::string &pData, const Shape &workgroupSize,\n                    NumType precision, const Shape &totalWorkgroups)\n      : data(pData), workgroupSize(workgroupSize), precision(precision) {\n    if (precision == kf16) {\n      data = \"enable f16;\\n\" + data;\n    }\n    replaceAll(data, \"{{workgroupSize}}\", toString(workgroupSize));\n    replaceAll(data, \"{{precision}}\", toString(precision));\n    replaceAll(data, \"{{totalWorkgroups}}\", toString(totalWorkgroups));\n    LOG(kDefLog, kInfo, \"Shader code:\\n%s\", data.c_str());\n  }\n  inline KernelCode(const std::string &pData, const size_t &workgroupSize,\n                    NumType precision, const Shape &totalWorkgroups)\n      : data(pData), workgroupSize({workgroupSize, 1, 1}),\n        precision(precision) {\n    if (precision == kf16) {\n      data = \"enable f16;\\n\" + data;\n    }\n    replaceAll(data, \"{{workgroupSize}}\", toString({workgroupSize, 1, 1}));\n    replaceAll(data, \"{{precision}}\", toString(precision));\n    replaceAll(data, \"{{totalWorkgroups}}\", toString(totalWorkgroups));\n    LOG(kDefLog, kInfo, \"Shader code:\\n%s\", data.c_str());\n  }\n\n  std::string data;\n  Shape workgroupSize;\n  NumType precision = kf32;\n  std::string label = \"kernel\";\n  std::string entryPoint = \"main\";\n};",
+      "description": "WGSL code plus metadata: workgroup size (Shape rank 3), precision qualifier, label and entry point. Constructors inject templated constants into code and optionally enable f16.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "gpu::CallbackData *",
+      "aliases": [],
+      "definition": "struct CallbackData {\n  WGPUBuffer buffer; // managed by owning Kernel\n  size_t bufferSize;\n  void *output; // non-owning, only for target memory in toCPU, not used for\n                // kernel invocations\n  std::promise<void> *promise;\n  std::future<void> *future;\n};",
+      "description": "Carries state to async callbacks for queue completion and buffer mapping during toCPU transfers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "gpu::CopyData *",
+      "aliases": [],
+      "definition": "struct CopyData {\n  WGPUCommandBuffer commandBuffer;\n  WGPUBuffer readbackBuffer;\n  std::promise<void> promise;\n  std::future<void> future;\n};",
+      "description": "Holds staging objects for GPU->CPU copies: command buffer, readback buffer, and synchronization primitives.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "gpu::RawKernel *",
+      "aliases": [],
+      "definition": "struct RawKernel {\n  std::unique_ptr<WGPUBuffer[]> buffers; // non-owning\n  std::unique_ptr<size_t[]> bufferSizes;\n  size_t numBindings;\n  Shape totalWorkgroups;\n  WGPUBindGroup bindGroup;             // persists between submission\n  WGPUComputePipeline computePipeline; // persists between submission\n  WGPUCommandBuffer commandBuffer;     // destroyed upon submission\n  bool used;\n};",
+      "description": "Low-level kernel object with bind group, pipeline, command buffer, resource arrays, and dispatch grid. Command buffer is recreated on reuse.",
+      "direct_api_constructors": [
+        "gpu::createKernel(gpu::Context &, const gpu::KernelCode &, const gpu::Tensor *, size_t, const size_t *, const gpu::Shape &, const void *, size_t, gpu::CompilationInfo *, const char *)",
+        "gpu::createKernel<ParamsType,numInputs>(gpu::Context &, const gpu::KernelCode &, const gpu::Bindings<numInputs> &, const gpu::Shape &, const ParamsType &, gpu::CompilationInfo *, const char *)"
+      ],
+      "owned_by": [
+        "gpu::KernelPool"
+      ]
+    },
+    {
+      "ptr_type": "gpu::Kernel *",
+      "aliases": [
+        "std::shared_ptr<gpu::RawKernel> *"
+      ],
+      "definition": "typedef std::shared_ptr<RawKernel> Kernel;",
+      "description": "Shared pointer handle to RawKernel for lifetime-managed, cached kernels.",
+      "direct_api_constructors": [
+        "gpu::createKernel(gpu::Context &, const gpu::KernelCode &, const gpu::Tensor *, size_t, const size_t *, const gpu::Shape &, const void *, size_t, gpu::CompilationInfo *, const char *)",
+        "gpu::createKernel<ParamsType,numInputs>(gpu::Context &, const gpu::KernelCode &, const gpu::Bindings<numInputs> &, const gpu::Shape &, const ParamsType &, gpu::CompilationInfo *, const char *)"
+      ],
+      "owned_by": [
+        "gpu::KernelPool"
+      ]
+    },
+    {
+      "ptr_type": "gpu::CompilationInfo *",
+      "aliases": [],
+      "definition": "struct CompilationInfo {\n  WGPUCompilationInfoRequestStatus status;\n  std::vector<std::string> messages;\n  std::vector<uint64_t> lineNums;\n  std::vector<uint64_t> linePos;\n  bool finished; // true if the compilation is finished\n};",
+      "description": "Holds results of shader module compilation info query: status and diagnostic messages with line numbers and positions.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "gpu::NoParam *",
+      "aliases": [],
+      "definition": "struct NoParam {};",
+      "description": "Marker type indicating absence of kernel parameter struct. Used with templates.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "gpu::NumType *",
+      "aliases": [],
+      "definition": "enum NumType {\n  kf16, // (experimental)\n  kf32,\n  ki32\n};",
+      "description": "Numeric element type tags used for tensor creation and WGSL precision substitution: 16-bit float, 32-bit float, 32-bit int.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "gpu::KernelCode",
+        "gpu::Tensor"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "gpu::size",
+      "signature": "size_t gpu::size(const gpu::Shape &shape)",
+      "description": "Returns the number of elements in a tensor with the given Shape by multiplying its dimensions. Intended for computing element count prior to buffer size calculations.",
+      "requirements": [
+        "shape.rank must accurately reflect the number of valid dimensions stored in shape.data (0 <= rank <= gpu::Shape::kMaxRank).",
+        "All dimensions referenced (indices < shape.rank) must be initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::sizeBytes",
+      "signature": "size_t gpu::sizeBytes(const gpu::NumType &type)",
+      "description": "Returns the size in bytes of the given NumType (kf16, kf32, ki32). Logs an error and returns 0 on invalid enum values.",
+      "requirements": [
+        "type must be one of gpu::kf16, gpu::kf32, or gpu::ki32; other values are treated as invalid and return 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toString",
+      "signature": "std::string gpu::toString(gpu::NumType type)",
+      "description": "Converts a NumType to its WGSL-like string representation (\"f16\", \"f32\", or \"i32\"). Logs an error and returns \"unknown\" for invalid values.",
+      "requirements": [
+        "type should be one of gpu::kf16, gpu::kf32, or gpu::ki32."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toString",
+      "signature": "std::string gpu::toString(const gpu::Shape &shape)",
+      "description": "Serializes a Shape to a comma-separated string of its dimensions without enclosing brackets (formatted to drop directly into WGSL).",
+      "requirements": [
+        "shape.rank determines how many entries of shape.data are emitted; ensure rank and data are consistent."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toString",
+      "signature": "std::string gpu::toString(size_t value)",
+      "description": "Returns the decimal string representation of the given size_t (wrapper around std::to_string for consistency).",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "gpu::replaceAll",
+      "signature": "void gpu::replaceAll(std::string &str, const std::string &from, const std::string &to)",
+      "description": "In-place string replacement that replaces all occurrences of substring 'from' in 'str' with 'to'. Intended for preprocessing WGSL templates.",
+      "requirements": [
+        "str is modified in place.",
+        "'from' should not be empty; replacing an empty pattern can lead to unexpected behavior or non-termination when 'to' is also empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::replaceAll",
+      "signature": "const std::string gpu::replaceAll(std::string &str, const std::vector<std::pair<std::string, std::string>> &reps)",
+      "description": "Applies multiple in-place substring replacements on 'str' using a list of (from,to) pairs. Returns the mutated string by reference value.",
+      "requirements": [
+        "Each pair's 'first' (pattern) should not be empty to avoid undefined behavior.",
+        "Replacements are applied sequentially in the order provided and may interact (later replacements can see earlier changes)."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::operator<",
+      "signature": "bool gpu::operator<(const gpu::Kernel &lhs, const gpu::Kernel &rhs)",
+      "description": "Ordering comparator for Kernel shared pointers based on their underlying commandBuffer handle value; useful for ordered containers.",
+      "requirements": [
+        "lhs and rhs must be non-null shared_ptrs to valid gpu::RawKernel objects.",
+        "The commandBuffer members must be initialized (created) before comparison to ensure meaningful ordering."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::processEvents",
+      "signature": "void gpu::processEvents(const WGPUInstance &instance)",
+      "description": "Pumps the WebGPU event loop. On Emscripten it yields via emscripten_sleep(0); otherwise calls wgpuInstanceProcessEvents(instance).",
+      "requirements": [
+        "On non-Emscripten builds, instance must be a valid WGPUInstance handle."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createTensor",
+      "signature": "gpu::Tensor gpu::createTensor(gpu::TensorPool &pool, WGPUDevice &device, const gpu::Shape &shape, gpu::NumType dtype, WGPUBufferUsage usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc)",
+      "description": "Creates a GPU buffer of size size(shape)*sizeBytes(dtype), wraps it as a Tensor with the given shape, stores it in the TensorPool, and returns it.",
+      "requirements": [
+        "device must be a valid WGPUDevice.",
+        "shape and dtype must describe a total size that fits in size_t; the created buffer size equals size(shape)*sizeBytes(dtype).",
+        "usage must be a valid combination of WGPUBufferUsage flags suitable for how the tensor will be used.",
+        "The resulting Tensor is tracked in 'pool'."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createTensor",
+      "signature": "gpu::Tensor gpu::createTensor(gpu::Context &ctx, const gpu::Shape &shape, gpu::NumType dtype)",
+      "description": "Convenience overload that creates a Tensor using ctx.pool and ctx.device with default storage/copy usages.",
+      "requirements": [
+        "ctx.device must be a valid WGPUDevice; ctx.pool must be usable."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createTensor",
+      "signature": "gpu::Tensor gpu::createTensor(gpu::Context &ctx, const gpu::Shape &shape, gpu::NumType dtype, const float *data)",
+      "description": "Creates a Tensor of the given shape and dtype, asserting dtype == kf32, and uploads the initial float data to the GPU buffer.",
+      "requirements": [
+        "dtype must be gpu::kf32 (asserted).",
+        "data must point to at least tensor.data.size bytes (size(shape) floats) and be non-null.",
+        "ctx.queue must be valid for wgpuQueueWriteBuffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createTensor",
+      "signature": "gpu::Tensor gpu::createTensor(gpu::Context &ctx, const gpu::Shape &shape, gpu::NumType dtype, const int32_t *data)",
+      "description": "Creates a Tensor of the given shape and dtype, asserting dtype == ki32, and uploads the initial int32_t data to the GPU buffer.",
+      "requirements": [
+        "dtype must be gpu::ki32 (asserted).",
+        "data must point to at least tensor.data.size bytes (size(shape) int32_t) and be non-null.",
+        "ctx.queue must be valid for wgpuQueueWriteBuffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::FreeTensor",
+      "signature": "void gpu::FreeTensor(gpu::TensorPool &pool, gpu::Tensor tensor)",
+      "description": "Releases the GPU buffer of the given Tensor and removes it from the TensorPool. Logs warnings if the buffer is null or not tracked in the pool.",
+      "requirements": [
+        "If tensor.data.buffer is non-null, it must be a valid WGPUBuffer that can be released.",
+        "The Tensor should originate from the same TensorPool to ensure the pool entry exists."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::check",
+      "signature": "void gpu::check(bool condition, const char *message, const char *file = \"unkown\", int line = -1)",
+      "description": "Logs success or error along with file/line based on the boolean condition. Utility for runtime checks; does not throw or abort.",
+      "requirements": [
+        "message should describe the check; file and line are optional metadata."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createContext",
+      "signature": "gpu::Context gpu::createContext(const WGPUInstanceDescriptor &desc = {}, const WGPURequestAdapterOptions &adapterOpts = {}, const WGPUDeviceDescriptor &devDescriptor = {})",
+      "description": "Initializes WebGPU instance, requests an adapter and device, sets a logging callback, and obtains the default queue. Returns a fully formed Context with pooled resources and status fields populated.",
+      "requirements": [
+        "Runtime must have a WebGPU implementation available; adapter and device requests must succeed for a usable device/queue.",
+        "Caller should process events if using asynchronous/spontaneous callbacks (function itself pumps events until requests finish)."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createContextByGpuIdx",
+      "signature": "gpu::Context gpu::createContextByGpuIdx(int gpuIdx, const WGPUInstanceDescriptor &desc = {}, const WGPUDeviceDescriptor &devDescriptor = {})",
+      "description": "Creates a WebGPU Context targeting a specific GPU index using Dawn native APIs (available only when USE_DAWN_API is enabled). Requests a device from the chosen adapter and sets a logging callback.",
+      "requirements": [
+        "This overload requires the library to be built with USE_DAWN_API and Dawn headers available.",
+        "gpuIdx must be a valid index into the adapters list; otherwise behavior is undefined.",
+        "WebGPU instance creation must succeed; device request must complete successfully for a usable context."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::wait",
+      "signature": "void gpu::wait(gpu::Context &ctx, std::future<void> &future)",
+      "description": "Busy-waits/polls until the provided future is ready, processing WebGPU events via processEvents(ctx.instance) during the wait.",
+      "requirements": [
+        "future must be a valid std::future associated with work submitted on the given Context (or otherwise expected to become ready).",
+        "ctx.instance should be valid to process events."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toCPU",
+      "signature": "void gpu::toCPU(gpu::Context &ctx, gpu::Tensor &tensor, void *data, size_t bufferSize, gpu::CopyData &op)",
+      "description": "Copies buffer contents from the given Tensor to CPU memory using a caller-provided staging CopyData (command buffer and readback buffer). Submits work, maps readback, copies into 'data', and fulfills the promise/future in 'op'.",
+      "requirements": [
+        "op.commandBuffer must encode a copy from tensor.data.buffer to op.readbackBuffer covering 'bufferSize' bytes.",
+        "op.readbackBuffer must be created with WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead and be at least 'bufferSize' bytes.",
+        "data must point to writable memory of at least bufferSize bytes.",
+        "ctx.queue must be valid; tensor.data.buffer must be a valid WGPUBuffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toCPU",
+      "signature": "void gpu::toCPU(gpu::Context &ctx, gpu::Tensor &tensor, void *data, size_t bufferSize)",
+      "description": "Convenience overload that allocates a readback buffer and command buffer internally to copy 'bufferSize' bytes from tensor to CPU memory at 'data'. Waits for completion and releases the readback buffer.",
+      "requirements": [
+        "data must point to writable memory of at least bufferSize bytes.",
+        "bufferSize should not exceed the size of tensor.data.buffer.",
+        "ctx.device and ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toCPU",
+      "signature": "template <size_t N> void gpu::toCPU(gpu::Context &ctx, gpu::Tensor &tensor, std::array<float, N> &data)",
+      "description": "Copies the contents of 'tensor' into a std::array<float, N> by size, using the array’s storage as the destination buffer.",
+      "requirements": [
+        "tensor.data.size must be compatible with sizeof(data) (N*sizeof(float)); the function copies exactly sizeof(data) bytes.",
+        "ctx must be initialized for GPU->CPU copy."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toCPU",
+      "signature": "void gpu::toCPU(gpu::Context &ctx, WGPUBuffer buffer, void *data, size_t size)",
+      "description": "Copies 'size' bytes from an arbitrary WGPUBuffer to CPU memory using an internally managed staging buffer and command buffer. Waits for completion and releases staging resources.",
+      "requirements": [
+        "buffer must be a valid WGPUBuffer with at least 'size' bytes.",
+        "data must point to writable memory of at least 'size' bytes.",
+        "ctx.device and ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toGPU",
+      "signature": "void gpu::toGPU(gpu::Context &ctx, const void *data, WGPUBuffer buffer, size_t size)",
+      "description": "Uploads 'size' bytes from CPU memory to the given WGPUBuffer using wgpuQueueWriteBuffer.",
+      "requirements": [
+        "buffer must be a valid WGPUBuffer with capacity for 'size' bytes.",
+        "data must point to at least 'size' bytes of readable memory.",
+        "ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toGPU",
+      "signature": "void gpu::toGPU(gpu::Context &ctx, const float *data, gpu::Tensor &tensor)",
+      "description": "Uploads the entirety of 'tensor' from a float buffer by writing tensor.data.size bytes to the tensor’s buffer.",
+      "requirements": [
+        "data must point to at least tensor.data.size bytes (size(shape) floats).",
+        "ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toGPU",
+      "signature": "void gpu::toGPU(gpu::Context &ctx, const half *data, gpu::Tensor &tensor)",
+      "description": "Uploads the entirety of 'tensor' from a half-precision buffer by writing tensor.data.size bytes to the tensor’s buffer.",
+      "requirements": [
+        "data must point to at least tensor.data.size bytes (size(shape) half elements).",
+        "ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toGPU",
+      "signature": "void gpu::toGPU(gpu::Context &ctx, const int *data, gpu::Tensor &tensor)",
+      "description": "Uploads the entirety of 'tensor' from an int buffer by writing tensor.data.size bytes to the tensor’s buffer.",
+      "requirements": [
+        "data must point to at least tensor.data.size bytes (size(shape) int elements).",
+        "ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toGPU",
+      "signature": "void gpu::toGPU(gpu::Context &ctx, const float *data, gpu::Tensor &tensor, size_t size)",
+      "description": "Uploads 'size' bytes from a float buffer to the tensor’s GPU buffer.",
+      "requirements": [
+        "size must not exceed tensor.data.size.",
+        "data must point to at least 'size' bytes of readable memory.",
+        "ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toGPU",
+      "signature": "void gpu::toGPU(gpu::Context &ctx, const half *data, gpu::Tensor &tensor, size_t size)",
+      "description": "Uploads 'size' bytes from a half buffer to the tensor’s GPU buffer.",
+      "requirements": [
+        "size must not exceed tensor.data.size.",
+        "data must point to at least 'size' bytes of readable memory.",
+        "ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::toGPU",
+      "signature": "void gpu::toGPU(gpu::Context &ctx, const int *data, gpu::Tensor &tensor, size_t size)",
+      "description": "Uploads 'size' bytes from an int buffer to the tensor’s GPU buffer.",
+      "requirements": [
+        "size must not exceed tensor.data.size.",
+        "data must point to at least 'size' bytes of readable memory.",
+        "ctx.queue must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::resetCommandBuffer",
+      "signature": "void gpu::resetCommandBuffer(WGPUDevice &device, gpu::Kernel &op)",
+      "description": "Rebuilds the command buffer for the given kernel: begins a compute pass, binds the pipeline and bind group, dispatches with kernel totalWorkgroups, ends the pass, and stores the finished command buffer. Marks kernel as unused.",
+      "requirements": [
+        "device must be a valid WGPUDevice.",
+        "op must be a non-null Kernel with valid computePipeline, bindGroup, and totalWorkgroups (rank 3)."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::cdiv",
+      "signature": "size_t gpu::cdiv(size_t n, size_t d)",
+      "description": "Ceiling division of n by d, i.e., (n + d - 1) / d.",
+      "requirements": [
+        "d must be > 0 to avoid division by zero."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::cdiv",
+      "signature": "gpu::Shape gpu::cdiv(gpu::Shape total, gpu::Shape group)",
+      "description": "Element-wise ceiling division of two Shapes. Asserts that ranks match. Useful for computing number of workgroups from total threads and workgroup size.",
+      "requirements": [
+        "total.rank must equal group.rank (asserted).",
+        "Each group[dim] must be > 0 to avoid division by zero."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createKernel",
+      "signature": "gpu::Kernel gpu::createKernel(gpu::Context &ctx, const gpu::KernelCode &code, const gpu::Tensor *dataBindings, size_t numTensors, const size_t *viewOffsets, const gpu::Shape &totalWorkgroups, const void *params = nullptr, size_t paramsSize = 0, gpu::CompilationInfo *compilationInfo = nullptr, const char *cacheKey = nullptr)",
+      "description": "Creates a compute kernel: builds bind group layout and bind group for the provided buffers (and optional uniform params), compiles the WGSL module, creates the compute pipeline, records an initial command buffer to dispatch over totalWorkgroups, and optionally caches the kernel.",
+      "requirements": [
+        "totalWorkgroups.rank must be 3 (asserted).",
+        "dataBindings must point to an array of at least numTensors gpu::Tensor objects; each tensor’s buffer and size are used.",
+        "viewOffsets must point to an array of at least numTensors entries specifying buffer offsets for each binding.",
+        "If paramsSize > 0, params must point to at least paramsSize bytes and represents the contents of a uniform buffer appended as the last binding.",
+        "ctx.device and ctx.queue must be valid.",
+        "If cacheKey is provided and reused, the caller accepts that cached kernel resources are reused."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::createKernel",
+      "signature": "template <typename ParamsType = gpu::NoParam, size_t numInputs> gpu::Kernel gpu::createKernel(gpu::Context &ctx, const gpu::KernelCode &code, const gpu::Bindings<numInputs> &dataBindings, const gpu::Shape &totalWorkgroups, const ParamsType &params = ParamsType{}, gpu::CompilationInfo *compilationInfo = nullptr, const char *cacheKey = nullptr)",
+      "description": "Typed convenience wrapper that constructs a kernel from a static Bindings collection and an optional strongly-typed Params struct. For non-parameterized kernels, use ParamsType = gpu::NoParam.",
+      "requirements": [
+        "totalWorkgroups.rank must be 3 (propagated to the underlying overload).",
+        "If ParamsType is not gpu::NoParam, the ParamsType object is copied as a uniform buffer and its binary layout must match the shader’s expected uniform layout.",
+        "dataBindings entries must correspond to shader bindings, with viewOffsets specifying each binding’s byte offset in its buffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "gpu::dispatchKernel",
+      "signature": "void gpu::dispatchKernel(gpu::Context &ctx, gpu::Kernel &kernel, std::promise<void> &promise)",
+      "description": "Submits the kernel’s command buffer to the GPU queue, recreating it if the kernel was already used, and arranges a callback to fulfill the provided promise once the work is done.",
+      "requirements": [
+        "ctx.queue must be valid.",
+        "kernel must be a non-null Kernel whose command buffer has been prepared (resetCommandBuffer will be called automatically if kernel->used is true).",
+        "The provided promise must be valid and not already satisfied; the caller can wait on its associated future."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "gpu::size",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a valid Shape with rank in [0, kMaxRank]. Ensure all referenced dims are initialized.\n// Keep dimension sizes small to avoid overflow while still exercising multiplication paths.\n{\n  gpu::Shape shape;\n  const size_t maxRank = gpu::Shape::kMaxRank;\n  size_t rank = (*FUZZ_PARAM(unsigned int)) % (maxRank + 1);\n  shape.rank = rank;\n  for (size_t i = 0; i < rank; ++i) {\n    // Dimensions in [0, 8] to explore zero and positive sizes without overflow.\n    shape.data[i] = (*FUZZ_PARAM(unsigned int)) % 9;\n  }\n  // Compute expected product locally and assert gpu::size matches it.\n  size_t expected = 1;\n  for (size_t i = 0; i < rank; ++i) {\n    // Safe product within small bounds; if a dim is zero, product becomes zero.\n    expected *= shape.data[i];\n  }\n  size_t got = gpu::size(shape);\n  FUZZ_ASSERT(got == expected, \"gpu::size must equal the product of dims up to rank\");\n}\n// No persistent objects to return."
+    },
+    {
+      "name": "gpu::sizeBytes",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a NumType, sometimes invalid, and verify size in bytes for valid cases.\n{\n  unsigned int sel = (*FUZZ_PARAM(unsigned int)) % 5; // 0..4\n  gpu::NumType t = gpu::kf32;\n  if (sel == 0) t = gpu::kf16;\n  else if (sel == 1) t = gpu::kf32;\n  else if (sel == 2) t = gpu::ki32;\n  else t = static_cast<gpu::NumType>(99); // intentionally invalid\n\n  size_t sz = gpu::sizeBytes(t);\n  if (t == gpu::kf16) {\n    FUZZ_ASSERT(sz == 2, \"kf16 must be 2 bytes\");\n  } else if (t == gpu::kf32 || t == gpu::ki32) {\n    FUZZ_ASSERT(sz == 4, \"kf32/ki32 must be 4 bytes\");\n  } else {\n    // Invalid enum values should return 0 per API.\n    FUZZ_ASSERT(sz == 0, \"Invalid NumType should yield 0 bytes\");\n  }\n}\n// No outputs."
+    },
+    {
+      "name": "gpu::toString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise all overloads of toString.\n{\n  // NumType -> string\n  unsigned int sel = (*FUZZ_PARAM(unsigned int)) % 5;\n  gpu::NumType t = (sel == 0 ? gpu::kf16 : sel == 1 ? gpu::kf32 : sel == 2 ? gpu::ki32 : static_cast<gpu::NumType>(77));\n  std::string tn = gpu::toString(t);\n  // For valid enums, ensure strings match expected tokens.\n  if (t == gpu::kf16) {\n    FUZZ_ASSERT(tn == std::string(\"f16\"), \"kf16 should stringify to f16\");\n  } else if (t == gpu::kf32) {\n    FUZZ_ASSERT(tn == std::string(\"f32\"), \"kf32 should stringify to f32\");\n  } else if (t == gpu::ki32) {\n    FUZZ_ASSERT(tn == std::string(\"i32\"), \"ki32 should stringify to i32\");\n  }\n\n  // Shape -> string\n  gpu::Shape s;\n  s.rank = (*FUZZ_PARAM(unsigned int)) % (gpu::Shape::kMaxRank + 1);\n  for (size_t i = 0; i < s.rank; ++i) s.data[i] = (*FUZZ_PARAM(unsigned int)) % 10; // small dims\n  std::string ss = gpu::toString(s);\n  // If rank==0, expect empty string; otherwise ensure commas count is rank-1.\n  if (s.rank == 0) {\n    FUZZ_ASSERT(ss.empty(), \"Rank-0 shape should stringify to empty\");\n  } else {\n    size_t commas = 0; for (char c : ss) if (c == ',') ++commas;\n    FUZZ_ASSERT(commas == (s.rank > 0 ? s.rank - 1 : 0), \"Comma count should be rank-1\");\n  }\n\n  // size_t -> string\n  size_t v = *FUZZ_PARAM(size_t);\n  std::string vs = gpu::toString(v);\n  // Ensure vs parses back to the same value via stoull when possible.\n  try {\n    unsigned long long back = std::stoull(vs);\n    FUZZ_ASSERT(back == v, \"Round-trip toString(size_t) should match\");\n  } catch (...) {\n    FUZZ_BAIL();\n  }\n}\n// No outputs."
+    },
+    {
+      "name": "gpu::replaceAll",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise both replaceAll overloads with constraints.\n{\n  // Single pattern replacement\n  std::string str1 = FUZZ_PARAM_STR();\n  std::string from = FUZZ_PARAM_STR();\n  std::string to = FUZZ_PARAM_STR();\n  if (from.empty()) { FUZZ_BAIL(); }\n  std::string before = str1;\n  gpu::replaceAll(str1, from, to);\n  // If from != to, all occurrences of 'from' should be eliminated.\n  if (from != to) {\n    FUZZ_ASSERT(str1.find(from) == std::string::npos, \"All occurrences of 'from' must be replaced\");\n  }\n\n  // Multiple replacements in sequence\n  std::string str2 = FUZZ_PARAM_STR();\n  // Build up to 3 replacement pairs with non-empty patterns.\n  std::vector<std::pair<std::string, std::string>> reps;\n  for (int i = 0; i < 3; ++i) {\n    std::string f = FUZZ_PARAM_STR();\n    if (f.empty()) continue; // enforce non-empty pattern per API guidance\n    std::string t = FUZZ_PARAM_STR();\n    reps.emplace_back(f, t);\n  }\n  if (reps.empty()) { FUZZ_BAIL(); }\n  const std::string res = gpu::replaceAll(str2, reps);\n  // Basic sanity: the function returns the mutated string (by value) equal to str2 after mutation.\n  FUZZ_ASSERT(res == str2, \"replaceAll should return the mutated string\");\n}\n// No outputs."
+    },
+    {
+      "name": "gpu::check",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate random inputs and call the checker utility. It should not throw/abort.\n{\n  bool cond = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n  std::string msg = FUZZ_PARAM_STR();\n  std::string file = FUZZ_PARAM_STR();\n  int line = static_cast<int>(*FUZZ_PARAM(unsigned int));\n  gpu::check(cond, msg.c_str(), file.c_str(), line);\n}\n// No outputs."
+    },
+    {
+      "name": "gpu::cdiv",
+      "inputs": [],
+      "outputs": [],
+      "code": "// size_t ceiling division\n{\n  size_t d = (*FUZZ_PARAM(unsigned int)) % 1024u + 1u; // ensure d > 0\n  size_t n = *FUZZ_PARAM(size_t);\n  size_t q = gpu::cdiv(n, d);\n  // Verify q is the smallest integer such that q*d >= n.\n  FUZZ_ASSERT(q * d >= n, \"cdiv: q*d must be >= n\");\n  if (q > 0) {\n    FUZZ_ASSERT((q - 1) * d < n, \"cdiv: (q-1)*d must be < n when q>0\");\n  }\n}\n\n// Shape element-wise ceiling division\n{\n  gpu::Shape total;\n  gpu::Shape group;\n  size_t rank = (*FUZZ_PARAM(unsigned int)) % (gpu::Shape::kMaxRank + 1);\n  total.rank = rank;\n  group.rank = rank;\n  for (size_t i = 0; i < rank; ++i) {\n    total.data[i] = (*FUZZ_PARAM(unsigned int)) % 1024u; // allow zero totals\n    group.data[i] = ((*FUZZ_PARAM(unsigned int)) % 16u) + 1u; // require > 0\n  }\n  gpu::Shape out = gpu::cdiv(total, group);\n  // Validate per-dimension ceil division property\n  for (size_t i = 0; i < rank; ++i) {\n    size_t n = total.data[i];\n    size_t d = group.data[i];\n    size_t q = out.data[i];\n    FUZZ_ASSERT(q * d >= n, \"shape cdiv: q*d >= n per dimension\");\n    if (q > 0) {\n      FUZZ_ASSERT((q - 1) * d < n || n == 0, \"shape cdiv: minimal q per dimension\");\n    }\n  }\n}\n// No outputs."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "gpu::operator<",
+      "reason": "Requires non-null Kernel objects with initialized WebGPU command buffers, which cannot be safely created in the fuzzer environment."
+    },
+    {
+      "name": "gpu::processEvents",
+      "reason": "Requires a valid WebGPU instance handle and interacts with the platform event loop, which is not available in the fuzzer environment."
+    },
+    {
+      "name": "gpu::createTensor",
+      "reason": "Requires a valid WebGPU device and buffer allocations; hardware/WebGPU context is unavailable to the fuzzer."
+    },
+    {
+      "name": "gpu::FreeTensor",
+      "reason": "Requires releasing real WebGPU buffers tracked in a TensorPool, which cannot be safely produced in the fuzzer."
+    },
+    {
+      "name": "gpu::createContext",
+      "reason": "Initializes WebGPU instance/adapter/device and queue, which depends on system GPU drivers not available under the fuzzer."
+    },
+    {
+      "name": "gpu::createContextByGpuIdx",
+      "reason": "Depends on Dawn-specific APIs and a GPU runtime; these are not available or deterministic in the fuzzer environment."
+    },
+    {
+      "name": "gpu::wait",
+      "reason": "Relies on processing WebGPU events tied to a valid Context instance and external futures, which the fuzzer cannot provide."
+    },
+    {
+      "name": "gpu::toCPU",
+      "reason": "Requires valid WebGPU buffers, command buffers, and queue submissions to transfer data, which are unavailable to the fuzzer."
+    },
+    {
+      "name": "gpu::toGPU",
+      "reason": "Requires a valid WebGPU queue and buffers to upload data, which are not available in the fuzzer environment."
+    },
+    {
+      "name": "gpu::resetCommandBuffer",
+      "reason": "Needs a valid WebGPU device and kernel pipeline/bind group to record commands, which the fuzzer cannot instantiate."
+    },
+    {
+      "name": "gpu::createKernel",
+      "reason": "Requires compiling WGSL, creating pipelines, and binding GPU resources, all of which depend on a live WebGPU device."
+    },
+    {
+      "name": "gpu::dispatchKernel",
+      "reason": "Submits command buffers to a WebGPU queue and sets callbacks, which are not possible without a real GPU context."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "gpu::size",
+      "data_types": []
+    },
+    {
+      "name": "gpu::sizeBytes",
+      "data_types": []
+    },
+    {
+      "name": "gpu::toString",
+      "data_types": []
+    },
+    {
+      "name": "gpu::cdiv",
+      "data_types": []
+    },
+    {
+      "name": "gpu::replaceAll",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "gpu::check",
+      "data_types": [
+        "arbitrary string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary string",
+      "description": "An unconstrained byte string. May contain any UTF-8 or binary data, including empty or very long strings. Used wherever a function accepts generic textual or raw buffer content without format requirements."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport struct\nimport itertools\n\n# Data type: arbitrary string\n# Target fuzzers exercise gpu::replaceAll and gpu::check. Both take arbitrary\n# strings, with the constraint that replaceAll requires non-empty patterns for\n# the 'from' strings. FUZZER supplies multiple FUZZ_PARAM_STR() calls from a\n# single input buffer. We craft a container format that yields a sequence of\n# strings with control over emptiness and interesting contents.\n#\n# Buffer format (little endian):\n#   - 4 bytes: seed echo (for diversity but unused by consumer)\n#   - 1 byte: flags controlling inclusion of special cases\n#   - Then a vector of string entries, each encoded as:\n#       2 bytes: length L (0..4095 bounded), followed by L bytes payload\n#   - Count of strings is derived from the remaining bytes; we emit a curated\n#     set to cover the stub needs: at least 10 strings to cover all calls.\n#\n# String palette generation strategy:\n#   - Include empty string (for general use) but also ensure non-empty patterns\n#     are available for replaceAll constraints.\n#   - Include short ASCII words, repeated substrings, overlapping patterns,\n#     unicode, binary bytes including NULs, and long strings.\n#   - Provide pairs that appear in other strings to ensure replacements occur.\n#\n# The fuzzer harness will read these in order; we cannot control mapping but we\n# maximize useful variety and ensure presence of several non-empty candidates.\n\nMAX_TOTAL = 4096\n\n\ndef _rand_ascii(rng, min_len, max_len):\n    n = rng.randint(min_len, max_len)\n    alphabet = (\n        \"abcdefghijklmnopqrstuvwxyz\" \\\n        \"ABCDEFGHIJKLMNOPQRSTUVWXYZ\" \\\n        \"0123456789\" \\\n        \" _-:/\\\\.\\n\\t\"\n    )\n    return ''.join(rng.choice(alphabet) for _ in range(n)).encode('utf-8')\n\n\ndef _rand_unicode(rng, min_len, max_len):\n    # Mix BMP and some emoji range.\n    n = rng.randint(min_len, max_len)\n    codepoints = []\n    for _ in range(n):\n        choice = rng.random()\n        if choice < 0.7:\n            cp = rng.randint(0x20, 0x07FF)\n        elif choice < 0.95:\n            cp = rng.randint(0x0800, 0xD7FF)\n        else:\n            cp = rng.choice([0x1F600, 0x1F602, 0x1F680, 0x1F4A9, 0x1F981, 0x1F9E9])\n        if 0xD800 <= cp <= 0xDFFF:\n            cp = 0xFFFD\n        codepoints.append(cp)\n    s = ''.join(chr(cp) for cp in codepoints)\n    return s.encode('utf-8')\n\n\ndef _rand_binary(rng, min_len, max_len):\n    n = rng.randint(min_len, max_len)\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_long_repetitive(base: bytes, repeats: int, sep: bytes = b\"\") -> bytes:\n    return sep.join(itertools.islice(itertools.repeat(base), repeats))\n\n\ndef _cap_len(b: bytes, max_len: int) -> bytes:\n    return b[:max_len]\n\n\ndef _encode_strings(strings):\n    # Each string is prefixed by 2-byte length (LE), truncated to 4095 per entry\n    out = bytearray()\n    for s in strings:\n        s = _cap_len(s, 4095)\n        out += struct.pack('<H', len(s))\n        out += s\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Flags to steer inclusion variety\n    flags = rng.getrandbits(8)\n\n    strings = []\n\n    # Ensure presence of empty and non-empty values\n    strings.append(b\"\")  # may feed to non-constrained params\n\n    # Baseline texts for replaceAll tests\n    hay_a = b\"aaaaabaaa\"  # overlapping pattern potential\n    hay_b = b\"the quick brown fox jumps over the lazy dog\"\n    hay_c = b\"lorem ipsum dolor sit amet, amet amet\"\n\n    strings.extend([hay_a, hay_b, hay_c])\n\n    # Patterns that exist in the haystacks (non-empty required by stub)\n    pat_overlap = b\"aa\"\n    pat_word = b\"amet\"\n    pat_space = b\" \"\n    strings.extend([pat_overlap, pat_word, pat_space])\n\n    # Replacement candidates\n    rep1 = b\"b\"\n    rep2 = b\"AMET\"\n    rep3 = b\"_\"\n    strings.extend([rep1, rep2, rep3])\n\n    # Additional interesting strings\n    if flags & 0x01:\n        strings.append(_rand_ascii(rng, 1, 64))\n    if flags & 0x02:\n        strings.append(_rand_unicode(rng, 1, 40))\n    if flags & 0x04:\n        strings.append(_rand_binary(rng, 1, 40))\n\n    # Unicode-heavy haystack and emoji\n    uni_hay = _rand_unicode(rng, 10, 40)\n    strings.append(uni_hay)\n    uni_pat = b\"\\xF0\\x9F\\x98\\x80\"  # 😀 in UTF-8, may or may not be present\n    strings.append(uni_pat)\n    strings.append(b\"\\x00\\x00\\x01\")  # binary replacement target\n\n    # Include NUL-containing binary strings (for raw handling paths)\n    bin_with_nuls = b\"A\\x00B\\x00C\\x00A\\x00\"\n    strings.append(bin_with_nuls)\n\n    # Long inputs to exercise performance and chunked behavior\n    long_rep = _make_long_repetitive(b\"xyz\", rng.randint(100, 400))\n    strings.append(long_rep)\n    long_pat = b\"xyz\"\n    long_to = b\"XY\"\n    strings.extend([long_pat, long_to])\n\n    # Overlapping tricky replacements where from == to (no-op) and from != to\n    strings.append(b\"aaaa\")\n    strings.append(b\"aa\")  # from\n    strings.append(b\"aa\")  # to (equal)\n\n    # Another pair where to expands occurrences\n    strings.append(b\"abababa\")\n    strings.append(b\"ab\")\n    strings.append(b\"aba\")\n\n    # File/line-like strings for gpu::check\n    strings.append(b\"/path/to/file.cc\")\n    strings.append(b\"message: all good\")\n\n    # Ensure a non-empty set of non-empty patterns exists\n    # Provide some random non-empty short tokens\n    for _ in range(3):\n        tok = _rand_ascii(rng, 1, 8)\n        strings.append(tok)\n\n    # Keep total under MAX_TOTAL; encode with header\n    payload = _encode_strings(strings)\n    header = struct.pack('<IB', (seed & 0xFFFFFFFF), flags)\n    out = header + payload\n    return out[:MAX_TOTAL]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15145,
+            "output_tokens": 3879,
+            "total_tokens": 19024
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 14723,
+            "output_tokens": 191,
+            "total_tokens": 14914
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15363,
+            "output_tokens": 6661,
+            "total_tokens": 22024
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11581,
+            "output_tokens": 4652,
+            "total_tokens": 16233
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9530,
+            "output_tokens": 99,
+            "total_tokens": 9629
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 356.120245218277,
+    "scan_objects": 75.58639931678772,
+    "validate_objects": 3.6884918212890625,
+    "scan_functions": 176.18315839767456,
+    "synthesis": 67.69140601158142,
+    "fill": 0,
+    "classify": 3.233124256134033,
+    "build_generators": 29.736882209777832
+  }
+}

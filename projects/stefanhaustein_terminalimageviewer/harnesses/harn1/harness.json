@@ -1,0 +1,261 @@
+{
+  "objects": [
+    {
+      "ptr_type": "GetPixelFunction *",
+      "aliases": [],
+      "definition": "typedef std::function<unsigned long(int, int)> GetPixelFunction;",
+      "description": "Alias for a callable taking (int x, int y) and returning an RGB pixel encoded as 0xRRGGBB. Used to abstract access to image pixels.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "CharData *",
+      "aliases": [],
+      "definition": "struct CharData {\n    std::array<int, 3> fgColor = std::array<int, 3>{0, 0, 0};\n    std::array<int, 3> bgColor = std::array<int, 3>{0, 0, 0};\n    int codePoint;\n};",
+      "description": "Struct describing a drawable character and its colors. fgColor and bgColor are RGB triplets (int per channel). codePoint is the Unicode code point of the character to render.",
+      "direct_api_constructors": [
+        "createCharData",
+        "findCharData"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "get_channel",
+      "signature": "unsigned char get_channel(unsigned long rgb, int index);",
+      "description": "Extracts a single color channel (R, G, or B) from a pixel encoded as 0xRRGGBB. Use to retrieve one channel value (0–255) by passing index 0 (R), 1 (G), or 2 (B).",
+      "requirements": [
+        "rgb must encode a pixel in 0xRRGGBB format (24-bit RGB packed into an unsigned long).",
+        "index must be 0 for red, 1 for green, or 2 for blue; other values are invalid/unspecified.",
+        "The function returns an 8-bit value in the range 0–255 for the selected channel."
+      ],
+      "error": null
+    },
+    {
+      "name": "clamp_byte",
+      "signature": "int clamp_byte(int value);",
+      "description": "Clamps an integer to the byte range. Inferred to return value constrained to 0–255 based on the function name and typical usage patterns in image/color code. Exact edge-case behavior for out-of-range inputs is not documented.",
+      "requirements": [
+        "value may be any integer; behavior is expected to clamp to the range 0–255 (inferred).",
+        "Return type is int; callers should expect a value within 0–255."
+      ],
+      "error": null
+    },
+    {
+      "name": "best_index",
+      "signature": "int best_index(int value, const int STEPS[], int count);",
+      "description": "Maps a color component value (0–255) to the index of the closest entry in a step table (e.g., COLOR_STEPS or GRAYSCALE_STEPS). Useful for quantizing a channel to a fixed palette grid.",
+      "requirements": [
+        "value must be in the range 0–255 (per documentation).",
+        "STEPS must point to an array with at least count elements; it should be a table of step values comparable to COLOR_STEPS/GRAYSCALE_STEPS.",
+        "count must be a positive integer corresponding to the number of valid entries in STEPS.",
+        "No explicit requirement that STEPS is sorted is stated, but typical use assumes a palette/step table."
+      ],
+      "error": null
+    },
+    {
+      "name": "createCharData",
+      "signature": "CharData createCharData(GetPixelFunction get_pixel, int x0, int y0, int codepoint, int pattern);",
+      "description": "Constructs a CharData for a given code point and a pattern by sampling image data via get_pixel near (x0, y0), computing corresponding average foreground/background RGB colors. Details of how pattern is interpreted are not documented in the header.",
+      "requirements": [
+        "get_pixel must be a valid callable that returns a pixel in 0xRRGGBB format for provided coordinates.",
+        "x0 and y0 are image coordinates; they must be within the image bounds for all accesses the function will perform (exact sampling area is not documented).",
+        "codepoint should be a valid character code point to be drawn; exact accepted range/encoding is not documented.",
+        "pattern usage and valid range/bit layout are unknown from the header; callers should supply a value consistent with the implementation’s expectations (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "findCharData",
+      "signature": "CharData findCharData(GetPixelFunction get_pixel, int x0, int y0, const int &flags);",
+      "description": "Analyzes a 4x8 block of the image starting at (x0, y0) and returns the best-fitting character and its foreground/background colors. Flags may alter selection behavior (e.g., FLAG_TELETEXT to enable teletext characters).",
+      "requirements": [
+        "get_pixel must be a valid callable that returns pixels in 0xRRGGBB format.",
+        "x0 and y0 must be chosen such that the 4x8 region sampled starting at (x0, y0) lies within the source image; exact access pattern is 4x8 per documentation.",
+        "flags is a bitset of options; may include FLAG_TELETEXT (32). Other flag meanings are not documented in the header."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "get_channel",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid 24-bit RGB pixel (0xRRGGBB) and a valid channel index [0..2]\nunsigned long rgb = (*FUZZ_PARAM(unsigned long)) & 0x00FFFFFFUL;\nint index = (int)(*FUZZ_PARAM(unsigned int) % 3); // enforce 0,1,2 only\n\n// Invoke target and assert the property that the returned value is a byte [0..255]\nunsigned char ch = get_channel(rgb, index);\nFUZZ_ASSERT(ch <= 255, \"get_channel must return an 8-bit value (0..255)\");\n\n// Validation: Inputs are ephemeral; constraints enforced for rgb format and index range; output range asserted."
+    },
+    {
+      "name": "clamp_byte",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Any integer input value is acceptable; generate fuzzed value\nint value = *(FUZZ_PARAM(int));\n\n// Invoke target and assert result is clamped to [0..255]\nint out = clamp_byte(value);\nFUZZ_ASSERT(out >= 0 && out <= 255, \"clamp_byte should clamp into [0..255]\");\n\n// Validation: No persistent objects; property of clamping is asserted."
+    },
+    {
+      "name": "createCharData",
+      "inputs": [
+        {
+          "name": "get_pixel_fn",
+          "type": "GetPixelFunction *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "get_pixel_fn",
+          "type": "GetPixelFunction *"
+        },
+        {
+          "name": "char_data",
+          "type": "CharData *"
+        }
+      ],
+      "code": "// Obtain image bounds from attributes if available; otherwise initialize conservative defaults\nint width = FUZZ_GET_ATTR_INT(get_pixel_fn, \"width\");\nint height = FUZZ_GET_ATTR_INT(get_pixel_fn, \"height\");\nif (width <= 0) { width = (int)(*FUZZ_PARAM(unsigned int) % 256) + 32; FUZZ_SET_ATTR_INT(get_pixel_fn, \"width\", width); }\nif (height <= 0) { height = (int)(*FUZZ_PARAM(unsigned int) % 256) + 32; FUZZ_SET_ATTR_INT(get_pixel_fn, \"height\", height); }\n\n// Copy the provided callable and ensure it is valid\nstd::function<unsigned long(int,int)> base = *get_pixel_fn;\nif (!base) { FUZZ_BAIL(); }\n\n// Wrap with a safety shim to prevent OOB access; out-of-bounds returns black\nstd::function<unsigned long(int,int)> safe_get = [base, width, height](int x, int y) {\n    if (x < 0 || y < 0 || x >= width || y >= height) { return 0UL; }\n    return base(x, y) & 0x00FFFFFFUL; // mask to 24-bit just in case\n};\n\n// Choose coordinates conservatively inside image; margin to accommodate unknown sampling footprint\nint margin = 8;\nif (width <= margin || height <= margin) { FUZZ_BAIL(); }\nint x0 = (int)(*FUZZ_PARAM(unsigned int) % (width - margin));\nint y0 = (int)(*FUZZ_PARAM(unsigned int) % (height - margin));\n\n// Code point: select in Unicode scalar range [0..0x10FFFF]\nint codepoint = (int)(*FUZZ_PARAM(unsigned int) % 0x110000);\n\n// Pattern is opaque; provide fuzzed value\nint pattern = *(FUZZ_PARAM(int));\n\n// Invoke target\nCharData result = createCharData(safe_get, x0, y0, codepoint, pattern);\n\n// Persist CharData in the object pool\nCharData *char_data = new CharData(result);\n// Track metadata that may aid downstream validation\nFUZZ_SET_ATTR_INT(char_data, \"codePoint\", codepoint);\nFUZZ_SET_ATTR_INT(char_data, \"x0\", x0);\nFUZZ_SET_ATTR_INT(char_data, \"y0\", y0);\n\n// Outputs: return both the (still-owned) get_pixel_fn and the new char_data\n// Validation: Enforced valid callable, bounded coordinates with safety shim; persisted CharData with useful attrs."
+    },
+    {
+      "name": "findCharData",
+      "inputs": [
+        {
+          "name": "get_pixel_fn",
+          "type": "GetPixelFunction *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "get_pixel_fn",
+          "type": "GetPixelFunction *"
+        },
+        {
+          "name": "char_data",
+          "type": "CharData *"
+        }
+      ],
+      "code": "// Obtain or set image bounds\nint width = FUZZ_GET_ATTR_INT(get_pixel_fn, \"width\");\nint height = FUZZ_GET_ATTR_INT(get_pixel_fn, \"height\");\nif (width <= 0) { width = (int)(*FUZZ_PARAM(unsigned int) % 256) + 16; FUZZ_SET_ATTR_INT(get_pixel_fn, \"width\", width); }\nif (height <= 0) { height = (int)(*FUZZ_PARAM(unsigned int) % 256) + 16; FUZZ_SET_ATTR_INT(get_pixel_fn, \"height\", height); }\n\n// Copy the provided callable and ensure it is valid\nstd::function<unsigned long(int,int)> base = *get_pixel_fn;\nif (!base) { FUZZ_BAIL(); }\n\n// Safety wrapper to guard bounds; out-of-bounds returns black\nstd::function<unsigned long(int,int)> safe_get = [base, width, height](int x, int y) {\n    if (x < 0 || y < 0 || x >= width || y >= height) { return 0UL; }\n    return base(x, y) & 0x00FFFFFFUL;\n};\n\n// findCharData analyzes a 4x8 block starting at (x0,y0). Ensure region fits.\nif (width < 4 || height < 8) { FUZZ_BAIL(); }\nint x0 = (int)(*FUZZ_PARAM(unsigned int) % (width - 4 + 1));\nint y0 = (int)(*FUZZ_PARAM(unsigned int) % (height - 8 + 1));\n\n// Flags bitset; include random fuzzing\nint flags = *(FUZZ_PARAM(int));\n\n// Invoke target\nCharData result = findCharData(safe_get, x0, y0, flags);\n\n// Persist CharData in the pool\nCharData *char_data = new CharData(result);\nFUZZ_SET_ATTR_INT(char_data, \"x0\", x0);\nFUZZ_SET_ATTR_INT(char_data, \"y0\", y0);\nFUZZ_SET_ATTR_INT(char_data, \"flags\", flags);\n\n// Outputs include the reused get_pixel_fn and the new char_data\n// Validation: Verified callable, enforced region within bounds for 4x8 block, and safely wrapped pixel access."
+    },
+    {
+      "name": "best_index",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid input value in [0..255]\nint value = (int)(*FUZZ_PARAM(unsigned int) % 256);\n\n// Prepare a step table with a positive count (table has at least 'count' elements)\nconst int (*STEP_ARR)[16] = FUZZ_PARAM(int[16]); // pointer to an array of 16 ints\nconst int *STEPS = *STEP_ARR;                    // decay to pointer to first element\nint count = (int)(*FUZZ_PARAM(unsigned int) % 16) + 1; // ensure count in [1..16]\n\n// Call target\nint idx = best_index(value, STEPS, count);\n\n// Assert that the returned index is within the valid range of the table\nFUZZ_ASSERT(idx >= 0 && idx < count, \"best_index should return an index within [0..count-1]\");\n\n// Validation: Constrained value to [0..255], ensured count >= 1 and STEPS has >= count elements; asserted returned index bounds."
+    },
+    {
+      "name": "GetPixelFunction *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "get_pixel_fn",
+          "type": "GetPixelFunction *"
+        }
+      ],
+      "code": "// Create a small procedurally generated image and expose it via a GetPixelFunction\n// Keep total allocation <= ~2048 bytes: choose width in [8..32], height in [8..16] -> max 512 pixels\nint width = (int)(*FUZZ_PARAM(unsigned int) % 25) + 8;   // 8..32\nint height = (int)(*FUZZ_PARAM(unsigned int) % 9) + 8;   // 8..16\n\n// Generate a data blob to fill pixels; size is 1..4096 per runtime\nstd::string blob = FUZZ_PARAM_STR();\n\n// Allocate pixel buffer (512 max) and fill with a repeatable pattern from blob\nsize_t count = (size_t)width * (size_t)height;\nstd::vector<unsigned long> pixels;\npixels.reserve(count);\nfor (size_t i = 0; i < count; ++i) {\n    // Use three successive bytes from blob (wrapping) as R,G,B\n    unsigned char r = (unsigned char)blob[(i + 0) % blob.size()];\n    unsigned char g = (unsigned char)blob[(i + 1) % blob.size()];\n    unsigned char b = (unsigned char)blob[(i + 2) % blob.size()];\n    unsigned long rgb = ((unsigned long)r << 16) | ((unsigned long)g << 8) | (unsigned long)b; // 0xRRGGBB\n    pixels.push_back(rgb);\n}\n\n// Build the callable; it clamps to bounds and returns 24-bit 0xRRGGBB\nstd::function<unsigned long(int,int)> fn = [pixels, width, height](int x, int y) -> unsigned long {\n    if (x < 0 || y < 0 || x >= width || y >= height) {\n        // Out-of-bounds access returns black; callers are expected to keep in-bounds\n        return 0UL;\n    }\n    unsigned long rgb = pixels[(size_t)y * (size_t)width + (size_t)x];\n    return rgb & 0x00FFFFFFUL; // ensure 24-bit format as required by callers\n};\n\n// Allocate the function object for the pool\nGetPixelFunction *get_pixel_fn = new std::function<unsigned long(int,int)>(std::move(fn));\n\n// Track image bounds for downstream stubs that need to pick safe coordinates\nFUZZ_SET_ATTR_INT(get_pixel_fn, \"width\", width);\nFUZZ_SET_ATTR_INT(get_pixel_fn, \"height\", height);\n\n// Validation: Constructed a valid callable returning 24-bit RGB; bounds stored as attributes; allocation kept small (<~2KB)."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "get_channel",
+      "data_types": []
+    },
+    {
+      "name": "clamp_byte",
+      "data_types": []
+    },
+    {
+      "name": "createCharData",
+      "data_types": []
+    },
+    {
+      "name": "findCharData",
+      "data_types": []
+    },
+    {
+      "name": "best_index",
+      "data_types": []
+    },
+    {
+      "name": "GetPixelFunction *",
+      "data_types": [
+        "raw bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "raw bytes",
+      "description": "Arbitrary uninterpreted binary data. Any byte values 0x00–0xFF in any order and length. In this context, three successive bytes are read repeatedly as R, G, and B components to synthesize 24-bit 0xRRGGBB pixels, wrapping around the buffer as needed."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "raw bytes",
+      "generator": "import random\nfrom typing import List, Tuple\n\n# We generate a blob that will be consumed cyclically as RGB bytes to form 0xRRGGBB pixels.\n# Goals:\n# - Ensure length > 0 (avoid division by zero in modulo indexing).\n# - Provide diverse patterns that exercise color extraction, quantization, and averaging.\n# - Include gradients, solid colors, checkerboards, stripes, grayscale ramps, and edge cases\n#   (0x00, 0xFF, mid, alternating, prime-length to desynchronize R/G/B wrapping).\n# - Keep size <= 4096 bytes.\n\nEDGE_BYTES = [\n    0x00, 0x01, 0x02, 0x03, 0x07,\n    0x0F, 0x10, 0x1F, 0x20, 0x3F,\n    0x40, 0x55, 0x7F, 0x80, 0xAA,\n    0xBF, 0xC0, 0xDF, 0xE0, 0xF0,\n    0xFE, 0xFF,\n]\n\nPRIMES = [53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113]\n\n\ndef clamp(v: int, lo: int, hi: int) -> int:\n    return lo if v < lo else hi if v > hi else v\n\n\ndef make_solid(r: int, g: int, b: int, count: int) -> List[int]:\n    return [r, g, b] * max(1, count)\n\n\ndef make_rgb_ramp(length: int, start: Tuple[int, int, int] = (0, 0, 0), step: Tuple[int, int, int] = (1, 2, 3)) -> List[int]:\n    r, g, b = start\n    dr, dg, db = step\n    out: List[int] = []\n    for _ in range(max(0, length)):\n        out.extend([clamp(r & 0xFF, 0, 255), clamp(g & 0xFF, 0, 255), clamp(b & 0xFF, 0, 255)])\n        r = (r + dr) & 0xFF\n        g = (g + dg) & 0xFF\n        b = (b + db) & 0xFF\n    return out\n\n\ndef make_checker(a: Tuple[int, int, int], b: Tuple[int, int, int], cells: int) -> List[int]:\n    # Alternate between two RGB triples\n    out: List[int] = []\n    for i in range(max(0, cells)):\n        rgb = a if (i & 1) == 0 else b\n        out.extend([rgb[0], rgb[1], rgb[2]])\n    return out\n\n\ndef make_gray_ramp(length: int, start: int = 0, step: int = 5) -> List[int]:\n    out: List[int] = []\n    g = start & 0xFF\n    for _ in range(max(0, length)):\n        out.extend([g, g, g])\n        g = (g + step) & 0xFF\n    return out\n\n\ndef make_stripes(length: int, colors: List[Tuple[int, int, int]], stripe_len: int) -> List[int]:\n    out: List[int] = []\n    cidx = 0\n    remaining = max(0, length)\n    s_len = max(1, stripe_len)\n    if not colors:\n        colors = [(0, 0, 0)]\n    while remaining > 0:\n        take = min(s_len, remaining)\n        r, g, b = colors[cidx % len(colors)]\n        out.extend([r, g, b] * take)\n        cidx += 1\n        remaining -= take\n    return out\n\n\ndef make_noise(length: int, rng: random.Random) -> List[int]:\n    # Correlated noise to produce gradients with randomness\n    r = rng.randrange(256)\n    g = rng.randrange(256)\n    b = rng.randrange(256)\n    out: List[int] = []\n    for _ in range(max(0, length)):\n        r = (r + rng.randint(-7, 7)) & 0xFF\n        g = (g + rng.randint(-7, 7)) & 0xFF\n        b = (b + rng.randint(-7, 7)) & 0xFF\n        out.extend([r, g, b])\n    return out\n\n\ndef make_edge_cycle(reps: int) -> List[int]:\n    # Cycle through edge byte values across R, G, B to hit clamp/quantize boundaries\n    out: List[int] = []\n    vals = EDGE_BYTES\n    for i in range(max(0, reps)):\n        v = vals[i % len(vals)]\n        w = vals[(i * 5 + 3) % len(vals)]\n        u = vals[(i * 7 + 1) % len(vals)]\n        out.extend([v, w, u])\n    return out\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide overall target size between 256 and 3072 bytes to ensure enough data for up to 512 pixels.\n    total_bytes = rng.randint(256, 3072)\n\n    # We build the blob as a concatenation of segments. Each segment contributes RGB triplets.\n    segments: List[int] = []\n\n    # Always start with a sync signature that yields distinct primary colors for the first pixels.\n    # This helps exercise get_channel and best_index with pure channels.\n    signature = [\n        0xFF, 0x00, 0x00,  # Red\n        0x00, 0xFF, 0x00,  # Green\n        0x00, 0x00, 0xFF,  # Blue\n        0xFF, 0xFF, 0xFF,  # White\n        0x00, 0x00, 0x00,  # Black\n        0xFF, 0xFF, 0x00,  # Yellow\n        0x00, 0xFF, 0xFF,  # Cyan\n        0xFF, 0x00, 0xFF,  # Magenta\n    ]\n    segments.extend(signature)\n\n    # Add edge-cycle triplets to hit clamp/quantize edges\n    reps = rng.randint(16, 64)\n    segments.extend(make_edge_cycle(reps))\n\n    # Add grayscale ramp\n    segments.extend(make_gray_ramp(rng.randint(16, 128), start=rng.choice([0, 16, 32, 64, 96, 128, 160, 192, 224]), step=rng.choice([1, 2, 4, 8, 16, 32])))\n\n    # Add RGB ramp with varying phase\n    segments.extend(make_rgb_ramp(\n        rng.randint(16, 128),\n        start=(rng.randrange(256), rng.randrange(256), rng.randrange(256)),\n        step=(rng.choice([1, 3, 5, 7]), rng.choice([0, 2, 4, 6]), rng.choice([1, 9, 13, 17]))\n    ))\n\n    # Add checker between two contrasting colors\n    c1 = (rng.choice(EDGE_BYTES), rng.choice(EDGE_BYTES), rng.choice(EDGE_BYTES))\n    c2 = (rng.choice(EDGE_BYTES), rng.choice(EDGE_BYTES), rng.choice(EDGE_BYTES))\n    segments.extend(make_checker(c1, c2, rng.randint(16, 96)))\n\n    # Add colored stripes with stripe length being a small prime to de-phase wrapping\n    colors: List[Tuple[int, int, int]] = [\n        (255, 0, 0), (0, 255, 0), (0, 0, 255),\n        (255, 255, 0), (0, 255, 255), (255, 0, 255),\n        (32, 32, 32), (224, 224, 224),\n    ]\n    segments.extend(make_stripes(rng.randint(32, 160), colors, stripe_len=rng.choice([3, 5, 7, 11])))\n\n    # Add correlated noise for natural-looking regions\n    segments.extend(make_noise(rng.randint(64, 256), rng))\n\n    # Add a prime-length desynchronization block\n    triplets = rng.choice(PRIMES) * rng.randint(2, 6)\n    segments.extend(make_edge_cycle(3))\n    segments.extend(make_gray_ramp(triplets // 2, start=rng.randrange(256), step=rng.choice([3, 5, 9, 15])))\n\n    # Optionally add solid fills for pure backgrounds/foregrounds\n    for _ in range(rng.randint(1, 3)):\n        r = rng.choice(EDGE_BYTES)\n        g = rng.choice(EDGE_BYTES)\n        b = rng.choice(EDGE_BYTES)\n        segments.extend(make_solid(r, g, b, rng.randint(8, 64)))\n\n    # Ensure we have at least 3 bytes and limit to <= 4096\n    if not segments:\n        segments = [0x12, 0x34, 0x56]\n\n    # Trim or pad to target size\n    if len(segments) < total_bytes:\n        # Pad with a repeating low-discrepancy sequence to avoid introducing strong bias\n        # while staying deterministic.\n        base = rng.randrange(256)\n        step = rng.choice([29, 31, 37, 41, 43])\n        while len(segments) < total_bytes:\n            base = (base + step) & 0xFF\n            segments.append(base)\n    else:\n        segments = segments[:total_bytes]\n\n    # Final safety: ensure length not zero and <= 4096\n    if len(segments) == 0:\n        segments = [0, 0, 0]\n    if len(segments) > 4096:\n        segments = segments[:4096]\n\n    return bytes(segments)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1777,
+            "output_tokens": 231,
+            "total_tokens": 2008
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1355,
+            "output_tokens": 33,
+            "total_tokens": 1388
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1807,
+            "output_tokens": 1535,
+            "total_tokens": 3342
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11588,
+            "output_tokens": 5153,
+            "total_tokens": 16741
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5188,
+            "output_tokens": 1607,
+            "total_tokens": 6795
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2738,
+            "output_tokens": 158,
+            "total_tokens": 2896
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 288.7565746307373,
+    "scan_objects": 8.237325191497803,
+    "validate_objects": 0.3509979248046875,
+    "scan_functions": 41.263755798339844,
+    "synthesis": 133.5533471107483,
+    "fill": 35.261948108673096,
+    "classify": 3.62123441696167,
+    "build_generators": 66.46709370613098
+  }
+}

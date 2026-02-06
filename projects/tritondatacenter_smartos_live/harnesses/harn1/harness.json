@@ -1,0 +1,144 @@
+{
+  "objects": [],
+  "functions": [
+    {
+      "name": "mknod",
+      "signature": "int mknod(const char *path, mode_t mode, dev_t dev);",
+      "description": "Creates a filesystem node (typically a device special file or FIFO) at the given path. Usage follows standard POSIX mknod semantics: the mode encodes the file type (e.g., S_IFCHR, S_IFBLK, S_IFIFO, S_IFREG) combined with permission bits; the dev argument supplies the device ID for device nodes and is ignored for some types (e.g., regular files or FIFOs). Returns 0 on success, -1 on error with errno set. Details are inferred from POSIX conventions; the header itself does not include additional documentation.",
+      "requirements": [
+        "path must be a non-null pointer to a NUL-terminated pathname that is valid in the current process namespace.",
+        "mode must include exactly one file type bit (e.g., S_IFCHR, S_IFBLK, S_IFIFO, S_IFREG) combined with permission bits; invalid or missing type may cause an error. (Inferred from POSIX.)",
+        "dev must be a valid device identifier when creating device special files (S_IFCHR or S_IFBLK); it is typically ignored for other types such as FIFOs. (Inferred from POSIX.)",
+        "Caller should expect the function to return 0 on success and -1 on failure, and must check errno on failure. (Inferred from POSIX.)",
+        "Creating device special files generally requires appropriate privileges (e.g., superuser or CAP_MKNOD). (Inferred from POSIX/Linux behavior.)",
+        "The parent directory of path must exist and be writable by the caller. (Inferred from filesystem semantics.)"
+      ],
+      "error": null
+    },
+    {
+      "name": "mknodat",
+      "signature": "int mknodat(int fd, const char *path, mode_t mode, dev_t dev);",
+      "description": "Like mknod, but interprets path relative to the directory referred to by fd. If path is absolute, fd is ignored. This follows POSIX mknodat semantics. Returns 0 on success, -1 on error with errno set. Details are inferred from POSIX conventions; the header itself does not include additional documentation.",
+      "requirements": [
+        "fd must be a valid open file descriptor referring to a directory, or the special value AT_FDCWD to use the current working directory. (Inferred from POSIX.)",
+        "path must be a non-null pointer to a NUL-terminated pathname; if path is absolute, fd is ignored. (Inferred from POSIX.)",
+        "mode must include exactly one file type bit (e.g., S_IFCHR, S_IFBLK, S_IFIFO, S_IFREG) combined with permission bits; invalid or missing type may cause an error. (Inferred from POSIX.)",
+        "dev must be a valid device identifier when creating device special files (S_IFCHR or S_IFBLK); it is typically ignored for other types such as FIFOs. (Inferred from POSIX.)",
+        "Caller should expect the function to return 0 on success and -1 on failure, and must check errno on failure. (Inferred from POSIX.)",
+        "Creating device special files generally requires appropriate privileges (e.g., superuser or CAP_MKNOD). (Inferred from POSIX/Linux behavior.)",
+        "The parent directory (resolved using fd and path) must exist and be writable by the caller. (Inferred from filesystem semantics.)"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "mknod",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a valid, writable parent directory by reusing the directory of a fuzzer-provided file.\nconst char *base_path = FUZZ_PARAM_FILENAME();\nstd::string base(base_path ? base_path : \"\");\nsize_t slash = base.rfind('/');\nif (slash == std::string::npos || slash == 0) { FUZZ_BAIL(); }\nstd::string dir = base.substr(0, slash);\n\n// Generate a safe filename component. Sanitize to avoid separators and empties.\nstd::string raw = FUZZ_PARAM_STR();\nif (raw.size() > 64) raw.resize(64);\nfor (char &c : raw) { if (c == '/' || c == '\\\\' || c == '\\0') c = '_'; }\nif (raw.empty()) raw = \"node\";\nstd::string path = dir + \"/\" + raw;\n\n// Choose a file type we can create without special privileges: S_IFREG or S_IFIFO.\nunsigned int pick = *FUZZ_PARAM(unsigned int) & 1u;\nmode_t type = pick ? S_IFIFO : S_IFREG;\n// Combine with random permission bits (respecting typical 0777 mask). Avoid sticky/setuid to keep it simple.\nmode_t perms = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\nmode_t mode = type | perms;\n\n// dev is ignored for non-device types; pass 0.\ndev_t dev = (dev_t)0;\n\n// Best-effort pre-cleanup to avoid EEXIST.\n::unlink(path.c_str());\n\n// Call the target function.\nint rc = ::mknod(path.c_str(), mode, dev);\n\n// Optional simple post-condition: if creation succeeded, the path should exist; clean it up.\nif (rc == 0) {\n    // Cleanup so subsequent iterations aren't affected.\n    ::unlink(path.c_str());\n}\n\n// Validation: The stub enforces a single valid type bit (S_IFREG/S_IFIFO), uses a writable existing directory, and tolerates expected errors without violating API constraints."
+    },
+    {
+      "name": "mknodat",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build an absolute path under a writable existing directory using a fuzzer-provided file's directory.\nconst char *base_path = FUZZ_PARAM_FILENAME();\nstd::string base(base_path ? base_path : \"\");\nsize_t slash = base.rfind('/');\nif (slash == std::string::npos || slash == 0) { FUZZ_BAIL(); }\nstd::string dir = base.substr(0, slash); // absolute existing directory\n\n// Create a safe filename component; avoid separators and empties.\nstd::string raw = FUZZ_PARAM_STR();\nif (raw.size() > 64) raw.resize(64);\nfor (char &c : raw) { if (c == '/' || c == '\\\\' || c == '\\0') c = '_'; }\nif (raw.empty()) raw = \"nodeat\";\nstd::string path = dir + \"/\" + raw; // absolute path; ensures fd is ignored by mknodat\n\n// Choose a creatable type without special privileges: S_IFREG or S_IFIFO.\nunsigned int pick = *FUZZ_PARAM(unsigned int) & 1u;\nmode_t type = pick ? S_IFIFO : S_IFREG;\nmode_t perms = (mode_t)(*FUZZ_PARAM(unsigned int) & 0777);\nmode_t mode = type | perms;\n\ndev_t dev = (dev_t)0; // ignored for non-device types\n\n// Best-effort pre-cleanup to reduce EEXIST noise.\n::unlink(path.c_str());\n\n// Use an absolute path so fd is ignored per POSIX; avoid needing to open a directory fd.\nint dummy_fd = 0; // ignored because path is absolute\nint rc = ::mknodat(dummy_fd, path.c_str(), mode, dev);\n\n// Cleanup if created.\nif (rc == 0) {\n    ::unlink(path.c_str());\n}\n\n// Validation: Absolute path guarantees fd is ignored; mode uses exactly one valid type bit (S_IFREG/S_IFIFO) with sane perms; dev is 0 for non-device types; errors are tolerated per API."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "mknod",
+      "data_types": [
+        "filesystem path from filename",
+        "filesystem-safe filename component"
+      ]
+    },
+    {
+      "name": "mknodat",
+      "data_types": [
+        "filesystem path from filename",
+        "filesystem-safe filename component"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path from filename",
+      "description": "A valid pathname obtained by taking the directory portion of a provided filename. The filename points to an existing file populated with arbitrary fuzz data, but only its directory path is used. Expected to be an absolute, existing, writable directory path portion suitable for creating new entries within it."
+    },
+    {
+      "data_type": "filesystem-safe filename component",
+      "description": "A short string used as a filename component, sanitized to contain no path separators or NUL bytes. Typically limited in length (e.g., <=64 chars) and composed of arbitrary bytes mapped to safe characters (e.g., replacing '/' '\\\\' and NUL with '_'). Intended to be concatenated to a directory path to form a valid filesystem path."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path from filename",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator targets stubs that call:\n# - FUZZ_PARAM_FILENAME(): expects a filename that exists so its directory exists and is writable\n# - FUZZ_PARAM_STR(): used as a filename component (sanitized in stub), max 64 bytes preferred\n# - FUZZ_PARAM(unsigned int): provided by harness; we do not control it here\n#\n# The harness will materialize the bytes we return into one or more files and pass one of\n# their paths to FUZZ_PARAM_FILENAME(). Therefore, our job is to emit a buffer that looks like\n# a plausible file payload while ensuring the chosen directory is writable and absolute.\n# Common fuzzing frameworks create the input file under a writable, absolute directory such as\n# /tmp/... or a sandbox path and pass that filename to FUZZ_PARAM_FILENAME(). The stub only uses\n# dirname(base_path) and ignores contents, so we should focus on providing diverse yet valid\n# filename components for FUZZ_PARAM_STR via our buffer: many frameworks split the single input\n# into multiple FUZZ_PARAM_* streams. To help, we structure our buffer as multiple NUL-separated\n# suggestions where the first chunk can also serve as file data.\n#\n# We keep total size <= 4096 bytes.\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_.@#%+=\"\n\n\ndef _rand_safe_name(rng: random.Random, min_len: int = 1, max_len: int = 64) -> str:\n    n = rng.randint(min_len, max_len)\n    s = ''.join(rng.choice(SAFE_CHARS) for _ in range(n))\n    # Avoid reserved names like \".\" or \"..\" after sanitization\n    if s.strip('.') == '' or s in {'.', '..'}:\n        s = 'node' + s.replace('.', '_')\n    return s\n\n\ndef _interesting_names(rng: random.Random) -> List[str]:\n    names = []\n    # Short simple names\n    names.append(_rand_safe_name(rng, 3, 8))\n    names.append(_rand_safe_name(rng, 1, 4))\n    # Max-length safe name (64)\n    names.append(_rand_safe_name(rng, 64, 64))\n    # Names with dots and multiple extensions\n    stem = _rand_safe_name(rng, 3, 12)\n    names.append(f\"{stem}.fifo\")\n    names.append(f\"{stem}.reg\")\n    names.append(f\"{stem}.txt\")\n    # Names that would include separators if not sanitized (we include characters the stub will replace)\n    tricky = ['slash/name', 'back\\\\name', 'nul\\x00name']\n    # Replace NUL inside Python strings with visible placeholder; harness may slice by NUL\n    tricky = [t.replace('\\x00', '0') for t in tricky]\n    names.extend(tricky)\n    # Names that could collide (to exercise unlink + recreate)\n    names.append('node')\n    names.append('nodeat')\n    # Names with many dots or leading dot (but not empty after sanitization)\n    names.append('.hidden_node')\n    names.append('many....dots....name')\n    # Numeric-heavy\n    names.append(str(rng.getrandbits(32)))\n    return names\n\n\ndef _compose_payload(rng: random.Random) -> bytes:\n    # We produce a NUL-separated sequence:\n    # [file-payload]\\0[name1]\\0[name2]\\0... allowing frameworks to consume both data and strings.\n    # The first chunk is arbitrary content, later chunks are candidate filename components.\n    payload_chunks: List[bytes] = []\n\n    # File payload: include some ASCII and some binary-like content but keep small.\n    ascii_block = (\n        b\"This is seed-based payload for mknod/mknodat tests.\\n\"\n        b\"It should be harmless and small.\\n\"\n    )\n    # Add a small random block (32-128 bytes)\n    rand_len = rng.randint(32, 128)\n    rand_block = bytes(rng.getrandbits(8) for _ in range(rand_len))\n    file_payload = ascii_block + rand_block\n    payload_chunks.append(file_payload)\n\n    # Add interesting name candidates.\n    for name in _interesting_names(rng):\n        # Ensure each name <= 64 chars as the stub truncates to 64.\n        if len(name) > 64:\n            name = name[:64]\n        payload_chunks.append(name.encode('utf-8', 'ignore'))\n\n    # Optionally include several randomized names to broaden coverage\n    for _ in range(rng.randint(3, 8)):\n        nm = _rand_safe_name(rng, 1, 64)\n        payload_chunks.append(nm.encode('utf-8'))\n\n    # Join with NUL separators, limit to 4096 bytes total.\n    out = b\"\\x00\".join(payload_chunks)\n    return out[:4096]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    return _compose_payload(rng)\n"
+    },
+    {
+      "data_type": "filesystem-safe filename component",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator produces a filesystem-safe filename component buffer, as expected by FUZZ_PARAM_STR\n# in the provided mknod/mknodat fuzz stubs. The stubs sanitize '/', '\\\\', and NUL to '_', and\n# cap length to 64. We generate diverse yet valid names to exercise different code paths and\n# permission combinations while remaining within constraints. The returned bytes are intended to be\n# used as the FUZZ_PARAM_STR seed buffer by the harness.\n\nSAFE_EXTRA = \"-.@#%+={}[](),;!^$~\"  # extra visible chars that remain safe after stub's sanitization\n\n\ndef _rand_ascii(r: random.Random, length: int) -> str:\n    alphabet = string.ascii_letters + string.digits + SAFE_EXTRA\n    return \"\".join(r.choice(alphabet) for _ in range(length))\n\n\ndef _rand_unicode_segment(r: random.Random, length: int) -> str:\n    # Pick from a set of commonly supported non-ASCII filename characters that are safe on POSIX.\n    # Avoid path separators and NUL by construction.\n    # Include some combining marks and multi-byte codepoints to exercise UTF-8 handling in consumers.\n    pool = (\n        \"éöüßñçàáâäãåèêëìíîïòóôõùúûýÿčšžøåØÆæœΔΩλπµ✓★☆✿—–·•«»„“”‘’€£¥₩₽₹©®™①②③¼½¾¿¡①②③④⑤❶❷❸漢字仮名かなカナ\"\n    )\n    return \"\".join(r.choice(pool) for _ in range(length))\n\n\ndef _rand_safe_with_problematic(r: random.Random, length: int) -> str:\n    # Intentionally include path separators and NUL; stub will sanitize them to '_'.\n    # This helps test the stubs' sanitization branch while still yielding a valid component post-sanitize.\n    base = _rand_ascii(r, max(1, length - 3))\n    inserts = [\"/\", \"\\\\\", \"\\x00\"]\n    for ch in inserts:\n        pos = r.randrange(0, len(base) + 1)\n        base = base[:pos] + ch + base[pos:]\n    # Truncate to requested length\n    return base[:length]\n\n\ndef _generate_candidates(r: random.Random) -> List[bytes]:\n    candidates: List[bytes] = []\n\n    # 1) Simple names of varying lengths, including extremes.\n    lengths = [1, 3, 8, 16, 32, 63, 64]\n    for L in lengths:\n        candidates.append(_rand_ascii(r, L).encode('utf-8', errors='ignore'))\n\n    # 2) Names with unicode, up to 64 bytes after UTF-8 encoding but we choose by char count.\n    for L in [2, 4, 8, 12, 16]:\n        s = _rand_unicode_segment(r, L)\n        b = s.encode('utf-8', errors='ignore')\n        if len(b) > 64:\n            # shrink to fit byte limit of the stub (it truncates by chars, but we keep under 64 bytes)\n            # reduce until <= 64 bytes\n            while len(b) > 64 and L > 1:\n                L -= 1\n                b = s[:L].encode('utf-8', errors='ignore')\n        candidates.append(b)\n\n    # 3) Names that include characters the stub will sanitize.\n    for L in [5, 12, 32, 64]:\n        candidates.append(_rand_safe_with_problematic(r, L).encode('utf-8', errors='ignore'))\n\n    # 4) Edge-case names.\n    edge_cases = [\n        b\"node\",                         # default fallback in stub for empty input\n        b\".\" ,                           # single dot\n        b\"..\",                           # double dot (still a component, no separators)\n        b\"_\",                            # minimal safe char\n        b\"-\",                            # common leading dash\n        b\".hidden\",                      # dotfile\n        b\"NUL_replaced_\\x00_here\",      # includes NUL that will be sanitized to '_'\n        b\"slash/replaced\",               # includes separator to be sanitized\n        b\"back\\\\slash\",                 # includes backslash to be sanitized\n        b\"trailing-dot.\",\n        b\"space name\",                   # space\n        b\"multi..dots\",                  # multiple dots\n        b\"perm755\",                       # hint at permissions path\n        b\"fifo_name\",                     # hint at S_IFIFO\n        b\"regular_file\",                  # hint at S_IFREG\n    ]\n    candidates.extend(edge_cases)\n\n    # 5) Random mix of ASCII and Unicode in one name, up to 64 chars\n    for _ in range(5):\n        parts = []\n        for _j in range(r.randint(2, 5)):\n            if r.random() < 0.5:\n                parts.append(_rand_ascii(r, r.randint(1, 8)))\n            else:\n                parts.append(_rand_unicode_segment(r, r.randint(1, 4)))\n        s = \"\".join(parts)\n        # ensure not empty and within 64 chars (stub trims by char count). We'll trim here to be safe.\n        if len(s) > 64:\n            s = s[:64]\n        candidates.append(s.encode('utf-8', errors='ignore'))\n\n    # Deduplicate while preserving order\n    seen = set()\n    unique: List[bytes] = []\n    for c in candidates:\n        if c not in seen and 1 <= len(c) <= 4096:\n            seen.add(c)\n            unique.append(c)\n\n    return unique\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    cands = _generate_candidates(r)\n    # Choose one candidate deterministically from the seed, but allow variability across seeds.\n    if not cands:\n        return b\"node\"\n    idx = r.randrange(0, len(cands))\n    # Ensure final buffer length within 4096 bytes and non-empty\n    buf = cands[idx][:4096]\n    if not buf:\n        buf = b\"node\"\n    return buf\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 780,
+            "output_tokens": 184,
+            "total_tokens": 964
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 358,
+            "output_tokens": 23,
+            "total_tokens": 381
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 797,
+            "output_tokens": 1107,
+            "total_tokens": 1904
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10092,
+            "output_tokens": 4118,
+            "total_tokens": 14210
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2729,
+            "output_tokens": 211,
+            "total_tokens": 2940
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 178.88848543167114,
+    "scan_objects": 4.177923917770386,
+    "validate_objects": 0.09534502029418945,
+    "scan_functions": 20.857569694519043,
+    "synthesis": 109.87542176246643,
+    "fill": 0,
+    "classify": 5.250139236450195,
+    "build_generators": 38.631452798843384
+  }
+}

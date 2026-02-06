@@ -1,0 +1,133 @@
+{
+  "objects": [],
+  "functions": [
+    {
+      "name": "uk_vsnprintf",
+      "signature": "int uk_vsnprintf(char *str, size_t size, const char *fmt, va_list ap);",
+      "description": "Formats data according to the printf-style format string fmt and writes the result into the buffer str, writing at most size bytes including the terminating null byte. This is the va_list-based variant of uk_snprintf, analogous to standard vsnprintf. Returns the number of characters that would have been written (excluding the terminating null byte); if the return value is >= size, the output was truncated. Exact behavior is inferred from standard printf-family semantics; library-specific extensions (if any) are unknown.",
+      "requirements": [
+        "str must point to a writable buffer of at least size bytes; if size is 0, str may be NULL.",
+        "size must be a non-negative size_t value; if size is too small, the output is truncated but the buffer is still null-terminated if size > 0.",
+        "fmt must be a non-NULL, null-terminated printf-style format string supported by this implementation.",
+        "ap must be a valid va_list initialized with va_start and containing arguments that match fmt; do not reuse ap after the call unless it was previously duplicated with va_copy.",
+        "Callers should check the return value: a value >= size indicates truncation; a negative value indicates a formatting/encoding error (inferred from common C library behavior)."
+      ],
+      "error": null
+    },
+    {
+      "name": "uk_snprintf",
+      "signature": "int uk_snprintf(char *str, size_t size, const char *fmt, ...);",
+      "description": "Formats data according to the printf-style format string fmt and writes the result into the buffer str, writing at most size bytes including the terminating null byte. Variadic counterpart to uk_vsnprintf; typically implemented by forwarding to uk_vsnprintf. Returns the number of characters that would have been written (excluding the terminating null byte); if the return value is >= size, the output was truncated. Behavior mirrors standard snprintf; any library-specific differences are unknown.",
+      "requirements": [
+        "str must point to a writable buffer of at least size bytes; if size is 0, str may be NULL.",
+        "size must be a non-negative size_t value; if size is too small, the output is truncated but the buffer is still null-terminated if size > 0.",
+        "fmt must be a non-NULL, null-terminated printf-style format string supported by this implementation.",
+        "The variadic arguments must be provided and must match the conversion specifiers in fmt.",
+        "Callers should check the return value: a value >= size indicates truncation; a negative value indicates a formatting/encoding error (inferred from common C library behavior)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "uk_snprintf",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare an output buffer per requirements: if size == 0, str may be NULL; otherwise str must be a writable buffer of at least size bytes.\nunsigned int raw_sz = *FUZZ_PARAM(unsigned int);\nsize_t size = (size_t)(raw_sz % 2048); // keep allocations small per fuzzer guidance\nstd::string buf; // backing storage when size > 0\nchar *str = nullptr;\nif (size > 0) {\n    buf.assign(size, '\\0');\n    str = &buf[0]; // writable buffer\n}\n\n// Generate auxiliary argument values we may need for various format cases\nint v_int = (int)(*FUZZ_PARAM(unsigned int));\nunsigned int v_uint = *FUZZ_PARAM(unsigned int);\nlong v_long = (long)(*FUZZ_PARAM(unsigned long));\nunsigned long v_ulong = *FUZZ_PARAM(unsigned long);\nlong long v_ll = (long long)(*FUZZ_PARAM(unsigned long long));\nunsigned long long v_ull = *FUZZ_PARAM(unsigned long long);\nsize_t v_size = (size_t)(*FUZZ_PARAM(unsigned long long));\nstd::string s_arg = FUZZ_PARAM_STR();\nconst char *cstr = s_arg.c_str(); // non-null, null-terminated\nint v_char = (int)(*FUZZ_PARAM(unsigned int) & 0xFF); // %c expects an int convertible to unsigned char\nconst void *v_ptr = (const void *)cstr; // safe non-null pointer for %p\n\n// Choose a safe, supported format string and provide matching variadic args.\n// We avoid width/precision from arguments (like %*.*d) to keep argument matching simple and correct.\nunsigned int which = *FUZZ_PARAM(unsigned int) % 6;\nconst char *fmt = nullptr;\nint ret = 0;\nif (which == 0) {\n    // No conversions; literal only\n    fmt = \"Hello, world!\";\n    ret = uk_snprintf(str, size, fmt);\n} else if (which == 1) {\n    // Mixed basic integer types\n    fmt = \"%d %u %x %o\";\n    ret = uk_snprintf(str, size, fmt, v_int, v_uint, v_uint, v_uint);\n} else if (which == 2) {\n    // Wider integer and size types\n    fmt = \"%lld %llu %zu %ld %lu\";\n    ret = uk_snprintf(str, size, fmt, v_ll, v_ull, v_size, v_long, v_ulong);\n} else if (which == 3) {\n    // Strings, char, and pointer\n    fmt = \"%s %c %p\";\n    ret = uk_snprintf(str, size, fmt, cstr, v_char, v_ptr);\n} else if (which == 4) {\n    // Flags and field widths (constants in the format string)\n    fmt = \"%% %08x %-5d %+lld\";\n    ret = uk_snprintf(str, size, fmt, v_uint, v_int, v_ll);\n} else {\n    // Length modifiers that rely on default argument promotions being int for h/hh\n    int v_hhd_src = (int)(*FUZZ_PARAM(unsigned int));\n    int v_hd_src = (int)(*FUZZ_PARAM(unsigned int));\n    fmt = \"%#x %#o %hhd %hd\";\n    ret = uk_snprintf(str, size, fmt, v_uint, v_uint, v_hhd_src, v_hd_src);\n}\n\n// Post-call notes:\n// - If ret >= size and size > 0, the output was truncated but must be NUL-terminated per spec.\n// - If size == 0, str is NULL and no write occurs; ret still reflects the number of chars that would have been written.\n// We do not assert on return value since negative values may indicate implementation-defined errors.\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "uk_vsnprintf",
+      "reason": "A valid va_list cannot be constructed in this stub without defining a helper variadic function, which is disallowed by the harness constraints."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "uk_snprintf",
+      "data_types": [
+        "printf format string",
+        "C string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "printf format string",
+      "description": "A null-terminated C string that follows printf-style formatting syntax. It may include literal text and conversion specifiers (e.g., %d, %u, %x, %o, %lld, %llu, %zu, %ld, %lu, %s, %c, %p) as well as flags, width, precision, and length modifiers. The string must be valid per the implementation’s printf parser and is used to control how subsequent arguments are formatted into the destination buffer."
+    },
+    {
+      "data_type": "C string",
+      "description": "A null-terminated sequence of bytes representing text data, suitable for use with C APIs expecting const char*. It may contain arbitrary byte values including embedded spaces; termination is indicated by the first NUL (\\0) byte."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "printf format string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator targets printf-style format strings used by uk_snprintf fuzzer stub.\n# The fuzzer stub consumes FUZZ_PARAM_STR() for the %s argument and uses other\n# numeric parameters from its own FUZZ_PARAM() sources. Our job is to provide\n# interesting, valid initial buffers that FUZZ_PARAM_STR() and FUZZ_PARAM_FILENAME()\n# can draw from. We therefore emit a bytes blob containing multiple null-terminated\n# C-strings concatenated together. The fuzzer framework typically slices/randomly\n# selects substrings; by packing many valid, diverse strings (format strings and\n# data strings), we increase coverage while keeping inputs valid.\n#\n# Contents we include:\n# - A variety of printf format strings that match the stub's variants (0..5),\n#   including flags, width, precision, length modifiers, and edge cases.\n# - Plain strings for %s, including empty, ASCII, long, Unicode-like UTF-8, and\n#   strings containing percent signs that should be treated as literals when used\n#   as %s data, not as a format string.\n# - Pointers-as-text and hex-like strings for %p display data.\n#\n# All strings are null-terminated and concatenated; overall length <= 4096 bytes.\n\nMAX_TOTAL = 4096\n\nFMT_VARIANTS_BASE: List[str] = [\n    # which == 0: literals only\n    \"Hello, world!\",\n    \"The quick brown fox\",\n    \"\",\n    # which == 1: basic integer types\n    \"%d %u %x %o\",\n    \"%d %u %08x %#o\",\n    \"%+d %-10u %#x %#o\",\n    # which == 2: wider integer and size types\n    \"%lld %llu %zu %ld %lu\",\n    \"%+lld %-#12llu %020zu %+ld %#lu\",\n    # which == 3: strings, char, pointer\n    \"%s %c %p\",\n    \"prefix:%s|ch:%c|ptr:%p\",\n    # which == 4: flags and field widths (constants)\n    \"%% %08x %-5d %+lld\",\n    \"%%%-#12x | %-5d | %+lld\",\n    # which == 5: length modifiers h/hh and alternate forms\n    \"%#x %#o %hhd %hd\",\n    \"%#010x %#-12o %hhd %hd\",\n]\n\n# Add some width/precision stress while keeping no * width to match stub\nFMT_PRECISION = [\n    \"%.0u\", \"%.1u\", \"%.5u\", \"%.0x\", \"%.8x\", \"%.3o\",\n    \"%10d\", \"%-10d\", \"%+10lld\", \"%020llu\",\n    \"%-5s\", \"%10s\", \"%.0s\", \"%.5s\", \"%20.10s\",\n]\n\nDATA_STRINGS_BASE: List[str] = [\n    \"\",  # empty string\n    \"a\",\n    \"ABC\",\n    \"1234567890\",\n    \"line1\\nline2\\n\",\n    \"tab\\tseparated\",\n    \"% percent literal % and more % signs %%\",\n    \"null-byte->\",\n    \"Lorem ipsum dolor sit amet, consectetur adipiscing elit.\",\n    # UTF-8 multi-byte sequences (valid as bytes for %s)\n    \"προγραμμα\",  # Greek\n    \"こんにちは世界\",  # Japanese\n    \"emoji: 😀😃😄😁\",\n    # Very long but bounded string\n    \"X\" * 256,\n    # Hex-like and pointer-like strings\n    \"0xDEADBEEF\",\n    \"0x00000000\",\n    \"ffffffff\",\n]\n\n# Helper to encode C-string with null terminator\nndef = '\\u0000'\n\ndef cstr(s: str) -> bytes:\n    return s.encode('utf-8', errors='strict') + b\"\\x00\"\n\n\ndef build_pool(rng: random.Random) -> bytes:\n    parts: List[bytes] = []\n\n    # Start with several format strings variants\n    fmts = FMT_VARIANTS_BASE[:]\n    fmts += FMT_PRECISION\n\n    # Randomly permute and select a subset to stay under size budget\n    rng.shuffle(fmts)\n\n    # Also craft some combined composite formats that remain valid wrt stub args\n    # We avoid dynamic widths (*) and only use specifiers present in stub pools\n    composite_candidates = [\n        \"%s|%c|%p|%d|%u|%x|%o\",\n        \"%lld|%llu|%zu|%ld|%lu|%#x|%#o\",\n        \"[%08x] (%-5d) {%+lld} [%10s]\",\n    ]\n    fmts[:0] = composite_candidates\n\n    total = 0\n\n    def add_part(b: bytes):\n        nonlocal total\n        if total + len(b) <= MAX_TOTAL:\n            parts.append(b)\n            total += len(b)\n            return True\n        return False\n\n    # Ensure we include at least one of each key format group\n    for must in [\n        \"Hello, world!\",\n        \"%d %u %x %o\",\n        \"%lld %llu %zu %ld %lu\",\n        \"%s %c %p\",\n        \"%% %08x %-5d %+lld\",\n        \"%#x %#o %hhd %hd\",\n    ]:\n        add_part(cstr(must))\n\n    # Add randomized selection of additional format strings\n    for f in fmts:\n        if rng.random() < 0.8:  # keep many but not all\n            if not add_part(cstr(f)):\n                break\n\n    # Add a separator marker string to help some consumers split\n    add_part(cstr(\"--\"))\n\n    # Data strings for %s\n    data = DATA_STRINGS_BASE[:]\n    # Add a few random-length numeric strings and mixed content\n    for _ in range(10):\n        n = rng.randrange(0, 1_000_000_000)\n        data.append(str(n))\n    for _ in range(5):\n        width = rng.randrange(1, 64)\n        fill = rng.choice([\" \", \"0\", \"-\", \"+\"])\n        data.append((fill * width))\n    # Shuffle and insert\n    rng.shuffle(data)\n    for s in data:\n        if not add_part(cstr(s)):\n            break\n\n    # Final boundary values for %c as strings (though %c takes int, cstr is used for %s)\n    for ch in [\"\\x00\", \"\\x01\", \"A\", \"\\x7f\", \"\\xff\"]:\n        try:\n            add_part(ch.encode('latin1') + b\"\\x00\")\n        except Exception:\n            pass\n\n    # Ensure trailing terminator even if empty\n    if total == 0:\n        add_part(b\"\\x00\")\n\n    return b\"\".join(parts)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Mix seed to vary content slightly\n    rng.jumpahead = getattr(rng, 'jumpahead', None)  # not used in py3, keep compatibility\n\n    blob = build_pool(rng)\n    # Keep within limit defensively\n    return blob[:MAX_TOTAL]\n"
+    },
+    {
+      "data_type": "C string",
+      "generator": "import random\nimport struct\nimport string\nfrom typing import List\n\n# We need to generate bytes that will be consumed by the fuzzer's FUZZ_PARAM and FUZZ_PARAM_STR.\n# Observed usage in the stub:\n# - Several unsigned ints/longs/long longs (used as numeric args and size)\n# - A C string (for %s and as a pointer backing for %p)\n# - The stub chooses among 6 format cases using an unsigned int modulo 6\n# - The first FUZZ_PARAM(unsigned int) determines output buffer size (mod 2048)\n#\n# Goal: Provide a buffer that the fuzzer splits to satisfy these FUZZ_PARAM calls.\n# Typical FUZZ frameworks read primitive values sequentially from the input buffer.\n# We'll craft the buffer as a sequence of little-endian integers followed by a well-formed C string\n# so that FUZZ_PARAM_STR can find a NUL-terminated region.\n#\n# Layout we emit (in order):\n# 1) seed_size_u32: controls size (mod 2048) -> provide varied sizes including 0, small, near limit\n# 2) v_int_u32\n# 3) v_uint_u32\n# 4) v_long_u64\n# 5) v_ulong_u64\n# 6) v_ll_u64\n# 7) v_ull_u64\n# 8) v_size_u64\n# 9) s_arg bytes (C string with embedded NUL termination)\n# 10) v_char_src_u32\n# 11) which_u32 (to steer format case)\n# 12) v_hhd_src_u32\n# 13) v_hd_src_u32\n#\n# We also try to create interesting values (edge cases, flags, different magnitudes).\n\nMAX_TOTAL = 4096\n\nEDGE_U32 = [0, 1, 2, 7, 8, 9, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024, 2047,\n            0x7fffffff, 0x80000000, 0xffffffff]\nEDGE_U64 = [0, 1, 2, 7, 8, 9, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024, 2047,\n            0x7fffffffffffffff, 0x8000000000000000, 0xffffffffffffffff]\n\nPRINTABLE = string.ascii_letters + string.digits + string.punctuation + ' '\n\n\ndef _rand_u32(r: random.Random) -> int:\n    # Bias towards edge values\n    if r.random() < 0.5:\n        return r.choice(EDGE_U32) & 0xffffffff\n    return r.getrandbits(32)\n\n\ndef _rand_u64(r: random.Random) -> int:\n    if r.random() < 0.5:\n        return r.choice(EDGE_U64) & 0xffffffffffffffff\n    return r.getrandbits(64)\n\n\ndef _make_c_string(r: random.Random) -> bytes:\n    # Create a diverse C-string: may include percent signs, width/precision literals, spaces,\n    # and typical words. Make sure it is NUL-terminated and not excessively long.\n    # However, the stub uses it as a data argument for %s and for %p; not as a format.\n    # So any bytes up to NUL are fine. We'll include a mixture to exercise %s length handling.\n    max_len = r.randint(0, 1024)  # keep within overall cap\n    segments: List[str] = []\n    # Include different segment types with some probability\n    choices = [\n        ''.join(r.choice(PRINTABLE) for _ in range(r.randint(0, 64))),\n        'hello world',\n        'A' * r.randint(0, 128),\n        'abc\\nxyz',\n        '% not a format',\n        ''.join(chr(r.randint(1, 255)) for _ in range(r.randint(0, 32)))  # may include non-printable (except NUL)\n    ]\n    # Build until max_len\n    while sum(len(s) for s in segments) < max_len and len(segments) < 8:\n        segments.append(r.choice(choices))\n    s = ''.join(segments)\n    # Truncate to max_len\n    s = s[:max_len]\n    b = s.encode('latin1', errors='ignore')  # preserve bytes 1..255; drop any invalid\n    # Ensure at least something sometimes empty is fine\n    # NUL-terminate explicitly\n    return b + b'\\x00'\n\n\ndef _pack_u32_le(v: int) -> bytes:\n    return struct.pack('<I', v & 0xffffffff)\n\n\ndef _pack_u64_le(v: int) -> bytes:\n    return struct.pack('<Q', v & 0xffffffffffffffff)\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    out = bytearray()\n\n    # 1) seed_size_u32: choose sizes near interesting boundaries for snprintf\n    size_choices = [0, 1, 2, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024, 2047, 4095]\n    size_val = r.choice(size_choices)\n    out += _pack_u32_le(size_val)\n\n    # 2) v_int_u32\n    out += _pack_u32_le(_rand_u32(r))\n    # 3) v_uint_u32\n    out += _pack_u32_le(_rand_u32(r))\n    # 4) v_long_u64\n    out += _pack_u64_le(_rand_u64(r))\n    # 5) v_ulong_u64\n    out += _pack_u64_le(_rand_u64(r))\n    # 6) v_ll_u64\n    out += _pack_u64_le(_rand_u64(r))\n    # 7) v_ull_u64\n    out += _pack_u64_le(_rand_u64(r))\n    # 8) v_size_u64\n    out += _pack_u64_le(_rand_u64(r))\n\n    # 9) s_arg C-string\n    s_bytes = _make_c_string(r)\n    out += s_bytes\n\n    # 10) v_char_src_u32\n    out += _pack_u32_le(_rand_u32(r))\n\n    # 11) which_u32 to steer cases 0..5 evenly\n    which = r.randint(0, 5)\n    out += _pack_u32_le(which)\n\n    # 12) v_hhd_src_u32\n    out += _pack_u32_le(_rand_u32(r))\n    # 13) v_hd_src_u32\n    out += _pack_u32_le(_rand_u32(r))\n\n    # Ensure total size <= 4096\n    if len(out) > MAX_TOTAL:\n        # Truncate conservatively at end; maintain that the C-string had a NUL within\n        out = out[:MAX_TOTAL]\n        # Try to end with a NUL to not break potential trailing C-string parsing\n        if out[-1] != 0:\n            # Replace last byte with NUL\n            out[-1] = 0\n\n    return bytes(out)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 952,
+            "output_tokens": 234,
+            "total_tokens": 1186
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 530,
+            "output_tokens": 30,
+            "total_tokens": 560
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2912,
+            "output_tokens": 3800,
+            "total_tokens": 6712
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4199,
+            "output_tokens": 2802,
+            "total_tokens": 7001
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2493,
+            "output_tokens": 215,
+            "total_tokens": 2708
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 219.13746523857117,
+    "scan_objects": 5.403833389282227,
+    "validate_objects": 0.08334827423095703,
+    "scan_functions": 119.90490555763245,
+    "synthesis": 51.988951206207275,
+    "fill": 0,
+    "classify": 3.7807579040527344,
+    "build_generators": 37.97510623931885
+  }
+}

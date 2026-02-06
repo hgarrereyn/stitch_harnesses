@@ -1,0 +1,1401 @@
+{
+  "objects": [
+    {
+      "ptr_type": "Java *",
+      "aliases": [],
+      "definition": "class Java;",
+      "description": "Forward declaration of a Java integration helper class used elsewhere in the project. Only an incomplete type is provided here; definition is not present in this header. Purpose inferred: coordinates JNI and V8/NAN interactions.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "DynamicProxyData *"
+      ]
+    },
+    {
+      "ptr_type": "jvalueType *",
+      "aliases": [
+        "enum _jvalueType *"
+      ],
+      "definition": "typedef enum _jvalueType {\n  TYPE_VOID = 1,\n  TYPE_INT = 2,\n  TYPE_LONG = 3,\n  TYPE_OBJECT = 4,\n  TYPE_STRING = 5,\n  TYPE_BOOLEAN = 6,\n  TYPE_SHORT = 7,\n  TYPE_BYTE = 8,\n  TYPE_DOUBLE = 9,\n  TYPE_FLOAT = 10,\n  TYPE_ARRAY = 11,\n  TYPE_CHAR = 12\n} jvalueType;",
+      "description": "Enumeration of abstract Java value types used to describe JNI types (primitives, object, array, etc.). Values align with internal marshaling between V8 and Java.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "DynamicProxyData *",
+      "aliases": [],
+      "definition": "struct DynamicProxyData {\n  unsigned int markerStart;\n  Java *java;\n  std::string interfaceName;\n  Nan::Persistent<v8::Object> functions;\n  Nan::Persistent<v8::Value> jsObject;\n  unsigned int markerEnd;\n};",
+      "description": "Holds state for a Java dynamic proxy bridged to V8: owning Java instance/context, target Java interface name, persistent handles to JS proxy functions and backing object, and start/end markers for integrity checks.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "DynamicProxyJsCallData *"
+      ]
+    },
+    {
+      "ptr_type": "DynamicProxyJsCallData *",
+      "aliases": [],
+      "definition": "struct DynamicProxyJsCallData {\n  DynamicProxyData *dynamicProxyData;\n  std::string methodName;\n  jobjectArray args;\n  jobject result;\n  std::string throwableClass;\n  std::string throwableMessage;\n  int done;\n};",
+      "description": "Per-call data used when invoking JavaScript from a Java dynamic proxy callback. Carries the proxy context, target method name, JNI arguments, result placeholder, exception info, and completion flag.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "MethodCallBaton *",
+      "aliases": [],
+      "definition": "class MethodCallBaton : public Nan::AsyncWorker {\npublic:\n  MethodCallBaton(Java *java, jobject method, jarray args, v8::Local<v8::Value> &callback);\n  virtual ~MethodCallBaton();\n\n  void run();\n  v8::Local<v8::Value> runSync();\n\nprotected:\n  v8::Local<v8::Value> resultsToV8(JNIEnv *env);\n  virtual void Execute();\n  virtual void WorkComplete();\n  virtual void ExecuteInternal(JNIEnv *env) = 0;\n  static jmethodID getMethodInvokeMethodId(JNIEnv *env);\n\n  Java *m_java;\n  jthrowable m_error;\n  std::string m_errorString;\n  jarray m_args;\n  jobject m_result;\n  jobject m_method;\n\nprivate:\n  static jmethodID m_methodInvokeMethodId;\n};",
+      "description": "Abstract async worker base that bridges a Java method invocation into Node.js/V8 via NAN. Holds the JVM method, arguments, result, and error info. Provides async (Execute/WorkComplete) and sync (runSync) paths, with subclass-specific behavior implemented in ExecuteInternal. Manages retrieval of the java.lang.reflect.Method.invoke jmethodID via getMethodInvokeMethodId.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "InstanceMethodCallBaton *",
+      "aliases": [],
+      "definition": "class InstanceMethodCallBaton : public MethodCallBaton {\npublic:\n  InstanceMethodCallBaton(Java *java, JavaObject *obj, jobject method, jarray args, v8::Local<v8::Value> &callback);\n  virtual ~InstanceMethodCallBaton();\n\nprotected:\n  virtual void ExecuteInternal(JNIEnv *env);\n\n  JavaObject *m_javaObject;\n};",
+      "description": "Concrete MethodCallBaton for invoking an instance method on a specific JavaObject. Stores a reference to the target JavaObject and implements ExecuteInternal to perform the instance invocation.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "MethodCallBaton *"
+      ]
+    },
+    {
+      "ptr_type": "NewInstanceBaton *",
+      "aliases": [],
+      "definition": "class NewInstanceBaton : public MethodCallBaton {\npublic:\n  NewInstanceBaton(Java *java, jclass clazz, jobject method, jarray args, v8::Local<v8::Value> &callback);\n  virtual ~NewInstanceBaton();\n\nprotected:\n  virtual void ExecuteInternal(JNIEnv *env);\n\n  jclass m_clazz;\n};",
+      "description": "Concrete MethodCallBaton for constructing new Java objects. Holds a jclass and a constructor method/args, implementing ExecuteInternal to create a new instance and capture the resulting jobject.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "MethodCallBaton *"
+      ]
+    },
+    {
+      "ptr_type": "StaticMethodCallBaton *",
+      "aliases": [],
+      "definition": "class StaticMethodCallBaton : public MethodCallBaton {\npublic:\n  StaticMethodCallBaton(Java *java, jclass clazz, jobject method, jarray args, v8::Local<v8::Value> &callback);\n  virtual ~StaticMethodCallBaton();\n\nprotected:\n  virtual void ExecuteInternal(JNIEnv *env);\n\n  jclass m_clazz;\n};",
+      "description": "Concrete MethodCallBaton for invoking static Java methods on a class. Stores the target jclass and implements ExecuteInternal to call the static method and capture the result.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "MethodCallBaton *"
+      ]
+    },
+    {
+      "ptr_type": "JavaObject *",
+      "aliases": [],
+      "definition": "class JavaObject : public Nan::ObjectWrap {\npublic:\n  static void Init(v8::Local<v8::Object> target);\n  static v8::Local<v8::Object> New(Java *java, jobject obj);\n  static v8::Local<v8::Object> NewProxy(Java *java, jobject obj, DynamicProxyData *dynamicProxyData);\n\n  jobject getObject() { return m_obj; }\n  jclass getClass() { return m_class; }\n\n  void Ref() { Nan::ObjectWrap::Ref(); }\n  void Unref() { Nan::ObjectWrap::Unref(); }\n\nprotected:\n  JavaObject(Java *java, jobject obj);\n  ~JavaObject();\n\nprivate:\n  static NAN_METHOD(methodCall);\n  static NAN_METHOD(methodCallSync);\n  static NAN_METHOD(methodCallPromise);\n  static NAN_GETTER(fieldGetter);\n  static NAN_SETTER(fieldSetter);\n  static NAN_INDEX_GETTER(indexGetter);\n\n  static std::map<std::string, Nan::Persistent<v8::FunctionTemplate> *> sFunctionTemplates;\n  Java *m_java;\n  jobject m_obj;\n  jclass m_class;\n};",
+      "description": "V8/NAN-wrapped handle for a Java object (JNI jobject) exposed to Node.js. Manages a JNI object reference and associated class, and provides method and field accessors callable from JavaScript, including sync/async/promise variants. It also manages per-class FunctionTemplate caching. Construction appears to be internal via static New/NewProxy; destructor likely releases JNI references (details not shown).",
+      "direct_api_constructors": [
+        "JavaObject::New",
+        "JavaObject::NewProxy"
+      ],
+      "owned_by": [
+        "JavaProxyObject *"
+      ]
+    },
+    {
+      "ptr_type": "JavaProxyObject *",
+      "aliases": [],
+      "definition": "class JavaProxyObject : public JavaObject {\npublic:\n  static void init();\n  static v8::Local<v8::Object> New(Java *java, jobject obj, DynamicProxyData *dynamicProxyData);\n\nprivate:\n  JavaProxyObject(Java *java, jobject obj, DynamicProxyData *dynamicProxyData);\n  ~JavaProxyObject();\n  static NAN_METHOD(doUnref);\n  static NAN_GETTER(invocationHandlerGetter);\n\n  static Nan::Persistent<v8::FunctionTemplate> s_proxyCt;\n  DynamicProxyData *m_dynamicProxyData;\n};",
+      "description": "Specialized JavaObject that represents a dynamic Java proxy instance bridged to Node.js. Holds DynamicProxyData used to route method invocations to a JS invocation handler. Provides a custom unref method and accessor for the invocation handler. Lifecycle likely mirrors JavaObject with additional proxy bookkeeping.",
+      "direct_api_constructors": [
+        "JavaProxyObject::New"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "JavaScope *",
+      "aliases": [],
+      "definition": "class JavaScope {\npublic:\n  JavaScope(JNIEnv *env);\n  ~JavaScope();\n  jobject Close(jobject result);\n\nprivate:\n  JNIEnv *m_env;\n  jobject m_result;\n};",
+      "description": "RAII-style helper class for managing a scoped interaction with the Java JNI environment. Constructed with a JNIEnv*, it likely establishes a local reference frame (given LOCAL_FRAME_SIZE) and cleans it up on destruction. Close(jobject result) suggests finalizing the scope and returning a result reference. Exact lifetime rules and whether it pushes/pops a LocalFrame are inferred; details not explicitly documented here.",
+      "direct_api_constructors": [
+        "JavaScope::JavaScope(JNIEnv *env)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Java *",
+      "aliases": [],
+      "definition": "class Java : public Nan::ObjectWrap {\npublic:\n  static void Init(v8::Local<v8::Object> target);\n  JavaVM *getJvm() { return m_jvm; }\n  JNIEnv *getJavaEnv() {\n    return m_env;\n  } // can only be used safely by the main thread as this is the thread it belongs to\n  jobject getClassLoader() { return m_classLoader; }\n\npublic:\n  bool DoSync() const { return doSync; }\n  bool DoAsync() const { return doAsync; }\n  bool DoPromise() const { return doPromise; }\n  std::string SyncSuffix() const { return m_SyncSuffix; }\n  std::string AsyncSuffix() const { return m_AsyncSuffix; }\n  std::string PromiseSuffix() const { return m_PromiseSuffix; }\n\nprivate:\n  Java();\n  ~Java();\n  v8::Local<v8::Value> createJVM(JavaVM **jvm, JNIEnv **env);\n  void destroyJVM(JavaVM **jvm, JNIEnv **env);\n  void configureAsync(v8::Local<v8::Value> &asyncOptions);\n\n  static NAN_METHOD(New);\n  static NAN_METHOD(getClassLoader);\n  static NAN_METHOD(newInstance);\n  static NAN_METHOD(newInstanceSync);\n  static NAN_METHOD(newProxy);\n  static NAN_METHOD(callStaticMethod);\n  static NAN_METHOD(callStaticMethodSync);\n  static NAN_METHOD(callMethod);\n  static NAN_METHOD(callMethodSync);\n  static NAN_METHOD(findClassSync);\n  static NAN_METHOD(newArray);\n  static NAN_METHOD(newByte);\n  static NAN_METHOD(newChar);\n  static NAN_METHOD(newShort);\n  static NAN_METHOD(newLong);\n  static NAN_METHOD(newFloat);\n  static NAN_METHOD(newDouble);\n  static NAN_METHOD(getStaticFieldValue);\n  static NAN_METHOD(setStaticFieldValue);\n  static NAN_METHOD(instanceOf);\n  static NAN_METHOD(stop);\n  static NAN_GETTER(AccessorProhibitsOverwritingGetter);\n  static NAN_SETTER(AccessorProhibitsOverwritingSetter);\n  v8::Local<v8::Value> ensureJvm();\n\n  static Nan::Persistent<v8::FunctionTemplate> s_ct;\n  JavaVM *m_jvm;\n  JNIEnv *m_env; // can only be used safely by the main thread as this is the thread it belongs to\n  jobject m_classLoader;\n  std::string m_classPath;\n  static std::string s_nativeBindingLocation;\n  Nan::Persistent<v8::Array> m_classPathArray;\n  Nan::Persistent<v8::Array> m_optionsArray;\n  Nan::Persistent<v8::Object> m_asyncOptions;\n\n  std::string m_SyncSuffix;\n  std::string m_AsyncSuffix;\n  std::string m_PromiseSuffix;\n\n  bool doSync;\n  bool doAsync;\n  bool doPromise;\n};",
+      "description": "Node.js addon wrapper integrating JNI with V8 via NAN. Manages a JVM instance, class loader, and exposes methods to create Java objects, call methods, manage arrays, and configure async/sync/promise invocation styles. Construction and destruction are private; instances are created through the static New method during module initialization. The JNIEnv pointer is tied to the main thread. Ownership of JNI resources (JavaVM, JNIEnv, jobject class loader) is managed internally.",
+      "direct_api_constructors": [
+        "New",
+        "Init"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "JNIEnv *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque JNI interface pointer provided by the JVM. Referenced here as a parameter type; it is not defined in this header. No custom definition present.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "jobject *",
+      "aliases": [],
+      "definition": "",
+      "description": "JNI reference handle type provided by JNI. Used as parameter and return type. Not defined in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "jlong *",
+      "aliases": [],
+      "definition": "",
+      "description": "JNI 64-bit integer typedef from JNI. Only referenced; not defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "jobjectArray *",
+      "aliases": [],
+      "definition": "",
+      "description": "JNI array of object references from JNI. Only referenced; not defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "dynamicProxyDataVerify",
+      "signature": "int dynamicProxyDataVerify(DynamicProxyData *data);",
+      "description": "Validates a DynamicProxyData structure, likely checking its integrity markers (DYNAMIC_PROXY_DATA_MARKER_START/END) and internal fields. Use to ensure a DynamicProxyData pointer is valid before use.",
+      "requirements": [
+        "data must point to a DynamicProxyData that was initialized by this library.",
+        "May check markerStart/markerEnd against DYNAMIC_PROXY_DATA_MARKER_START/DYNAMIC_PROXY_DATA_MARKER_END; callers should not modify these markers."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaReflectionGetMethods",
+      "signature": "void javaReflectionGetMethods(JNIEnv *env, jclass clazz, std::list<jobject> *methods, bool includeStatic);",
+      "description": "Populates methods with Java reflection Method objects from the specified class. Controls inclusion of static methods via includeStatic.",
+      "requirements": [
+        "env must be a valid, attached JNI environment for the current thread.",
+        "clazz must be a valid Java class reference.",
+        "methods must be a non-null pointer to a std::list<jobject> ready to receive local/global references.",
+        "includeStatic selects whether static methods are included."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaReflectionGetConstructors",
+      "signature": "void javaReflectionGetConstructors(JNIEnv *env, jclass clazz, std::list<jobject> *methods);",
+      "description": "Collects Java reflection Constructor objects for the given class and appends them to methods.",
+      "requirements": [
+        "env must be a valid, attached JNI environment.",
+        "clazz must be a valid Java class reference.",
+        "methods must be a non-null pointer to a std::list<jobject> ready to receive constructor objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaReflectionGetFields",
+      "signature": "void javaReflectionGetFields(JNIEnv *env, jclass clazz, std::list<jobject> *fields);",
+      "description": "Retrieves Java reflection Field objects for the specified class and appends them to fields.",
+      "requirements": [
+        "env must be a valid, attached JNI environment.",
+        "clazz must be a valid Java class reference.",
+        "fields must be a non-null pointer to a std::list<jobject> to receive field objects."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaToString",
+      "signature": "std::string javaToString(JNIEnv *env, jstring str);",
+      "description": "Converts a Java jstring to a UTF-8 std::string.",
+      "requirements": [
+        "env must be valid.",
+        "str should be a valid jstring; behavior for null is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaObjectToString",
+      "signature": "std::string javaObjectToString(JNIEnv *env, jobject obj);",
+      "description": "Returns a string representation of a Java object, likely via calling obj.toString().",
+      "requirements": [
+        "env must be valid.",
+        "obj must be a valid Java object reference; behavior for null is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaArrayToString",
+      "signature": "std::string javaArrayToString(JNIEnv *env, jobjectArray arr);",
+      "description": "Produces a string description of a Java object array, likely enumerating elements or sizes.",
+      "requirements": [
+        "env must be valid.",
+        "arr must be a valid Java object array reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaMethodCallToString",
+      "signature": "std::string javaMethodCallToString(JNIEnv *env, jobject obj, jmethodID methodId, jarray args);",
+      "description": "Creates a human-readable description of a Java method call on obj with methodId and args, useful for debugging/logging.",
+      "requirements": [
+        "env must be valid.",
+        "obj must be a valid Java object for which methodId is applicable; if calling a static method, obj is typically a jclass.",
+        "methodId must be a valid jmethodID obtained for obj's class.",
+        "args must be a valid Java array of arguments (likely Object[] or jvalue[]); exact expected type is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaGetEnv",
+      "signature": "JNIEnv *javaGetEnv(JavaVM *jvm, jobject classLoader);",
+      "description": "Retrieves a JNIEnv* for the current thread from the given JavaVM, possibly attaching the thread (optionally using classLoader for context/class loading) if necessary.",
+      "requirements": [
+        "jvm must be a valid JavaVM pointer.",
+        "classLoader should be a valid Java ClassLoader object if used to attach/initialize the thread; details are unknown.",
+        "Must be called from native code linked against the JVM."
+      ],
+      "error": null
+    },
+    {
+      "name": "getSystemClassLoader",
+      "signature": "jobject getSystemClassLoader(JNIEnv *env);",
+      "description": "Returns the Java system ClassLoader (i.e., ClassLoader.getSystemClassLoader()).",
+      "requirements": [
+        "env must be valid and attached."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaGetArrayComponentType",
+      "signature": "jvalueType javaGetArrayComponentType(JNIEnv *env, jobjectArray array);",
+      "description": "Determines the component element type of a Java object array and maps it to the internal jvalueType enum.",
+      "requirements": [
+        "env must be valid.",
+        "array must be a valid Java object array reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaGetType",
+      "signature": "jvalueType javaGetType(JNIEnv *env, jclass type);",
+      "description": "Maps a Java Class object to the internal jvalueType enum representing the type.",
+      "requirements": [
+        "env must be valid.",
+        "type must be a valid Java class reference (jclass)."
+      ],
+      "error": null
+    },
+    {
+      "name": "v8ToJava",
+      "signature": "jobjectArray v8ToJava(JNIEnv *env, Nan::NAN_METHOD_ARGS_TYPE args, int start, int end);",
+      "description": "Converts a range of V8/NAN arguments into a Java Object[] (jobjectArray) for JNI calls.",
+      "requirements": [
+        "env must be valid.",
+        "args must represent a valid NAN method argument list.",
+        "start and end define a valid half-open or closed range within args; exact inclusivity is unknown.",
+        "Current V8 isolate/context must be active when accessing args."
+      ],
+      "error": null
+    },
+    {
+      "name": "v8ToJava",
+      "signature": "jobject v8ToJava(JNIEnv *env, v8::Local<v8::Value> arg);",
+      "description": "Converts a single V8 value into an equivalent Java object suitable for JNI calls (e.g., boxing primitives, strings, arrays).",
+      "requirements": [
+        "env must be valid.",
+        "arg must be a valid V8 value with a live isolate/context when accessed."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaExceptionToV8",
+      "signature": "v8::Local<v8::Value> javaExceptionToV8(Java *java, JNIEnv *env, const std::string &alternateMessage);",
+      "description": "Creates a V8 Error/exception value from the current Java exception on env or from alternateMessage if none is present.",
+      "requirements": [
+        "java must be a valid pointer to the Java integration context.",
+        "env must be valid; may have a pending Java exception.",
+        "Must be called within an active V8 context to create V8 values."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaExceptionToV8",
+      "signature": "v8::Local<v8::Value> javaExceptionToV8(Java *java, JNIEnv *env, jthrowable ex, const std::string &alternateMessage);",
+      "description": "Converts a provided Java throwable (ex) into a V8 Error/exception value. Uses alternateMessage if conversion fails or ex is null.",
+      "requirements": [
+        "java must be valid.",
+        "env must be valid.",
+        "ex should be a valid Java throwable or null.",
+        "Requires an active V8 context to allocate V8 values."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaExceptionToString",
+      "signature": "std::string javaExceptionToString(JNIEnv *env, jthrowable ex);",
+      "description": "Returns a string representation of a Java throwable, typically its class and message/stack trace.",
+      "requirements": [
+        "env must be valid.",
+        "ex should be a valid Java throwable; behavior for null is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "checkJavaException",
+      "signature": "void checkJavaException(JNIEnv *env);",
+      "description": "Checks the JNI environment for a pending Java exception and handles it (exact handling unknown; likely logs, converts, or throws into V8).",
+      "requirements": [
+        "env must be valid.",
+        "Should be called after JNI calls that may throw exceptions."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaArrayToV8",
+      "signature": "v8::Local<v8::Value> javaArrayToV8(Java *java, JNIEnv *env, jobjectArray objArray);",
+      "description": "Converts a Java object array to a V8 array/value using the provided Java integration context.",
+      "requirements": [
+        "java must be valid.",
+        "env must be valid.",
+        "objArray must be a valid Java object array.",
+        "Requires an active V8 context."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaToV8",
+      "signature": "v8::Local<v8::Value> javaToV8(Java *java, JNIEnv *env, jobject obj);",
+      "description": "Converts a Java object to an equivalent V8 value. Handles primitive wrappers, strings, arrays, and custom proxied objects.",
+      "requirements": [
+        "java must be valid.",
+        "env must be valid.",
+        "obj should be a valid Java object reference (may be null to map to V8 null/undefined).",
+        "Requires an active V8 context."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaToV8",
+      "signature": "v8::Local<v8::Value> javaToV8(Java *java, JNIEnv *env, jobject obj, DynamicProxyData *dynamicProxyData);",
+      "description": "Converts a Java object to V8, using dynamicProxyData to create/associate a dynamic proxy for Java objects when needed.",
+      "requirements": [
+        "java must be valid.",
+        "env must be valid.",
+        "obj should be a valid Java object reference.",
+        "dynamicProxyData must point to a verified DynamicProxyData if proxying is required.",
+        "Requires an active V8 context."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaObjectArrayToClasses",
+      "signature": "jobjectArray javaObjectArrayToClasses(JNIEnv *env, jobjectArray objs);",
+      "description": "Converts an array of Java objects (likely Class or instances) into an array of Class objects (java.lang.Class[]).",
+      "requirements": [
+        "env must be valid.",
+        "objs must be a valid Java object array reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "longToJavaLongObj",
+      "signature": "jobject longToJavaLongObj(JNIEnv *env, jlong l);",
+      "description": "Boxes a native jlong into a java.lang.Long object and returns the jobject reference.",
+      "requirements": [
+        "env must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaGetArgsForMethod",
+      "signature": "jarray javaGetArgsForMethod(JNIEnv *env, jobject method, jarray args);",
+      "description": "Prepares or casts a Java arguments array for invoking a specific Method via reflection. Returns an argument array suitable for Method.invoke.",
+      "requirements": [
+        "env must be valid.",
+        "method must be a java.lang.reflect.Method object reference.",
+        "args must be a Java array of arguments compatible with the method’s parameter types."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaGetArgsForConstructor",
+      "signature": "jarray javaGetArgsForConstructor(JNIEnv *env, jobject method, jarray args);",
+      "description": "Prepares or casts a Java arguments array for invoking a specific Constructor via reflection. Returns an argument array suitable for Constructor.newInstance.",
+      "requirements": [
+        "env must be valid.",
+        "method must be a java.lang.reflect.Constructor object reference.",
+        "args must be a Java array of arguments compatible with the constructor’s parameter types."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaFindClass",
+      "signature": "jclass javaFindClass(JNIEnv *env, const std::string &className);",
+      "description": "Finds and returns a Java class by fully qualified name (e.g., java/lang/String or dotted form depending on implementation).",
+      "requirements": [
+        "env must be valid.",
+        "className must name a loadable class available to the current ClassLoader."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaFindField",
+      "signature": "jobject javaFindField(JNIEnv *env, jclass clazz, const std::string &fieldName);",
+      "description": "Finds a Java field on clazz by name and returns a reflective Field object.",
+      "requirements": [
+        "env must be valid.",
+        "clazz must be a valid Java class reference.",
+        "fieldName must match an accessible field on clazz or its hierarchy."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaFindMethod",
+      "signature": "jobject javaFindMethod(JNIEnv *env, jclass clazz, const std::string &methodName, jobjectArray methodArgs);",
+      "description": "Searches for a Java method on clazz matching methodName and the provided argument array types; returns a reflective Method object.",
+      "requirements": [
+        "env must be valid.",
+        "clazz must be a valid Java class reference.",
+        "methodName must be the method’s name.",
+        "methodArgs should describe or represent the argument values/types used to disambiguate overloads."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaFindConstructor",
+      "signature": "jobject javaFindConstructor(JNIEnv *env, jclass clazz, jobjectArray methodArgs);",
+      "description": "Finds a Constructor on clazz matching the provided argument array types and returns a reflective Constructor object.",
+      "requirements": [
+        "env must be valid.",
+        "clazz must be a valid Java class reference.",
+        "methodArgs should represent constructor arguments used for overload resolution."
+      ],
+      "error": null
+    },
+    {
+      "name": "javaCastArguments",
+      "signature": "void javaCastArguments(JNIEnv *env, jobjectArray methodArgs, jobject method);",
+      "description": "Casts or converts elements of methodArgs to match the parameter types of the given reflective Method/Constructor object.",
+      "requirements": [
+        "env must be valid.",
+        "methodArgs must be a valid Java object array reference.",
+        "method must be a java.lang.reflect.Method or java.lang.reflect.Constructor object."
+      ],
+      "error": null
+    },
+    {
+      "name": "GetHiddenValue",
+      "signature": "v8::Local<v8::Value> GetHiddenValue(v8::Local<v8::Object> object, v8::Local<v8::String> key);",
+      "description": "Returns a hidden property value from a V8 object by key. Compatibility helper pending NAN updates.",
+      "requirements": [
+        "object must be a valid V8 object from the current isolate/context.",
+        "key must be a valid V8 string key.",
+        "Must be executed within an active V8 handle scope/context."
+      ],
+      "error": null
+    },
+    {
+      "name": "SetHiddenValue",
+      "signature": "void SetHiddenValue(v8::Local<v8::Object> object, v8::Local<v8::String> key, v8::Local<v8::Value> value);",
+      "description": "Sets a hidden property on a V8 object to value under key. Compatibility helper pending NAN updates.",
+      "requirements": [
+        "object must be a valid V8 object from the current isolate/context.",
+        "key must be a valid V8 string key.",
+        "value must be a valid V8 value.",
+        "Must be executed within an active V8 handle scope/context."
+      ],
+      "error": null
+    },
+    {
+      "name": "SetHiddenValue",
+      "signature": "void SetHiddenValue(v8::NumberObject *, v8::Local<v8::String> key, v8::Local<v8::Value> value);",
+      "description": "Overload of SetHiddenValue for V8 NumberObject instances to set a hidden property by key to value.",
+      "requirements": [
+        "The first parameter must be a valid V8::NumberObject pointer associated with the current isolate.",
+        "key must be a valid V8 string key.",
+        "value must be a valid V8 value.",
+        "Must be executed within an active V8 handle scope/context."
+      ],
+      "error": null
+    },
+    {
+      "name": "methodNotFoundToString",
+      "signature": "std::string methodNotFoundToString(JNIEnv *env, jclass clazz, const std::string &methodNameSig, bool constructor, Nan::NAN_METHOD_ARGS_TYPE args, int argStart, int argEnd);",
+      "description": "Builds a detailed error message describing that a requested method/constructor could not be found on clazz, including the attempted signature and the provided JS arguments range.",
+      "requirements": [
+        "env must be valid.",
+        "clazz must be a valid Java class reference.",
+        "methodNameSig should contain the method name and/or signature text.",
+        "constructor indicates whether the lookup was for a constructor.",
+        "args must be valid NAN method arguments; argStart/argEnd define a valid range within args."
+      ],
+      "error": null
+    },
+    {
+      "name": "unref",
+      "signature": "void unref(DynamicProxyData *dynamicProxyData);",
+      "description": "Releases references (e.g., V8 Persistent handles and/or JNI refs) held by a DynamicProxyData and performs cleanup.",
+      "requirements": [
+        "dynamicProxyData must point to a previously initialized DynamicProxyData.",
+        "Should only be called once per DynamicProxyData to avoid double-unref; exact semantics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "MethodCallBaton::MethodCallBaton",
+      "signature": "MethodCallBaton::MethodCallBaton(Java *java, jobject method, jarray args, v8::Local<v8::Value> &callback)",
+      "description": "Constructor for a baton object that coordinates invoking a Java method via JNI and marshaling results to V8/Nan. Intended to be used as an asynchronous worker (Nan::AsyncWorker) or for synchronous execution through runSync(). The provided JNI method object and argument array are stored for later execution on a JNIEnv, and the V8 callback is retained for completion notification. Details like ownership/lifetime management of JNI references are not specified in this header.",
+      "requirements": [
+        "java must be a valid pointer to a Java runtime wrapper object (inferred from type Java*).",
+        "method must be a valid JNI reference to a Java Method-like object suitable for reflective invocation (inferred from naming and getMethodInvokeMethodId usage).",
+        "args must be a valid JNI jarray containing arguments compatible with the target Java method (inferred).",
+        "callback must be a valid V8 value intended to be a callable function when used asynchronously (inferred from AsyncWorker usage).",
+        "All JNI references passed (method, args) must be valid for the lifetime of the baton or promoted/managed appropriately by the implementation; exact ownership is unknown (unknown due to lack of documentation)."
+      ],
+      "error": null
+    },
+    {
+      "name": "MethodCallBaton::~MethodCallBaton",
+      "signature": "MethodCallBaton::~MethodCallBaton()",
+      "description": "Destructor for MethodCallBaton. Cleans up any resources associated with the baton and its JNI/V8 state as implemented in the source. No behavior guarantees are specified in the header.",
+      "requirements": [
+        "The baton should not be used after destruction (inferred).",
+        "Destruction should occur when no asynchronous work is pending; exact synchronization requirements are unknown (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "MethodCallBaton::run",
+      "signature": "void MethodCallBaton::run()",
+      "description": "Initiates the baton’s execution path to invoke the target Java method and handle results/errors. For asynchronous usage, this likely schedules work via the Nan::AsyncWorker mechanism, eventually calling the provided callback. Exact threading and scheduling semantics are not specified in this header.",
+      "requirements": [
+        "Must be called on a properly constructed MethodCallBaton instance (inferred).",
+        "Should not be called concurrently from multiple threads on the same instance (typical AsyncWorker usage; unknown specifics).",
+        "If used asynchronously, a valid callback should have been provided at construction (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "MethodCallBaton::runSync",
+      "signature": "v8::Local<v8::Value> MethodCallBaton::runSync()",
+      "description": "Executes the Java method invocation synchronously and returns the result converted to a V8 value. Errors are likely propagated through exceptions or internal error state; exact error signaling is not specified in this header.",
+      "requirements": [
+        "Must be called in a context with an active V8 Isolate and HandleScope since it returns a v8::Local value (inferred from V8 usage).",
+        "The underlying JNI references (method, args) must be valid for the duration of the call (inferred).",
+        "Should not be invoked concurrently on the same baton instance (unknown specifics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "InstanceMethodCallBaton::InstanceMethodCallBaton",
+      "signature": "InstanceMethodCallBaton::InstanceMethodCallBaton(Java *java, JavaObject *obj, jobject method, jarray args, v8::Local<v8::Value> &callback)",
+      "description": "Constructor for a baton that invokes an instance (non-static) Java method via JNI on a specific JavaObject. Stores the target object, method reference, and arguments for later execution and result marshaling to V8.",
+      "requirements": [
+        "java must be a valid Java runtime wrapper pointer (inferred).",
+        "obj must be a valid pointer to a JavaObject representing a live Java instance (inferred).",
+        "method must be a valid JNI reference to the instance method to be invoked reflectively (inferred).",
+        "args must be a valid JNI jarray containing arguments compatible with the method (inferred).",
+        "callback should be a V8 callable value when used asynchronously (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "InstanceMethodCallBaton::~InstanceMethodCallBaton",
+      "signature": "InstanceMethodCallBaton::~InstanceMethodCallBaton()",
+      "description": "Destructor for InstanceMethodCallBaton. Frees resources associated with the baton, including any state tied to the target instance. Exact cleanup behavior is defined in the implementation, not in this header.",
+      "requirements": [
+        "The baton must not be used after destruction (inferred).",
+        "Destruction should occur when no asynchronous work is pending; exact requirements are unknown (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "NewInstanceBaton::NewInstanceBaton",
+      "signature": "NewInstanceBaton::NewInstanceBaton(Java *java, jclass clazz, jobject method, jarray args, v8::Local<v8::Value> &callback)",
+      "description": "Constructor for a baton that creates a new Java object instance via a constructor invocation using JNI. The clazz identifies the Java class, method is expected to refer to a Constructor (or appropriate reflective object), and args are the constructor arguments. Results are converted to V8 for callback or synchronous return.",
+      "requirements": [
+        "java must be a valid Java runtime wrapper pointer (inferred).",
+        "clazz must be a valid jclass reference for the target Java type (inferred).",
+        "method must be a valid JNI reference to a Constructor-like reflective object (inferred from class purpose).",
+        "args must be a valid JNI jarray containing arguments compatible with the constructor (inferred).",
+        "callback should be a V8 callable value for async completion (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "NewInstanceBaton::~NewInstanceBaton",
+      "signature": "NewInstanceBaton::~NewInstanceBaton()",
+      "description": "Destructor for NewInstanceBaton. Cleans up resources associated with the instantiation baton. Exact ownership/lifetime rules of JNI references are not specified here.",
+      "requirements": [
+        "Do not use the baton after destruction (inferred).",
+        "Ensure no pending async work references this baton at the time of destruction (unknown specifics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "StaticMethodCallBaton::StaticMethodCallBaton",
+      "signature": "StaticMethodCallBaton::StaticMethodCallBaton(Java *java, jclass clazz, jobject method, jarray args, v8::Local<v8::Value> &callback)",
+      "description": "Constructor for a baton to invoke a static Java method on the specified class via JNI. Stores the class, method reference, and arguments, and integrates with Nan/V8 for result delivery.",
+      "requirements": [
+        "java must be a valid Java runtime wrapper pointer (inferred).",
+        "clazz must be a valid jclass for the declaring class of the static method (inferred).",
+        "method must be a valid JNI reference to the static method (via reflection) (inferred).",
+        "args must be a valid JNI jarray containing arguments compatible with the method (inferred).",
+        "callback should be a V8 callable value if used asynchronously (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "StaticMethodCallBaton::~StaticMethodCallBaton",
+      "signature": "StaticMethodCallBaton::~StaticMethodCallBaton()",
+      "description": "Destructor for StaticMethodCallBaton. Releases resources tied to the static method invocation baton. Cleanup specifics depend on the implementation, not shown here.",
+      "requirements": [
+        "The baton must not be used after destruction (inferred).",
+        "It should be destroyed only when no asynchronous operation is pending; exact constraints are unknown (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaObject::Init",
+      "signature": "static void JavaObject::Init(v8::Local<v8::Object> target)",
+      "description": "Initializes the JavaObject wrapper type and attaches its constructor/prototype to the provided V8 object (typically the module exports) using NAN. Call during addon/module initialization so JavaObject can be constructed/used from JavaScript.",
+      "requirements": [
+        "Must be called from a valid V8/NAN initialization context (e.g., during module initialization).",
+        "Argument target must be a valid, non-empty v8::Local<v8::Object> to receive the class/template registration."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaObject::New",
+      "signature": "static v8::Local<v8::Object> JavaObject::New(Java *java, jobject obj)",
+      "description": "Creates a new V8 object wrapping the provided JNI jobject using the given Java runtime/context object. The returned V8 object represents a JavaObject instance exposed to JavaScript.",
+      "requirements": [
+        "Argument java must be a valid, non-null pointer to a Java runtime/context compatible with the provided jobject.",
+        "Argument obj must be a valid JNI reference (local or global) for a live Java object.",
+        "Must be called with an active V8 handle scope and on a thread with an initialized V8 isolate (per NAN/V8 usage)."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaObject::NewProxy",
+      "signature": "static v8::Local<v8::Object> JavaObject::NewProxy(Java *java, jobject obj, DynamicProxyData *dynamicProxyData)",
+      "description": "Creates a new V8 object wrapping a Java proxy instance, associating it with DynamicProxyData for dynamic invocation handling. Intended for Java objects that act as proxies to JavaScript handlers.",
+      "requirements": [
+        "Argument java must be a valid, non-null Java runtime/context pointer.",
+        "Argument obj must be a valid JNI reference to the underlying Java proxy instance.",
+        "Argument dynamicProxyData must be a valid, non-null pointer to proxy metadata/handler data.",
+        "Must be called with an active V8 handle scope and on a thread with an initialized V8 isolate."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaObject::getObject",
+      "signature": "jobject JavaObject::getObject()",
+      "description": "Returns the underlying JNI jobject wrapped by this JavaObject. Useful for native/JNI calls that need the raw Java object reference.",
+      "requirements": [
+        "The JavaObject instance must have been properly constructed and not destroyed.",
+        "Returned jobject is only valid under the JNI environment/thread it was created for; callers must observe JNI lifetime/threading rules."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaObject::getClass",
+      "signature": "jclass JavaObject::getClass()",
+      "description": "Returns the JNI class (jclass) associated with the wrapped Java object. Allows callers to perform JNI class-related operations.",
+      "requirements": [
+        "The JavaObject instance must be valid and initialized.",
+        "The returned jclass must be used in accordance with JNI rules (e.g., correct JNIEnv/thread and lifetime)."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaObject::Ref",
+      "signature": "void JavaObject::Ref()",
+      "description": "Increments the internal reference count of the wrapped V8 object via Nan::ObjectWrap::Ref, preventing it from being garbage-collected. Use to pin the object while native/async code holds it.",
+      "requirements": [
+        "Must be called on a valid, live JavaObject instance that has been wrapped with a V8 object.",
+        "Should be called from a V8-aware thread/context per NAN usage; pair with a corresponding Unref to avoid leaks."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaObject::Unref",
+      "signature": "void JavaObject::Unref()",
+      "description": "Decrements the internal reference count of the wrapped V8 object via Nan::ObjectWrap::Unref, allowing garbage collection when the count reaches zero.",
+      "requirements": [
+        "Must be called on a valid, live JavaObject instance that has previously been Ref()'d as needed.",
+        "Should be called from a V8-aware thread/context per NAN usage; do not call after the object has been disposed."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaProxyObject::init",
+      "signature": "static void JavaProxyObject::init()",
+      "description": "Initializes the JavaProxyObject type (proxy-specific constructor/template) within V8/NAN. Typically prepares the function template and prototype for proxy objects.",
+      "requirements": [
+        "Must be invoked during addon initialization or before creating any JavaProxyObject instances.",
+        "Requires an active V8 isolate/context as per NAN initialization patterns."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaProxyObject::New",
+      "signature": "static v8::Local<v8::Object> JavaProxyObject::New(Java *java, jobject obj, DynamicProxyData *dynamicProxyData)",
+      "description": "Constructs a V8 object representing a JavaProxyObject, wrapping a JNI proxy object and binding it to DynamicProxyData for invocation handling from JavaScript.",
+      "requirements": [
+        "Argument java must be a valid, non-null Java runtime/context pointer.",
+        "Argument obj must be a valid JNI reference to the proxy Java object.",
+        "Argument dynamicProxyData must be a valid, non-null pointer to the proxy’s invocation handler data.",
+        "Must be called with an active V8 handle scope and initialized V8 isolate/context."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaScope::JavaScope",
+      "signature": "JavaScope::JavaScope(JNIEnv *env)",
+      "description": "Constructor for an RAII helper that likely manages a JNI local reference frame for the current thread. Typical usage: create a JavaScope on entry to a native function to push a local frame, perform JNI work, then either call Close(...) to pop the frame while preserving a specific result reference or allow the destructor to clean up the local references. Details about frame size and exact behavior are not present in the header and are inferred from the class name and JNI patterns.",
+      "requirements": [
+        "env must be a valid, non-null JNIEnv* associated with the current thread (inferred from JNI usage patterns).",
+        "Construction should occur on a thread already attached to the JVM (inferred).",
+        "Object instances should have automatic storage duration (stack) if used for RAII-style scope management (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaScope::~JavaScope",
+      "signature": "JavaScope::~JavaScope()",
+      "description": "Destructor for the RAII helper. It likely releases JNI local references created within the scope, e.g., by popping a previously pushed local frame. If Close(...) was called, the destructor may perform minimal or no additional work. Exact behavior is not documented and is inferred from naming and common JNI RAII patterns.",
+      "requirements": [
+        "Must not be invoked after the associated JNIEnv becomes invalid or the thread detaches (inferred).",
+        "If Close(...) transfers out a result reference, ensure its lifetime/ownership is handled per JNI rules (inferred).",
+        "Do not throw exceptions from user-defined cleanup tied to this destructor; JNI cleanup is expected to be noexcept (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "JavaScope::Close",
+      "signature": "jobject JavaScope::Close(jobject result)",
+      "description": "Closes the JavaScope, likely by popping the JNI local reference frame and returning a reference intended to escape the scope. In common JNI patterns, this would wrap env->PopLocalFrame(result), returning either the same reference (promoted to the previous frame) or null if no result is to be preserved. The exact behavior is not specified in the header and is inferred; callers should consult the implementation to confirm whether Close must be called exactly once and whether it invalidates the scope immediately.",
+      "requirements": [
+        "result should be either null or a valid JNI local reference created within the current local frame (inferred from JNI PopLocalFrame semantics).",
+        "Should be called at most once per JavaScope instance; subsequent use of the scope after Close is likely invalid (inferred).",
+        "Must be called on the same thread that created the JavaScope and with the same JNIEnv (inferred).",
+        "The returned jobject must be treated according to JNI reference rules; if non-null, it will be valid in the previous frame or caller context (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::Init",
+      "signature": "static void Java::Init(v8::Local<v8::Object> target)",
+      "description": "Initializes the Java class bindings with the provided V8 target object. Intended to set up the constructor and prototype methods for the Node/NAN addon during module initialization.",
+      "requirements": [
+        "Must be called during addon initialization (e.g., from NODE_MODULE init) to properly expose bindings.",
+        "The provided target must be a valid v8::Local<v8::Object) associated with the current isolate/context."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::getJvm",
+      "signature": "JavaVM* Java::getJvm()",
+      "description": "Returns the underlying JavaVM pointer associated with this Java instance. Useful for interacting directly with the JVM via JNI when needed.",
+      "requirements": [
+        "The returned JavaVM* may be null if the JVM has not been created or has been destroyed (not explicitly documented; callers should check for null before use).",
+        "Do not use the returned pointer after the Java instance has been stopped/destroyed."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::getJavaEnv",
+      "signature": "JNIEnv* Java::getJavaEnv()",
+      "description": "Returns the JNIEnv pointer associated with this Java instance’s main thread. The comment notes it can only be used safely by the main thread to which it belongs.",
+      "requirements": [
+        "Must be called from the main thread that owns this JNIEnv*; using it from other threads is unsafe.",
+        "Do not cache or use the returned JNIEnv* across threads; each thread should obtain/attach its own JNIEnv* if needed.",
+        "The returned pointer may be null if the JVM/env is not initialized (not explicitly documented; callers should check for null before use)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::getClassLoader",
+      "signature": "jobject Java::getClassLoader()",
+      "description": "Returns the JNI global/local reference to the class loader object used by this Java instance. Intended for advanced scenarios where classes need to be loaded via a specific ClassLoader.",
+      "requirements": [
+        "The lifetime/ownership semantics of the returned jobject are not documented here; treat it as a JNI reference managed by this class and do not delete it.",
+        "The returned jobject may be null if no class loader has been set/initialized (inference based on member presence)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::DoSync",
+      "signature": "bool Java::DoSync() const",
+      "description": "Indicates whether synchronous-style APIs are enabled for this Java instance. Typically controls exposure or behavior of '*Sync' methods.",
+      "requirements": [
+        "None beyond normal object validity; value reflects internal configuration."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::DoAsync",
+      "signature": "bool Java::DoAsync() const",
+      "description": "Indicates whether asynchronous-style APIs are enabled for this Java instance. Typically controls exposure or behavior of async methods/callback patterns.",
+      "requirements": [
+        "None beyond normal object validity; value reflects internal configuration."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::DoPromise",
+      "signature": "bool Java::DoPromise() const",
+      "description": "Indicates whether Promise-based APIs are enabled for this Java instance. Typically controls exposure or behavior of promise-returning methods.",
+      "requirements": [
+        "None beyond normal object validity; value reflects internal configuration."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::SyncSuffix",
+      "signature": "std::string Java::SyncSuffix() const",
+      "description": "Returns the configured suffix used to denote synchronous methods (e.g., 'Sync'). Useful for generating or resolving method names in user code.",
+      "requirements": [
+        "None beyond normal object validity; returned string may be empty if not configured."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::AsyncSuffix",
+      "signature": "std::string Java::AsyncSuffix() const",
+      "description": "Returns the configured suffix used to denote asynchronous methods. Useful for generating or resolving method names in user code.",
+      "requirements": [
+        "None beyond normal object validity; returned string may be empty if not configured."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java::PromiseSuffix",
+      "signature": "std::string Java::PromiseSuffix() const",
+      "description": "Returns the configured suffix used to denote Promise-based methods. Useful for generating or resolving method names in user code.",
+      "requirements": [
+        "None beyond normal object validity; returned string may be empty if not configured."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java_node_NodeDynamicProxyClass_callJs",
+      "signature": "JNIEXPORT jobject JNICALL Java_node_NodeDynamicProxyClass_callJs(JNIEnv *env, jobject obj, jlong handle, jobject method, jobjectArray args);",
+      "description": "JNI native method implementation for node.NodeDynamicProxyClass.callJs(long, java.lang.reflect.Method, java.lang.Object[]). Intended to bridge from Java into a native layer (and likely onward to JavaScript) using a native handle plus a reflected Java Method and its arguments. Returns a Java Object result or null. Usage: invoked by the JVM when the corresponding Java native method is called; native code is expected to interpret the handle and invoke the appropriate target with the provided method and argument array. Specific behavior beyond bridging is unknown from the header.",
+      "requirements": [
+        "env must be a valid JNIEnv* for the current, JVM-attached thread (standard JNI requirement).",
+        "obj must be a valid reference to an instance of node.NodeDynamicProxyClass (as this is an instance native method).",
+        "handle (jlong) is an implementation-defined native identifier/handle; it must be a valid value expected by the native implementation (inferred from naming and typical JNI patterns).",
+        "method must be a valid reference to a java.lang.reflect.Method object (based on the Java signature).",
+        "args, if non-null, must be a valid reference to a Java array of java.lang.Object; each element, if present, should be a valid Java object reference or null (standard JNI array/object constraints).",
+        "The calling thread must be attached to the JVM before invoking this native (standard JNI constraint).",
+        "Callers on the Java side should check for pending Java exceptions after the call if the native may throw (e.g., using JNI ExceptionCheck), as JNI natives may signal errors via exceptions (general JNI pattern)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Java_node_NodeDynamicProxyClass_unref",
+      "signature": "JNIEXPORT void JNICALL Java_node_NodeDynamicProxyClass_unref(JNIEnv *env, jobject obj, jlong handle);",
+      "description": "JNI native method implementation for node.NodeDynamicProxyClass.unref(long). Intended to release or decrement a native reference associated with the provided handle. No value is returned. Usage: invoked by the JVM when the corresponding Java native method is called to allow the native layer to unreference or clean up resources tied to the handle. Exact semantics are unknown from the header.",
+      "requirements": [
+        "env must be a valid JNIEnv* for the current, JVM-attached thread (standard JNI requirement).",
+        "obj must be a valid reference to an instance of node.NodeDynamicProxyClass (as this is an instance native method).",
+        "handle (jlong) is an implementation-defined native identifier/handle; it must be a valid value expected by the native implementation (inferred from naming and typical JNI patterns).",
+        "The calling thread must be attached to the JVM before invoking this native (standard JNI constraint).",
+        "Callers on the Java side should check for pending Java exceptions after the call if the native may throw (e.g., using JNI ExceptionCheck), as JNI natives may signal errors via exceptions (general JNI pattern)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "Java::getJvm",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Call the target API to retrieve the JavaVM* from this Java instance\nJavaVM *jvm = java->getJvm();\n// The API permits null (e.g., JVM not yet created); bail to avoid misuse downstream\nif (!jvm) { FUZZ_BAIL(); }\n// Track the JVM pointer on the Java object for downstream stubs that may need it\nFUZZ_SET_ATTR_PTR(java, \"jvm\", (void *)jvm);\n// Return the java object as an output to keep it alive in the pool\n// Validation: respects nullable return; sets attribute for later checks; no ownership changes occur."
+    },
+    {
+      "name": "Java::getJavaEnv",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Must be called from the main thread; the harness assumes it runs on the main thread.\nJNIEnv *env = java->getJavaEnv();\n// The API may return null if the JVM/env is not initialized; bail to avoid unsafe usage.\nif (!env) { FUZZ_BAIL(); }\n// Record the env pointer for later stubs that may require it\nFUZZ_SET_ATTR_PTR(java, \"jni_env\", (void *)env);\n// Keep the Java instance alive in the pool\n// Validation: safely handles potential null, records env for later, and preserves object lifetime."
+    },
+    {
+      "name": "Java::getClassLoader",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Retrieve the class loader reference managed by the Java wrapper\njobject loader = java->getClassLoader();\n// The API may legitimately return null if no class loader is set; bail to avoid misusing a null ref\nif (!loader) { FUZZ_BAIL(); }\n// Track the class loader pointer for downstream usage; do not alter its lifetime (managed internally)\nFUZZ_SET_ATTR_PTR(java, \"class_loader\", (void *)loader);\n// Return the Java instance to the pool\n// Validation: honors nullable semantics, avoids ownership changes, and exposes the handle via attributes."
+    },
+    {
+      "name": "Java::DoSync",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Query configuration flag for synchronous-style APIs\nbool enabled = java->DoSync();\n// Store as an int attribute for later predicate checks\nFUZZ_SET_ATTR_INT(java, \"do_sync\", enabled ? 1 : 0);\n// Keep the Java object alive\n// Validation: pure query with no side effects; state mirrored via attribute for coverage paths."
+    },
+    {
+      "name": "Java::DoAsync",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Query configuration flag for asynchronous-style APIs\nbool enabled = java->DoAsync();\nFUZZ_SET_ATTR_INT(java, \"do_async\", enabled ? 1 : 0);\n// Preserve object lifetime\n// Validation: pure query; captures result for subsequent stubs without altering ownership."
+    },
+    {
+      "name": "Java::DoPromise",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Query configuration flag for promise-style APIs\nbool enabled = java->DoPromise();\nFUZZ_SET_ATTR_INT(java, \"do_promise\", enabled ? 1 : 0);\n// Keep Java in pool\n// Validation: pure query; mirrors state via attribute for later checks."
+    },
+    {
+      "name": "Java::SyncSuffix",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Obtain the configured synchronous method suffix (may be empty)\nstd::string s = java->SyncSuffix();\n// Record for downstream use; attribute system is expected to copy the string data\nFUZZ_SET_ATTR_STR(java, \"suffix_sync\", s.c_str());\n// Preserve Java instance\n// Validation: non-owning getter; result captured as attribute for later coverage."
+    },
+    {
+      "name": "Java::AsyncSuffix",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Obtain the configured asynchronous method suffix (may be empty)\nstd::string s = java->AsyncSuffix();\nFUZZ_SET_ATTR_STR(java, \"suffix_async\", s.c_str());\n// Keep Java instance alive\n// Validation: getter-only; state mirrored via attributes."
+    },
+    {
+      "name": "Java::PromiseSuffix",
+      "inputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        }
+      ],
+      "code": "// Obtain the configured promise method suffix (may be empty)\nstd::string s = java->PromiseSuffix();\nFUZZ_SET_ATTR_STR(java, \"suffix_promise\", s.c_str());\n// Return Java to pool\n// Validation: read-only call; value persisted in attributes for subsequent stubs."
+    },
+    {
+      "name": "Java *",
+      "inputs": [
+        {
+          "name": "dynamicProxyData",
+          "type": "DynamicProxyData *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "java",
+          "type": "Java *"
+        },
+        {
+          "name": "dynamicProxyData",
+          "type": "DynamicProxyData *"
+        }
+      ],
+      "code": "// Retrieve a Java* owned by an existing DynamicProxyData instance without calling\n// any helper that would require linking against V8. This avoids previous link errors.\n// Lifetime: Java* is owned by dynamicProxyData; we also output dynamicProxyData to\n// keep the owner alive and prevent dangling pointers.\n\n// Basic validity checks on the carrier structure (no external calls):\nif (!dynamicProxyData) { FUZZ_BAIL(); }\n// Heuristic integrity checks: ensure the struct appears initialized.\n// We cannot rely on library verification helpers (would pull V8), so do lightweight checks.\n// - interfaceName should not be empty for a properly initialized proxy\n// - markers should be non-zero (exact constants unknown)\nif (dynamicProxyData->interfaceName.empty()) { FUZZ_BAIL(); }\nif (dynamicProxyData->markerStart == 0 || dynamicProxyData->markerEnd == 0) { FUZZ_BAIL(); }\n\n// Extract the Java* and validate non-null\nJava *java = dynamicProxyData->java;\nif (!java) { FUZZ_BAIL(); }\n\n// Track ownership relationship for downstream stubs\nFUZZ_SET_ATTR_PTR(java, \"owner_dynamic_proxy_data\", (void *)dynamicProxyData);\nFUZZ_SET_ATTR_INT(java, \"from_dynamic_proxy_data\", 1);\n\n// Output both the Java* and its owner to maintain correct lifetime in the pool.\n// Validation: avoids calls that require V8 linkage; ensures non-null Java* and basic\n// DynamicProxyData sanity; establishes attributes to constrain downstream use."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "dynamicProxyDataVerify",
+      "reason": "Requires a DynamicProxyData instance initialized by the library with internal integrity markers not knowable or forgeable by the fuzzer."
+    },
+    {
+      "name": "javaReflectionGetMethods",
+      "reason": "Requires a live, attached JNIEnv* and a valid jclass from a real JVM, which the fuzzer cannot supply."
+    },
+    {
+      "name": "javaReflectionGetConstructors",
+      "reason": "Requires a live, attached JNIEnv* and a valid jclass from a real JVM, which the fuzzer cannot supply."
+    },
+    {
+      "name": "javaReflectionGetFields",
+      "reason": "Requires a live, attached JNIEnv* and a valid jclass from a real JVM, which the fuzzer cannot supply."
+    },
+    {
+      "name": "javaToString",
+      "reason": "Requires a valid JNIEnv* and real jstring from a running JVM, which are unavailable in the fuzzer environment."
+    },
+    {
+      "name": "javaObjectToString",
+      "reason": "Requires a valid JNIEnv* and real jobject referencing a live JVM object, which the fuzzer cannot provide."
+    },
+    {
+      "name": "javaArrayToString",
+      "reason": "Requires a valid JNIEnv* and real jobjectArray from a running JVM, which the fuzzer cannot provide."
+    },
+    {
+      "name": "javaMethodCallToString",
+      "reason": "Requires a valid JNIEnv*, a real Java object/class, and a valid jmethodID from the JVM, which the fuzzer cannot instantiate."
+    },
+    {
+      "name": "javaGetEnv",
+      "reason": "Requires a real JavaVM and JVM linkage to attach and obtain a JNIEnv*, which the fuzzer cannot provide."
+    },
+    {
+      "name": "getSystemClassLoader",
+      "reason": "Requires a valid, attached JNIEnv* to call into the JVM, which the fuzzer cannot supply."
+    },
+    {
+      "name": "javaGetArrayComponentType",
+      "reason": "Requires a valid JNIEnv* and real JVM array reference, which the fuzzer cannot provide."
+    },
+    {
+      "name": "javaGetType",
+      "reason": "Requires a valid JNIEnv* and a real jclass reference from the JVM, which the fuzzer cannot provide."
+    },
+    {
+      "name": "v8ToJava",
+      "reason": "Requires an active V8 isolate/context and valid NAN arguments, which are unavailable in the fuzzer environment."
+    },
+    {
+      "name": "javaExceptionToV8",
+      "reason": "Requires an active V8 context and a valid JNIEnv* (and possibly a real Java exception), which the fuzzer cannot guarantee."
+    },
+    {
+      "name": "javaExceptionToString",
+      "reason": "Requires a valid JNIEnv* and a real Java throwable from a running JVM, which the fuzzer cannot provide."
+    },
+    {
+      "name": "checkJavaException",
+      "reason": "Requires a valid JNIEnv* with real JVM exception state, which the fuzzer cannot provide."
+    },
+    {
+      "name": "javaArrayToV8",
+      "reason": "Requires an active V8 isolate/context and a valid JNIEnv* with a real JVM array, which the fuzzer cannot provide."
+    },
+    {
+      "name": "javaToV8",
+      "reason": "Requires an active V8 isolate/context and a valid JNIEnv* with real JVM objects, which the fuzzer cannot provide."
+    },
+    {
+      "name": "javaObjectArrayToClasses",
+      "reason": "Requires a valid JNIEnv* and real JVM object arrays, which the fuzzer cannot provide."
+    },
+    {
+      "name": "longToJavaLongObj",
+      "reason": "Requires a valid JNIEnv* to construct a java.lang.Long object inside a real JVM, which the fuzzer cannot provide."
+    },
+    {
+      "name": "javaGetArgsForMethod",
+      "reason": "Requires a live JNIEnv and real java.lang.reflect.Method/argument arrays, which the fuzzer runtime cannot provide."
+    },
+    {
+      "name": "javaGetArgsForConstructor",
+      "reason": "Requires a live JNIEnv and a real java.lang.reflect.Constructor with compatible argument arrays, unavailable in the fuzzer environment."
+    },
+    {
+      "name": "javaFindClass",
+      "reason": "Needs a valid JNIEnv and JVM class loading to resolve class names, which is not available under the fuzzer model."
+    },
+    {
+      "name": "javaFindField",
+      "reason": "Requires a live JNIEnv and real jclass reflection to locate fields, which the fuzzer cannot supply."
+    },
+    {
+      "name": "javaFindMethod",
+      "reason": "Depends on a valid JNIEnv, jclass, and reflection over actual method signatures, not feasible without a running JVM."
+    },
+    {
+      "name": "javaFindConstructor",
+      "reason": "Requires JNIEnv and reflection over constructors of a real jclass, which is unavailable without a JVM."
+    },
+    {
+      "name": "javaCastArguments",
+      "reason": "Needs JNIEnv and real java.lang.reflect.Method/Constructor plus typed Java objects to cast, which the fuzzer cannot create."
+    },
+    {
+      "name": "GetHiddenValue",
+      "reason": "Must run inside an active V8 isolate/context with real v8::Local handles, which the fuzzer cannot instantiate."
+    },
+    {
+      "name": "SetHiddenValue",
+      "reason": "Requires an active V8 isolate/context and valid v8::Local handles to set hidden properties, unavailable in the fuzzer."
+    },
+    {
+      "name": "methodNotFoundToString",
+      "reason": "Relies on a valid JNIEnv, jclass, and NAN/V8 arguments range, none of which can be safely produced by the fuzzer."
+    },
+    {
+      "name": "unref",
+      "reason": "Operates on a valid DynamicProxyData with live Nan::Persistent and JNI refs; constructing a safe instance is not possible in the fuzzer."
+    },
+    {
+      "name": "MethodCallBaton::MethodCallBaton",
+      "reason": "Requires a valid V8 Isolate/HandleScope and real JNI references (jobject/jarray) to construct, which cannot be safely synthesized in the fuzzer environment."
+    },
+    {
+      "name": "MethodCallBaton::~MethodCallBaton",
+      "reason": "A safe instance cannot be constructed and destructor semantics depend on async worker state, making standalone harnessing unsafe."
+    },
+    {
+      "name": "MethodCallBaton::run",
+      "reason": "Needs a properly constructed AsyncWorker baton and V8/JNI runtime context, which cannot be reliably provided by the fuzzer."
+    },
+    {
+      "name": "MethodCallBaton::runSync",
+      "reason": "Requires an active V8 Isolate/HandleScope and a valid constructed baton, which the fuzzer cannot provide."
+    },
+    {
+      "name": "InstanceMethodCallBaton::InstanceMethodCallBaton",
+      "reason": "Construction depends on valid V8 callback, JavaObject*, and JNI references, none of which can be safely fabricated by the fuzzer."
+    },
+    {
+      "name": "InstanceMethodCallBaton::~InstanceMethodCallBaton",
+      "reason": "Cannot guarantee a correctly constructed instance or safe async state for destruction under the fuzzer model."
+    },
+    {
+      "name": "NewInstanceBaton::NewInstanceBaton",
+      "reason": "Requires valid V8 callback and JNI jclass/jobject/jarray references at construction, which are unavailable in the fuzzer environment."
+    },
+    {
+      "name": "NewInstanceBaton::~NewInstanceBaton",
+      "reason": "Destruction safety depends on a properly constructed baton and async state that the fuzzer cannot ensure."
+    },
+    {
+      "name": "StaticMethodCallBaton::StaticMethodCallBaton",
+      "reason": "Depends on a live V8 environment and valid JNI jclass/method/args, which cannot be safely created by the fuzzer."
+    },
+    {
+      "name": "StaticMethodCallBaton::~StaticMethodCallBaton",
+      "reason": "No safe way to obtain a valid instance or guarantee no pending async work, making harnessing unsafe."
+    },
+    {
+      "name": "JavaObject::Init",
+      "reason": "Requires an active V8/NAN module initialization context and isolate, which is not available in the generic fuzzer environment."
+    },
+    {
+      "name": "JavaObject::New",
+      "reason": "Constructing a V8 object wrapper requires an active V8 handle scope/isolate and valid JNI jobject/Java*, which the fuzzer cannot provide."
+    },
+    {
+      "name": "JavaObject::NewProxy",
+      "reason": "Proxy construction depends on an active V8 isolate/handle scope and valid JNI/DynamicProxyData, which are unavailable to the fuzzer."
+    },
+    {
+      "name": "JavaObject::getObject",
+      "reason": "Needs a valid, fully constructed JavaObject instance (created via V8/NAN), which cannot be produced in the fuzzer environment."
+    },
+    {
+      "name": "JavaObject::getClass",
+      "reason": "Requires a live JavaObject backed by JNI/V8 state, which cannot be safely created in the fuzzer environment."
+    },
+    {
+      "name": "JavaObject::Ref",
+      "reason": "Ref/Unref rely on V8/NAN object wrapping with a valid persistent handle, which the fuzzer cannot initialize."
+    },
+    {
+      "name": "JavaObject::Unref",
+      "reason": "Ref/Unref rely on V8/NAN object wrapping with a valid persistent handle, which the fuzzer cannot initialize."
+    },
+    {
+      "name": "JavaProxyObject::init",
+      "reason": "Initialization of proxy templates requires an active V8 isolate/context, which the fuzzer lacks."
+    },
+    {
+      "name": "JavaProxyObject::New",
+      "reason": "Creating a proxy object wrapper depends on V8/NAN and valid JNI proxy state, neither of which can be provided by the fuzzer."
+    },
+    {
+      "name": "JavaScope::JavaScope",
+      "reason": "Requires a valid, thread-attached JNIEnv from a running JVM, which the fuzzer environment cannot safely provide or simulate."
+    },
+    {
+      "name": "JavaScope::~JavaScope",
+      "reason": "Destructor logic depends on JNI local frame state tied to a real JNIEnv, making safe invocation impossible without a live JVM/thread."
+    },
+    {
+      "name": "JavaScope::Close",
+      "reason": "Relies on a valid JNI local frame and jobject managed by a real JNIEnv, which cannot be meaningfully exercised in the fuzzer."
+    },
+    {
+      "name": "Java::Init",
+      "reason": "Requires a live V8/NAN addon initialization context and target v8::Local<v8::Object>, which the fuzzer runtime cannot safely provide."
+    },
+    {
+      "name": "Java_node_NodeDynamicProxyClass_callJs",
+      "reason": "This JNI native requires a live JVM and valid JNI references (JNIEnv*, jobject, Method, Object[]), which the fuzzer runtime cannot safely construct or validate, making execution unsafe and undefined."
+    },
+    {
+      "name": "Java_node_NodeDynamicProxyClass_unref",
+      "reason": "This JNI native depends on a live JVM and a valid native handle plus JNI references (JNIEnv*, jobject), which the fuzzer runtime cannot provide without risking crashes or undefined behavior."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "Java::getJvm",
+      "data_types": []
+    },
+    {
+      "name": "Java::getJavaEnv",
+      "data_types": []
+    },
+    {
+      "name": "Java::getClassLoader",
+      "data_types": []
+    },
+    {
+      "name": "Java::DoSync",
+      "data_types": []
+    },
+    {
+      "name": "Java::DoAsync",
+      "data_types": []
+    },
+    {
+      "name": "Java::DoPromise",
+      "data_types": []
+    },
+    {
+      "name": "Java::SyncSuffix",
+      "data_types": []
+    },
+    {
+      "name": "Java::AsyncSuffix",
+      "data_types": []
+    },
+    {
+      "name": "Java::PromiseSuffix",
+      "data_types": []
+    },
+    {
+      "name": "Java *",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7644,
+            "output_tokens": 3118,
+            "total_tokens": 10762
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5112,
+            "output_tokens": 501,
+            "total_tokens": 5613
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8161,
+            "output_tokens": 12084,
+            "total_tokens": 20245
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 60405,
+            "output_tokens": 9665,
+            "total_tokens": 70070
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 33083,
+            "output_tokens": 3181,
+            "total_tokens": 36264
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 300.84451818466187,
+    "scan_objects": 12.459157943725586,
+    "validate_objects": 3.277156352996826,
+    "scan_functions": 0,
+    "synthesis": 167.24130606651306,
+    "fill": 117.81051349639893,
+    "classify": 0.05538368225097656,
+    "build_generators": 0.00005221366882324219
+  }
+}

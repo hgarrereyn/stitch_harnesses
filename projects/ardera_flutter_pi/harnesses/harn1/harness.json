@@ -1,0 +1,212 @@
+{
+  "objects": [
+    {
+      "ptr_type": "jsmntype_t *",
+      "aliases": [],
+      "definition": "typedef enum { JSMN_UNDEFINED = 0, JSMN_OBJECT = 1, JSMN_ARRAY = 2, JSMN_STRING = 3, JSMN_PRIMITIVE = 4 } jsmntype_t;",
+      "description": "Enumeration of JSON token types recognized by jsmn: undefined, object, array, string, and primitive (number, boolean, null). Used as the type field within tokens.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "jsmntok_t *"
+      ]
+    },
+    {
+      "ptr_type": "enum jsmnerr *",
+      "aliases": [],
+      "definition": "enum jsmnerr {\n    /* Not enough tokens were provided */\n    JSMN_ERROR_NOMEM = -1,\n    /* Invalid character inside JSON string */\n    JSMN_ERROR_INVAL = -2,\n    /* The string is not a full JSON packet, more bytes expected */\n    JSMN_ERROR_PART = -3\n};",
+      "description": "Enumeration of parser error codes returned by parsing functions: out-of-tokens, invalid input, or incomplete JSON.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "jsmntok_t *",
+      "aliases": [],
+      "definition": "typedef struct {\n    jsmntype_t type;\n    int start;\n    int end;\n    int size;\n#ifdef JSMN_PARENT_LINKS\n    int parent;\n#endif\n} jsmntok_t;",
+      "description": "Token describing a JSON element parsed from the input: its type, start/end byte offsets in the JSON string, child count (size), and optionally a parent index if JSMN_PARENT_LINKS is enabled.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "jsmn_parser *"
+      ]
+    },
+    {
+      "ptr_type": "jsmn_parser *",
+      "aliases": [],
+      "definition": "typedef struct {\n    unsigned int pos; /* offset in the JSON string */\n    unsigned int toknext; /* next token to allocate */\n    int toksuper; /* superior token node, e.g. parent object or array */\n} jsmn_parser;",
+      "description": "Parser state object maintaining the current scan position, the next token index to allocate, and the current enclosing container index. Must be initialized with jsmn_init before use and then passed to jsmn_parse.",
+      "direct_api_constructors": [
+        "jsmn_init"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "jsmn_init",
+      "signature": "JSMN_API void jsmn_init(jsmn_parser *parser);",
+      "description": "Initializes a jsmn_parser instance for parsing. This resets the parser’s internal position and state so it can parse a JSON string and populate tokens via jsmn_parse. Typical usage is to declare a jsmn_parser on the stack and call jsmn_init(&parser) before the first jsmn_parse call (and again to reuse the parser for a new JSON input).",
+      "requirements": [
+        "parser must be a non-NULL pointer to a valid jsmn_parser storage location.",
+        "Call this before the first use of the parser with jsmn_parse, or to reset the parser before parsing a new, unrelated JSON document."
+      ],
+      "error": null
+    },
+    {
+      "name": "jsmn_parse",
+      "signature": "JSMN_API int jsmn_parse(jsmn_parser *parser, const char *js, const size_t len, jsmntok_t *tokens, const unsigned int num_tokens);",
+      "description": "Parses the JSON data in js (length len) using the state in parser and writes token descriptors into the tokens array. Returns the number of tokens parsed on success, or a negative jsmnerr code on failure (JSMN_ERROR_NOMEM, JSMN_ERROR_INVAL, JSMN_ERROR_PART). If tokens is NULL, no tokens are written and the function effectively counts/validates tokens, which can be used to determine the required array size. Tokens reference ranges in the input by start/end byte offsets.",
+      "requirements": [
+        "parser must be non-NULL and initialized with jsmn_init before parsing a JSON document.",
+        "js must be a non-NULL pointer to a readable buffer of at least len bytes. If a NUL byte occurs before len, parsing stops at that byte.",
+        "len must be the intended number of bytes to consider from js (the function does not require js to be NUL-terminated).",
+        "If tokens is not NULL, it must point to an array of at least num_tokens elements of type jsmntok_t; insufficient capacity causes return JSMN_ERROR_NOMEM.",
+        "If tokens is NULL, no tokens are written and num_tokens is ignored; the return value is the number of tokens that would have been produced (or a negative error).",
+        "Caller must handle negative return values: JSMN_ERROR_NOMEM (-1), JSMN_ERROR_INVAL (-2), JSMN_ERROR_PART (-3).",
+        "On success, the non-negative return value is the number of tokens parsed; only that many entries in tokens are valid.",
+        "The same parser instance maintains internal position; to parse a new, independent JSON input from the beginning, reinitialize with jsmn_init."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "jsmn_init",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "jsmn_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "jsmn_parser *"
+        }
+      ],
+      "code": "// jsmn_init requires a non-NULL parser pointer. The runtime guarantees inputs are non-NULL.\n// Initialize the parser state so it can be reused by jsmn_parse.\njsmn_init(parser);\n// Track initialization so downstream stubs (e.g., jsmn_parse) can verify correct usage.\nFUZZ_SET_ATTR_INT(parser, \"initialized\", 1);\n\n// Validation summary: parser is taken as input and returned as output (persistent object);\n// attribute \"initialized\" set to enforce the requirement that jsmn_parse must only be called after init."
+    },
+    {
+      "name": "jsmn_parse",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "jsmn_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "jsmn_parser *"
+        }
+      ],
+      "code": "// Enforce: parser must have been initialized via jsmn_init before parsing a JSON document.\nif (FUZZ_GET_ATTR_INT(parser, \"initialized\") == 0) { FUZZ_BAIL(); }\n\n// Generate a random JSON buffer; may contain arbitrary bytes.\nstd::string js = FUZZ_PARAM_STR();\n// Choose a length within [0, js.size()] to exercise partial-buffer paths safely.\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % (js.size() + 1));\n\n// Randomly decide whether to supply a tokens buffer or pass NULL to exercise the counting/validation path.\nbool use_tokens = ((*FUZZ_PARAM(unsigned int) & 1u) != 0);\n\njsmntok_t *tokens_ptr = nullptr;\nunsigned int num_tokens = 0;\n\nif (use_tokens) {\n    // Choose a small capacity to explore both success and JSMN_ERROR_NOMEM; cap to keep under 2048 bytes.\n    // Each token is small (<= 24 bytes), so up to 128 tokens keeps allocation modest.\n    unsigned int cap = (unsigned int)(*FUZZ_PARAM(unsigned int) % 129u); // 0..128\n    if (cap > 0) {\n        // Allocate a vector to back the token array.\n        std::vector<jsmntok_t> token_vec;\n        token_vec.resize(cap);\n        tokens_ptr = token_vec.data();\n        num_tokens = cap;\n        // Parse with a non-NULL tokens array.\n        int r = jsmn_parse(parser, js.data(), len, tokens_ptr, num_tokens);\n        // No assertions on r; negative values are valid error codes per API. We just exercise the code paths.\n        (void)r;\n        // Keep parser as output; token_vec is ephemeral and intentionally not returned.\n    } else {\n        // cap == 0: Exercise zero-capacity path with a NULL pointer and num_tokens == 0.\n        tokens_ptr = nullptr;\n        num_tokens = 0u;\n        int r = jsmn_parse(parser, js.data(), len, tokens_ptr, num_tokens);\n        (void)r;\n    }\n} else {\n    // No tokens requested: tokens == NULL and num_tokens is ignored.\n    int r = jsmn_parse(parser, js.data(), len, nullptr, 0u);\n    (void)r;\n}\n\n// Validation summary: Ensures parser was initialized; provides valid js/len; explores both NULL and non-NULL tokens\n// paths, including zero-capacity; parser is preserved and returned as an output object."
+    },
+    {
+      "name": "jsmn_parser *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "jsmn_parser *"
+        }
+      ],
+      "code": "// Construct a new jsmn_parser and initialize it via the official API.\n// No inputs required; we return a ready-to-use parser instance.\n\n// Allocate storage on the heap so the fuzzer runtime can manage the lifetime.\njsmn_parser *parser = new jsmn_parser();\n\n// Per API: parser must be non-NULL before calling jsmn_init (guaranteed here).\njsmn_init(parser);\n\n// Track that the parser has been initialized so downstream stubs (e.g., jsmn_parse) can enforce correct usage.\nFUZZ_SET_ATTR_INT(parser, \"initialized\", 1);\n\n// Validation summary: Allocates a non-NULL parser, initializes it using jsmn_init, and marks it initialized for\n// subsequent API calls; ownership is transferred to the fuzzer runtime via outputs."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "jsmn_init",
+      "data_types": []
+    },
+    {
+      "name": "jsmn_parser *",
+      "data_types": []
+    },
+    {
+      "name": "jsmn_parse",
+      "data_types": [
+        "JSON data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "JSON data",
+      "description": "Text data intended to represent a JSON document. May include objects, arrays, strings, numbers, booleans, and null. The buffer can contain arbitrary bytes, and parsers may handle partial or invalid JSON as error cases; however, the intended format is a JSON-encoded string."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "JSON data",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# JSON generation focused on producing valid and interesting inputs for jsmn_parse.\n# Goals:\n# - Produce a wide variety of valid JSON values: objects, arrays, strings, numbers, booleans, null\n# - Include nested structures and varied whitespace\n# - Include edge-case strings: escapes, unicode, long strings, empty strings\n# - Include numbers with different magnitudes and formats (ints, floats, exponents, negatives)\n# - Sometimes produce concatenations or leading/trailing data where partial lengths (len) expose PART errors\n# - Keep total size <= 4096 bytes\n# - Deterministic for a given seed while still varied\n\nMAX_SIZE = 4096\n\nWHITESPACE = [\" \", \"\\t\", \"\\n\", \"\\r\"]\n\nESCAPES = [\n    \"\\\\\\\"\",  # escaped quote\n    \"\\\\\\\\\",  # backslash\n    \"\\\\/\",    # solidus\n    \"\\\\b\",\n    \"\\\\f\",\n    \"\\\\n\",\n    \"\\\\r\",\n    \"\\\\t\",\n]\n\n# Some Unicode escapes; jsmn does not unescape, but they are valid JSON sequences\nUNICODE_ESC = [\n    \"\\\\u0000\", \"\\\\u0001\", \"\\\\u001F\", \"\\\\u007F\", \"\\\\u00A9\", \"\\\\u20AC\", \"\\\\uD834\", \"\\\\uDE00\"\n]\n\n# A set of common property names and literals to encourage token variety\nCOMMON_KEYS = [\n    \"id\", \"name\", \"value\", \"enabled\", \"count\", \"items\", \"data\", \"_\", \"\", \"long_key_name\",\n]\n\nCOMMON_STRINGS = [\n    \"\", \"a\", \"A quick brown fox\", \"line1\\nline2\", \"tab\\tsep\", \"quote\\\"here\", \"unicode-€\",\n]\n\nCOMMON_NUMBERS = [\n    \"0\", \"1\", \"-1\", \"123\", \"-999999\", \"3.14159\", \"-0.001\", \"1e10\", \"-2E-3\", \"0.0\", \"1E+2\"\n]\n\nBOOL_NULL = [\"true\", \"false\", \"null\"]\n\n\ndef rnd_ws(r: random.Random) -> str:\n    # random whitespace sequence\n    return \"\".join(r.choices(WHITESPACE, k=r.randint(0, 4)))\n\n\ndef gen_string(r: random.Random, target_len: int | None = None) -> str:\n    # Generate a JSON string literal with escapes and unicode\n    parts: List[str] = []\n    # Choose a base corpus sometimes\n    if r.random() < 0.5:\n        parts.append(r.choice(COMMON_STRINGS))\n    # Add random characters\n    extra_len = r.randint(0, 40) if target_len is None else max(0, target_len - len(parts[0]) if parts else target_len)\n    alphabet = string.ascii_letters + string.digits + \" _-.,:;[]{}()\"  # safe visible set\n    for _ in range(extra_len):\n        p = r.random()\n        if p < 0.12:\n            parts.append(r.choice(ESCAPES))\n        elif p < 0.18:\n            parts.append(r.choice(UNICODE_ESC))\n        else:\n            parts.append(r.choice(alphabet))\n    # Occasionally create very long strings, but keep limits\n    if target_len is None and r.random() < 0.1:\n        long_len = r.randint(100, 800)\n        parts.append(\"x\" * long_len)\n    s = \"\".join(parts)\n    # Ensure we escape quotes and backslashes properly inside JSON string literal\n    s = s.replace(\"\\\\\", \"\\\\\\\\\").replace(\"\\\"\", \"\\\\\\\"\")\n    return '\"' + s + '\"'\n\n\ndef gen_number(r: random.Random) -> str:\n    if r.random() < 0.5:\n        return r.choice(COMMON_NUMBERS)\n    # Construct random numeric forms\n    neg = '-' if r.random() < 0.3 else ''\n    if r.random() < 0.5:\n        # integer\n        n = str(r.randint(0, 10**9))\n        # avoid leading zeros unless zero\n        if len(n) > 1 and n[0] == '0':\n            n = n.lstrip('0') or '0'\n        return neg + n\n    else:\n        # float/exponent\n        int_part = str(r.randint(0, 10**6))\n        frac_part = ''.join(r.choices(string.digits, k=r.randint(1, 8)))\n        txt = neg + int_part + '.' + frac_part\n        if r.random() < 0.5:\n            e = 'e' if r.random() < 0.5 else 'E'\n            sign = r.choice(['', '+', '-'])\n            exp = str(r.randint(0, 308))\n            txt += e + sign + exp\n        return txt\n\n\ndef gen_literal(r: random.Random) -> str:\n    return r.choice(BOOL_NULL)\n\n\ndef gen_value(r: random.Random, depth: int) -> str:\n    # Depth control to avoid excessive recursion/size\n    if depth <= 0:\n        return r.choice([gen_string(r), gen_number(r), gen_literal(r)])\n    choice = r.random()\n    if choice < 0.22:\n        return gen_string(r)\n    elif choice < 0.44:\n        return gen_number(r)\n    elif choice < 0.55:\n        return gen_literal(r)\n    elif choice < 0.8:\n        return gen_array(r, depth - 1)\n    else:\n        return gen_object(r, depth - 1)\n\n\ndef gen_array(r: random.Random, depth: int) -> str:\n    n = r.randint(0, 12)\n    elems = []\n    for _ in range(n):\n        elems.append(rnd_ws(r) + gen_value(r, depth) + rnd_ws(r))\n    return '[' + (','.join(elems)) + ']'\n\n\ndef gen_key(r: random.Random) -> str:\n    # Use common keys or generated strings (without quotes) then quote them\n    if r.random() < 0.6:\n        base = r.choice(COMMON_KEYS)\n    else:\n        base = ''.join(r.choices(string.ascii_letters + string.digits + '_- ', k=r.randint(0, 16)))\n    base = base.replace(\"\\\\\", \"\\\\\\\\\").replace(\"\\\"\", \"\\\\\\\"\")\n    return '\"' + base + '\"'\n\n\ndef gen_object(r: random.Random, depth: int) -> str:\n    n = r.randint(0, 12)\n    # ensure some duplicates and ordering variances\n    keys = [gen_key(r) for _ in range(n)]\n    items = []\n    for k in keys:\n        v = gen_value(r, depth)\n        items.append(rnd_ws(r) + k + rnd_ws(r) + ':' + rnd_ws(r) + v + rnd_ws(r))\n    return '{' + (','.join(items)) + '}'\n\n\ndef gen_document(r: random.Random) -> str:\n    # Top-level could be any JSON value; occasionally multiple JSONs concatenated\n    depth = r.randint(1, 5)\n    doc = gen_value(r, depth)\n    # Occasionally wrap with leading/trailing whitespace\n    if r.random() < 0.8:\n        doc = rnd_ws(r) + doc + rnd_ws(r)\n    # Occasionally append another value to allow partial-len exploration\n    if r.random() < 0.25:\n        more = gen_value(r, r.randint(0, 3))\n        sep_ws = rnd_ws(r)\n        doc = doc + sep_ws + more\n    return doc\n\n\ndef maybe_truncate_for_partial(r: random.Random, data: bytes) -> bytes:\n    # In the fuzzer stub, len is chosen within [0, size]; our generator only supplies the buffer.\n    # To exercise PART paths deterministically sometimes, we can append an extra unfinished structure\n    # or leave buffer as-is. But we must keep it valid JSON overall. We'll keep as-is here.\n    return data\n\n\ndef clamp_size(b: bytes) -> bytes:\n    if len(b) <= MAX_SIZE:\n        return b\n    # try to cut at a boundary (newline or space or comma or brace) to maintain validity best-effort\n    boundary_chars = '\\n \\t,]}'\n    cutpoints = [i for i, ch in enumerate(b[:MAX_SIZE][::-1]) if chr(ch) in boundary_chars]\n    if cutpoints:\n        idx = MAX_SIZE - cutpoints[0] - 1\n        return b[:idx]\n    return b[:MAX_SIZE]\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Build several candidate JSON documents and optionally concatenate with whitespace to vary size and tokens\n    pieces: List[str] = []\n    # Choose 1-3 documents to allow both single and multiple roots (the stub may pass a partial len)\n    count = 1 if r.random() < 0.65 else r.randint(2, 3)\n    for _ in range(count):\n        pieces.append(gen_document(r))\n    join_ws = rnd_ws(r)\n    text = join_ws.join(pieces)\n    # Ensure we remain under size\n    data = text.encode('utf-8', errors='strict')\n    data = clamp_size(data)\n    data = maybe_truncate_for_partial(r, data)\n    return data"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4065,
+            "output_tokens": 520,
+            "total_tokens": 4585
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3643,
+            "output_tokens": 23,
+            "total_tokens": 3666
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4082,
+            "output_tokens": 1728,
+            "total_tokens": 5810
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4761,
+            "output_tokens": 2595,
+            "total_tokens": 7356
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4247,
+            "output_tokens": 992,
+            "total_tokens": 5239
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2760,
+            "output_tokens": 102,
+            "total_tokens": 2862
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 206.27532601356506,
+    "scan_objects": 15.746661901473999,
+    "validate_objects": 0.27379941940307617,
+    "scan_functions": 39.53251552581787,
+    "synthesis": 50.979758977890015,
+    "fill": 26.010874032974243,
+    "classify": 3.51324462890625,
+    "build_generators": 70.21753096580505
+  }
+}

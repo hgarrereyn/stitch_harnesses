@@ -1,0 +1,347 @@
+{
+  "objects": [
+    {
+      "ptr_type": "cregex_node_type *",
+      "aliases": [],
+      "definition": "typedef enum {\n    REGEX_NODE_TYPE_EPSILON = 0,\n    /* Characters */\n    REGEX_NODE_TYPE_CHARACTER,\n    REGEX_NODE_TYPE_ANY_CHARACTER,\n    REGEX_NODE_TYPE_CHARACTER_CLASS,\n    REGEX_NODE_TYPE_CHARACTER_CLASS_NEGATED,\n    /* Composites */\n    REGEX_NODE_TYPE_CONCATENATION,\n    REGEX_NODE_TYPE_ALTERNATION,\n    /* Quantifiers */\n    REGEX_NODE_TYPE_QUANTIFIER,\n    /* Anchors */\n    REGEX_NODE_TYPE_ANCHOR_BEGIN,\n    REGEX_NODE_TYPE_ANCHOR_END,\n    /* Captures */\n    REGEX_NODE_TYPE_CAPTURE\n} cregex_node_type;",
+      "description": "Enumeration of AST node kinds used in the regex parser. Guides which union member in cregex_node_t is active (character, class, quantifier, concatenation, alternation, anchors, capture, etc.).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "cregex_node_t *"
+      ]
+    },
+    {
+      "ptr_type": "cregex_node_t *",
+      "aliases": [
+        "struct cregex_node *"
+      ],
+      "definition": "typedef struct cregex_node {\n    cregex_node_type type;\n    union {\n        /* REGEX_NODE_TYPE_CHARACTER */\n        struct {\n            int ch;\n        };\n        /* REGEX_NODE_TYPE_CHARACTER_CLASS,\n         * REGEX_NODE_TYPE_CHARACTER_CLASS_NEGATED\n         */\n        struct {\n            const char *from, *to;\n        };\n        /* REGEX_NODE_TYPE_QUANTIFIER */\n        struct {\n            int nmin, nmax, greedy;\n            struct cregex_node *quantified;\n        };\n        /* REGEX_NODE_TYPE_CONCATENATION,\n         * REGEX_NODE_TYPE_ALTERNATION\n         */\n        struct {\n            struct cregex_node *left, *right;\n        };\n        /* REGEX_NODE_TYPE_CAPTURE */\n        struct {\n            struct cregex_node *captured;\n        };\n    };\n} cregex_node_t;",
+      "description": "AST node for the regex syntax tree. The 'type' selects which anonymous struct in the union is valid: character (ch), character class ranges (from/to), quantifier (nmin, nmax, greedy, quantified), binary composition (left/right), or capture (captured). Nodes are typically produced by cregex_parse and freed with cregex_parse_free. Unknown memory ownership details beyond that.",
+      "direct_api_constructors": [
+        "cregex_parse"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "cregex_program_opcode_t *",
+      "aliases": [],
+      "definition": "typedef enum {\n    REGEX_PROGRAM_OPCODE_MATCH = 0,\n    /* Characters */\n    REGEX_PROGRAM_OPCODE_CHARACTER,\n    REGEX_PROGRAM_OPCODE_ANY_CHARACTER,\n    REGEX_PROGRAM_OPCODE_CHARACTER_CLASS,\n    REGEX_PROGRAM_OPCODE_CHARACTER_CLASS_NEGATED,\n    /* Control-flow */\n    REGEX_PROGRAM_OPCODE_SPLIT,\n    REGEX_PROGRAM_OPCODE_JUMP,\n    /* Assertions */\n    REGEX_PROGRAM_OPCODE_ASSERT_BEGIN,\n    REGEX_PROGRAM_OPCODE_ASSERT_END,\n    /* Saving */\n    REGEX_PROGRAM_OPCODE_SAVE\n} cregex_program_opcode_t;",
+      "description": "Enumeration of VM opcodes for the compiled regex program: character and class matches, control flow (split/jump), assertions for begin/end, save slots, and terminal match.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "cregex_program_instr_t *"
+      ]
+    },
+    {
+      "ptr_type": "cregex_char_class *",
+      "aliases": [],
+      "definition": "typedef char cregex_char_class[(UCHAR_MAX + CHAR_BIT - 1) / CHAR_BIT];",
+      "description": "Bitset representing a character class over unsigned char domain. Size is enough to cover UCHAR_MAX. Use helper inlines cregex_char_class_contains and cregex_char_class_add to query/mutate bits.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "cregex_program_instr_t *"
+      ]
+    },
+    {
+      "ptr_type": "cregex_program_instr_t *",
+      "aliases": [
+        "struct cregex_program_instr *"
+      ],
+      "definition": "typedef struct cregex_program_instr {\n    cregex_program_opcode_t opcode;\n    union {\n        /* REGEX_PROGRAM_OPCODE_CHARACTER */\n        struct {\n            int ch;\n        };\n        /* REGEX_PROGRAM_OPCODE_CHARACTER_CLASS,\n         * REGEX_PROGRAM_OPCODE_CHARACTER_CLASS_NEGATED\n         */\n        struct {\n            cregex_char_class klass;\n        };\n        /* REGEX_PROGRAM_OPCODE_SPLIT */\n        struct {\n            struct cregex_program_instr *first, *second;\n        };\n        /* REGEX_PROGRAM_OPCODE_JUMP */\n        struct {\n            struct cregex_program_instr *target;\n        };\n        /* REGEX_PROGRAM_OPCODE_SAVE */\n        struct {\n            int save;\n        };\n    };\n} cregex_program_instr_t;",
+      "description": "Instruction node in the compiled regex program. The opcode selects which union member is active: character (ch), character class bitset (klass), control-flow pointers (first/second/target), or save slot index (save). Instances are created as part of cregex_program_t by cregex_compile_node.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "cregex_program_t *"
+      ]
+    },
+    {
+      "ptr_type": "cregex_program_t *",
+      "aliases": [],
+      "definition": "typedef struct {\n    int ninstructions;\n    cregex_program_instr_t instructions[];\n} cregex_program_t;",
+      "description": "Compiled regex program consisting of a count and a flexible array of cregex_program_instr_t. Constructed by cregex_compile_node, executed by cregex_program_run, and freed with cregex_compile_free. Ownership/lifetime is managed by the caller after construction.",
+      "direct_api_constructors": [
+        "cregex_compile_node"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "cregex_program_run",
+      "signature": "int cregex_program_run(const cregex_program_t *program, const char *string, const char **matches, int nmatches);",
+      "description": "Execute a compiled regex program against a C string. Intended to run the VM over the provided input and optionally collect match information in the matches array. Return value semantics (e.g., success/failure or count) are not documented in this header and are therefore unknown.",
+      "requirements": [
+        "program must point to a valid compiled program obtained from cregex_compile_node.",
+        "string must be a valid, null-terminated C string.",
+        "nmatches must be non-negative.",
+        "If nmatches > 0, matches should reference writable storage for at least nmatches const char* entries; if no match data is desired, matches may be NULL only when nmatches == 0 (inferred from common patterns; exact behavior is not documented).",
+        "The lifetime of string must outlive the call (pointers stored into matches, if any, will reference positions within string; exact format/semantics are not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "cregex_compile_node",
+      "signature": "cregex_program_t *cregex_compile_node(const cregex_node_t *root);",
+      "description": "Compile a parsed regex AST (root) into an executable program representation suitable for cregex_program_run. Returns a heap-allocated program object or NULL on failure (return-on-failure behavior is inferred; not explicitly documented).",
+      "requirements": [
+        "root must be a valid parse tree produced by cregex_parse and must remain alive during compilation.",
+        "The returned program must be freed with cregex_compile_free to avoid leaks.",
+        "Do not pass NULL for root; behavior is not documented for NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "cregex_compile_free",
+      "signature": "void cregex_compile_free(cregex_program_t *program);",
+      "description": "Free a program previously created by cregex_compile_node. Releases any resources owned by the compiled program.",
+      "requirements": [
+        "program must be a pointer previously returned by cregex_compile_node and not already freed.",
+        "program must not be NULL unless the implementation explicitly documents NULL-tolerant free (not documented here).",
+        "After this call, program must not be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "cregex_parse",
+      "signature": "cregex_node_t *cregex_parse(const char *pattern);",
+      "description": "Parse a regex pattern string into an abstract syntax tree (AST) rooted at a cregex_node_t. The returned tree can be compiled with cregex_compile_node. Error signaling (e.g., NULL on failure) is not explicitly documented but is typical; exact details are unknown.",
+      "requirements": [
+        "pattern must be a valid, null-terminated C string containing the regex to parse.",
+        "The returned AST must be freed with cregex_parse_free when no longer needed.",
+        "Do not pass NULL for pattern; behavior is not documented for NULL."
+      ],
+      "error": null
+    },
+    {
+      "name": "cregex_parse_free",
+      "signature": "void cregex_parse_free(cregex_node_t *root);",
+      "description": "Free a parsed regex AST previously allocated by cregex_parse. Releases all nodes anchored at root.",
+      "requirements": [
+        "root must be a pointer previously returned by cregex_parse and not already freed.",
+        "root must not be NULL unless the implementation explicitly documents NULL-tolerant free (not documented here).",
+        "After this call, root and any pointers into the tree must not be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "cregex_char_class_contains",
+      "signature": "static inline int cregex_char_class_contains(const cregex_char_class klass, int ch);",
+      "description": "Return nonzero if character code ch is present in the character class bitset klass; otherwise return 0. Intended for quick membership tests in a pre-initialized cregex_char_class.",
+      "requirements": [
+        "klass must reference a valid cregex_char_class buffer (array of (UCHAR_MAX + CHAR_BIT - 1) / CHAR_BIT bytes).",
+        "klass should be initialized (typically zeroed) before use; otherwise results are undefined due to uninitialized bits (inferred from bitset semantics).",
+        "ch must be in the range 0..UCHAR_MAX; passing values outside this range will index outside the bitset storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "cregex_char_class_add",
+      "signature": "static inline int cregex_char_class_add(cregex_char_class klass, int ch);",
+      "description": "Set the bit corresponding to character code ch in the character class bitset klass (add ch to the class) and return ch. Used to construct character classes.",
+      "requirements": [
+        "klass must reference a valid, writable cregex_char_class buffer (array of (UCHAR_MAX + CHAR_BIT - 1) / CHAR_BIT bytes).",
+        "klass should be initialized (typically zeroed) before first addition to ensure only intended bits are set (inferred from bitset semantics).",
+        "ch must be in the range 0..UCHAR_MAX; values outside this range will index outside the bitset storage.",
+        "klass must not be const; the buffer must be mutable."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "cregex_parse",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "root",
+          "type": "cregex_node_t *"
+        }
+      ],
+      "code": "// Generate a random regex pattern string (1..4096 bytes guaranteed by runtime)\nstd::string pattern = FUZZ_PARAM_STR();\n// Call the target function\ncregex_node_t *root = cregex_parse(pattern.c_str());\n// Require successful parse to hand a valid object to the pool\nif (!root) { FUZZ_BAIL(); }\n// Track provenance and basic lifetime state\nFUZZ_SET_ATTR_INT(root, \"parsed\", 1);\nFUZZ_SET_ATTR_INT(root, \"freed\", 0);\nFUZZ_SET_ATTR_STR(root, \"pattern\", pattern.c_str());\n// root is returned to the pool as an output object"
+    },
+    {
+      "name": "cregex_compile_node",
+      "inputs": [
+        {
+          "name": "root",
+          "type": "cregex_node_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "root",
+          "type": "cregex_node_t *"
+        },
+        {
+          "name": "program",
+          "type": "cregex_program_t *"
+        }
+      ],
+      "code": "// Enforce that root came from cregex_parse and hasn't been freed\nif (FUZZ_GET_ATTR_INT(root, \"parsed\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(root, \"freed\") != 0) { FUZZ_BAIL(); }\n// Compile the AST into a program\ncregex_program_t *program = cregex_compile_node(root);\nif (!program) { FUZZ_BAIL(); }\n// Track provenance and lifetime for the compiled program\nFUZZ_SET_ATTR_INT(program, \"compiled\", 1);\nFUZZ_SET_ATTR_INT(program, \"freed\", 0);\n// Return both root (still owned by caller) and the new program to the pool"
+    },
+    {
+      "name": "cregex_program_run",
+      "inputs": [
+        {
+          "name": "program",
+          "type": "cregex_program_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "program",
+          "type": "cregex_program_t *"
+        }
+      ],
+      "code": "// Validate input program was produced by cregex_compile_node and not freed\nif (FUZZ_GET_ATTR_INT(program, \"compiled\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(program, \"freed\") != 0) { FUZZ_BAIL(); }\n// Generate an input string; keep the std::string alive across the call\nstd::string input = FUZZ_PARAM_STR();\n// Choose a small nmatches >= 0\nunsigned int r = *FUZZ_PARAM(unsigned int);\nint nmatches = (int)(r % 9); // 0..8 to keep storage modest\n// Prepare matches storage per contract: if nmatches > 0, provide writable array; otherwise pass NULL with nmatches == 0\nconst char **matches_ptr = nullptr;\nstd::vector<const char *> matches_vec;\nif (nmatches > 0) {\n    matches_vec.assign((size_t)nmatches, nullptr);\n    matches_ptr = matches_vec.data();\n} else {\n    nmatches = 0;\n    matches_ptr = nullptr;\n}\n// Execute the program. We do not assert return semantics as they are undocumented.\n( void )cregex_program_run(program, input.c_str(), matches_ptr, nmatches);\n// Return program to the pool unchanged"
+    },
+    {
+      "name": "cregex_compile_free",
+      "inputs": [
+        {
+          "name": "program",
+          "type": "cregex_program_t *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce single free and correct provenance\nif (FUZZ_GET_ATTR_INT(program, \"compiled\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(program, \"freed\") != 0) { FUZZ_BAIL(); }\n// Free the program and mark as freed\ncregex_compile_free(program);\nFUZZ_SET_ATTR_INT(program, \"freed\", 1);\n// Do not return program to the pool to avoid use-after-free"
+    },
+    {
+      "name": "cregex_parse_free",
+      "inputs": [
+        {
+          "name": "root",
+          "type": "cregex_node_t *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce single free and correct provenance\nif (FUZZ_GET_ATTR_INT(root, \"parsed\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(root, \"freed\") != 0) { FUZZ_BAIL(); }\n// Free the parse tree and mark as freed\ncregex_parse_free(root);\nFUZZ_SET_ATTR_INT(root, \"freed\", 1);\n// Do not return root to the pool to avoid use-after-free"
+    },
+    {
+      "name": "cregex_char_class_contains",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a valid, initialized character-class bitset buffer\ncregex_char_class klass;\nstd::memset(klass, 0, sizeof(klass));\n// Add a few in-range characters to the class to ensure meaningful contains checks\nunsigned int a = *FUZZ_PARAM(unsigned int) % 256u;\nunsigned int b = *FUZZ_PARAM(unsigned int) % 256u;\nunsigned int c = *FUZZ_PARAM(unsigned int) % 256u;\n( void )cregex_char_class_add(klass, (int)a);\n( void )cregex_char_class_add(klass, (int)b);\n( void )cregex_char_class_add(klass, (int)c);\n// Query membership for a random in-range character\nunsigned int q = *FUZZ_PARAM(unsigned int) % 256u;\n( void )cregex_char_class_contains(klass, (int)q);\n// Property: characters explicitly added must be detected as present\nFUZZ_ASSERT(cregex_char_class_contains(klass, (int)a) != 0, \"added char a must be contained\");"
+    },
+    {
+      "name": "cregex_char_class_add",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a valid, writable, zero-initialized bitset buffer\ncregex_char_class klass;\nstd::memset(klass, 0, sizeof(klass));\n// Choose an in-range character and add it\nunsigned int ch = *FUZZ_PARAM(unsigned int) % 256u;\nint ret = cregex_char_class_add(klass, (int)ch);\n// Ensure API returned the added character and membership now holds\nFUZZ_ASSERT(ret == (int)ch, \"cregex_char_class_add should return the added character code\");\nFUZZ_ASSERT(cregex_char_class_contains(klass, (int)ch) != 0, \"added character must be contained in class\");"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "cregex_compile_node",
+      "data_types": []
+    },
+    {
+      "name": "cregex_compile_free",
+      "data_types": []
+    },
+    {
+      "name": "cregex_parse_free",
+      "data_types": []
+    },
+    {
+      "name": "cregex_char_class_contains",
+      "data_types": []
+    },
+    {
+      "name": "cregex_char_class_add",
+      "data_types": []
+    },
+    {
+      "name": "cregex_parse",
+      "data_types": [
+        "regular expression pattern string"
+      ]
+    },
+    {
+      "name": "cregex_program_run",
+      "data_types": [
+        "arbitrary text string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "regular expression pattern string",
+      "description": "A null-terminated C string containing a regex pattern to be parsed. May include literals, character classes (e.g., [a-z]), quantifiers (*, +, ?, {m,n}), grouping and captures (parentheses), alternation (|), anchors (^, $), and escape sequences. It is arbitrary text interpreted as a regex grammar, not plain data."
+    },
+    {
+      "data_type": "arbitrary text string",
+      "description": "A generic null-terminated C string containing arbitrary bytes/text with no required structure. Used as input to matching functions where the content is treated as plain text to be searched or matched against (not parsed as a format)."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "regular expression pattern string",
+      "generator": "import random\nimport string\n\n# Regex pattern generator for cregex_parse\n# Goal: produce varied but valid patterns featuring literals, classes, quantifiers,\n# groups, alternations, anchors, and escapes while keeping within 4096 bytes.\n\nLITERALS = [\n    \"a\", \"b\", \"c\", \"x\", \"y\", \"z\",\n    \"A\", \"B\", \"C\", \"X\", \"Y\", \"Z\",\n    \"0\", \"1\", \"2\", \"7\", \"8\", \"9\",\n]\n\nESCAPES_SIMPLE = [\"\\\\d\", \"\\\\D\", \"\\\\w\", \"\\\\W\", \"\\\\s\", \"\\\\S\", \"\\\\t\", \"\\\\n\", \"\\\\r\", \"\\\\f\", \".\"]\n\n# Common character class ranges and atoms\nCLASS_RANGES = [\n    (\"a\", \"z\"), (\"A\", \"Z\"), (\"0\", \"9\"),\n]\nCLASS_ATOMS = list(\"._-:@ \") + list(\"aeiouAEIOU13579\")\n\nQUANT_SIMPLE = [\"*\", \"+\", \"?\", \"*?\", \"+?\", \"??\"]\n\n# Some bounded quantifiers; we will also synthesize random {m,n}\nBOUNDED_PRESETS = [\"{0}\", \"{1}\", \"{2}\", \"{3}\", \"{4}\", \"{5}\", \"{1,2}\", \"{2,3}\", \"{0,3}\", \"{3,}\"]\n\nANCHORS = [\"^\", \"$\"]\n\nMAX_LEN = 4096\n\n\ndef rand_choice(rng, seq):\n    return seq[rng.randrange(len(seq))]\n\n\ndef rand_literal(rng):\n    # Either a simple literal or an escaped special\n    choice = rng.random()\n    if choice < 0.6:\n        return rand_choice(rng, LITERALS)\n    elif choice < 0.85:\n        # Escape a metachar to force literal\n        return \"\\\\\" + rand_choice(rng, [\".\", \"*\", \"+\", \"?\", \"(\", \")\", \"[\", \"]\", \"{\", \"}\", \"|\", \"^\", \"$\", \"\\\\\"])\n    else:\n        return rand_choice(rng, ESCAPES_SIMPLE)\n\n\ndef rand_class(rng):\n    # Build a character class like [a-zA-Z0-9_], with optional negation\n    parts = []\n    # Randomly decide negation\n    neg = rng.random() < 0.2\n    # Add some ranges\n    for _ in range(rng.randint(0, 3)):\n        a, b = rand_choice(rng, CLASS_RANGES)\n        parts.append(f\"{a}-{b}\")\n    # Add some single atoms\n    for _ in range(rng.randint(1, 5)):\n        ch = rand_choice(rng, CLASS_ATOMS)\n        # Escape class special chars\n        if ch in \"^-[]\\\\\":\n            ch = \"\\\\\" + ch\n        parts.append(ch)\n    inner = \"\".join(parts) if parts else \"a\"\n    return (\"[^\" if neg else \"[\") + inner + \"]\"\n\n\ndef rand_quantifier(rng):\n    if rng.random() < 0.6:\n        return rand_choice(rng, QUANT_SIMPLE)\n    if rng.random() < 0.5:\n        return rand_choice(rng, BOUNDED_PRESETS)\n    # Generate {m,n} where 0 <= m <= n <= 10 or {m,}\n    m = rng.randint(0, 5)\n    if rng.random() < 0.7:\n        n = rng.randint(m, m + 10)\n        return f\"{{{m},{n}}}\"\n    else:\n        return f\"{{{m},}}\"\n\n\ndef rand_atom(rng, depth):\n    # Base element that can be quantified\n    r = rng.random()\n    if depth < 2 and r < 0.25:\n        return rand_group(rng, depth + 1)\n    elif r < 0.5:\n        return rand_literal(rng)\n    elif r < 0.75:\n        return rand_class(rng)\n    else:\n        return \".\"\n\n\ndef maybe_quantify(rng, atom):\n    if rng.random() < 0.6:\n        return atom + rand_quantifier(rng)\n    return atom\n\n\ndef rand_concat(rng, depth):\n    # Concatenate 1..N quantified atoms\n    n = 1 + int(rng.random() ** 0.6 * 6)  # bias to smaller counts\n    parts = []\n    for _ in range(n):\n        atom = rand_atom(rng, depth)\n        parts.append(maybe_quantify(rng, atom))\n    return \"\".join(parts)\n\n\ndef rand_alternation(rng, depth):\n    # Build A|B|C with 2..k branches\n    k = 2 + int(rng.random() ** 0.5 * 3)  # 2..4 branches\n    branches = []\n    for _ in range(k):\n        branches.append(rand_concat(rng, depth))\n    return \"|\".join(branches)\n\n\ndef rand_group(rng, depth):\n    # Capturing or non-capturing group; include anchors optionally inside/outside\n    kind = rng.random()\n    if kind < 0.75:\n        inner = rand_branching(rng, depth)\n        return \"(\" + inner + \")\"\n    else:\n        inner = rand_branching(rng, depth)\n        return \"(?:\" + inner + \")\"\n\n\ndef rand_branching(rng, depth):\n    if rng.random() < 0.4:\n        return rand_alternation(rng, depth)\n    else:\n        return rand_concat(rng, depth)\n\n\ndef with_anchors(rng, pattern):\n    # Optionally add ^ and/or $ ensuring they appear at ends\n    if rng.random() < 0.5:\n        pattern = \"^\" + pattern\n    if rng.random() < 0.5:\n        pattern = pattern + \"$\"\n    return pattern\n\n\ndef sprinkle_saves_like_groups(rng, pattern):\n    # Encourage more groups and nested structures by occasionally wrapping segments\n    # without exceeding size budget.\n    if len(pattern) > MAX_LEN // 2:\n        return pattern\n    pieces = []\n    i = 0\n    while i < len(pattern):\n        j = min(len(pattern), i + rng.randint(3, 12))\n        segment = pattern[i:j]\n        if rng.random() < 0.25:\n            segment = \"(\" + segment + \")\"  # capturing wrapper\n            if rng.random() < 0.3:\n                segment += rand_quantifier(rng)\n        pieces.append(segment)\n        i = j\n    out = \"\".join(pieces)\n    return out if len(out) <= MAX_LEN else pattern\n\n\ndef make_pattern(rng):\n    # Choose a generation strategy\n    strategies = []\n    # 1) Simple literal string\n    def strat_literal():\n        n = rng.randint(1, 20)\n        return \"\".join(rand_literal(rng) for _ in range(n))\n\n    # 2) A single complex alternation\n    def strat_alt():\n        return with_anchors(rng, rand_alternation(rng, 0))\n\n    # 3) Concatenation with classes and quantifiers\n    def strat_concat():\n        p = rand_concat(rng, 0)\n        return with_anchors(rng, p)\n\n    # 4) Nested groups with alternations\n    def strat_nested():\n        p = rand_group(rng, 0)\n        if rng.random() < 0.6:\n            p = maybe_quantify(rng, p)\n        return with_anchors(rng, p)\n\n    # 5) Predefined interesting patterns\n    def strat_presets():\n        presets = [\n            \"^$\",\n            \"^.*$\",\n            \"(a|b|c)+\",\n            \"(\\d{1,3}\\.){3}\\d{1,3}\",\n            \"(foo|bar)?baz\",\n            \"[A-Za-z_][A-Za-z0-9_]*\",\n            \"(ab)*?c\",\n            \"^(.+)$\",\n            \"(a(?:b|c){0,3}d)+\",\n            \"[^\\n]*\\n\",\n        ]\n        return rand_choice(rng, presets)\n\n    strategies = [strat_literal, strat_alt, strat_concat, strat_nested, strat_presets]\n    p = rand_choice(rng, strategies)()\n\n    # Optional post-processing to increase structural variety\n    if rng.random() < 0.4:\n        p = sprinkle_saves_like_groups(rng, p)\n\n    # Ensure not empty and within size\n    if not p:\n        p = \"a\"\n    return p[:MAX_LEN]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Randomly generate 1..N concatenated subpatterns with outer grouping or alternation\n    parts = []\n    num = 1 + int(rng.random() ** 0.5 * 4)  # 1..3, bias toward 1-2\n    for _ in range(num):\n        parts.append(make_pattern(rng))\n    pattern = parts[0] if len(parts) == 1 else \"(\" + \")|(\".join(parts) + \")\"\n\n    # Trim if necessary\n    if len(pattern) > MAX_LEN:\n        pattern = pattern[:MAX_LEN]\n\n    # Return as bytes (null-terminated not required here; harness treats string data)\n    return pattern.encode(\"utf-8\", errors=\"ignore\")\n"
+    },
+    {
+      "data_type": "arbitrary text string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for interesting arbitrary text strings intended to be consumed as C strings\n# by cregex_program_run as the input to match against. We try to cover a broad range\n# of text characteristics: ASCII, unicode-like UTF-8 sequences, long/short, newlines,\n# repeated patterns, edge characters, and embedded NUL avoidance (final buffer is a\n# Python bytes blob; fuzzer infra will make it a std::string, so internal NUL bytes are\n# allowed but may truncate depending on how the target interprets it; since the target\n# uses C strings, we avoid embedding NUL before the end to maximize coverage of the\n# full buffer in C-string APIs).\n\nMAX_LEN = 1024  # keep under 4096 total\n\nASCII_PRINTABLE = ''.join(chr(c) for c in range(32, 127) if c != 0)\nWHITESPACE = '\\t \\r\\n\\v\\f'\nPUNCT = string.punctuation\nDIGITS = string.digits\nLETTERS = string.ascii_letters\nESCAPES = ['\\\\n', '\\\\r', '\\\\t', '\\\\f', '\\\\v', '\\\\0', '\\\\\\\\']\n\n# Some common words and tokens that help regex engines exercise character classes,\n# anchors, word boundaries, etc.\nDICTIONARY = [\n    'hello', 'world', 'test', 'regex', 'cregex', 'alpha', 'beta', 'gamma', 'delta',\n    'one', 'two', 'three', 'four', 'five', 'zero', 'nine',\n    'email@example.com', 'user_name', 'CamelCase', 'snake_case', 'kebab-case',\n    'UPPER', 'lower', 'MiXeD', '12345', '0000', '9999',\n    'BEGIN', 'END', 'start', 'finish', 'match', 'nomatch',\n]\n\n# Some UTF-8 sequences to exercise any byte-class handling and dot/any-character logic\nUTF8_SNIPPETS = [\n    'π', 'μ', '✓', '❤', 'é', 'ä', 'ö', 'ü', 'ñ', 'Ж', '漢字', 'ひらがな', '한글', '😀',\n]\n\n# Repetition building blocks to trigger greedy vs non-greedy behavior in the program\nREPEAT_BLOCKS = [\n    'a', 'b', 'ab', 'abc', 'xyz', '0', '1', '01', '.', '*', '+', '?', '[abc]', '(foo)'\n]\n\nBOUNDARY_CHUNKS = [\n    '', ' ', '\\n', '\\r\\n', '\\t', '\\v', '\\f', '--', '::', '##', '__', '  ', '   ',\n]\n\nEDGE_BYTE_RUNS = [\n    bytes([i for i in range(1, 32) if i != 0]).decode('latin1', 'ignore'),  # control chars sans NUL\n    ''.join(chr(i) for i in range(127, 160)),  # DEL and C1 controls\n]\n\nSTART_END_MARKERS = [\n    '^start', 'end$', '^', '$', '\\nstart', 'end\\n', '[', ']', '(', ')', '{', '}',\n]\n\nURL_LIKE = [\n    'http://example.com/path?query=1#frag',\n    'https://sub.domain.tld:8080/a/b/c',\n]\n\nPATHS = [\n    '/usr/bin/env', 'C:/Windows/System32', './relative/path', '../up/one',\n]\n\ndef _rand_choice(rng: random.Random, arr: List):\n    return arr[rng.randrange(len(arr))]\n\ndef _repeat(rng: random.Random, s: str, min_n: int, max_n: int) -> str:\n    n = rng.randint(min_n, max_n)\n    return s * n\n\ndef _make_repeated_patterns(rng: random.Random) -> str:\n    parts = []\n    for _ in range(rng.randint(1, 5)):\n        blk = _rand_choice(rng, REPEAT_BLOCKS)\n        parts.append(_repeat(rng, blk, 1, 50))\n        if rng.random() < 0.6:\n            parts.append(_rand_choice(rng, BOUNDARY_CHUNKS))\n    return ''.join(parts)\n\ndef _make_dictionary_line(rng: random.Random) -> str:\n    words = [\n        _rand_choice(rng, DICTIONARY + UTF8_SNIPPETS),\n        _rand_choice(rng, DICTIONARY + UTF8_SNIPPETS),\n        _rand_choice(rng, DICTIONARY + UTF8_SNIPPETS),\n    ]\n    sep = _rand_choice(rng, [' ', '\\t', ',', ';', ':', '-', '_'])\n    return sep.join(words)\n\ndef _make_mixed_content(rng: random.Random, target_len: int) -> str:\n    builders = [\n        lambda: _make_dictionary_line(rng),\n        lambda: _make_repeated_patterns(rng),\n        lambda: _rand_choice(rng, URL_LIKE),\n        lambda: _rand_choice(rng, PATHS),\n        lambda: _rand_choice(rng, START_END_MARKERS),\n        lambda: _rand_choice(rng, EDGE_BYTE_RUNS),\n        lambda: ''.join(rng.choice(ASCII_PRINTABLE) for _ in range(rng.randint(5, 40))),\n        lambda: ''.join(rng.choice(WHITESPACE) for _ in range(rng.randint(1, 10))),\n        lambda: ''.join(_rand_choice(rng, UTF8_SNIPPETS) for _ in range(rng.randint(1, 10))),\n        lambda: ''.join(_rand_choice(rng, ESCAPES) for _ in range(rng.randint(1, 8))),\n        lambda: ''.join(rng.choice(LETTERS + DIGITS + PUNCT) for _ in range(rng.randint(10, 60))),\n    ]\n    s = []\n    while sum(len(x) for x in s) < target_len:\n        s.append(_rand_choice(rng, builders)())\n        # add newlines to create multi-line inputs for ^ and $ assertions\n        if rng.random() < 0.5:\n            s.append('\\n')\n    return ''.join(s)\n\ndef _trim_to_cstring_safe(s: str, max_len: int) -> str:\n    # Avoid internal NUL to ensure full string is visible to C API; strip or replace with space\n    s = s.replace('\\x00', ' ')\n    # Hard limit\n    if len(s) > max_len:\n        s = s[:max_len]\n    # Ensure not ending with a backslash that could interact with escape-aware matchers\n    if s.endswith('\\\\'):\n        s += ' '\n    return s\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Select a strategy to shape the input\n    strategy = rng.randrange(6)\n\n    if strategy == 0:\n        # Short lines with boundaries and punctuation\n        parts = []\n        for _ in range(rng.randint(2, 8)):\n            parts.append(_make_dictionary_line(rng))\n            parts.append(_rand_choice(rng, ['\\n', '\\r\\n']))\n        s = ''.join(parts)\n    elif strategy == 1:\n        # Heavily repeated patterns\n        s = _make_repeated_patterns(rng)\n    elif strategy == 2:\n        # Mixed content up to a medium length\n        s = _make_mixed_content(rng, rng.randint(64, 512))\n    elif strategy == 3:\n        # Word-like tokens separated by whitespace and punctuation\n        tokens = []\n        for _ in range(rng.randint(10, 100)):\n            tok = ''.join(rng.choice(LETTERS + DIGITS) for _ in range(rng.randint(1, 12)))\n            tokens.append(tok)\n        sep_choices = [' ', '\\t', ',', ';', '.', ':', '/', '\\\\', '-', '_']\n        s = ''.join(t + _rand_choice(rng, sep_choices) for t in tokens)\n    elif strategy == 4:\n        # Many lines to exercise anchors\n        lines = []\n        for i in range(rng.randint(5, 200)):\n            prefix = '^' if rng.random() < 0.1 else ''\n            suffix = '$' if rng.random() < 0.1 else ''\n            body = ''.join(rng.choice(ASCII_PRINTABLE) for _ in range(rng.randint(0, 60)))\n            lines.append(prefix + body + suffix)\n        s = '\\n'.join(lines)\n    else:\n        # UTF-8 heavy content with interspersed ASCII\n        chunks = []\n        for _ in range(rng.randint(10, 80)):\n            if rng.random() < 0.6:\n                chunks.append(_rand_choice(rng, UTF8_SNIPPETS))\n            else:\n                chunks.append(''.join(rng.choice(ASCII_PRINTABLE) for _ in range(rng.randint(1, 8))))\n            if rng.random() < 0.3:\n                chunks.append('\\n')\n        s = ''.join(chunks)\n\n    # Augment with some boundary markers at start/end to exercise ^ and $\n    if rng.random() < 0.5:\n        s = _rand_choice(rng, START_END_MARKERS) + s\n    if rng.random() < 0.5:\n        s = s + _rand_choice(rng, START_END_MARKERS)\n\n    # Ensure size and C-string friendliness\n    s = _trim_to_cstring_safe(s, MAX_LEN)\n\n    # Encode to bytes. Use UTF-8; replace errors so we always return bytes.\n    return s.encode('utf-8', errors='replace')\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1539,
+            "output_tokens": 1301,
+            "total_tokens": 2840
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1117,
+            "output_tokens": 58,
+            "total_tokens": 1175
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1596,
+            "output_tokens": 1706,
+            "total_tokens": 3302
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6140,
+            "output_tokens": 3613,
+            "total_tokens": 9753
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4013,
+            "output_tokens": 194,
+            "total_tokens": 4207
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 231.41031551361084,
+    "scan_objects": 20.904968976974487,
+    "validate_objects": 0.3611481189727783,
+    "scan_functions": 47.018996238708496,
+    "synthesis": 108.54443025588989,
+    "fill": 0,
+    "classify": 5.469865322113037,
+    "build_generators": 49.11026668548584
+  }
+}

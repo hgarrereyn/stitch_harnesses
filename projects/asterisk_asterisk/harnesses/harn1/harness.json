@@ -1,0 +1,208 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct MD5Context *",
+      "aliases": [],
+      "definition": "struct MD5Context {\n\tuint32_t buf[4];\n\tuint32_t bits[2];\n\t/*! Align because we cast this buffer to uint32s */\n\tunsigned char in[64] __attribute__((aligned(__alignof__(uint32_t))));\n};",
+      "description": "MD5 computation state used by the Asterisk MD5 implementation. Holds the 128-bit chaining buffer, bit count, and a 64-byte input block aligned for safe uint32 casts. Used with MD5Init, MD5Update, MD5Final, and MD5Transform to compute MD5 digests.",
+      "direct_api_constructors": [
+        "MD5Init"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "MD5Init",
+      "signature": "void MD5Init(struct MD5Context *context);",
+      "description": "Initializes an MD5Context for a new MD5 message-digest computation. Call this before any MD5Update calls and before computing a digest with MD5Final. Typical usage pattern: MD5Init(&ctx); MD5Update(&ctx, data, len); ...; MD5Final(digest, &ctx).",
+      "requirements": [
+        "context must be a valid, writable pointer to an MD5Context instance.",
+        "Must be called before the first MD5Update/MD5Final on the given context.",
+        "Do not use a single MD5Context concurrently from multiple threads without external synchronization.",
+        "After completion, the context is prepared for input via MD5Update."
+      ],
+      "error": null
+    },
+    {
+      "name": "MD5Update",
+      "signature": "void MD5Update(struct MD5Context *context, unsigned char const *buf, unsigned len);",
+      "description": "Feeds a buffer of bytes into an ongoing MD5 computation. Can be called zero or more times after MD5Init and before MD5Final. Data from successive calls is concatenated logically.",
+      "requirements": [
+        "context must be a valid, initialized (via MD5Init) and writable pointer to an MD5Context.",
+        "If len > 0, buf must be a valid pointer to at least len bytes of readable memory.",
+        "It is safe to call with len == 0 (no-op).",
+        "Do not use the same MD5Context concurrently from multiple threads without external synchronization.",
+        "Must be followed by MD5Final to obtain the digest."
+      ],
+      "error": null
+    },
+    {
+      "name": "MD5Final",
+      "signature": "void MD5Final(unsigned char digest[MD5_DIGEST_LENGTH], struct MD5Context *context);",
+      "description": "Finalizes the MD5 computation for the given context and writes the 16-byte MD5 digest to the provided buffer. After finalization, the context’s internal state corresponds to a finished digest; reinitialize with MD5Init to compute a new digest.",
+      "requirements": [
+        "digest must point to a writable buffer of at least MD5_DIGEST_LENGTH (16) bytes.",
+        "context must be a valid pointer to an MD5Context that has been initialized with MD5Init (and optionally updated via MD5Update).",
+        "Do not call concurrently on the same context from multiple threads.",
+        "After calling MD5Final, call MD5Init again before reusing the context for a new message."
+      ],
+      "error": null
+    },
+    {
+      "name": "MD5Transform",
+      "signature": "void MD5Transform(uint32_t buf[4], uint32_t const in[16]);",
+      "description": "Performs a single MD5 compression step, transforming the 128-bit state in buf using one 512-bit message block in. This is a low-level routine typically used internally by the MD5 implementation rather than by applications directly. Endianness or word-format expectations for in are not documented here; in typical MD5 implementations, in represents 16 little-endian 32-bit words.",
+      "requirements": [
+        "buf must point to an array of at least 4 writable uint32_t elements representing the current MD5 state.",
+        "in must point to an array of at least 16 readable uint32_t elements representing one 512-bit message block.",
+        "Caller must ensure any required byte/word ordering for in; specifics are unknown from this header and typically little-endian is expected.",
+        "Do not call concurrently on the same state buffer from multiple threads without external synchronization."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "MD5Init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "context",
+          "type": "struct MD5Context *"
+        }
+      ],
+      "code": "// Allocate a writable MD5Context and initialize it for a new computation\nstruct MD5Context *context = new MD5Context;\n// MD5Init requires a valid, writable context pointer\nMD5Init(context);\n// Track lifecycle/state for downstream stubs\nFUZZ_SET_ATTR_INT(context, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(context, \"finalized\", 0);\nFUZZ_SET_ATTR_INT(context, \"total_len\", 0);\n// Validation: The context is allocated and initialized; returned for reuse by MD5Update/MD5Final."
+    },
+    {
+      "name": "MD5Update",
+      "inputs": [
+        {
+          "name": "context",
+          "type": "struct MD5Context *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "context",
+          "type": "struct MD5Context *"
+        }
+      ],
+      "code": "// Enforce that the context was initialized and not yet finalized\nint initialized = FUZZ_GET_ATTR_INT(context, \"initialized\");\nint finalized = FUZZ_GET_ATTR_INT(context, \"finalized\");\nif (!initialized || finalized) { FUZZ_BAIL(); }\n\n// Generate input buffer; len may be zero (API no-op allowed)\nstd::string data = FUZZ_PARAM_STR();\nunsigned int len = (unsigned int)(data.size() == 0 ? 0 : (*FUZZ_PARAM(unsigned int) % (data.size() + 1u)));\nconst unsigned char *buf = reinterpret_cast<const unsigned char *>(data.data());\n\n// Call target function\nMD5Update(context, buf, len);\n\n// Track total input length (avoid signed int overflow in metadata)\nint total = FUZZ_GET_ATTR_INT(context, \"total_len\");\nif (len <= 0x7fffffff) {\n    int inc = (int)len;\n    if (inc > 0 && total > 0x7fffffff - inc) {\n        total = 0x7fffffff;\n    } else {\n        total += inc;\n    }\n    FUZZ_SET_ATTR_INT(context, \"total_len\", total);\n}\n// Validation: Preconditions (initialized and not finalized) are enforced; context is preserved for further operations."
+    },
+    {
+      "name": "MD5Final",
+      "inputs": [
+        {
+          "name": "context",
+          "type": "struct MD5Context *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "context",
+          "type": "struct MD5Context *"
+        }
+      ],
+      "code": "// Enforce that the context was initialized and not yet finalized\nint initialized = FUZZ_GET_ATTR_INT(context, \"initialized\");\nint finalized = FUZZ_GET_ATTR_INT(context, \"finalized\");\nif (!initialized || finalized) { FUZZ_BAIL(); }\n\n// Provide a writable 16-byte output buffer for the digest\nunsigned char digest[16];\nMD5Final(digest, context);\n\n// Update lifecycle: mark finalized; require reinit before further updates/final\nFUZZ_SET_ATTR_INT(context, \"finalized\", 1);\nFUZZ_SET_ATTR_INT(context, \"initialized\", 0);\n// Validation: Digest buffer size satisfied; state marked finalized for downstream checks."
+    },
+    {
+      "name": "MD5Transform",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate state (4 words) and one message block (16 words)\nuint32_t (*state_src)[4] = FUZZ_PARAM(uint32_t[4]);\nuint32_t (*block_src)[16] = FUZZ_PARAM(uint32_t[16]);\n\n// Make local copies to ensure proper writable/readable buffers of exact sizes\nuint32_t buf[4];\nuint32_t in[16];\nfor (int i = 0; i < 4; ++i) { buf[i] = (*state_src)[i]; }\nfor (int i = 0; i < 16; ++i) { in[i] = (*block_src)[i]; }\n\n// Call the low-level compression step. Endianness expectations are unknown; we simply supply random words.\nMD5Transform(buf, in);\n// Validation: Input sizes match API requirements; no persistent objects to return."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "MD5Init",
+      "data_types": []
+    },
+    {
+      "name": "MD5Final",
+      "data_types": []
+    },
+    {
+      "name": "MD5Transform",
+      "data_types": []
+    },
+    {
+      "name": "MD5Update",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A raw byte buffer of any length (including zero). No encoding or structure is required; bytes are treated as uninterpreted data. May contain any values 0x00–0xFF and does not need to be valid text."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# Generator for arbitrary binary data buffers suited for MD5Update fuzzing.\n# Emphasizes 64-byte block boundaries and varied content while remaining valid.\n\n_MAX_SIZE = 4096\n_BLOCK = 64\n\ndef _rand_bytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.getrandbits(8) for _ in range(n))\n\ndef _pattern_repeats(pattern: bytes, total_len: int) -> bytes:\n    if not pattern or total_len <= 0:\n        return b\"\" if total_len == 0 else pattern[:total_len]\n    reps, rem = divmod(total_len, len(pattern))\n    return pattern * reps + pattern[:rem]\n\ndef _sizes_near_block_boundaries(total_budget: int, r: random.Random) -> List[int]:\n    candidates = set()\n\n    # Always include 0 and the budget itself\n    candidates.add(0)\n    candidates.add(total_budget)\n\n    # Random small sizes (only if budget > 0)\n    if total_budget > 0:\n        upper = min(128, total_budget)\n        # ensure upper >= 1 for randrange(1, upper+1)\n        for _ in range(5):\n            candidates.add(r.randrange(1, upper + 1))\n\n    # Multiples of 64 and neighbors within budget\n    max_k = total_budget // _BLOCK\n    for k in range(max_k + 1):\n        base = k * _BLOCK\n        for d in (-2, -1, 0, 1, 2):\n            sz = base + d\n            if 0 <= sz <= total_budget:\n                candidates.add(sz)\n\n    # Some larger random sizes up to budget\n    if total_budget > 0:\n        for _ in range(5):\n            candidates.add(r.randrange(0, total_budget + 1))\n\n    sizes = sorted(x for x in candidates if 0 <= x <= total_budget)\n    r.shuffle(sizes)\n    return sizes[: min(12, len(sizes))]\n\ndef _content_variants(r: random.Random, size: int) -> List[bytes]:\n    variants = []\n\n    # 1) All zeros\n    variants.append(bytes(size))\n\n    # 2) All 0xFF\n    variants.append(bytes([0xFF]) * size)\n\n    # 3) Incrementing pattern\n    variants.append(_pattern_repeats(bytes(range(256)), size))\n\n    # 4) Decrementing pattern\n    variants.append(_pattern_repeats(bytes(reversed(range(256))), size))\n\n    # 5) Alternating 0x00/0xFF\n    variants.append(_pattern_repeats(b\"\\x00\\xFF\", size))\n\n    # 6) Alternating 0x55/0xAA\n    variants.append(_pattern_repeats(b\"\\x55\\xAA\", size))\n\n    # 7) ASCII text with newlines and nulls sprinkled\n    base_text = (\n        b\"The quick brown fox jumps over the lazy dog.\\n\"\n        b\"MD5 test input buffer.\\n\\x00\"\n    )\n    variants.append(_pattern_repeats(base_text, size))\n\n    # 8) Random bytes\n    variants.append(_rand_bytes(r, size))\n\n    # 9) Structured: 32-bit LE counter words\n    if size > 0:\n        chunks = []\n        nwords = (size + 3) // 4\n        for i in range(nwords):\n            chunks.append(struct.pack('<I', (i * 0x9E3779B1) & 0xFFFFFFFF))\n        variants.append(b''.join(chunks)[:size])\n    else:\n        variants.append(b\"\")\n\n    # 10) Repeated tweaked 64-byte block\n    if size > 0:\n        base = bytearray(_rand_bytes(r, _BLOCK))\n        for pos in (0, 7, 31, 63):\n            if pos < len(base):\n                base[pos] ^= 0xA5\n        variants.append(_pattern_repeats(bytes(base), size))\n\n    # Deduplicate while keeping order\n    out = []\n    seen = set()\n    for v in variants:\n        if v not in seen:\n            seen.add(v)\n            out.append(v)\n    return out\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Choose a target size budget (<= 4096)\n    budget_choices = [0, 1, 15, 31, 63, 64, 65, 127, 128, 255, 256, 511, 512, 1023, 1024, 2048, 3072, 4096]\n    budget = r.choice(budget_choices)\n\n    sizes = _sizes_near_block_boundaries(budget, r)\n    if not sizes:\n        sizes = [0]\n\n    size = r.choice(sizes)\n    variants = _content_variants(r, size)\n    data = r.choice(variants) if variants else bytes(size)\n\n    if len(data) > _MAX_SIZE:\n        data = data[:_MAX_SIZE]\n    return data"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1449,
+            "output_tokens": 173,
+            "total_tokens": 1622
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1027,
+            "output_tokens": 31,
+            "total_tokens": 1058
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1476,
+            "output_tokens": 1159,
+            "total_tokens": 2635
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4555,
+            "output_tokens": 3152,
+            "total_tokens": 7707
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2246,
+            "output_tokens": 96,
+            "total_tokens": 2342
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 176.91629886627197,
+    "scan_objects": 4.478532314300537,
+    "validate_objects": 0.1687912940979004,
+    "scan_functions": 25.174975872039795,
+    "synthesis": 76.15815782546997,
+    "fill": 0,
+    "classify": 3.0004091262817383,
+    "build_generators": 67.93488931655884
+  }
+}

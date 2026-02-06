@@ -1,0 +1,136 @@
+{
+  "objects": [
+    {
+      "ptr_type": "unsigned char *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom data types are defined in this header. The only symbols are two functions: wds_echo_sum and wds_hello. There are no structs, enums, typedefs, or classes introduced here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "wds_echo_sum",
+      "signature": "int wds_echo_sum(const unsigned char* data, int len);",
+      "description": "Computes a result based on a byte buffer. Given the name and signature, it most likely sums the values of the bytes in the provided buffer and returns that sum as an int. Exact return semantics beyond that are not documented in the header.",
+      "requirements": [
+        "data must point to at least len bytes of readable memory.",
+        "len must be non-negative (>= 0).",
+        "data must not be NULL when len > 0; data may be NULL when len == 0.",
+        "The input buffer will not be modified (data is const).",
+        "Behavior and meaning of the return value are not documented; callers should not assume more than an integer result derived from the input."
+      ],
+      "error": null
+    },
+    {
+      "name": "wds_hello",
+      "signature": "const char* wds_hello(void);",
+      "description": "Returns a C string. Based on the name, it likely returns a greeting such as \"hello\". The returned pointer is const, implying the string is read-only. Lifetime and ownership are not documented.",
+      "requirements": [
+        "Do not modify the returned string (it points to read-only memory).",
+        "Do not free the returned pointer; ownership is not transferred and is assumed to remain with the library (inferred from const char* return).",
+        "Expect a null-terminated C string; check for NULL if robustness against allocation or initialization failures is required (behavior not documented)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "wds_echo_sum",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare an input buffer that satisfies API constraints: data must reference at least len bytes when len > 0.\n// We generate a fuzz string and cap maximum length for performance.\nstd::string buf = FUZZ_PARAM_STR();\nsize_t max_len = buf.size();\nif (max_len > 2048) { max_len = 2048; }\n\n// Choose len in [0, max_len]. Ensure non-negative as required.\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nint len = (int)(pick % (max_len + 1));\n\n// Enforce data pointer constraints:\n// - If len > 0: data must not be NULL and must point to at least len readable bytes.\n// - If len == 0: data may be NULL or non-NULL.\nconst unsigned char *data = nullptr;\nif (len > 0) {\n    data = reinterpret_cast<const unsigned char *>(buf.data());\n} else {\n    bool pass_null = (pick & 1) != 0;\n    data = pass_null ? nullptr : reinterpret_cast<const unsigned char *>(buf.data());\n}\n\n// Call the target function. No assumptions about return value semantics beyond being an int result.\nint result = wds_echo_sum(data, len);\n(void)result; // suppress unused warning; behavior not asserted per docs\n\n// Validation summary: The stub guarantees len >= 0, and when len > 0, data is non-NULL and points to at least len bytes.\n// No outputs are produced; no ownership is transferred."
+    },
+    {
+      "name": "wds_hello",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Invoke the function that returns a const, read-only C string managed by the library.\nconst char *greet = wds_hello();\n\n// Be robust to potential NULL (not documented but permitted by caller guidance).\nif (!greet) { FUZZ_BAIL(); }\n\n// Validate that the returned pointer is a null-terminated C string within a reasonable bound to avoid scanning unbounded memory.\n// We scan up to 1024 bytes; if no terminator is found, bail as a safety measure.\nsize_t i = 0;\nconst size_t limit = 1024;\nfor (; i < limit; ++i) {\n    if (greet[i] == '\\0') { break; }\n}\nif (i == limit) { FUZZ_BAIL(); }\n\n// Do not modify or free the returned pointer, per API requirements.\n\n// Validation summary: The stub checks for NULL and enforces bounded null-termination scanning without taking ownership."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "wds_hello",
+      "data_types": []
+    },
+    {
+      "name": "wds_echo_sum",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A generic byte buffer with no required structure or encoding. Any sequence of bytes (including null bytes and non-UTF-8) of length len is acceptable. Used when functions consume raw bytes without expecting a specific format."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# We generate arbitrary binary data buffers suitable for wds_echo_sum:\n# - Any bytes are valid.\n# - Length may be 0..2048 (stub caps to 2048).\n# Strategy: produce a mix of patterns that exercise summation edge cases:\n# - All zeros, all 0xFF, ascending/descending ramps, alternating patterns\n# - Random bytes with controllable distributions (uniform, biased small/large)\n# - Repeated blocks, prime-length buffers, power-of-two lengths\n# - Include embedded NULs naturally\n# The output is a single bytes object. The fuzzer stub will choose len within the buffer size\n# or even NULL when len==0; our buffer just needs to be valid and interesting.\n\nMAX_LEN = 2048\n\n\ndef _rand_len(rng: random.Random) -> int:\n    # Prefer a variety of interesting lengths, with bias to boundaries\n    choices = [0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024, 1536, 2047, 2048]\n    if rng.random() < 0.6:\n        # Mostly choose from the curated set\n        L = rng.choice(choices)\n    else:\n        # Otherwise any length up to MAX_LEN\n        L = rng.randint(0, MAX_LEN)\n    return L\n\n\ndef _pattern_all(value: int, length: int) -> bytes:\n    return bytes([value & 0xFF]) * length\n\n\ndef _pattern_ramp(length: int, start: int, step: int) -> bytes:\n    b = bytearray(length)\n    v = start & 0xFF\n    for i in range(length):\n        b[i] = v\n        v = (v + step) & 0xFF\n    return bytes(b)\n\n\ndef _pattern_alternating(length: int, a: int, b: int, run: int = 1) -> bytes:\n    bts = []\n    toggle = True\n    i = 0\n    while i < length:\n        val = a if toggle else b\n        chunk = min(run, length - i)\n        bts.append(bytes([val & 0xFF]) * chunk)\n        toggle = not toggle\n        i += chunk\n    return b\"\".join(bts)\n\n\ndef _pattern_repeat_block(length: int, block: bytes) -> bytes:\n    if not block:\n        return bytes(length)\n    reps, rem = divmod(length, len(block))\n    return block * reps + block[:rem]\n\n\ndef _random_uniform(length: int, rng: random.Random) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(length))\n\n\ndef _random_biased_small(length: int, rng: random.Random) -> bytes:\n    # Bias toward small values (0..31) with occasional full-range outliers\n    out = bytearray(length)\n    for i in range(length):\n        if rng.random() < 0.85:\n            out[i] = rng.randrange(0, 32)\n        else:\n            out[i] = rng.getrandbits(8)\n    return bytes(out)\n\n\ndef _random_biased_large(length: int, rng: random.Random) -> bytes:\n    # Bias toward large values (224..255) with occasional full-range outliers\n    out = bytearray(length)\n    for i in range(length):\n        if rng.random() < 0.85:\n            out[i] = 224 + rng.randrange(0, 32)\n        else:\n            out[i] = rng.getrandbits(8)\n    return bytes(out)\n\n\ndef _insert_checksums(buf: bytearray) -> None:\n    # For summation-based functions, place interesting sums near boundaries.\n    # Insert 4-byte little-endian partial sums at various offsets to create hotspots.\n    n = len(buf)\n    if n < 8:\n        return\n    # Compute simple rolling sum modulo 2^32 over chunks and store occasionally\n    acc = 0\n    step = max(1, n // 7)\n    for i in range(0, n - 4, step):\n        acc = (acc + buf[i]) & 0xFFFFFFFF\n        val = acc\n        # Write a 32-bit LE value without exceeding bounds\n        if i + 4 <= n:\n            b = struct.pack('<I', val)\n            buf[i:i+4] = b\n\n\ndef _compose_layers(base: bytes, rng: random.Random) -> bytes:\n    # Optionally overlay ranges with other patterns to create mixed buffers\n    b = bytearray(base)\n    n = len(b)\n    if n == 0:\n        return bytes(b)\n\n    # Random overlays: 0 to 3 overlays\n    for _ in range(rng.randint(0, 3)):\n        start = rng.randrange(0, n)\n        end = rng.randrange(start + 1, n + 1)\n        choice = rng.random()\n        length = end - start\n        if choice < 0.2:\n            b[start:end] = _pattern_all(0x00, length)\n        elif choice < 0.4:\n            b[start:end] = _pattern_all(0xFF, length)\n        elif choice < 0.6:\n            b[start:end] = _pattern_ramp(length, rng.randrange(0, 256), rng.choice([1, 3, 5, 7, 13, 17, 31, 63, 127]))\n        elif choice < 0.8:\n            b[start:end] = _random_uniform(length, rng)\n        else:\n            b[start:end] = _pattern_alternating(length, rng.randrange(0, 256), rng.randrange(0, 256), rng.choice([1,2,3,4,8,16]))\n\n    # Occasionally insert checksum-like patterns to influence sums\n    if rng.random() < 0.5:\n        _insert_checksums(b)\n\n    return bytes(b)\n\n\ndef _make_base_pattern(length: int, rng: random.Random) -> bytes:\n    if length == 0:\n        return b\"\"\n\n    patterns: List[bytes] = []\n\n    # Basic patterns\n    patterns.append(_pattern_all(0x00, length))\n    patterns.append(_pattern_all(0xFF, length))\n    patterns.append(_pattern_ramp(length, 0, 1))\n    patterns.append(_pattern_ramp(length, 255, -1))\n\n    # Alternating patterns\n    patterns.append(_pattern_alternating(length, 0x00, 0xFF, 1))\n    patterns.append(_pattern_alternating(length, 0x55, 0xAA, 1))\n    patterns.append(_pattern_alternating(length, 0x00, 0x01, rng.choice([1,2,4,8])))\n\n    # Repeated blocks with interesting content\n    blocks = [\n        b\"\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\",\n        b\"\\xFF\\xFE\\xFD\\xFC\\xFB\\xFA\\xF9\\xF8\",\n        b\"\\x00\\xFF\\x00\\xFF\\x55\\xAA\\x55\\xAA\",\n        bytes(range(16)),\n        bytes((255 - i) & 0xFF for i in range(16)),\n    ]\n    patterns.append(_pattern_repeat_block(length, rng.choice(blocks)))\n\n    # Random distributions\n    patterns.append(_random_uniform(length, rng))\n    patterns.append(_random_biased_small(length, rng))\n    patterns.append(_random_biased_large(length, rng))\n\n    return rng.choice(patterns)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose length with boundary emphasis\n    length = _rand_len(rng)\n\n    # Occasionally select prime or power-of-two near boundary lengths\n    if rng.random() < 0.3 and length > 0:\n        special_lengths = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,127,131,251,257,509,521,1021,1031,2039,2048]\n        length = min(MAX_LEN, rng.choice([l for l in special_lengths if l <= MAX_LEN]))\n\n    base = _make_base_pattern(length, rng)\n    out = _compose_layers(base, rng)\n    # Ensure final size constraint\n    if len(out) > MAX_LEN:\n        out = out[:MAX_LEN]\n    return out\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 739,
+            "output_tokens": 81,
+            "total_tokens": 820
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 317,
+            "output_tokens": 25,
+            "total_tokens": 342
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 758,
+            "output_tokens": 830,
+            "total_tokens": 1588
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4033,
+            "output_tokens": 1886,
+            "total_tokens": 5919
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1738,
+            "output_tokens": 93,
+            "total_tokens": 1831
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 99.89886450767517,
+    "scan_objects": 3.0605249404907227,
+    "validate_objects": 0.1822202205657959,
+    "scan_functions": 18.669389486312866,
+    "synthesis": 38.14983606338501,
+    "fill": 0,
+    "classify": 2.630305767059326,
+    "build_generators": 37.20586609840393
+  }
+}

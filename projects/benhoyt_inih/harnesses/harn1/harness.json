@@ -1,0 +1,722 @@
+{
+  "objects": [
+    {
+      "ptr_type": "ini_handler *",
+      "aliases": [],
+      "definition": "#if INI_HANDLER_LINENO\ntypedef int (*ini_handler)(void* user, const char* section,\n                           const char* name, const char* value,\n                           int lineno);\n#else\ntypedef int (*ini_handler)(void* user, const char* section,\n                           const char* name, const char* value);\n#endif",
+      "description": "Function pointer type for application-provided INI parse callbacks. Called for each parsed key/value (and optionally with a line number if INI_HANDLER_LINENO is nonzero). The handler returns nonzero on success to continue parsing, or zero to signal an error for that entry.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ini_reader *",
+      "aliases": [],
+      "definition": "typedef char* (*ini_reader)(char* str, int num, void* stream);",
+      "description": "Function pointer type matching fgets-like readers, used by ini_parse_stream to read lines from a custom input source. Should return str on success, or nullptr on EOF/error.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "INIReader *",
+      "aliases": [],
+      "definition": "class INIReader\n{\npublic:\n    INI_API explicit INIReader(const std::string& filename);\n    INI_API explicit INIReader(const char *buffer, size_t buffer_size);\n    INI_API int ParseError() const;\n    INI_API std::string ParseErrorMessage() const;\n    INI_API std::string Get(const std::string& section, const std::string& name,\n                    const std::string& default_value) const;\n    INI_API std::string GetString(const std::string& section, const std::string& name,\n                    const std::string& default_value) const;\n    INI_API long GetInteger(const std::string& section, const std::string& name, long default_value) const;\n    INI_API int64_t GetInteger64(const std::string& section, const std::string& name, int64_t default_value) const;\n    INI_API unsigned long GetUnsigned(const std::string& section, const std::string& name, unsigned long default_value) const;\n    INI_API uint64_t GetUnsigned64(const std::string& section, const std::string& name, uint64_t default_value) const;\n    INI_API double GetReal(const std::string& section, const std::string& name, double default_value) const;\n    INI_API bool GetBoolean(const std::string& section, const std::string& name, bool default_value) const;\n    INI_API std::vector<std::string> Sections() const;\n    INI_API std::vector<std::string> Keys(const std::string& section) const;\n    INI_API bool HasSection(const std::string& section) const;\n    INI_API bool HasValue(const std::string& section, const std::string& name) const;\nprotected:\n    int _error;\n    std::map<std::string, std::string> _values;\n    static std::string MakeKey(const std::string& section, const std::string& name);\n    static int ValueHandler(void* user, const char* section, const char* name,\n                            const char* value);\n};",
+      "description": "C++ helper class that parses an INI file or buffer and exposes getters for values as strings, integers, booleans, etc. Internally stores values in a map keyed by section/name and tracks an error code from parsing.",
+      "direct_api_constructors": [
+        "INIReader::INIReader(const std::string& filename)",
+        "INIReader::INIReader(const char *buffer, size_t buffer_size)"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "ini_parse",
+      "signature": "int ini_parse(const char* filename, ini_handler handler, void* user);",
+      "description": "Parse an INI file from a filesystem path. For each parsed name=value pair (and optionally section starts depending on compile-time flags), the provided handler is called with user data, section, name, and value. The handler returns nonzero to accept/process the pair or zero to signal an error. Returns 0 on success, the line number of the first parse error (parsing continues), -1 if the file could not be opened, or -2 on memory allocation failure (only when heap allocation is used).",
+      "requirements": [
+        "filename must point to a valid, readable file path string (NUL-terminated).",
+        "handler must be a valid function pointer of type ini_handler.",
+        "user may be any pointer and is passed through to handler unchanged.",
+        "Within ini_handler: the section and name strings must not be modified; the value string may be cast to char* and modified, and is valid only for the duration of the handler call.",
+        "ini_handler must return nonzero on success for each call; returning zero indicates an error for that line.",
+        "Caller must interpret nonzero return values and negative error codes as documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "ini_parse_file",
+      "signature": "int ini_parse_file(FILE* file, ini_handler handler, void* user);",
+      "description": "Parse an INI file from an already-open FILE*. Behavior matches ini_parse() regarding syntax and handler invocation. Does not close the FILE*; the caller retains ownership and must close it. Returns 0 on success, line number of first parse error, or -2 on memory allocation failure (only when heap allocation is used).",
+      "requirements": [
+        "file must be a valid, open FILE* positioned where parsing should begin.",
+        "This function does not close file; the caller must close it when done.",
+        "handler must be a valid function pointer of type ini_handler; user is passed through.",
+        "Within ini_handler: section and name must not be modified; value is valid only during the call and may be cast to char* and modified.",
+        "ini_handler must return nonzero on success; zero indicates an error for that line."
+      ],
+      "error": null
+    },
+    {
+      "name": "ini_parse_stream",
+      "signature": "int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler, void* user);",
+      "description": "Parse INI data using a custom fgets-style reader function and a stream/context pointer. Useful for custom I/O sources (e.g., memory buffers, sockets). For each parsed name=value pair, calls the handler with user data, section, name, and value. Returns 0 on success, line number of first parse error, or -2 on memory allocation failure (only when heap allocation is used).",
+      "requirements": [
+        "reader must be a valid function pointer of type ini_reader: char* (*)(char* str, int num, void* stream), and must behave like fgets(), filling str with up to num-1 characters and NUL-terminating on success or returning NULL on EOF/error.",
+        "stream is passed to reader on each call; its type/ownership are user-defined.",
+        "handler must be a valid ini_handler; user is passed through to handler.",
+        "Within ini_handler: section and name must not be modified; value is valid only during the call and may be cast to char* and modified.",
+        "ini_handler must return nonzero on success; zero indicates an error for that line."
+      ],
+      "error": null
+    },
+    {
+      "name": "ini_parse_string",
+      "signature": "int ini_parse_string(const char* string, ini_handler handler, void* user);",
+      "description": "Parse INI data from a NUL-terminated string in memory. Equivalent to ini_parse() but sources input from the provided string. Calls handler for each parsed pair. Returns 0 on success, line number of first parse error, or -2 on memory allocation failure (only when heap allocation is used).",
+      "requirements": [
+        "string must point to a valid NUL-terminated buffer containing INI data.",
+        "handler must be a valid ini_handler; user is passed through.",
+        "Within ini_handler: section and name must not be modified; value is valid only during the call and may be cast to char* and modified.",
+        "ini_handler must return nonzero on success; zero indicates an error for that line."
+      ],
+      "error": null
+    },
+    {
+      "name": "ini_parse_string_length",
+      "signature": "int ini_parse_string_length(const char* string, size_t length, ini_handler handler, void* user);",
+      "description": "Parse INI data from a memory buffer with explicit length, avoiding strlen(). Useful for buffers that may contain NULs or are not NUL-terminated. Calls handler for each parsed pair. Returns 0 on success, line number of first parse error, or -2 on memory allocation failure (only when heap allocation is used).",
+      "requirements": [
+        "string must point to a buffer of at least length bytes containing INI-formatted data.",
+        "length specifies the number of bytes to parse; data need not be NUL-terminated.",
+        "handler must be a valid ini_handler; user is passed through.",
+        "Within ini_handler: section and name must not be modified; value is valid only during the call and may be cast to char* and modified.",
+        "ini_handler must return nonzero on success; zero indicates an error for that line."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::INIReader",
+      "signature": "explicit INIReader::INIReader(const std::string& filename);",
+      "description": "Construct an INIReader and parse the specified file. Parsing semantics are those of inih (see ini.h). Parsing status can be retrieved via ParseError() and ParseErrorMessage().",
+      "requirements": [
+        "filename must reference a readable file path string.",
+        "Construction will perform parsing immediately; callers should check ParseError() to determine success."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::ParseError",
+      "signature": "int INIReader::ParseError() const;",
+      "description": "Return the result code from parsing: 0 on success, line number of first parse error, -1 on file open error (when constructed from filename), or -2 on memory allocation error.",
+      "requirements": [
+        "Must be called on a properly constructed INIReader instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::ParseErrorMessage",
+      "signature": "std::string INIReader::ParseErrorMessage() const;",
+      "description": "Return a human-readable message describing the parsing error that occurred, or an empty string if there was no error.",
+      "requirements": [
+        "Must be called on a properly constructed INIReader instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::Get",
+      "signature": "std::string INIReader::Get(const std::string& section, const std::string& name, const std::string& default_value) const;",
+      "description": "Retrieve a raw string value for the given section and name. Returns default_value if the key is not present.",
+      "requirements": [
+        "section is matched as provided; it should refer to a section name as parsed.",
+        "name is the key within the section.",
+        "default_value is returned when the key is missing."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::GetString",
+      "signature": "std::string INIReader::GetString(const std::string& section, const std::string& name, const std::string& default_value) const;",
+      "description": "Retrieve a string value, treating empty or all-whitespace values as missing. Returns default_value if the key is not found or the value is empty/whitespace-only.",
+      "requirements": [
+        "section and name select the desired key.",
+        "default_value is returned when the key is missing or the value is empty/whitespace."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::GetInteger",
+      "signature": "long INIReader::GetInteger(const std::string& section, const std::string& name, long default_value) const;",
+      "description": "Retrieve a long integer value. Accepts decimal (e.g., \"1234\", \"-1234\") or hexadecimal with 0x/0X prefix (e.g., \"0x4d2\"). Returns default_value if missing or not a valid integer.",
+      "requirements": [
+        "section and name select the desired key.",
+        "Value syntax must be valid decimal or hex as described; otherwise default_value is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::GetInteger64",
+      "signature": "int64_t INIReader::GetInteger64(const std::string& section, const std::string& name, int64_t default_value) const;",
+      "description": "Retrieve a 64-bit integer value. Accepts decimal (e.g., \"1234\", \"-1234\") or hexadecimal with 0x/0X prefix (e.g., \"0x4d2\"). Returns default_value if missing or not a valid integer.",
+      "requirements": [
+        "section and name select the desired key.",
+        "Value syntax must be valid decimal or hex as described; otherwise default_value is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::GetUnsigned",
+      "signature": "unsigned long INIReader::GetUnsigned(const std::string& section, const std::string& name, unsigned long default_value) const;",
+      "description": "Retrieve an unsigned long value. Accepts decimal (e.g., \"1234\") or hexadecimal with 0x/0X prefix (e.g., \"0x4d2\"). Returns default_value if missing or not a valid unsigned integer.",
+      "requirements": [
+        "section and name select the desired key.",
+        "Value must represent a non-negative unsigned integer in decimal or hex; otherwise default_value is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::GetUnsigned64",
+      "signature": "uint64_t INIReader::GetUnsigned64(const std::string& section, const std::string& name, uint64_t default_value) const;",
+      "description": "Retrieve a 64-bit unsigned integer value. Accepts decimal (e.g., \"1234\") or hexadecimal with 0x/0X prefix (e.g., \"0x4d2\"). Returns default_value if missing or not a valid unsigned integer.",
+      "requirements": [
+        "section and name select the desired key.",
+        "Value must represent a non-negative unsigned integer in decimal or hex; otherwise default_value is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::GetReal",
+      "signature": "double INIReader::GetReal(const std::string& section, const std::string& name, double default_value) const;",
+      "description": "Retrieve a floating-point value parsed with strtod(). Returns default_value if missing or not a valid floating-point number.",
+      "requirements": [
+        "section and name select the desired key.",
+        "Value must be a valid floating-point representation per strtod(); otherwise default_value is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::GetBoolean",
+      "signature": "bool INIReader::GetBoolean(const std::string& section, const std::string& name, bool default_value) const;",
+      "description": "Retrieve a boolean value. True values: \"true\", \"yes\", \"on\", \"1\". False values: \"false\", \"no\", \"off\", \"0\". Matching is case-insensitive. Returns default_value if missing or not one of the valid tokens.",
+      "requirements": [
+        "section and name select the desired key.",
+        "Value must be one of the documented true/false tokens (case-insensitive) to be considered valid; otherwise default_value is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::Sections",
+      "signature": "std::vector<std::string> INIReader::Sections() const;",
+      "description": "Return a vector of all section names in alphabetical order.",
+      "requirements": [
+        "Must be called on a properly constructed INIReader instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::Keys",
+      "signature": "std::vector<std::string> INIReader::Keys(const std::string& section) const;",
+      "description": "Return a vector of all key names within the specified section in alphabetical order.",
+      "requirements": [
+        "section must name an existing or potential section; if the section does not exist, the returned vector will be empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::HasSection",
+      "signature": "bool INIReader::HasSection(const std::string& section) const;",
+      "description": "Return true if the given section exists and contains at least one name=value pair.",
+      "requirements": [
+        "section must be the exact section name to test."
+      ],
+      "error": null
+    },
+    {
+      "name": "INIReader::HasValue",
+      "signature": "bool INIReader::HasValue(const std::string& section, const std::string& name) const;",
+      "description": "Return true if a value exists for the given section and key name.",
+      "requirements": [
+        "section and name must specify the exact key to test."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ini_parse_file",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Open a fuzz-provided filename; parser does not close the FILE*, so we manage lifetime\nconst char *path = FUZZ_PARAM_FILENAME();\nFILE *fp = fopen(path, \"rb\");\nif (!fp) { FUZZ_BAIL(); }\nstruct HandlerState { int calls; } state{0};\nini_handler cb = +[](void* user, const char* section, const char* name, const char* value) -> int {\n    HandlerState *st = static_cast<HandlerState*>(user);\n    if (st) { st->calls++; }\n    if (!section || !name || !value) { return 0; }\n    return 1; // accept all lines to explore success path\n};\nint rc = ini_parse_file(fp, cb, &state);\n// Clean up FILE* as required by API\nfclose(fp);\n// Handle documented outcomes only\nif (!(rc == 0 || rc > 0 || rc == -2)) { FUZZ_BAIL(); }\n// Validation: Ensures FILE* ownership respected (closed by stub) and return codes validated.\n"
+    },
+    {
+      "name": "ini_parse_stream",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a reader state backed by a random string containing arbitrary bytes\nstd::string data = FUZZ_PARAM_STR();\nstruct ReaderState { const char* buf; size_t size; size_t pos; } st{data.data(), data.size(), 0};\n// fgets-like reader: fills up to num-1 chars, NUL-terminates, returns str or NULL on EOF/error\nini_reader rdr = +[](char* str, int num, void* stream) -> char* {\n    if (!str || num <= 0) return nullptr;\n    ReaderState *s = static_cast<ReaderState*>(stream);\n    if (!s || s->pos >= s->size) return nullptr;\n    size_t max_copy = (size_t)num - 1;\n    size_t i = 0;\n    while (i < max_copy && s->pos < s->size) {\n        char c = s->buf[s->pos++];\n        str[i++] = c;\n        if (c == '\\n') break; // stop at newline like fgets\n    }\n    str[i] = '\\0';\n    return str;\n};\n// Simple handler that always accepts\nini_handler cb = +[](void* user, const char* section, const char* name, const char* value) -> int {\n    (void)user;\n    if (!section || !name || !value) return 0;\n    return 1;\n};\nint rc = ini_parse_stream(rdr, &st, cb, nullptr);\nif (!(rc == 0 || rc > 0 || rc == -2)) { FUZZ_BAIL(); }\n// Validation: Custom reader obeys fgets contract; stream/context passed through; results checked.\n"
+    },
+    {
+      "name": "ini_parse_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide NUL-terminated buffer of INI data from fuzz input\nstd::string s = FUZZ_PARAM_STR();\nini_handler cb = +[](void* user, const char* section, const char* name, const char* value) -> int {\n    (void)user;\n    if (!section || !name || !value) return 0;\n    // Optionally mutate value's first byte if present (allowed by API)\n    if (value[0] != '\\0') { const_cast<char*>(value)[0] ^= 0x01; }\n    // Alternate accept/reject to exercise error path\n    static int toggle = 0; // function-local static inside block is allowed\n    toggle ^= 1;\n    return toggle;\n};\nint rc = ini_parse_string(s.c_str(), cb, nullptr);\nif (!(rc == 0 || rc > 0 || rc == -2)) { FUZZ_BAIL(); }\n// Validation: Supplies valid C-string; handler explores both accept and reject paths; codes validated.\n"
+    },
+    {
+      "name": "ini_parse_string_length",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide raw buffer with explicit length; may contain NULs\nstd::string s = FUZZ_PARAM_STR();\nsize_t maxLen = s.size();\nsize_t len = maxLen ? (size_t)(*FUZZ_PARAM(unsigned int) % (maxLen + 1)) : 0;\nini_handler cb = +[](void* user, const char* section, const char* name, const char* value) -> int {\n    (void)user;\n    if (!section || !name || !value) return 0;\n    return 1;\n};\nint rc = ini_parse_string_length(s.data(), len, cb, nullptr);\nif (!(rc == 0 || rc > 0 || rc == -2)) { FUZZ_BAIL(); }\n// Validation: Length is within buffer bounds; handler and return codes handled.\n"
+    },
+    {
+      "name": "INIReader::INIReader",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "// Construct INIReader from a readable filename\nconst char *path = FUZZ_PARAM_FILENAME();\nINIReader *reader = new INIReader(std::string(path));\n// Track construction for downstream stubs\nFUZZ_SET_ATTR_INT(reader, \"constructed\", 1);\n// Optionally record parse error for later checks\nFUZZ_SET_ATTR_INT(reader, \"parse_error\", reader->ParseError());\n// Validation: Reader is heap-allocated and attributed for lifetime tracking; runtime will own pointer.\n"
+    },
+    {
+      "name": "INIReader::ParseError",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "// Ensure object was constructed\nif (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nint rc = reader->ParseError();\n// Accept documented return values only\nif (!(rc == 0 || rc > 0 || rc == -1 || rc == -2)) { FUZZ_BAIL(); }\n// Validation: Method called on constructed instance; return code constrained to documented set.\n"
+    },
+    {
+      "name": "INIReader::ParseErrorMessage",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string msg = reader->ParseErrorMessage();\n// If no error, message may be empty; if error, message should be non-empty (best-effort check)\nint err = reader->ParseError();\nif (err == 0 && !msg.empty()) {\n    // Not an assertion; accept but keep note in attributes for later cross-checks\n    FUZZ_SET_ATTR_INT(reader, \"nonempty_msg_on_success\", 1);\n}\n// Validation: Safe invocation; minimal sanity check without over-constraining implementation.\n"
+    },
+    {
+      "name": "INIReader::Get",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\n// Try to use an existing section/key when available, else random\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nstd::string defv = FUZZ_PARAM_STR();\nstd::string v = reader->Get(section, name, defv);\n// No assertions: defaulting behavior is implementation-defined for missing keys\n(void)v;\n// Validation: Exercises both hit and miss lookups based on parsed data; reader preserved.\n"
+    },
+    {
+      "name": "INIReader::GetString",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nstd::string defv = FUZZ_PARAM_STR();\nstd::string v = reader->GetString(section, name, defv);\n(void)v;\n// Validation: Invoked on valid object; covers present/missing/whitespace value paths.\n"
+    },
+    {
+      "name": "INIReader::GetInteger",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nlong defv = (long)(int)(*FUZZ_PARAM(int));\nvolatile long out = reader->GetInteger(section, name, defv);\n(void)out;\n// Validation: Ensures object validity; exercises parsing and defaulting.\n"
+    },
+    {
+      "name": "INIReader::GetInteger64",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nint64_t defv = (int64_t)(*FUZZ_PARAM(long long));\nvolatile int64_t out = reader->GetInteger64(section, name, defv);\n(void)out;\n// Validation: Standard usage with 64-bit defaults; no additional constraints.\n"
+    },
+    {
+      "name": "INIReader::GetUnsigned",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nunsigned long defv = (unsigned long)(*FUZZ_PARAM(unsigned int));\nvolatile unsigned long out = reader->GetUnsigned(section, name, defv);\n(void)out;\n// Validation: Exercises unsigned parsing including defaults.\n"
+    },
+    {
+      "name": "INIReader::GetUnsigned64",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nuint64_t defv = (uint64_t)(*FUZZ_PARAM(unsigned long long));\nvolatile uint64_t out = reader->GetUnsigned64(section, name, defv);\n(void)out;\n// Validation: 64-bit unsigned retrieval covered.\n"
+    },
+    {
+      "name": "INIReader::GetReal",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\ndouble defv = *FUZZ_PARAM(double);\nvolatile double out = reader->GetReal(section, name, defv);\n(void)out;\n// Validation: Floating-point path exercised with arbitrary defaults.\n"
+    },
+    {
+      "name": "INIReader::GetBoolean",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nbool defv = (bool)(*FUZZ_PARAM(unsigned int) & 1u);\nbool out = reader->GetBoolean(section, name, defv);\n(void)out;\n// Validation: Boolean token parsing path and defaulting covered.\n"
+    },
+    {
+      "name": "INIReader::Sections",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nauto secs = reader->Sections();\n// Light sanity: sections should be unique and sorted (as documented). We won't assert uniqueness strictly here.\n(void)secs;\n// Validation: Retrieves sections without mutating object; kept for reuse.\n"
+    },
+    {
+      "name": "INIReader::Keys",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\n// Choose a section either from existing ones or random\nstd::string section;\nauto secs = reader->Sections();\nif (!secs.empty()) { section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())]; }\nif (section.empty()) section = FUZZ_PARAM_STR();\nauto keys = reader->Keys(section);\n(void)keys;\n// Validation: Handles existing or missing sections; no assumptions beyond API.\n"
+    },
+    {
+      "name": "INIReader::HasSection",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nauto secs = reader->Sections();\nif (!secs.empty()) { section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())]; }\nif (section.empty()) section = FUZZ_PARAM_STR();\nbool present = reader->HasSection(section);\n(void)present;\n// Validation: Uses a plausible section name; result consumed without assumptions.\n"
+    },
+    {
+      "name": "INIReader::HasValue",
+      "inputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "INIReader *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(reader, \"constructed\")) { FUZZ_BAIL(); }\nstd::string section;\nstd::string name;\nauto secs = reader->Sections();\nif (!secs.empty()) {\n    section = secs[(size_t)(*FUZZ_PARAM(unsigned int) % secs.size())];\n    auto keys = reader->Keys(section);\n    if (!keys.empty()) {\n        name = keys[(size_t)(*FUZZ_PARAM(unsigned int) % keys.size())];\n    }\n}\nif (section.empty()) section = FUZZ_PARAM_STR();\nif (name.empty()) name = FUZZ_PARAM_STR();\nbool has = reader->HasValue(section, name);\n(void)has;\n// Validation: Key existence queried with realistic or random inputs; reader preserved.\n"
+    },
+    {
+      "name": "ini_parse",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Use a fuzz-provided filename that points to a generated file with random contents\nconst char *path = FUZZ_PARAM_FILENAME();\n\n// State passed to handler to track calls and alternate accept/reject without using FUZZ_PARAM inside lambda\nstruct HandlerState { int calls; int flip; } state{0, (int)(*FUZZ_PARAM(unsigned int) & 1u)};\n\n// Handler matching default inih signature (no lineno). Avoids FUZZ_PARAM usage inside the lambda.\nini_handler cb = +[](void* user, const char* section, const char* name, const char* value) -> int {\n    HandlerState *st = static_cast<HandlerState*>(user);\n    // Enforce non-null pointers as expected by parser; rejecting if violated exercises error path\n    if (!section || !name || !value) { return 0; }\n    if (st) {\n        st->calls++;\n        // Allowed by API: value may be modified during the call (cast away const)\n        if (value[0] != '\\0') { const_cast<char*>(value)[0] ^= 0x01; }\n        // Alternate accept/reject deterministically using state, to cover both paths\n        int accept = st->flip;\n        st->flip ^= 1;\n        return accept ? 1 : 0;\n    }\n    // If no state, default to accept\n    return 1;\n};\n\n// Invoke parser; user pointer is passed through to handler unchanged by the API\nint rc = ini_parse(path, cb, &state);\n\n// Validate documented return codes: 0 success, >0 first error line, -1 open error, -2 OOM (optional)\nif (!(rc == 0 || rc > 0 || rc == -1 || rc == -2)) { FUZZ_BAIL(); }\n\n// Validation: Avoided FUZZ_PARAM usage inside lambda (fixes capture error); exercised value-mutation and both accept/reject paths; accepted only documented return codes."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "INIReader::ParseError",
+      "data_types": []
+    },
+    {
+      "name": "INIReader::ParseErrorMessage",
+      "data_types": []
+    },
+    {
+      "name": "INIReader::Sections",
+      "data_types": []
+    },
+    {
+      "name": "ini_parse_file",
+      "data_types": [
+        "INI data file"
+      ]
+    },
+    {
+      "name": "ini_parse_stream",
+      "data_types": [
+        "INI text"
+      ]
+    },
+    {
+      "name": "ini_parse_string",
+      "data_types": [
+        "INI text"
+      ]
+    },
+    {
+      "name": "ini_parse_string_length",
+      "data_types": [
+        "INI bytes (possibly with NULs)"
+      ]
+    },
+    {
+      "name": "INIReader::INIReader",
+      "data_types": [
+        "INI data file"
+      ]
+    },
+    {
+      "name": "INIReader::Get",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::GetString",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::GetInteger",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::GetInteger64",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::GetUnsigned",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::GetUnsigned64",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::GetReal",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::GetBoolean",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::Keys",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::HasSection",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "INIReader::HasValue",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "ini_parse",
+      "data_types": [
+        "INI data file"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "INI data file",
+      "description": "A filename referencing a file whose contents are INI-formatted text. The file may contain arbitrary bytes, but the parser expects classic INI syntax: optional [section] headers, key=value pairs, comments starting with ';' or '#', and newline-separated lines."
+    },
+    {
+      "data_type": "INI text",
+      "description": "A NUL-terminated string buffer containing INI-formatted text. Consists of lines with optional [section] headers, key=value pairs, and comments. Newlines delimit records; standard INI syntax is expected."
+    },
+    {
+      "data_type": "INI bytes (possibly with NULs)",
+      "description": "A raw memory buffer with an explicit length containing INI-formatted data. The buffer may include embedded NUL bytes; only the provided length determines how much is parsed. Content is expected to follow INI syntax."
+    },
+    {
+      "data_type": "alphanumeric string",
+      "description": "A generic free-form string used as a section name, key name, or default value in lookups. May contain any characters; not required to be in any specific format."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "INI data file",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces valid INI-formatted content bytes suitable for\n# filenames consumed by the target fuzz stubs. It aims to cover diverse features\n# of INI syntax to exercise different code paths: sections, key/value pairs,\n# comments, whitespace variations, booleans, numbers (dec/hex), floats, empty\n# values, quoted values, escapes, duplicates, multi-section keys, and long lines.\n\nTRUE_TOKENS = [\"true\", \"yes\", \"on\", \"1\", \"TRUE\", \"Yes\", \"On\"]\nFALSE_TOKENS = [\"false\", \"no\", \"off\", \"0\", \"FALSE\", \"No\", \"Off\"]\n\nSECTION_NAMES = [\n    \"default\",\n    \"network\",\n    \"database\",\n    \"paths\",\n    \"unicode\",\n    \"a.b.c\",          # dotted\n    \"with spaces\",     # spaces\n    \"Mixed-Case\",\n    \"empty\",\n]\n\nKEY_NAMES = [\n    \"key\",\n    \"answer\",\n    \"enabled\",\n    \"threshold\",\n    \"pi\",\n    \"hexval\",\n    \"path\",\n    \"empty\",\n    \"list\",\n    \"user_name\",\n    \"timeout_ms\",\n    \"rate.hz\",\n]\n\n# Some value pools to cover getters in INIReader\nSTRING_VALUES = [\n    \"hello\",\n    \"world\",\n    \"spaced value\",\n    \"quoted value\",\n    \"tab\\tseparated\",\n    \"utf8-✓\",\n    \"with#hash\",\n    \"with;semi\",\n    \"brackets[]\",\n    \"\"\n]\n\nPATH_VALUES = [\n    \"/usr/local/bin\",\n    \"C:\\\\Program Files\\\\App\",\n    \"./relative/path\",\n    \"..\\\\parent\\\\dir\",\n]\n\nDEC_INTS = [\"0\", \"1\", \"-1\", \"42\", \"-999999\", \"2147483647\", \"-2147483648\", \"9223372036854775807\", \"-9223372036854775808\"]\nHEX_INTS = [\"0x0\", \"0x1\", \"0X2A\", \"0x7fffffff\", \"0x80000000\", \"0xffffffffffffffff\"]\nFLOATS = [\"0.0\", \"3.14159\", \"-2.5\", \"1e3\", \"-1E-6\", \".5\", \"inf\", \"-inf\", \"nan\"]\n\n# Build a long but valid line to probe buffer handling while staying under 4096 bytes\n\ndef long_value(length: int) -> str:\n    core = \"A\" * max(0, length)\n    return core\n\n\ndef rnd(r: random.Random, arr: List[str]) -> str:\n    return arr[r.randrange(len(arr))]\n\n\ndef maybe_ws(r: random.Random) -> str:\n    # Random leading/trailing whitespace\n    spaces = \" \" * r.randrange(0, 3)\n    tabs = \"\\t\" * r.randrange(0, 2)\n    return spaces + tabs\n\n\ndef emit_comment(r: random.Random) -> str:\n    starter = rnd(r, [';', '#'])\n    body_choices = [\n        \" just a comment\",\n        \" section note\",\n        \" key=value in comment\",\n        \" unicode ✓\",\n        \"\",\n    ]\n    return f\"{starter}{rnd(r, body_choices)}\\n\"\n\n\ndef emit_section(r: random.Random, name: str = None) -> str:\n    if name is None:\n        name = rnd(r, SECTION_NAMES)\n    # Optionally add whitespace around name\n    pre = maybe_ws(r)\n    post = maybe_ws(r)\n    return f\"[{pre}{name}{post}]\\n\"\n\n\ndef emit_keyval(r: random.Random, key: str = None, value: str = None) -> str:\n    if key is None:\n        key = rnd(r, KEY_NAMES)\n    # value selection designed to cover numeric, boolean, strings, quoted, empty\n    if value is None:\n        pick = r.randrange(0, 10)\n        if pick == 0:\n            value = rnd(r, TRUE_TOKENS)\n        elif pick == 1:\n            value = rnd(r, FALSE_TOKENS)\n        elif pick == 2:\n            value = rnd(r, DEC_INTS)\n        elif pick == 3:\n            value = rnd(r, HEX_INTS)\n        elif pick == 4:\n            value = rnd(r, FLOATS)\n        elif pick == 5:\n            value = rnd(r, PATH_VALUES)\n        elif pick == 6:\n            value = rnd(r, STRING_VALUES)\n        elif pick == 7:\n            # quoted value possibly with escapes\n            body = rnd(r, STRING_VALUES).replace('\"', '\\\\\"')\n            value = f'\"{body}\"'\n        elif pick == 8:\n            # empty value\n            value = \"\"\n        else:\n            # long value but limited length\n            value = long_value(r.randrange(32, 256))\n    # Choose separator style and whitespace\n    sep = rnd(r, ['=', ':'])\n    pre_ws = maybe_ws(r)\n    post_ws = maybe_ws(r)\n    # Optionally append inline comment after value\n    tail = \"\"\n    if r.random() < 0.3:\n        tail = maybe_ws(r) + rnd(r, ['; note', '# trailing comment'])\n    return f\"{key}{pre_ws}{sep}{post_ws}{value}{tail}\\n\"\n\n\ndef emit_blank(r: random.Random) -> str:\n    # Possibly whitespace-only line\n    return (\" \" * r.randrange(0, 3) + \"\\t\" * r.randrange(0, 2)) + \"\\n\"\n\n\ndef build_ini(r: random.Random, target_size: int) -> str:\n    lines: List[str] = []\n    # File header comments and BOM-like start (without actual BOM bytes to keep it ASCII/UTF-8)\n    if r.random() < 0.7:\n        lines.append(emit_comment(r))\n    if r.random() < 0.3:\n        lines.append(emit_blank(r))\n\n    # Optionally some global (no section) keys\n    if r.random() < 0.6:\n        for _ in range(r.randrange(1, 5)):\n            lines.append(emit_keyval(r))\n\n    # Emit several sections with varied content\n    num_sections = r.randrange(2, 6)\n    used_sections = r.sample(SECTION_NAMES, k=min(num_sections, len(SECTION_NAMES)))\n    for s in used_sections:\n        lines.append(emit_section(r, s))\n        # Mix of blank lines and comments\n        if r.random() < 0.5:\n            lines.append(emit_comment(r))\n        if r.random() < 0.4:\n            lines.append(emit_blank(r))\n        # Emit some keys\n        nkeys = r.randrange(2, 8)\n        for _ in range(nkeys):\n            lines.append(emit_keyval(r))\n        # Optional duplicate keys to test overwrite behavior\n        if r.random() < 0.5:\n            dup_key = rnd(r, KEY_NAMES)\n            lines.append(emit_keyval(r, dup_key, rnd(r, STRING_VALUES)))\n            lines.append(emit_keyval(r, dup_key, rnd(r, DEC_INTS + HEX_INTS)))\n\n    # Trailing whitespace/comments\n    if r.random() < 0.6:\n        lines.append(emit_comment(r))\n    if r.random() < 0.5:\n        lines.append(emit_blank(r))\n\n    text = \"\".join(lines)\n\n    # Ensure size constraints (<= 4096 bytes). If too long, truncate at a newline boundary.\n    b = text.encode(\"utf-8\", errors=\"ignore\")\n    if len(b) > target_size:\n        # Try to cut at last newline before limit for integrity\n        cut = b.rfind(b\"\\n\", 0, target_size)\n        if cut == -1:\n            cut = target_size\n        b = b[:cut]\n        text = b.decode(\"utf-8\", errors=\"ignore\")\n    # Ensure final newline to complete last line\n    if not text.endswith(\"\\n\"):\n        text += \"\\n\"\n    return text\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Aim for a broad range of sizes while staying under 4 KiB\n    target_size = r.randrange(256, 2048)\n    ini_text = build_ini(r, target_size)\n\n    # Occasionally craft a tiny focused INI to target specific getters\n    if r.random() < 0.2:\n        focused = []\n        focused.append(\"; focused values for getters\\n\")\n        focused.append(\"[numbers]\\n\")\n        focused.append(\"int_dec = 12345\\n\")\n        focused.append(\"int_hex = 0x2A\\n\")\n        focused.append(\"u64 = 0xffffffffffffffff\\n\")\n        focused.append(\"real = -3.5e2\\n\")\n        focused.append(\"[bools]\\n\")\n        focused.append(\"t1 = true\\n\")\n        focused.append(\"t2 = On\\n\")\n        focused.append(\"f1 = false\\n\")\n        focused.append(\"f2 = 0\\n\")\n        focused.append(\"[strings]\\n\")\n        focused.append('quoted = \"a quoted string\"\\n')\n        focused.append(\"empty = \\n\")\n        focused.append(\"path = /usr/bin\\n\")\n        ini_text = \"\".join(focused)\n\n    data = ini_text.encode(\"utf-8\")\n    # Final safety cap at 4096 bytes\n    if len(data) > 4096:\n        data = data[:4096]\n        # Try to end at newline for cleanliness\n        nl = data.rfind(b\"\\n\")\n        if nl != -1:\n            data = data[:nl+1]\n    return data\n"
+    },
+    {
+      "data_type": "INI text",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generate valid INI text with sections, keys, values, comments and varied value types.\n# The buffer should be NUL-terminated when consumed as C-string; Python bytes will include a trailing \\0.\n\nTRUE_TOKENS = [\"true\", \"yes\", \"on\", \"1\"]\nFALSE_TOKENS = [\"false\", \"no\", \"off\", \"0\"]\nNUM_SAMPLES = [\n    \"0\", \"1\", \"-1\", \"42\", \"-273\", \"2147483647\", \"-2147483648\",\n    \"0x0\", \"0x1\", \"0x7fffffff\", \"0XFFFFFFFF\", \"0xDEADBEEF\", \"0x80000000\"\n]\nREAL_SAMPLES = [\n    \"0.0\", \"-0.0\", \"3.14159\", \"-1.5e-10\", \"6.022e23\", \".5\", \"1.\", \"-2.\"\n]\nWHITES = [\" \", \"\\t\"]\n\ndef _rand_ident(rng: random.Random, min_len=1, max_len=12) -> str:\n    first = rng.choice(string.ascii_letters + \"_\" )\n    rest_len = rng.randint(min_len-1, max_len-1)\n    rest_chars = string.ascii_letters + string.digits + \"_-\"\n    return first + \"\".join(rng.choice(rest_chars) for _ in range(rest_len))\n\ndef _maybe_ws(rng: random.Random) -> str:\n    if rng.random() < 0.7:\n        return \"\".join(rng.choice(WHITES) for _ in range(rng.randint(0, 3)))\n    return \"\"\n\ndef _quoted(rng: random.Random, s: str) -> str:\n    # Optionally quote and include escaped characters\n    if rng.random() < 0.4:\n        # Basic escaping for quotes and backslashes\n        esc = s.replace(\"\\\\\", \"\\\\\\\\\").replace('\"', '\\\\\"')\n        return f'\"{esc}\"'\n    return s\n\ndef _comment(rng: random.Random) -> str:\n    # Comments using ';' or '#', possibly after whitespace\n    leader = rng.choice([';', '#'])\n    text = rng.choice([\n        \" a comment\", \" note\", \"\", \" trailing\" if rng.random() < 0.5 else \"\"])\n    return f\"{leader}{text}\"\n\ndef _kv_pair(rng: random.Random, key: str, value: str) -> str:\n    # Add optional whitespace around '=' and after key, support inline comments\n    ws1 = _maybe_ws(rng)\n    ws2 = _maybe_ws(rng)\n    line = f\"{key}{ws1}={ws2}{value}\"\n    if rng.random() < 0.3:\n        line += _maybe_ws(rng) + _comment(rng)\n    return line\n\ndef _values_for_variety(rng: random.Random) -> List[Tuple[str, str]]:\n    # Provide diverse keys -> values to exercise getters\n    vals: List[Tuple[str, str]] = []\n    # Strings, including empty and whitespace-only\n    vals.append((\"greeting\", _quoted(rng, \"hello\")))\n    vals.append((\"empty\", \"\"))\n    vals.append((\"spaces\", \"   \"))\n    # Boolean true/false with varied case\n    vals.append((\"flag_true\", rng.choice(TRUE_TOKENS).upper() if rng.random()<0.5 else rng.choice(TRUE_TOKENS)))\n    vals.append((\"flag_false\", rng.choice(FALSE_TOKENS).title() if rng.random()<0.5 else rng.choice(FALSE_TOKENS)))\n    # Integers (dec and hex)\n    vals.append((\"int_dec\", rng.choice(NUM_SAMPLES)))\n    vals.append((\"int_hex\", rng.choice([v for v in NUM_SAMPLES if v.lower().startswith(\"0x\")])))\n    # Unsigned edge-ish\n    vals.append((\"u64\", rng.choice([\"0\", \"18446744073709551615\", \"0xFFFFFFFFFFFFFFFF\"])) )\n    # 64-bit signed\n    vals.append((\"i64\", rng.choice([\"-9223372036854775808\", \"9223372036854775807\", \"0x7fffffffffffffff\"])) )\n    # Reals\n    vals.append((\"real\", rng.choice(REAL_SAMPLES)))\n    # Mixed tokens with inline spaces and tabs\n    vals.append((\"path\", _quoted(rng, \"/usr/local/bin\")))\n    vals.append((\"name\", _quoted(rng, \"Alice Bob\")))\n    # Value containing '=' and ';' inside quotes\n    vals.append((\"tricky\", _quoted(rng, \"a=b;not_comment\")))\n    # Value with escaped characters\n    vals.append((\"escape\", _quoted(rng, \"line1\\\\nline2\\\\tend\")))\n    return vals\n\ndef _section_block(rng: random.Random, name: str) -> List[str]:\n    lines: List[str] = []\n    # Optional leading comment and blank lines\n    if rng.random() < 0.6:\n        lines.append(_comment(rng))\n    if rng.random() < 0.5:\n        lines.append(\"\")\n    ws_before = _maybe_ws(rng)\n    ws_after = _maybe_ws(rng)\n    lines.append(f\"{ws_before}[{name}]{ws_after}\")\n\n    # Some kv pairs\n    for k, v in _values_for_variety(rng):\n        key = k\n        # Sometimes duplicate key to test last-wins behavior\n        if rng.random() < 0.15:\n            key = k\n        # Add optional whitespace in key name\n        line = _kv_pair(rng, key, v)\n        lines.append(line)\n        # Occasionally a duplicate of same key with different value\n        if rng.random() < 0.2:\n            alt_v = v\n            # change value type a bit\n            choices = TRUE_TOKENS + FALSE_TOKENS + NUM_SAMPLES + REAL_SAMPLES + [\"text\", _quoted(rng, \"\"), _quoted(rng, \"dup\")]\n            alt_v = rng.choice(choices)\n            lines.append(_kv_pair(rng, key, alt_v))\n        # Add blank or comment lines between\n        if rng.random() < 0.3:\n            lines.append(\"\")\n        if rng.random() < 0.3:\n            lines.append(_comment(rng))\n    return lines\n\ndef _global_block(rng: random.Random) -> List[str]:\n    lines: List[str] = []\n    # Global (no-section) keys are allowed in many INI parsers\n    if rng.random() < 0.7:\n        lines.append(_kv_pair(rng, \"global_key\", _quoted(rng, \"global\")))\n        lines.append(_kv_pair(rng, \"enabled\", rng.choice(TRUE_TOKENS + FALSE_TOKENS)))\n        if rng.random() < 0.4:\n            lines.append(_comment(rng))\n    return lines\n\ndef _build_ini(rng: random.Random) -> str:\n    lines: List[str] = []\n\n    # Optional BOM to exercise readers that might see it; inih typically ignores UTF-8 BOM\n    if rng.random() < 0.3:\n        lines.append(\"\\ufeff\")\n\n    # Header comments\n    for _ in range(rng.randint(0, 3)):\n        lines.append(_comment(rng))\n\n    lines += _global_block(rng)\n\n    # Generate several sections with varied names\n    section_count = rng.randint(1, 4)\n    used = set()\n    for _ in range(section_count):\n        name = _rand_ident(rng, 3, 10)\n        # Ensure uniqueness\n        while name in used:\n            name = _rand_ident(rng, 3, 10)\n        used.add(name)\n        lines += _section_block(rng, name)\n\n    # Trailing whitespace, blank lines\n    for _ in range(rng.randint(0, 2)):\n        lines.append(\"\")\n\n    # Join with newlines. Ensure the last line ends with a newline so fgets-like reader gets final record.\n    text = \"\\n\".join(lines)\n    if not text.endswith(\"\\n\"):\n        text += \"\\n\"\n    return text\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build a mix of multiple INI documents concatenated, to test parsing where only the first is relevant\n    # or to feed ini_parse_stream with ample data spanning many lines.\n    parts: List[str] = []\n    doc_count = rng.randint(1, 3)\n    for _ in range(doc_count):\n        parts.append(_build_ini(rng))\n        # Sometimes insert extra blank lines between docs\n        if rng.random() < 0.5:\n            parts.append(\"\\n\")\n\n    ini_text = \"\".join(parts)\n\n    # Ensure size limit; if too large, trim at a line boundary\n    max_bytes = 4096 - 1  # leave space for trailing NUL\n    b = ini_text.encode('utf-8', errors='ignore')\n    if len(b) > max_bytes:\n        # Trim to last newline within limit to keep lines whole\n        cut = b.rfind(b\"\\n\", 0, max_bytes)\n        if cut <= 0:\n            cut = max_bytes\n        b = b[:cut]\n        if not b.endswith(b\"\\n\"):\n            b += b\"\\n\"\n\n    # Return with an explicit NUL terminator to satisfy c_str use cases\n    return b + b\"\\x00\"\n"
+    },
+    {
+      "data_type": "INI bytes (possibly with NULs)",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# INI generator for ini_parse_string_length fuzz target\n# Generates valid INI content (may include NULs), with varied sections/keys/values\n# Size limited to <= 4096 bytes\n\nTRUE_TOKENS = [\"true\", \"True\", \"TRUE\", \"yes\", \"on\", \"1\"]\nFALSE_TOKENS = [\"false\", \"False\", \"FALSE\", \"no\", \"off\", \"0\"]\n\nDEC_SAMPLES = [\"0\", \"1\", \"-1\", \"42\", \"-2147483648\", \"2147483647\", \"9223372036854775807\", \"-9223372036854775808\"]\nHEX_SAMPLES = [\"0x0\", \"0x1\", \"0XDEADBEEF\", \"0x7fffffff\", \"0x80000000\", \"0xffffffffffffffff\"]\nREAL_SAMPLES = [\"0.0\", \"-0.0\", \"3.14159\", \"-2.5\", \"1e10\", \"-1E-10\", \"inf\", \"-inf\", \"nan\"]\n\n# Some unicode-ish names and values (INI is usually bytes/ASCII, but many parsers accept UTF-8)\nUNICODE_NAMES = [\"ключ\", \"名前\", \"τ\", \"секция\", \"π\", \"ключ2\"]\n\nSAFE_NAME_CHARS = string.ascii_letters + string.digits + \"_-./\"  # avoid '=' and brackets in names\nSAFE_VALUE_CHARS = string.ascii_letters + string.digits + \" _-./:+,;@()[]{}<>|^%$#~\"  # avoid leading ';' when needed\n\n\ndef _rand_choice(rng: random.Random, arr: List[str]) -> str:\n    return arr[rng.randrange(len(arr))]\n\n\ndef _rand_ident(rng: random.Random, allow_unicode: bool = True, min_len: int = 1, max_len: int = 16) -> str:\n    if allow_unicode and rng.random() < 0.25:\n        return _rand_choice(rng, UNICODE_NAMES)\n    n = rng.randint(min_len, max_len)\n    s = ''.join(rng.choice(SAFE_NAME_CHARS) for _ in range(n))\n    # Ensure not empty and no trailing spaces\n    return s.strip() or \"x\"\n\n\ndef _rand_value(rng: random.Random) -> str:\n    kind = rng.random()\n    if kind < 0.15:\n        return _rand_choice(rng, TRUE_TOKENS)\n    if kind < 0.30:\n        return _rand_choice(rng, FALSE_TOKENS)\n    if kind < 0.45:\n        return _rand_choice(rng, DEC_SAMPLES)\n    if kind < 0.55:\n        return _rand_choice(rng, HEX_SAMPLES)\n    if kind < 0.70:\n        return _rand_choice(rng, REAL_SAMPLES)\n    # generic string\n    n = rng.randint(0, 40)\n    s = ''.join(rng.choice(SAFE_VALUE_CHARS) for _ in range(n))\n    # Occasionally include quotes\n    if rng.random() < 0.2:\n        s = '\"' + s + '\"'\n    return s\n\n\ndef _comment_line(rng: random.Random) -> str:\n    # inih supports ';' and '#' comments (typical). Mix with whitespace.\n    prefix = ';' if rng.random() < 0.5 else '#'\n    ws_left = ' ' * rng.randint(0, 3)\n    ws_right = ' ' * rng.randint(0, 3)\n    body_len = rng.randint(0, 30)\n    body = ''.join(rng.choice(SAFE_VALUE_CHARS) for _ in range(body_len))\n    return f\"{ws_left}{prefix}{ws_right}{body}\"\n\n\ndef _section_line(name: str, rng: random.Random) -> str:\n    # Optionally include whitespace around name\n    left_ws = ' ' * rng.randint(0, 1)\n    right_ws = ' ' * rng.randint(0, 1)\n    return f\"[{left_ws}{name}{right_ws}]\"\n\n\ndef _kv_line(key: str, value: str, rng: random.Random) -> str:\n    # Optionally include spaces around '=' and inline comments\n    lws = ' ' * rng.randint(0, 2)\n    rws = ' ' * rng.randint(0, 2)\n    line = f\"{key}{lws}={rws}{value}\"\n    if rng.random() < 0.25:\n        # add inline comment using ';' or '#'\n        sep = ' ' * rng.randint(1, 3)\n        c = ';' if rng.random() < 0.5 else '#'\n        line += f\"{sep}{c}{sep}note\"\n    return line\n\n\ndef _generate_ini(rng: random.Random, target_bytes: int) -> bytes:\n    lines: List[bytes] = []\n\n    # Optionally start with BOM or UTF-8 BOM-like bytes to exercise handling\n    if rng.random() < 0.2:\n        lines.append(b\"\\xef\\xbb\\xbf\")\n\n    # Top-level comments and blank lines before any section\n    for _ in range(rng.randint(0, 4)):\n        choice = rng.random()\n        if choice < 0.5:\n            lines.append((_comment_line(rng) + \"\\n\").encode('utf-8'))\n        else:\n            lines.append(b\"\\n\")\n\n    num_sections = rng.randint(1, 6)\n\n    # Some keys before any section (global section)\n    if rng.random() < 0.6:\n        num_globals = rng.randint(1, 5)\n        for _ in range(num_globals):\n            key = _rand_ident(rng)\n            val = _rand_value(rng)\n            lines.append((_kv_line(key, val, rng) + \"\\n\").encode('utf-8'))\n        lines.append(b\"\\n\")\n\n    for sidx in range(num_sections):\n        sname = _rand_ident(rng)\n        lines.append((_section_line(sname, rng) + \"\\n\").encode('utf-8'))\n\n        # Optional comments/blank lines after section header\n        for _ in range(rng.randint(0, 2)):\n            if rng.random() < 0.5:\n                lines.append((_comment_line(rng) + \"\\n\").encode('utf-8'))\n            else:\n                lines.append(b\"\\n\")\n\n        # A mix of booleans, integers, hex, real, and strings\n        nkeys = rng.randint(2, 12)\n        used_keys = set()\n        for _ in range(nkeys):\n            key = _rand_ident(rng)\n            # Ensure unique keys to exercise map behavior\n            if key in used_keys:\n                key += str(rng.randint(0, 9))\n            used_keys.add(key)\n            val = _rand_value(rng)\n            lines.append((_kv_line(key, val, rng) + \"\\n\").encode('utf-8'))\n\n        # Occasionally add duplicate keys with different values to test overwrite\n        if rng.random() < 0.4 and used_keys:\n            dup_key = _rand_choice(rng, list(used_keys))\n            val = _rand_value(rng)\n            lines.append((_kv_line(dup_key, val, rng) + \"\\n\").encode('utf-8'))\n\n        # Blank line between sections\n        lines.append(b\"\\n\")\n\n    blob = b\"\".join(lines)\n\n    # Optionally insert NUL bytes in safe places to exercise length-bound parsing.\n    # We keep them between lines so that typical parsers still handle segments up to NUL if they ignore it,\n    # but ini_parse_string_length will rely on explicit length and still see following bytes.\n    if rng.random() < 0.5 and len(blob) > 0:\n        insertions = rng.randint(1, min(5, max(1, len(blob) // 50)))\n        for _ in range(insertions):\n            pos = rng.randint(0, len(blob))\n            blob = blob[:pos] + b\"\\x00\" + blob[pos:]\n\n    # Trim to target size while ensuring not to cut in the middle of multi-byte UTF-8 sequences unfairly.\n    # As we're using UTF-8 and ASCII, naive truncation is acceptable for fuzzing; parser uses bytes with explicit length.\n    return blob[:target_bytes]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a target size within reasonable bounds, leaving headroom for fuzzer to vary len\n    base_size = rng.randint(64, 1200)\n    # Ensure upper bound\n    target_bytes = min(4096, base_size)\n    data = _generate_ini(rng, target_bytes)\n    # Guarantee non-empty output to let the fuzzer pick length 0..N\n    if not data:\n        data = b\"key=value\\n\"\n    return data\n"
+    },
+    {
+      "data_type": "alphanumeric string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# We generate a valid INI buffer intended to be consumed by INIReader(buffer, size)\n# and by ini_parse_string(_length). The fuzz stubs then query sections/keys and\n# parse values as string/integer/unsigned/integer64/real/boolean.\n# Our goal: create diverse, valid INI with multiple sections, duplicate keys,\n# comments, continuations, whitespace-only values, empty values, quoted values,\n# different numeral bases, large/small floats, booleans with varied casings,\n# and keys with characters that are commonly edge-y but still valid for INI.\n\nMAX_BYTES = 4096\n\nALNUM = string.ascii_letters + string.digits\nWS = [\" \", \"\\t\"]\nBOOL_TRUE = [\"true\", \"TRUE\", \"Yes\", \"on\", \"1\", \"yEs\"]\nBOOL_FALSE = [\"false\", \"FALSE\", \"No\", \"off\", \"0\", \"nO\"]\n\n\ndef r(seed: int) -> random.Random:\n    return random.Random(seed)\n\n\ndef rand_ident(rng: random.Random, min_len: int = 1, max_len: int = 16) -> str:\n    # Alphanumeric string as per known data type; allow some punctuation commonly seen in INI keys\n    extra = \"_-.:/\"\n    length = rng.randint(min_len, max_len)\n    chars = ALNUM + extra\n    s = rng.choice(ALNUM)  # start with alnum to keep it friendly\n    for _ in range(length - 1):\n        s += rng.choice(chars)\n    return s\n\n\ndef rand_section_name(rng: random.Random) -> str:\n    # Include some nesting and dots to simulate real-world INI\n    parts = [rand_ident(rng, 1, rng.randint(3, 10)) for _ in range(rng.randint(1, 3))]\n    return \".\".join(parts)\n\n\ndef rand_comment(rng: random.Random) -> str:\n    leader = rng.choice([';', '#'])\n    text = ''.join(rng.choice(ALNUM + ' _-.:/\\t') for _ in range(rng.randint(0, 40)))\n    return f\"{leader}{text}\"\n\n\ndef rand_ws(rng: random.Random) -> str:\n    return ''.join(rng.choice(WS) for _ in range(rng.randint(0, 3)))\n\n\ndef value_integer(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        # decimal\n        n = rng.randint(-2**31, 2**31 - 1)\n        return str(n)\n    else:\n        # hex with optional sign\n        n = rng.randint(0, 2**32 - 1)\n        s = f\"0x{n:x}\"\n        if rng.random() < 0.3:\n            s = s.replace('x', 'X')\n        if rng.random() < 0.2:\n            s = (\"-\" if rng.random() < 0.5 else \"+\") + s\n        return s\n\n\ndef value_unsigned(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return str(rng.randint(0, 2**32 - 1))\n    else:\n        n = rng.randint(0, 2**64 - 1)\n        s = f\"0x{n:x}\"\n        if rng.random() < 0.5:\n            s = s.replace('x', 'X')\n        return s\n\n\ndef value_real(rng: random.Random) -> str:\n    choice = rng.random()\n    if choice < 0.35:\n        # simple float\n        return f\"{rng.uniform(-1e6, 1e6):.6f}\"\n    elif choice < 0.7:\n        # scientific\n        mant = rng.uniform(-9.9, 9.9)\n        exp = rng.randint(-308, 308)\n        return f\"{mant}e{exp}\"\n    else:\n        # integers as valid reals\n        return str(rng.randint(-10**12, 10**12))\n\n\ndef value_boolean(rng: random.Random) -> str:\n    return rng.choice(BOOL_TRUE + BOOL_FALSE)\n\n\ndef value_string(rng: random.Random) -> str:\n    # include spaces, punctuation, and possibly quoted strings\n    modes = ['plain', 'quoted', 'spaces', 'empty', 'whitespace']\n    m = rng.choice(modes)\n    if m == 'plain':\n        length = rng.randint(1, 24)\n        return ''.join(rng.choice(ALNUM + '._-/:,') for _ in range(length))\n    if m == 'quoted':\n        # double-quoted; INI parsers often keep quotes, but still valid content\n        length = rng.randint(0, 20)\n        inner = ''.join(rng.choice(ALNUM + ' _-/:,.') for _ in range(length))\n        return f'\"{inner}\"'\n    if m == 'spaces':\n        left = ' ' * rng.randint(0, 3)\n        right = ' ' * rng.randint(0, 3)\n        core = ''.join(rng.choice(ALNUM + '._-/:,') for _ in range(rng.randint(1, 16)))\n        return left + core + right\n    if m == 'empty':\n        return ''\n    # whitespace-only\n    return ' ' * rng.randint(1, 6)\n\n\ndef kv_line(rng: random.Random, key: str, value: str, sep: str = '=') -> str:\n    # Produce a key=value with optional whitespace and possible inline comment\n    pre_ws = rand_ws(rng)\n    mid_ws_l = rand_ws(rng)\n    mid_ws_r = rand_ws(rng)\n    post_ws = ''\n    if rng.random() < 0.3:\n        post_ws = ' ' * rng.randint(1, 3) + rng.choice([';',' #'][0:1])  # prefer ';' inline\n        # inline comment text\n        post_ws += ''.join(rng.choice(ALNUM + ' _-') for _ in range(rng.randint(0, 10)))\n    return f\"{pre_ws}{key}{mid_ws_l}{sep}{mid_ws_r}{value}{post_ws}\"\n\n\ndef continued_value(rng: random.Random, base_value: str) -> List[str]:\n    # Create a multi-line value using line continuation (ending with '\\\\')\n    lines = []\n    parts = [base_value]\n    for _ in range(rng.randint(1, 3)):\n        length = rng.randint(1, 16)\n        parts.append(''.join(rng.choice(ALNUM + ' _-/:,.') for _ in range(length)))\n    for i, p in enumerate(parts):\n        if i < len(parts) - 1:\n            lines.append(p + ' \\\\\\n')\n        else:\n            lines.append(p)\n    return lines\n\n\ndef build_section(rng: random.Random, name: str) -> List[str]:\n    lines: List[str] = []\n    # Section header\n    lines.append(f\"[{name}]\")\n\n    # Emit a mix of keys\n    keys = set()\n\n    def unique_key() -> str:\n        for _ in range(10):\n            k = rand_ident(rng, 1, 14)\n            if k not in keys:\n                keys.add(k)\n                return k\n        k = k if 'k' in locals() else rand_ident(rng, 1, 14)\n        keys.add(k)\n        return k\n\n    # 1) Strings for Get/GetString\n    for _ in range(rng.randint(2, 5)):\n        k = unique_key()\n        v = value_string(rng)\n        lines.append(kv_line(rng, k, v))\n\n    # 2) Integers (signed/hex)\n    for _ in range(rng.randint(2, 4)):\n        k = unique_key()\n        v = value_integer(rng)\n        lines.append(kv_line(rng, k, v))\n\n    # 3) Unsigned\n    for _ in range(rng.randint(1, 3)):\n        k = unique_key()\n        v = value_unsigned(rng)\n        lines.append(kv_line(rng, k, v))\n\n    # 4) Reals\n    for _ in range(rng.randint(1, 3)):\n        k = unique_key()\n        v = value_real(rng)\n        lines.append(kv_line(rng, k, v))\n\n    # 5) Booleans\n    for _ in range(rng.randint(2, 4)):\n        k = unique_key()\n        v = value_boolean(rng)\n        lines.append(kv_line(rng, k, v))\n\n    # 6) Empty and whitespace-only values for GetString defaulting behavior\n    k_empty = unique_key()\n    lines.append(kv_line(rng, k_empty, ''))\n    k_ws = unique_key()\n    lines.append(kv_line(rng, k_ws, ' ' * rng.randint(1, 5)))\n\n    # 7) Duplicate key with different value to exercise overwrite behavior\n    if keys:\n        dup_key = rng.choice(list(keys))\n        lines.append(kv_line(rng, dup_key, value_string(rng)))\n\n    # 8) Continued value\n    k_cont = unique_key()\n    cont_parts = continued_value(rng, value_string(rng) or 'part')\n    # First line with key=\n    if cont_parts:\n        first = cont_parts[0]\n        rest = cont_parts[1:]\n        lines.append(kv_line(rng, k_cont, first))\n        lines.extend(rest)\n\n    return lines\n\n\ndef assemble_ini(rng: random.Random) -> str:\n    lines: List[str] = []\n\n    # Top-level comments and blank lines\n    for _ in range(rng.randint(1, 4)):\n        if rng.random() < 0.7:\n            lines.append(rand_comment(rng))\n        else:\n            lines.append(\"\")\n\n    # Global (no section) keys: allowed by many parsers; included to broaden coverage\n    if rng.random() < 0.7:\n        for _ in range(rng.randint(1, 4)):\n            k = rand_ident(rng, 1, 12)\n            v = value_string(rng)\n            lines.append(kv_line(rng, k, v))\n\n    # Create multiple sections\n    n_sections = rng.randint(2, 5)\n    sec_names = []\n    for _ in range(n_sections):\n        name = rand_section_name(rng)\n        # ensure uniqueness\n        while name in sec_names:\n            name = rand_section_name(rng)\n        sec_names.append(name)\n        lines.extend(build_section(rng, name))\n        # Insert interspersed comments/blank lines\n        for _ in range(rng.randint(0, 2)):\n            lines.append(rand_comment(rng) if rng.random() < 0.7 else \"\")\n\n    # Trailing whitespace and comment\n    if rng.random() < 0.8:\n        lines.append(rand_comment(rng))\n\n    # Join\n    text = \"\\n\".join(lines) + \"\\n\"\n    # Ensure within size\n    if len(text.encode('utf-8')) > MAX_BYTES:\n        # Truncate on line boundary to keep validity\n        out_lines = []\n        total = 0\n        for ln in lines:\n            enc = (ln + \"\\n\").encode('utf-8')\n            if total + len(enc) > MAX_BYTES:\n                break\n            out_lines.append(ln)\n            total += len(enc)\n        text = \"\\n\".join(out_lines)\n        if not text.endswith(\"\\n\"):\n            text += \"\\n\"\n    return text\n\n\ndef generate(seed: int) -> bytes:\n    rng = r(seed)\n    ini_text = assemble_ini(rng)\n    return ini_text.encode('utf-8')\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3610,
+            "output_tokens": 828,
+            "total_tokens": 4438
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3188,
+            "output_tokens": 125,
+            "total_tokens": 3313
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3747,
+            "output_tokens": 4237,
+            "total_tokens": 7984
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 20144,
+            "output_tokens": 8477,
+            "total_tokens": 28621
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9038,
+            "output_tokens": 508,
+            "total_tokens": 9546
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 217.61274576187134,
+    "scan_objects": 8.557358980178833,
+    "validate_objects": 0.9231290817260742,
+    "scan_functions": 44.00990915298462,
+    "synthesis": 122.44747281074524,
+    "fill": 0,
+    "classify": 8.364857912063599,
+    "build_generators": 33.30888819694519
+  }
+}

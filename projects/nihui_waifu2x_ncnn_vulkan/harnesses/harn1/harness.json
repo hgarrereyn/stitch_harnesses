@@ -1,0 +1,297 @@
+{
+  "objects": [
+    {
+      "ptr_type": "path_t *",
+      "aliases": [],
+      "definition": "#if _WIN32\ntypedef std::wstring path_t;\n#define PATHSTR(X) L##X\n#else\ntypedef std::string path_t;\n#define PATHSTR(X) X\n#endif",
+      "description": "path_t is a platform-dependent alias for the filesystem path string type: std::wstring on Windows (UTF-16 wide string) and std::string on non-Windows platforms (UTF-8/locale-dependent narrow string). Use it for file and directory paths, along with PATHSTR() to create string literals with the appropriate character type.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "path_is_directory",
+      "signature": "static bool path_is_directory(const path_t& path)",
+      "description": "Returns true if the given path refers to an existing directory. On Windows, queries attributes with GetFileAttributesW; on POSIX, uses stat and S_ISDIR. Intended for quick directory checks before listing or opening paths.",
+      "requirements": [
+        "Input path must be a valid path_t (std::wstring on Windows, std::string elsewhere).",
+        "The path is interpreted as-is (no normalization or expansion).",
+        "On POSIX, the path must be accessible to stat; lack of permissions or nonexistence yields false."
+      ],
+      "error": null
+    },
+    {
+      "name": "list_directory",
+      "signature": "static int list_directory(const path_t& dirpath, std::vector<path_t>& imagepaths)",
+      "description": "Lists regular files and symlinks in the given directory and returns their names (not full paths) in imagepaths, sorted ascending. Clears imagepaths first. Returns 0 on success, -1 on failure (and prints an error to stderr). Uses _wopendir/_wreaddir on Windows and opendir/readdir on POSIX.",
+      "requirements": [
+        "dirpath must refer to a directory that exists and is readable by the process.",
+        "imagepaths is an output parameter and will be cleared at the start of the call.",
+        "Only entries with d_type == DT_REG or DT_LNK are included; other types (directories, sockets, etc.) are skipped.",
+        "Returned entries are bare names; the caller must prepend dirpath if full paths are required.",
+        "On failure to open the directory, the function returns -1 and writes an error message to stderr."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_file_name_without_extension",
+      "signature": "static path_t get_file_name_without_extension(const path_t& path)",
+      "description": "Returns the substring of path before the last '.' character. If no '.' is present, returns the input unchanged. This is a simple string-based operation; it does not treat path separators specially and will also strip an extension from directory names if they contain a '.' in the string.",
+      "requirements": [
+        "Input is treated as a generic string; only the last '.' is considered.",
+        "If the filename ends with '.', the trailing '.' is removed.",
+        "No validation of the path is performed; it need not exist."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_file_extension",
+      "signature": "static path_t get_file_extension(const path_t& path)",
+      "description": "Returns the substring after the last '.' in path. If no '.' is present, returns an empty path_t. This is purely string-based; path separators are not considered, and hidden-file prefixes (e.g., '.bashrc') will yield the entire trailing portion after the leading dot as the extension.",
+      "requirements": [
+        "Only the last '.' is considered as the separator between name and extension.",
+        "If the path ends with '.', the function returns an empty string for the extension.",
+        "No filesystem access is performed; the path need not exist."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_executable_directory",
+      "signature": "static path_t get_executable_directory()",
+      "description": "Returns the directory of the current executable, including the trailing path separator ('\\' on Windows, '/' elsewhere). Implementation is platform-specific: GetModuleFileNameW on Windows, _NSGetExecutablePath on macOS, and readlink(\"/proc/self/exe\") on Linux/other POSIX.",
+      "requirements": [
+        "No input parameters.",
+        "The returned path includes a trailing separator; callers should avoid adding an extra separator when concatenating.",
+        "Behavior depends on platform-specific facilities; on some systems long paths may be truncated due to a fixed 256-byte buffer in this implementation."
+      ],
+      "error": null
+    },
+    {
+      "name": "filepath_is_readable",
+      "signature": "static bool filepath_is_readable(const path_t& path)",
+      "description": "Returns true if the file at the given path can be opened for reading in binary mode. Uses _wfopen on Windows and fopen elsewhere; closes the file immediately on success.",
+      "requirements": [
+        "Input must be a valid path_t string representing a file path.",
+        "The check reflects current read permissions and file existence at the time of the call.",
+        "Directories or special files that cannot be opened as regular files will return false."
+      ],
+      "error": null
+    },
+    {
+      "name": "sanitize_filepath",
+      "signature": "static path_t sanitize_filepath(const path_t& path)",
+      "description": "If the given path is directly readable, returns it unchanged. Otherwise, returns get_executable_directory() concatenated with path. Intended to resolve resources located next to the executable when a relative path isn't directly resolvable.",
+      "requirements": [
+        "If path is not readable, the function performs a simple string concatenation: returned value is get_executable_directory() + path, with no insertion of a separator.",
+        "Callers should ensure path is a relative name appropriate for concatenation, or include the needed separator if necessary.",
+        "Relies on filepath_is_readable and get_executable_directory behaving correctly on the current platform."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "path_is_directory",
+      "inputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        }
+      ],
+      "code": "// path_is_directory: check whether the provided path refers to an existing directory.\n// Inputs: path (path_t*) provided by runtime; pass by const reference per API.\n// Outputs: return the same path object to keep it in the pool; also track result as an attribute.\n{\n    bool is_dir = path_is_directory(*path);\n    // Record the observation for downstream stubs that may care about directory-ness.\n    FUZZ_SET_ATTR_INT(path, \"is_dir\", is_dir ? 1 : 0);\n    // No error condition to enforce beyond API call; function simply returns a bool.\n    // Validation: Path object is preserved; attribute captures the result.\n}"
+    },
+    {
+      "name": "list_directory",
+      "inputs": [
+        {
+          "name": "dirpath",
+          "type": "path_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dirpath",
+          "type": "path_t *"
+        }
+      ],
+      "code": "// list_directory: enumerate regular files and symlinks in dirpath.\n// Inputs: dirpath (path_t*) which should ideally refer to a readable directory.\n// Outputs: dirpath is returned unchanged; imagepaths is ephemeral and not returned.\n{\n    std::vector<path_t> imagepaths;\n    // The function clears imagepaths internally; we provide an empty vector to start.\n    int rc = list_directory(*dirpath, imagepaths);\n\n    // Track the result count for potential follow-up checks in other stubs.\n    FUZZ_SET_ATTR_INT(dirpath, \"last_list_rc\", rc);\n    FUZZ_SET_ATTR_INT(dirpath, \"last_list_count\", (int)imagepaths.size());\n\n    // API semantics: rc == 0 on success; -1 on failure (error printed to stderr).\n    // We do not treat failure as a harness error; both paths are valid for fuzzing.\n    // Validation: dirpath is preserved; attributes record rc and item count.\n}"
+    },
+    {
+      "name": "filepath_is_readable",
+      "inputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        }
+      ],
+      "code": "// filepath_is_readable: attempts to open the path for reading in binary mode.\n// Inputs: path (path_t*).\n// Outputs: original path preserved; annotate readability for downstream use.\n{\n    bool can_read = filepath_is_readable(*path);\n    FUZZ_SET_ATTR_INT(path, \"readable\", can_read ? 1 : 0);\n    // Validation: Function is side-effect-free beyond close-on-success; path object preserved.\n}"
+    },
+    {
+      "name": "get_file_name_without_extension",
+      "inputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        },
+        {
+          "name": "out_noext",
+          "type": "path_t *"
+        }
+      ],
+      "code": "// get_file_name_without_extension: string-only operation stripping the last '.' and any trailing '.'\n// Inputs: path (path_t*) treated as a plain string.\n// Outputs: original path is preserved; a new heap-allocated path_t holding the result is returned as out_noext.\npath_t result_noext = get_file_name_without_extension(*path);\npath_t *out_noext = new path_t(result_noext);\n// Track length for potential downstream logic.\nFUZZ_SET_ATTR_INT(out_noext, \"len\", (int)out_noext->size());\n// Validation: Pure string transform; outputs are non-null and initialized; input preserved."
+    },
+    {
+      "name": "get_file_extension",
+      "inputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        },
+        {
+          "name": "extension",
+          "type": "path_t *"
+        }
+      ],
+      "code": "// get_file_extension: returns substring after the last '.'; empty if none or trailing '.'\n// Inputs: path (path_t*) treated purely as a string.\n// Outputs: original path preserved; new heap-allocated extension path_t returned as 'extension'.\npath_t result_ext = get_file_extension(*path);\npath_t *extension = new path_t(result_ext);\nFUZZ_SET_ATTR_INT(extension, \"len\", (int)extension->size());\n// Validation: Pure string transform; outputs are valid and preserved as required."
+    },
+    {
+      "name": "get_executable_directory",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "execdir",
+          "type": "path_t *"
+        }
+      ],
+      "code": "// get_executable_directory: returns the directory of the current executable with a trailing separator.\n// Inputs: none.\n// Outputs: heap-allocated path_t containing the directory with trailing separator.\npath_t res = get_executable_directory();\npath_t *execdir = new path_t(res);\n\n// Property: If non-empty, last character should be a path separator. Use PATHSTR to match path_t's char type.\nif (!execdir->empty()) {\n    path_t seps = PATHSTR(\"/\\\\\");\n    auto last = execdir->back();\n    bool ends_with_sep = (seps.find(last) != path_t::npos);\n    FUZZ_ASSERT(ends_with_sep, \"get_executable_directory() must end with a path separator\");\n}\n// Validation: Output object allocated; trailing separator property asserted when applicable."
+    },
+    {
+      "name": "sanitize_filepath",
+      "inputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path",
+          "type": "path_t *"
+        },
+        {
+          "name": "sanitized",
+          "type": "path_t *"
+        }
+      ],
+      "code": "// sanitize_filepath: returns the path unchanged if readable; otherwise concatenates exec dir + path.\n// Inputs: path (path_t*), treated as a string; relies on filepath_is_readable and get_executable_directory internally.\n// Outputs: original path preserved; new heap-allocated sanitized path_t returned as 'sanitized'.\npath_t res_sanitized = sanitize_filepath(*path);\npath_t *sanitized = new path_t(res_sanitized);\n\n// Record whether sanitization likely occurred by comparing equality.\nint same = (*sanitized == *path) ? 1 : 0;\nFUZZ_SET_ATTR_INT(sanitized, \"same_as_input\", same);\n// Validation: Output allocated and initialized; input is preserved; simple equality attribute tracked."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "path_is_directory",
+      "data_types": []
+    },
+    {
+      "name": "list_directory",
+      "data_types": []
+    },
+    {
+      "name": "filepath_is_readable",
+      "data_types": []
+    },
+    {
+      "name": "get_file_name_without_extension",
+      "data_types": []
+    },
+    {
+      "name": "get_file_extension",
+      "data_types": []
+    },
+    {
+      "name": "get_executable_directory",
+      "data_types": []
+    },
+    {
+      "name": "sanitize_filepath",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1659,
+            "output_tokens": 153,
+            "total_tokens": 1812
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1237,
+            "output_tokens": 45,
+            "total_tokens": 1282
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1703,
+            "output_tokens": 1710,
+            "total_tokens": 3413
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 19067,
+            "output_tokens": 7931,
+            "total_tokens": 26998
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 202.32829928398132,
+    "scan_objects": 4.385184288024902,
+    "validate_objects": 0.4340794086456299,
+    "scan_functions": 34.90589427947998,
+    "synthesis": 162.53188800811768,
+    "fill": 0,
+    "classify": 0.07051968574523926,
+    "build_generators": 0.00008726119995117188
+  }
+}

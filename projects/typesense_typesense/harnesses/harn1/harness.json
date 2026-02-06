@@ -1,0 +1,1402 @@
+{
+  "objects": [
+    {
+      "ptr_type": "wyhash_context_t *",
+      "aliases": [
+        "struct wyhash_context *"
+      ],
+      "definition": "typedef struct wyhash_context {\n    uint64_t secret[5];\n    uint64_t seed, see1, see2, see3;\n    uint8_t buffer[64];\n    uint8_t left; // always in [0, 64]\n    int loop;\n    uint64_t total;\n} wyhash_context_t;",
+      "description": "Stateful context for incremental wyhash v5 hashing. Holds secret keys, running seeds, a 64-byte buffer for partial blocks, bookkeeping for leftover bytes, loop flag, and total length processed.",
+      "direct_api_constructors": [
+        "wyhash_init"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "StringUtils *",
+      "aliases": [],
+      "definition": "struct StringUtils {\n\n    // non-deletable singleton\n    const icu::Normalizer2* nfkd;\n\n    StringUtils();\n\n    ~StringUtils();\n\n    static size_t split_facet(const std::string& s, std::vector<std::string> & result,\n                      const bool keep_empty = false, const size_t start_index = 0,\n                      const size_t max_values = (std::numeric_limits<size_t>::max()-1));\n\n    // Adapted from: http://stackoverflow.com/a/236180/131050\n    static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,\n                        const bool keep_empty = false, const bool trim_space = true,\n                        const size_t start_index = 0,\n                        const size_t max_values = std::numeric_limits<size_t>::max()) {\n        if (delim.empty()) {\n            result.push_back(s);\n            return s.size();\n        }\n\n        std::string::const_iterator substart = s.begin()+start_index, subend;\n        size_t end_index = start_index;\n\n        while (true) {\n            subend = std::search(substart, s.end(), delim.begin(), delim.end());\n            std::string temp(substart, subend);\n\n            end_index += temp.size() + delim.size();\n            if(trim_space) {\n                temp = trim(temp);\n            }\n\n            if (keep_empty || !temp.empty()) {\n                result.push_back(temp);\n            }\n\n            if(result.size() == max_values) {\n                break;\n            }\n\n            if (subend == s.end()) {\n                break;\n            }\n            substart = subend + delim.size();\n        }\n\n        return std::min(end_index, s.size());\n    }\n\n    static void split_list_with_backticks(const std::string &s, std::vector<std::string> &result) {\n        bool inBacktick = false;  // Tracks whether we are within backticks\n        std::string current;\n    \n        for (char c : s) {\n            if (c == '`') {\n                // Toggle whether we're inside a backtick section\n                inBacktick = !inBacktick;\n            } else if (c == ',' && !inBacktick) {\n                // If we see a comma and we're not in backticks, this ends the current token\n                result.push_back(current);\n                current.clear();\n            } else {\n                // Otherwise, just add the character to the current token\n                current.push_back(c);\n            }\n        }\n    \n        // If there's any leftover text in 'current', push it into the result\n        if (!current.empty()) {\n            result.push_back(current);\n        }\n    }\n\n    static std::string join(std::vector<std::string> vec, const std::string& delimiter, size_t start_index = 0) {\n        std::stringstream ss;\n        for(size_t i = start_index; i < vec.size(); i++) {\n            if(i != start_index) {\n                ss << delimiter;\n            }\n            ss << vec[i];\n        }\n\n        return ss.str();\n    }\n\n    static void split_to_values(const std::string& vals_str, std::vector<std::string>& filter_values);\n\n    // Adapted from: http://stackoverflow.com/a/36000453/131050\n    static std::string & trim(std::string & str) {\n        // right trim\n        while (str.length () > 0 && (str [str.length ()-1] == ' ')) {\n            str.erase (str.length ()-1, 1);\n        }\n\n        // left trim\n        while (str.length () > 0 && (str [0] == ' ')) {\n            str.erase (0, 1);\n        }\n\n        return str;\n    }\n\n    // URL decoding - adapted from: http://stackoverflow.com/a/32595923/131050\n\n    static char from_hex(char ch) {\n        return isdigit(ch) ? ch - '0' : tolower(ch) - 'a' + 10;\n    }\n\n    // Convert string of chars to its representative string of hex numbers\n    static std::string str2hex(const std::string& str, bool capital = false);\n\n    static std::string url_decode(const std::string& text) {\n        char h;\n        std::ostringstream escaped;\n        escaped.fill('0');\n\n        for (auto i = text.begin(), n = text.end(); i != n; ++i) {\n            std::string::value_type c = (*i);\n\n            if (c == '%') {\n                if (i[1] && i[2]) {\n                    h = from_hex(i[1]) << 4 | from_hex(i[2]);\n                    escaped << h;\n                    i += 2;\n                }\n            } else if (c == '+') {\n                escaped << ' ';\n            } else {\n                escaped << c;\n            }\n        }\n\n        return escaped.str();\n    }\n\n    static bool is_float(const std::string &s) {\n        try {\n            size_t num_chars_processed = 0;\n            std::stof(s, &num_chars_processed);\n            return num_chars_processed == s.size();\n        } catch(...) {\n            return false;\n        }\n    }\n\n    // Adapted from: http://stackoverflow.com/a/2845275/131050\n    static bool is_integer(const std::string &s) {\n        if(s.empty() || ((!isdigit(s[0])) && (s[0] != '-') && (s[0] != '+'))) {\n            return false;\n        }\n\n        char * p ;\n        strtol(s.c_str(), &p, 10);\n        return (*p == 0);\n    }\n\n    static bool is_positive_integer(const std::string& s) {\n        return !s.empty() && s.find_first_not_of(\"0123456789\") == std::string::npos;\n    }\n\n    // Adapted from: http://stackoverflow.com/a/2845275/131050\n    static bool is_uint64_t(const std::string &s) {\n        if(s.empty()) {\n            return false;\n        }\n\n        char * p ;\n        unsigned long long ull = strtoull(s.c_str(), &p, 10);\n        return (*p == 0) && ull <= std::numeric_limits<uint64_t>::max();\n    }\n\n    static bool is_int64_t(const std::string &s) {\n        if(s.empty()) {\n            return false;\n        }\n\n        char * p ;\n        long long val = strtoll(s.c_str(), &p, 10);\n        return (*p == 0) && val >= std::numeric_limits<int64_t>::min() && val <= std::numeric_limits<int64_t>::max();\n    }\n\n    static bool is_uint32_t(const std::string &s) {\n        if(s.empty()) {\n            return false;\n        }\n\n        char * p ;\n        unsigned long ul = strtoul(s.c_str(), &p, 10);\n        return (*p == 0) && ul <= std::numeric_limits<uint32_t>::max();\n    }\n\n    static bool is_int32_t(const std::string &s) {\n        if(s.empty()) {\n            return false;\n        }\n\n        char * p ;\n        long val = strtol(s.c_str(), &p, 10);\n        return (*p == 0) && val >= std::numeric_limits<int32_t>::min() && val <= std::numeric_limits<int32_t>::max();\n    }\n\n    static bool is_bool(const std::string &s) {\n        if(s.empty()) {\n            return false;\n        }\n\n        return s == \"true\" || s == \"false\" || s == \"TRUE\" || s == \"FALSE\";\n    }\n\n    static void toupper(std::string& str) {\n        std::transform(str.begin(), str.end(), str.begin(), ::toupper);\n    }\n\n    static void tolowercase(std::string& str) {\n        std::transform(str.begin(), str.end(), str.begin(), ::tolower);\n    }\n\n    /* https://stackoverflow.com/a/34571089/131050 */\n    static std::string base64_encode(const std::string &in) {\n        std::string out;\n\n        int val=0, valb=-6;\n        for(unsigned char c : in) {\n            val = (val<<8) + c;\n            valb += 8;\n            while (valb>=0) {\n                out.push_back(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[(val>>valb)&0x3F]);\n                valb-=6;\n            }\n        }\n\n        if(valb>-6) {\n            out.push_back(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[((val<<8)>>(valb+8))&0x3F]);\n        }\n        while(out.size()%4) {\n            out.push_back('=');\n        }\n\n        return out;\n    }\n\n    static std::string base64_decode(const std::string &in) {\n        std::string out;\n\n        std::vector<int> T(256,-1);\n        for(int i=0; i<64; i++) {\n            T[\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"[i]] = i;\n        }\n\n        int val=0, valb=-8;\n\n        for(unsigned char c : in) {\n            if (T[c] == -1) break;\n            val = (val<<6) + T[c];\n            valb += 6;\n            if (valb>=0) {\n                out.push_back(char((val>>valb)&0xFF));\n                valb-=8;\n            }\n        }\n\n        return out;\n    }\n\n    static std::string serialize_uint32_t(uint32_t num) {\n        unsigned char bytes[4];\n        bytes[0] = (unsigned char) ((num >> 24) & 0xFF);\n        bytes[1] = (unsigned char) ((num >> 16) & 0xFF);\n        bytes[2] = (unsigned char) ((num >> 8) & 0xFF);\n        bytes[3] = (unsigned char) ((num & 0xFF));\n\n        return std::string(bytes, bytes+4);\n    }\n\n    static std::string serialize_uint64_t(uint64_t num) {\n        unsigned char bytes[8];\n        bytes[0] = (unsigned char) ((num >> 56) & 0xFF);\n        bytes[1] = (unsigned char) ((num >> 48) & 0xFF);\n        bytes[2] = (unsigned char) ((num >> 40) & 0xFF);\n        bytes[3] = (unsigned char) ((num >> 32) & 0xFF);\n        bytes[4] = (unsigned char) ((num >> 24) & 0xFF);\n        bytes[5] = (unsigned char) ((num >> 16) & 0xFF);\n        bytes[6] = (unsigned char) ((num >> 8) & 0xFF);\n        bytes[7] = (unsigned char) ((num & 0xFF));\n\n        return std::string(bytes, bytes+8);\n    }\n\n    static uint32_t deserialize_uint32_t(std::string serialized_num) {\n        uint32_t seq_id = ((serialized_num[0] & 0xFF) << 24) | ((serialized_num[1] & 0xFF) << 16) |\n                          ((serialized_num[2] & 0xFF) << 8)  | (serialized_num[3] & 0xFF);\n        return seq_id;\n    }\n\n    static uint64_t hash_wy(const void* key, uint64_t len) {\n        uint64_t hash = wyhash(key, len, 0, _wyp);\n        // reserve max() for use as a delimiter\n        return hash != std::numeric_limits<uint64_t>::max() ? hash : (std::numeric_limits<uint64_t>::max()-1);\n    }\n\n    // reference: https://stackoverflow.com/a/27952689/131050\n    static constexpr uint64_t hash_combine(uint64_t combined, uint64_t hash) {\n        combined ^= hash + 0x517cc1b727220a95 + (combined << 6) + (combined >> 2);\n        return combined;\n    }\n\n    std::string unicode_nfkd(const std::string& text);\n\n    static std::string randstring(size_t length);\n\n    static std::string hmac(const std::string& key, const std::string& msg);\n\n    static std::string hash_sha256(const std::string& str);\n\n    //static size_t unicode_length(const std::string& bytes);\n\n    static bool begins_with(const std::string& str, const std::string& prefix) {\n        return str.rfind(prefix, 0) == 0;\n    }\n\n    static void parse_query_string(const std::string& query, std::map<std::string, std::string>& query_map);\n\n    static std::string float_to_str(float value);\n\n    static void replace_all(std::string& subject, const std::string& search,\n                            const std::string& replace);\n\n    static void erase_char(std::string& str, const char c);\n\n    static std::string trim_curly_spaces(const std::string& str);\n\n    static bool ends_with(std::string const &str, std::string const &ending);\n\n    static bool contains_word(const std::string& haystack, const std::string& needle);\n\n    static char* get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen);\n\n    static size_t get_num_chars(const std::string& text);\n\n    static Option<bool> split_include_exclude_fields(const std::string& include_exclude_fields,\n                                                     std::vector<std::string>& tokens);\n\n    static size_t get_occurence_count(const std::string& str, char symbol);\n\n    static std::string url_encode(const std::string& value) {\n        std::ostringstream escaped;\n        escaped.fill('0');\n        escaped << std::hex;\n\n        for (std::string::const_iterator i = value.begin(), n = value.end(); i != n; ++i) {\n            std::string::value_type c = (*i);\n\n            // Keep alphanumeric and other accepted characters intact\n            if (std::isalnum(static_cast<unsigned char>(c)) || c=='-' || c=='_' || c=='.' || c=='~') {\n                escaped << c;\n                continue;\n            }\n\n            // Any other characters are percent-encoded\n            escaped << std::uppercase;\n            escaped << '%' << std::setw(2) << int((unsigned char) c);\n            escaped << std::nouppercase;\n        }\n\n        return escaped.str();\n    }\n};",
+      "description": "Utility struct providing string processing helpers and hashing. Holds a pointer to ICU Normalizer2 for NFKD normalization. Acts like a singleton with many static methods; has explicit constructor/destructor declared here but defined elsewhere.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "std::string *",
+      "aliases": [],
+      "definition": "const std::string OBJECT_FILTER_MARKER = \".{\";",
+      "description": "Global constant string marker used for object filtering features. Although a variable, its type is std::string and can be referenced where a pointer may be needed.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "_wyrotr",
+      "signature": "static inline uint64_t _wyrotr(uint64_t v, unsigned k)",
+      "description": "Rotate-right operation on a 64-bit value by k bits. Intended for internal mixing in wyhash primitives.",
+      "requirements": [
+        "k must be in the range [1, 63] to avoid undefined behavior from shifting by 64 or more.",
+        "No other preconditions."
+      ],
+      "error": null
+    },
+    {
+      "name": "_wymum",
+      "signature": "static inline uint64_t _wymum(uint64_t A, uint64_t B)",
+      "description": "Core 64-bit mixing multiply used by wyhash. Multiplies A and B using a platform-optimized method and XOR-folds the 128-bit product to 64 bits.",
+      "requirements": [
+        "No special argument restrictions beyond standard 64-bit unsigned ranges.",
+        "Function is pure with respect to inputs."
+      ],
+      "error": null
+    },
+    {
+      "name": "_wymix",
+      "signature": "static inline uint64_t _wymix(uint64_t A, uint64_t B)",
+      "description": "Mix function combining A and B with xor and _wymum to improve avalanche properties. Used internally by wyhash routines.",
+      "requirements": [
+        "No special argument restrictions."
+      ],
+      "error": null
+    },
+    {
+      "name": "wyrand",
+      "signature": "static inline uint64_t wyrand(uint64_t *seed)",
+      "description": "WyRand PRNG step. Advances the 64-bit seed in place and returns the next pseudorandom 64-bit value.",
+      "requirements": [
+        "seed must be a non-null pointer to writable uint64_t storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "wy2u01",
+      "signature": "static inline double wy2u01(uint64_t r)",
+      "description": "Convert a 64-bit random integer to a double in [0,1) using the high 53 bits. Intended to be fed by wyrand/wyhash.",
+      "requirements": [
+        "Input r can be any 64-bit value."
+      ],
+      "error": null
+    },
+    {
+      "name": "wy2gau",
+      "signature": "static inline double wy2gau(uint64_t r)",
+      "description": "Approximate zero-mean Gaussian-like value from a 64-bit random integer by summing three 21-bit chunks and normalizing. Provides a rough N(0,1)-like distribution.",
+      "requirements": [
+        "Input r can be any 64-bit value."
+      ],
+      "error": null
+    },
+    {
+      "name": "_wyr8",
+      "signature": "static inline uint64_t _wyr8(const uint8_t *p)",
+      "description": "Load 8 bytes from p into a 64-bit integer, handling platform endianness. Uses memcpy so unaligned addresses are safe.",
+      "requirements": [
+        "p must point to at least 8 readable bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "_wyr4",
+      "signature": "static inline uint64_t _wyr4(const uint8_t *p)",
+      "description": "Load 4 bytes from p into a 32-bit unsigned value promoted to 64-bit, handling platform endianness. Uses memcpy so unaligned addresses are safe.",
+      "requirements": [
+        "p must point to at least 4 readable bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "_wyr3",
+      "signature": "static inline uint64_t _wyr3(const uint8_t *p, unsigned k)",
+      "description": "Construct a 24-bit value from three positions within p: p[0], p[k>>1], and p[k-1]. Used for short inputs (<4 bytes) in wyhash.",
+      "requirements": [
+        "k must be >= 1.",
+        "p must point to at least k readable bytes (indexes 0, k>>1, and k-1 must be valid)."
+      ],
+      "error": null
+    },
+    {
+      "name": "FastestHash",
+      "signature": "static inline uint64_t FastestHash(const void *key, size_t len, uint64_t seed)",
+      "description": "Very fast non-cryptographic hash for arbitrary byte sequences using wyhash building blocks. Handles short and long inputs efficiently.",
+      "requirements": [
+        "If len > 0, key must point to at least len readable bytes.",
+        "key may be null if len == 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "_wyhash",
+      "signature": "static inline uint64_t _wyhash(const void* key, uint64_t len, uint64_t seed, const uint64_t secret[6])",
+      "description": "Core wyhash v5 function that mixes the input with a 6-element secret and seed to produce a 64-bit hash. This is the internal hashing routine before finalization.",
+      "requirements": [
+        "If len > 0, key must point to at least len readable bytes.",
+        "secret must point to an array of at least 6 uint64_t.",
+        "key may be null if len == 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "wyhash",
+      "signature": "static inline uint64_t wyhash(const void* key, uint64_t len, uint64_t seed, const uint64_t secret[6])",
+      "description": "Public wyhash v5 function. Finalizes the core hash with length and secret[5] to produce a 64-bit result with good avalanche properties.",
+      "requirements": [
+        "If len > 0, key must point to at least len readable bytes.",
+        "secret must point to an array of at least 6 uint64_t.",
+        "key may be null if len == 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "make_secret",
+      "signature": "static inline void make_secret(uint64_t seed, uint64_t secret[6])",
+      "description": "Generate a 6-element secret array from a seed. Fills each 64-bit secret from a set of allowed bytes and enforces pairwise Hamming distance of 32 bits between secrets. Note: implementation may be computationally expensive due to its search loop.",
+      "requirements": [
+        "secret must point to writable storage for at least 6 uint64_t.",
+        "Function may take significant time depending on platform/compiler; do not call on performance-critical paths."
+      ],
+      "error": null
+    },
+    {
+      "name": "wyhash64",
+      "signature": "static inline uint64_t wyhash64(uint64_t A, uint64_t B)",
+      "description": "Combine two 64-bit values into a mixed 64-bit hash using wyhash mixing constants. Useful for hashing pairs.",
+      "requirements": [
+        "No special argument restrictions."
+      ],
+      "error": null
+    },
+    {
+      "name": "wyhash_init",
+      "signature": "static inline void wyhash_init(wyhash_context_t *const __restrict ctx, const uint64_t seed, const uint64_t secret[5])",
+      "description": "Initialize an incremental wyhash context with a seed and a 5-element secret (used internally; the sixth constant is derived in finalization).",
+      "requirements": [
+        "ctx must be a non-null pointer to writable wyhash_context_t.",
+        "secret must point to an array of at least 5 uint64_t."
+      ],
+      "error": null
+    },
+    {
+      "name": "_wyhash_loop",
+      "signature": "static inline uint64_t _wyhash_loop(wyhash_context_t *const __restrict ctx, const uint8_t *p, const uint64_t len)",
+      "description": "Internal helper to process as many 64-byte chunks of input as possible, updating the streaming wyhash context state. Returns the number of bytes consumed from p.",
+      "requirements": [
+        "ctx must be non-null.",
+        "p must point to at least len readable bytes.",
+        "len may be any 64-bit length; function consumes in 64-byte blocks."
+      ],
+      "error": null
+    },
+    {
+      "name": "wyhash_update",
+      "signature": "static inline void wyhash_update(wyhash_context_t *const __restrict ctx, const void* const key, uint64_t len)",
+      "description": "Feed more data into an incremental wyhash context. Buffers up to 64 bytes and processes full 64-byte blocks.",
+      "requirements": [
+        "ctx must be non-null and initialized via wyhash_init.",
+        "If len > 0, key must point to at least len readable bytes.",
+        "key may be null if len == 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "wyhash_final",
+      "signature": "static inline uint64_t wyhash_final(wyhash_context_t *const __restrict ctx)",
+      "description": "Finalize the incremental wyhash computation and return the 64-bit hash of all data provided to wyhash_update. Uses internal buffering for the last <=64 bytes.",
+      "requirements": [
+        "ctx must be non-null and previously initialized.",
+        "Should be called after all updates; subsequent calls without reinitialization will reuse the mutated state."
+      ],
+      "error": null
+    },
+    {
+      "name": "Option::ok",
+      "signature": "template <typename T> bool Option<T>::ok() const",
+      "description": "Return whether this Option holds a value (true) or an error (false).",
+      "requirements": [
+        "The Option<T> instance must be a valid, initialized object."
+      ],
+      "error": null
+    },
+    {
+      "name": "Option::get",
+      "signature": "template <typename T> T Option<T>::get() const",
+      "description": "Return the stored value when ok() is true. No checking is performed here; callers should verify ok() first.",
+      "requirements": [
+        "Callers should ensure ok() == true before using the returned value to avoid using an unspecified value."
+      ],
+      "error": null
+    },
+    {
+      "name": "Option::error",
+      "signature": "template <typename T> std::string Option<T>::error() const",
+      "description": "Return the stored error message when ok() is false.",
+      "requirements": [
+        "If ok() == true, the error message may be empty or unspecified; check ok() first for meaningful errors."
+      ],
+      "error": null
+    },
+    {
+      "name": "Option::code",
+      "signature": "template <typename T> uint32_t Option<T>::code() const",
+      "description": "Return the stored error code when ok() is false.",
+      "requirements": [
+        "If ok() == true, the error code value is unspecified; check ok() first for meaningful codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::StringUtils",
+      "signature": "StringUtils::StringUtils()",
+      "description": "Constructor for StringUtils. Initializes ICU Normalizer2 pointer for NFKD normalization (nfkd).",
+      "requirements": [
+        "No arguments. Internals depend on ICU availability; behavior details are not shown in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::~StringUtils",
+      "signature": "StringUtils::~StringUtils()",
+      "description": "Destructor for StringUtils. Cleans up any resources associated with ICU normalizer pointer nfkd.",
+      "requirements": [
+        "Object must have been constructed before destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::split_facet",
+      "signature": "static size_t StringUtils::split_facet(const std::string& s, std::vector<std::string> & result, const bool keep_empty = false, const size_t start_index = 0, const size_t max_values = (std::numeric_limits<size_t>::max()-1))",
+      "description": "Split a string into facets/tokens. Only declaration is present; detailed behavior is unknown beyond parameters that control empties, start index, and limit.",
+      "requirements": [
+        "Unknown specifics; only declaration provided.",
+        "result must be a valid vector to receive tokens.",
+        "start_index must be <= s.size().",
+        "max_values caps the number of tokens appended."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::split",
+      "signature": "static size_t StringUtils::split(const std::string& s, std::vector<std::string> & result, const std::string& delim, const bool keep_empty = false, const bool trim_space = true, const size_t start_index = 0, const size_t max_values = std::numeric_limits<size_t>::max())",
+      "description": "Split s by the substring delimiter delim starting at start_index, trimming spaces around tokens if trim_space is true, and optionally keeping empty tokens. Appends up to max_values tokens to result and returns the index in s up to which parsing progressed.",
+      "requirements": [
+        "result must be a valid vector to append into.",
+        "start_index must be <= s.size().",
+        "If delim is empty, the entire string is returned as a single token."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::split_list_with_backticks",
+      "signature": "static void StringUtils::split_list_with_backticks(const std::string &s, std::vector<std::string> &result)",
+      "description": "Split a comma-separated list s into tokens, but ignore commas enclosed in backticks. Backtick characters are not included in tokens.",
+      "requirements": [
+        "result must be a valid vector to append into.",
+        "Input may contain unmatched backticks; the function toggles state per backtick without validation."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::join",
+      "signature": "static std::string StringUtils::join(std::vector<std::string> vec, const std::string& delimiter, size_t start_index = 0)",
+      "description": "Join strings from vec starting at start_index using delimiter and return the concatenated string.",
+      "requirements": [
+        "start_index must be <= vec.size()."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::split_to_values",
+      "signature": "static void StringUtils::split_to_values(const std::string& vals_str, std::vector<std::string>& filter_values)",
+      "description": "Split vals_str into values for filtering. Only declaration is present; exact splitting rules are unknown.",
+      "requirements": [
+        "filter_values must be a valid vector to receive results.",
+        "Other specifics unknown; only declaration provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::trim",
+      "signature": "static std::string & StringUtils::trim(std::string & str)",
+      "description": "In-place trim of ASCII space characters from both ends of str. Returns a reference to str.",
+      "requirements": [
+        "str is modified in place.",
+        "Only literal space ' ' is trimmed (no tabs/newlines)."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::from_hex",
+      "signature": "static char StringUtils::from_hex(char ch)",
+      "description": "Convert a single hex digit character to its 0-15 numeric value. Accepts '0'-'9', 'a'-'f', 'A'-'F'.",
+      "requirements": [
+        "ch should be a valid hex digit; otherwise the result is unspecified and may be negative due to tolower subtraction."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::str2hex",
+      "signature": "static std::string StringUtils::str2hex(const std::string& str, bool capital = false)",
+      "description": "Convert an input string to its hex representation. Only declaration is present; behavior likely formats bytes as hex, uppercase if capital is true.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::url_decode",
+      "signature": "static std::string StringUtils::url_decode(const std::string& text)",
+      "description": "Decode a URL-encoded string: converts %xx sequences and '+' to space. Stops decoding if invalid Base16 values are encountered for a given character; otherwise copies characters through.",
+      "requirements": [
+        "Percent-encoded sequences must be complete (a '%' followed by two characters). The implementation accesses i[1] and i[2] without bounds checks; inputs ending with incomplete % sequences can cause undefined behavior.",
+        "Input may contain '+' which will be converted to space."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_float",
+      "signature": "static bool StringUtils::is_float(const std::string &s)",
+      "description": "Return true if s parses entirely as a float using std::stof; false on exceptions or leftover characters.",
+      "requirements": [
+        "s must be non-empty for a typical true result; empty strings return false."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_integer",
+      "signature": "static bool StringUtils::is_integer(const std::string &s)",
+      "description": "Return true if s is a valid base-10 integer with optional leading sign and no trailing characters, based on strtol.",
+      "requirements": [
+        "s must be non-empty and start with digit, '+' or '-' to be considered.",
+        "C locale assumed for digit classification."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_positive_integer",
+      "signature": "static bool StringUtils::is_positive_integer(const std::string& s)",
+      "description": "Return true if s consists only of characters '0'..'9' and is non-empty.",
+      "requirements": [
+        "s must be non-empty and contain only decimal digits."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_uint64_t",
+      "signature": "static bool StringUtils::is_uint64_t(const std::string &s)",
+      "description": "Return true if s parses entirely as an unsigned long long within uint64_t range using strtoull.",
+      "requirements": [
+        "s must be non-empty; empty strings return false."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_int64_t",
+      "signature": "static bool StringUtils::is_int64_t(const std::string &s)",
+      "description": "Return true if s parses entirely as a signed long long within int64_t bounds using strtoll.",
+      "requirements": [
+        "s must be non-empty; empty strings return false."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_uint32_t",
+      "signature": "static bool StringUtils::is_uint32_t(const std::string &s)",
+      "description": "Return true if s parses entirely as an unsigned long within uint32_t range using strtoul.",
+      "requirements": [
+        "s must be non-empty; empty strings return false."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_int32_t",
+      "signature": "static bool StringUtils::is_int32_t(const std::string &s)",
+      "description": "Return true if s parses entirely as a signed long within int32_t bounds using strtol.",
+      "requirements": [
+        "s must be non-empty; empty strings return false."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::is_bool",
+      "signature": "static bool StringUtils::is_bool(const std::string &s)",
+      "description": "Return true if s equals 'true' or 'false' in any case of all-uppercase or all-lowercase.",
+      "requirements": [
+        "s must be non-empty; accepted literals: 'true','false','TRUE','FALSE'."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::toupper",
+      "signature": "static void StringUtils::toupper(std::string& str)",
+      "description": "Convert all characters of str to uppercase in-place using ::toupper (C locale).",
+      "requirements": [
+        "str is modified in place.",
+        "Behavior depends on current C locale for character classification."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::tolowercase",
+      "signature": "static void StringUtils::tolowercase(std::string& str)",
+      "description": "Convert all characters of str to lowercase in-place using ::tolower (C locale).",
+      "requirements": [
+        "str is modified in place.",
+        "Behavior depends on current C locale for character classification."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::base64_encode",
+      "signature": "static std::string StringUtils::base64_encode(const std::string &in)",
+      "description": "Encode input bytes into Base64 using the standard alphabet with '=' padding to a multiple of 4 characters.",
+      "requirements": [
+        "No special requirements; input may be empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::base64_decode",
+      "signature": "static std::string StringUtils::base64_decode(const std::string &in)",
+      "description": "Decode a Base64 string using the standard alphabet. Stops decoding at the first character not in the Base64 set. Ignores padding handling beyond table lookup.",
+      "requirements": [
+        "Input should contain only valid Base64 characters for full decoding; decoding stops at the first invalid character.",
+        "Padding '=' is accepted but not explicitly validated."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::serialize_uint32_t",
+      "signature": "static std::string StringUtils::serialize_uint32_t(uint32_t num)",
+      "description": "Serialize a 32-bit integer into a 4-byte big-endian string.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::serialize_uint64_t",
+      "signature": "static std::string StringUtils::serialize_uint64_t(uint64_t num)",
+      "description": "Serialize a 64-bit integer into an 8-byte big-endian string.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::deserialize_uint32_t",
+      "signature": "static uint32_t StringUtils::deserialize_uint32_t(std::string serialized_num)",
+      "description": "Deserialize a 4-byte big-endian string into a 32-bit integer.",
+      "requirements": [
+        "serialized_num.size() must be at least 4; function indexes first 4 bytes without checking length."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::hash_wy",
+      "signature": "static uint64_t StringUtils::hash_wy(const void* key, uint64_t len)",
+      "description": "Compute a 64-bit wyhash of the data and map UINT64_MAX to UINT64_MAX-1 to reserve the maximum value as a delimiter.",
+      "requirements": [
+        "If len > 0, key must point to at least len readable bytes.",
+        "key may be null if len == 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::hash_combine",
+      "signature": "static constexpr uint64_t StringUtils::hash_combine(uint64_t combined, uint64_t hash)",
+      "description": "Combine an existing 64-bit hash with another using a mixing constant (similar to boost::hash_combine).",
+      "requirements": [
+        "No special argument restrictions."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::unicode_nfkd",
+      "signature": "std::string StringUtils::unicode_nfkd(const std::string& text)",
+      "description": "Normalize text to Unicode NFKD form using ICU Normalizer2. Only declaration is present in this header; implementation not shown.",
+      "requirements": [
+        "ICU must be available and initialized via the class to perform normalization.",
+        "Other specifics unknown; only declaration provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::randstring",
+      "signature": "static std::string StringUtils::randstring(size_t length)",
+      "description": "Generate a random ASCII string of the specified length. Only declaration is present; implementation details unknown.",
+      "requirements": [
+        "length defines the output size.",
+        "Other specifics unknown; only declaration provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::hmac",
+      "signature": "static std::string StringUtils::hmac(const std::string& key, const std::string& msg)",
+      "description": "Compute an HMAC over msg with key. Only declaration is present; algorithm (e.g., SHA-256) and output encoding are unspecified here.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::hash_sha256",
+      "signature": "static std::string StringUtils::hash_sha256(const std::string& str)",
+      "description": "Compute the SHA-256 hash of str and return it as a string. Only declaration is present; output format unspecified.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::begins_with",
+      "signature": "static bool StringUtils::begins_with(const std::string& str, const std::string& prefix)",
+      "description": "Return true if str starts with prefix.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::parse_query_string",
+      "signature": "static void StringUtils::parse_query_string(const std::string& query, std::map<std::string, std::string>& query_map)",
+      "description": "Parse a URL query string into a key-value map. Only declaration is present; exact parsing and decoding rules are unspecified here.",
+      "requirements": [
+        "query_map must be a valid map to receive results.",
+        "Other specifics unknown; only declaration provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::float_to_str",
+      "signature": "static std::string StringUtils::float_to_str(float value)",
+      "description": "Convert a float to a string with a specific formatting. Only declaration is present; formatting details are unknown.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::replace_all",
+      "signature": "static void StringUtils::replace_all(std::string& subject, const std::string& search, const std::string& replace)",
+      "description": "Replace all occurrences of substring search with replace in subject. Only declaration is present; implementation details (overlap handling, etc.) unknown.",
+      "requirements": [
+        "subject is modified in place.",
+        "Only declaration provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::erase_char",
+      "signature": "static void StringUtils::erase_char(std::string& str, const char c)",
+      "description": "Erase all occurrences of character c from str. Only declaration is present; implementation not shown.",
+      "requirements": [
+        "str is modified in place.",
+        "Only declaration provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::trim_curly_spaces",
+      "signature": "static std::string StringUtils::trim_curly_spaces(const std::string& str)",
+      "description": "Trim spaces around curly braces or within them. Only declaration is present; exact behavior unknown.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::ends_with",
+      "signature": "static bool StringUtils::ends_with(std::string const &str, std::string const &ending)",
+      "description": "Return true if str ends with ending. Only declaration is present in this header.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::contains_word",
+      "signature": "static bool StringUtils::contains_word(const std::string& haystack, const std::string& needle)",
+      "description": "Check whether haystack contains needle as a whole word. Only declaration is present; definition not shown.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::get_ip_str",
+      "signature": "static char* StringUtils::get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen)",
+      "description": "Convert a socket address to a human-readable IP string written into buffer s with maximum length maxlen. Only declaration is present; likely wraps inet_ntop for IPv4/IPv6.",
+      "requirements": [
+        "sa must be a valid pointer to a sockaddr (AF_INET/AF_INET6, etc.).",
+        "s must point to a writable buffer of size at least maxlen.",
+        "Behavior and return value specifics unknown due to missing definition."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::get_num_chars",
+      "signature": "static size_t StringUtils::get_num_chars(const std::string& text)",
+      "description": "Return the number of characters in a string (possibly Unicode-aware). Only declaration is present; definition not shown.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::split_include_exclude_fields",
+      "signature": "static Option<bool> StringUtils::split_include_exclude_fields(const std::string& include_exclude_fields, std::vector<std::string>& tokens)",
+      "description": "Parse a specification of include/exclude fields into tokens. Returns an Option<bool> indicating success or failure. Only declaration is present; exact grammar unknown.",
+      "requirements": [
+        "tokens must be a valid vector to receive results.",
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::get_occurence_count",
+      "signature": "static size_t StringUtils::get_occurence_count(const std::string& str, char symbol)",
+      "description": "Count occurrences of a character in a string. Only declaration is present; definition not shown.",
+      "requirements": [
+        "Only declaration is provided; specifics unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "StringUtils::url_encode",
+      "signature": "static std::string StringUtils::url_encode(const std::string& value)",
+      "description": "Percent-encode a string suitable for URLs. Leaves unreserved characters (alnum, '-', '_', '.', '~') intact and percent-encodes others in uppercase hex.",
+      "requirements": [
+        "No special requirements; input may be empty.",
+        "Uses std::ostringstream with hex formatting; output uses uppercase hex digits."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "_wyrotr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate inputs: 64-bit value and rotation amount k in [1,63]\nuint64_t v = *FUZZ_PARAM(uint64_t);\nunsigned k = (unsigned)(*FUZZ_PARAM(unsigned int) % 63u) + 1u; // enforce 1..63\n// Call target\nvolatile uint64_t out = _wyrotr(v, k);\n(void)out; // suppress unused warning\n// Validation: k constrained to [1,63]; no other preconditions."
+    },
+    {
+      "name": "_wymum",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Random 64-bit inputs\nuint64_t A = *FUZZ_PARAM(uint64_t);\nuint64_t B = *FUZZ_PARAM(uint64_t);\nvolatile uint64_t out = _wymum(A, B);\n(void)out;\n// Validation: function is pure; no special constraints."
+    },
+    {
+      "name": "_wymix",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t A = *FUZZ_PARAM(uint64_t);\nuint64_t B = *FUZZ_PARAM(uint64_t);\nvolatile uint64_t out = _wymix(A, B);\n(void)out;\n// Validation: no special constraints."
+    },
+    {
+      "name": "wyrand",
+      "inputs": [],
+      "outputs": [],
+      "code": "// seed must be non-null writable storage\nuint64_t seed = *FUZZ_PARAM(uint64_t);\nvolatile uint64_t r = wyrand(&seed);\n(void)r;\n// Validation: provided non-null pointer to local writable seed."
+    },
+    {
+      "name": "wy2u01",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t r = *FUZZ_PARAM(uint64_t);\nvolatile double d = wy2u01(r);\n(void)d;\n// Validation: input can be any 64-bit value."
+    },
+    {
+      "name": "wy2gau",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t r = *FUZZ_PARAM(uint64_t);\nvolatile double d = wy2gau(r);\n(void)d;\n// Validation: input can be any 64-bit value."
+    },
+    {
+      "name": "_wyr8",
+      "inputs": [],
+      "outputs": [],
+      "code": "// p must point to at least 8 readable bytes\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() < 8) { FUZZ_BAIL(); }\nconst uint8_t *p = reinterpret_cast<const uint8_t*>(s.data());\nvolatile uint64_t out = _wyr8(p);\n(void)out;\n// Validation: ensured at least 8 bytes are available."
+    },
+    {
+      "name": "_wyr4",
+      "inputs": [],
+      "outputs": [],
+      "code": "// p must point to at least 4 readable bytes\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() < 4) { FUZZ_BAIL(); }\nconst uint8_t *p = reinterpret_cast<const uint8_t*>(s.data());\nvolatile uint64_t out = _wyr4(p);\n(void)out;\n// Validation: ensured at least 4 bytes are available."
+    },
+    {
+      "name": "_wyr3",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Need k >= 1 and p must have at least k bytes\nstd::string s = FUZZ_PARAM_STR();\nif (s.empty()) { FUZZ_BAIL(); }\nunsigned k = (unsigned)(*FUZZ_PARAM(unsigned int) % (unsigned)s.size()) + 1u; // 1..s.size()\nconst uint8_t *p = reinterpret_cast<const uint8_t*>(s.data());\nvolatile uint64_t out = _wyr3(p, k);\n(void)out;\n// Validation: k>=1 and indexes 0, k>>1, k-1 are valid within s."
+    },
+    {
+      "name": "FastestHash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare buffer and length; if len==0, key may be null\nstd::string s = FUZZ_PARAM_STR();\nuint64_t seed = *FUZZ_PARAM(uint64_t);\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % (s.size() + 1));\nconst void *key = (len == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0)) ? nullptr : (const void*)s.data();\nvolatile uint64_t h = FastestHash(key, len, seed);\n(void)h;\n// Validation: if len>0, key points into s; if len==0, key may be null."
+    },
+    {
+      "name": "_wyhash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare input and 6-element secret\nstd::string s = FUZZ_PARAM_STR();\nuint64_t seed = *FUZZ_PARAM(uint64_t);\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % (s.size() + 1));\nconst void *key = (len == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0)) ? nullptr : (const void*)s.data();\nconst uint64_t (*rsec)[6] = FUZZ_PARAM(uint64_t[6]);\nuint64_t secret[6];\nfor (int i = 0; i < 6; ++i) secret[i] = (*rsec)[i];\nvolatile uint64_t h = _wyhash(key, (uint64_t)len, seed, secret);\n(void)h;\n// Validation: key/len contract met; secret has 6 elements."
+    },
+    {
+      "name": "wyhash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare input and 6-element secret\nstd::string s = FUZZ_PARAM_STR();\nuint64_t seed = *FUZZ_PARAM(uint64_t);\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % (s.size() + 1));\nconst void *key = (len == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0)) ? nullptr : (const void*)s.data();\nconst uint64_t (*rsec)[6] = FUZZ_PARAM(uint64_t[6]);\nuint64_t secret[6];\nfor (int i = 0; i < 6; ++i) secret[i] = (*rsec)[i];\nvolatile uint64_t h = wyhash(key, (uint64_t)len, seed, secret);\n(void)h;\n// Validation: key/len contract met; secret has 6 elements."
+    },
+    {
+      "name": "wyhash64",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t A = *FUZZ_PARAM(uint64_t);\nuint64_t B = *FUZZ_PARAM(uint64_t);\nvolatile uint64_t h = wyhash64(A, B);\n(void)h;\n// Validation: no special constraints."
+    },
+    {
+      "name": "wyhash_init",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "code": "// ctx must be writable and non-null (provided by runtime). secret must have 5 elements\nuint64_t seed = *FUZZ_PARAM(uint64_t);\nconst uint64_t (*rsec)[5] = FUZZ_PARAM(uint64_t[5]);\nuint64_t secret[5];\nfor (int i = 0; i < 5; ++i) secret[i] = (*rsec)[i];\nwyhash_init(ctx, seed, secret);\n// Track that ctx has been initialized for subsequent calls\nFUZZ_SET_ATTR_INT(ctx, \"inited\", 1);\n// Return ctx to pool as a persistent object"
+    },
+    {
+      "name": "_wyhash_loop",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "code": "// Require initialized ctx\nif (FUZZ_GET_ATTR_INT(ctx, \"inited\") == 0) { FUZZ_BAIL(); }\nstd::string s = FUZZ_PARAM_STR();\nuint64_t len = (uint64_t)((size_t)*FUZZ_PARAM(unsigned int) % (s.size() + 1));\nconst uint8_t *p = reinterpret_cast<const uint8_t*>(s.data());\nvolatile uint64_t consumed = _wyhash_loop(ctx, p, len);\n(void)consumed;\n// Validation: p points to at least len bytes; ctx returned as output for persistence"
+    },
+    {
+      "name": "wyhash_update",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "code": "// Require initialized ctx\nif (FUZZ_GET_ATTR_INT(ctx, \"inited\") == 0) { FUZZ_BAIL(); }\nstd::string s = FUZZ_PARAM_STR();\nuint64_t len = (uint64_t)((size_t)*FUZZ_PARAM(unsigned int) % (s.size() + 1));\nconst void *key = (len == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0)) ? nullptr : (const void*)s.data();\nwyhash_update(ctx, key, len);\n// Validation: if len>0, key points to len bytes; ctx returned as output"
+    },
+    {
+      "name": "wyhash_final",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "code": "// Require initialized ctx before finalizing\nif (FUZZ_GET_ATTR_INT(ctx, \"inited\") == 0) { FUZZ_BAIL(); }\nvolatile uint64_t h = wyhash_final(ctx);\n(void)h;\n// Optionally mark as finalized (not strictly required by API)\nFUZZ_SET_ATTR_INT(ctx, \"finalized\", 1);\n// Return ctx so it can be reused or reinitialized later"
+    },
+    {
+      "name": "StringUtils::split",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare inputs following API constraints\nstd::string s = FUZZ_PARAM_STR();\nstd::string delim = FUZZ_PARAM_STR();\nbool keep_empty = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\nbool trim_space = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\nsize_t start_index = (size_t)(*FUZZ_PARAM(unsigned int) % (s.size() + 1));\n// Limit max_values for performance while exercising caps\nsize_t max_values = (size_t)(*FUZZ_PARAM(unsigned int) % 16u) + 1u; // 1..16\nstd::vector<std::string> result;\nvolatile size_t progressed = StringUtils::split(s, result, delim, keep_empty, trim_space, start_index, max_values);\n(void)progressed;\n// Validation: start_index <= s.size(); result is a valid vector; delim may be empty by contract."
+    },
+    {
+      "name": "StringUtils::split_list_with_backticks",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nstd::vector<std::string> result;\nStringUtils::split_list_with_backticks(s, result);\n// Validation: result vector is valid; function tolerates unmatched backticks by design."
+    },
+    {
+      "name": "StringUtils::join",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a small vector of strings without relying on FUZZ_PARAM in a loop\nstd::vector<std::string> vec;\nunsigned n = (unsigned)(*FUZZ_PARAM(unsigned int) % 6u); // 0..5 elements\nstd::string base = FUZZ_PARAM_STR();\nfor (unsigned i = 0; i < n; ++i) {\n    vec.push_back(base + std::to_string(i));\n}\nstd::string delimiter = FUZZ_PARAM_STR();\nsize_t start_index = (vec.empty() ? 0u : (size_t)(*FUZZ_PARAM(unsigned int) % (vec.size() + 1)));\nvolatile std::string out = StringUtils::join(vec, delimiter, start_index);\n(void)out;\n// Validation: start_index <= vec.size(); vector built deterministically from a single base string."
+    },
+    {
+      "name": "StringUtils::trim",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\n// Operate in place; returns reference to s\nstd::string &ref = StringUtils::trim(s);\n(void)ref;\n// Validation: operates in place; only trims ASCII space ' '."
+    },
+    {
+      "name": "StringUtils::from_hex",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide only valid hex digit characters to avoid unspecified results\nunsigned r = (unsigned)(*FUZZ_PARAM(unsigned int) % 22u);\nchar ch = (r < 10u) ? (char)('0' + r) : (r < 16u ? (char)('a' + (r - 10u)) : (char)('A' + (r - 16u)));\nvolatile char v = StringUtils::from_hex(ch);\n(void)v;\n// Validation: input is guaranteed to be a valid hex digit."
+    },
+    {
+      "name": "StringUtils::url_decode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Sanitize input to avoid incomplete % sequences at the end, since implementation reads i[1] and i[2]\nstd::string s = FUZZ_PARAM_STR();\nif (!s.empty() && s.back() == '%') { s.back() = 'X'; }\nif (s.size() >= 2 && s[s.size()-2] == '%') { s[s.size()-2] = 'X'; }\nvolatile std::string out = StringUtils::url_decode(s);\n(void)out;\n// Validation: transformed input ensures no trailing incomplete %xx sequences; '+' and other chars are fine."
+    },
+    {
+      "name": "StringUtils::is_float",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool ok = StringUtils::is_float(s);\n(void)ok;\n// Validation: function internally guards exceptions; any string acceptable."
+    },
+    {
+      "name": "StringUtils::is_integer",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool ok = StringUtils::is_integer(s);\n(void)ok;\n// Validation: any string acceptable; function validates format itself."
+    },
+    {
+      "name": "StringUtils::is_positive_integer",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool ok = StringUtils::is_positive_integer(s);\n(void)ok;\n// Validation: any string acceptable; function checks non-empty and digits only."
+    },
+    {
+      "name": "StringUtils::is_uint64_t",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool ok = StringUtils::is_uint64_t(s);\n(void)ok;\n// Validation: any string acceptable; function checks parseability and bounds."
+    },
+    {
+      "name": "StringUtils::is_int64_t",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool ok = StringUtils::is_int64_t(s);\n(void)ok;\n// Validation: any string acceptable; function checks parseability and bounds."
+    },
+    {
+      "name": "StringUtils::is_uint32_t",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool ok = StringUtils::is_uint32_t(s);\n(void)ok;\n// Validation: any string acceptable; function checks parseability and bounds."
+    },
+    {
+      "name": "StringUtils::is_int32_t",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool ok = StringUtils::is_int32_t(s);\n(void)ok;\n// Validation: any string acceptable; function checks parseability and bounds."
+    },
+    {
+      "name": "StringUtils::is_bool",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\nvolatile bool out = StringUtils::is_bool(s);\n(void)out;\n// Validation: accepts any non-empty string; function handles validation internally."
+    },
+    {
+      "name": "StringUtils::toupper",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\n// In-place uppercasing\nStringUtils::toupper(s);\nvolatile size_t keep = s.size();\n(void)keep;\n// Validation: operates in place; any string is acceptable."
+    },
+    {
+      "name": "StringUtils::tolowercase",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string s = FUZZ_PARAM_STR();\n// In-place lowercasing\nStringUtils::tolowercase(s);\nvolatile size_t keep = s.size();\n(void)keep;\n// Validation: operates in place; any string is acceptable."
+    },
+    {
+      "name": "StringUtils::base64_encode",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string in = FUZZ_PARAM_STR();\nvolatile std::string out = StringUtils::base64_encode(in);\n(void)out;\n// Validation: no special constraints; input may be empty."
+    },
+    {
+      "name": "StringUtils::base64_decode",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string in = FUZZ_PARAM_STR();\nvolatile std::string out = StringUtils::base64_decode(in);\n(void)out;\n// Validation: decoder stops at first invalid char; any input acceptable."
+    },
+    {
+      "name": "StringUtils::serialize_uint32_t",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint32_t num = *FUZZ_PARAM(uint32_t);\nvolatile std::string out = StringUtils::serialize_uint32_t(num);\n(void)out;\n// Validation: always produces 4-byte big-endian string."
+    },
+    {
+      "name": "StringUtils::serialize_uint64_t",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t num = *FUZZ_PARAM(uint64_t);\nvolatile std::string out = StringUtils::serialize_uint64_t(num);\n(void)out;\n// Validation: always produces 8-byte big-endian string."
+    },
+    {
+      "name": "StringUtils::deserialize_uint32_t",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure the serialized input has at least 4 bytes as required\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() < 4) { FUZZ_BAIL(); }\nvolatile uint32_t v = StringUtils::deserialize_uint32_t(s);\n(void)v;\n// Validation: enforced size>=4 to satisfy unchecked indexing."
+    },
+    {
+      "name": "StringUtils::hash_combine",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t combined = *FUZZ_PARAM(uint64_t);\nuint64_t hash = *FUZZ_PARAM(uint64_t);\nvolatile uint64_t out = StringUtils::hash_combine(combined, hash);\n(void)out;\n// Validation: constexpr mix; no special constraints."
+    },
+    {
+      "name": "StringUtils::begins_with",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string str = FUZZ_PARAM_STR();\nstd::string prefix = FUZZ_PARAM_STR();\nvolatile bool out = StringUtils::begins_with(str, prefix);\n(void)out;\n// Validation: no special constraints; any strings are acceptable."
+    },
+    {
+      "name": "StringUtils::url_encode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Any input string; encoder percent-encodes non-unreserved bytes\nstd::string value = FUZZ_PARAM_STR();\nvolatile std::string enc = StringUtils::url_encode(value);\n(void)enc;\n// Validation: no special preconditions; output is a string."
+    },
+    {
+      "name": "wyhash_context_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "wyhash_context_t *"
+        }
+      ],
+      "code": "// Construct a new wyhash_context_t* and initialize via wyhash_init\n// Allocate context; ensure non-null and writable\nwyhash_context_t *ctx = new (std::nothrow) wyhash_context_t();\nif (!ctx) { FUZZ_BAIL(); }\n\n// Prepare seed and 5-element secret as required by wyhash_init\nuint64_t seed = *FUZZ_PARAM(uint64_t);\nconst uint64_t (*rsec)[5] = FUZZ_PARAM(uint64_t[5]);\nuint64_t secret[5];\nfor (int i = 0; i < 5; ++i) {\n    secret[i] = (*rsec)[i];\n}\n\n// Initialize the context; API requires non-null ctx and 5-element secret\nwyhash_init(ctx, seed, secret);\n\n// Track initialization state for downstream stubs that require initialized contexts\nFUZZ_SET_ATTR_INT(ctx, \"inited\", 1);\nFUZZ_SET_ATTR_INT(ctx, \"finalized\", 0);\n\n// Output: return persistent context object to the pool\n// Validation summary: ctx allocated and non-null; wyhash_init called with 5 secrets; attrs set to reflect initialized state."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "make_secret",
+      "reason": "make_secret may take significant, unbounded time due to its search loop, which is unsuitable for fast fuzzing harnesses."
+    },
+    {
+      "name": "Option::ok",
+      "reason": "Option<T> is a template type with no concrete object or ptr_type provided, so no valid instance can be obtained from the fuzzer runtime."
+    },
+    {
+      "name": "Option::get",
+      "reason": "Option<T> is a template type with no concrete instantiation or object pool support, making it impossible to call meaningfully."
+    },
+    {
+      "name": "Option::error",
+      "reason": "Template method requires a concrete Option<T> type and instance which are not available as fuzzable objects."
+    },
+    {
+      "name": "Option::code",
+      "reason": "Template method requires a concrete Option<T> type and instance which are not available as fuzzable objects."
+    },
+    {
+      "name": "StringUtils::split_facet",
+      "reason": "Only declared in the provided header with no inline definition, risking unresolved symbol at link time."
+    },
+    {
+      "name": "StringUtils::split_to_values",
+      "reason": "Only declared in the provided header with no inline definition, risking unresolved symbol at link time."
+    },
+    {
+      "name": "StringUtils::str2hex",
+      "reason": "Only declared in the provided header with no inline definition, risking unresolved symbol at link time."
+    },
+    {
+      "name": "StringUtils::StringUtils",
+      "reason": "Constructor is not defined in this build (undefined reference), likely depends on external ICU; cannot link."
+    },
+    {
+      "name": "StringUtils::~StringUtils",
+      "reason": "Destructor is not defined in this build (undefined reference); cannot link."
+    },
+    {
+      "name": "StringUtils::hash_wy",
+      "reason": "Depends on external global secret symbol _wyp which is not available in this build."
+    },
+    {
+      "name": "StringUtils::unicode_nfkd",
+      "reason": "Only declared and depends on ICU; no definition linked in this build."
+    },
+    {
+      "name": "StringUtils::randstring",
+      "reason": "Only declared in the header; no definition is available in this build."
+    },
+    {
+      "name": "StringUtils::hmac",
+      "reason": "Only declared in the header; no definition is available in this build."
+    },
+    {
+      "name": "StringUtils::hash_sha256",
+      "reason": "Only declared in the header; no definition is available in this build."
+    },
+    {
+      "name": "StringUtils::parse_query_string",
+      "reason": "Only declared in the header; no definition is available in this build."
+    },
+    {
+      "name": "StringUtils::float_to_str",
+      "reason": "Only declared in the header; no definition is available in this build."
+    },
+    {
+      "name": "StringUtils::replace_all",
+      "reason": "Only declared in the header; no definition is available in this build."
+    },
+    {
+      "name": "StringUtils::get_ip_str",
+      "reason": "Requires constructing a valid struct sockaddr and buffer without access to system socket type definitions, which cannot be safely ensured in this harness."
+    },
+    {
+      "name": "StringUtils::erase_char",
+      "reason": "Function is only declared in the provided interface with no definition, causing undefined references at link time."
+    },
+    {
+      "name": "StringUtils::trim_curly_spaces",
+      "reason": "Function lacks a definition in the build context and cannot be linked."
+    },
+    {
+      "name": "StringUtils::ends_with",
+      "reason": "Only declared in the header without an available definition, resulting in link-time undefined reference."
+    },
+    {
+      "name": "StringUtils::contains_word",
+      "reason": "No implementation is available; the symbol is unresolved at link time."
+    },
+    {
+      "name": "StringUtils::get_num_chars",
+      "reason": "Missing definition in the current toolchain context, so the function cannot be linked."
+    },
+    {
+      "name": "StringUtils::split_include_exclude_fields",
+      "reason": "Only declared with no definition present, leading to link errors."
+    },
+    {
+      "name": "StringUtils::get_occurence_count",
+      "reason": "Implementation is not provided; linkage fails due to an undefined symbol."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "_wyrotr",
+      "data_types": []
+    },
+    {
+      "name": "_wymum",
+      "data_types": []
+    },
+    {
+      "name": "_wymix",
+      "data_types": []
+    },
+    {
+      "name": "wyrand",
+      "data_types": []
+    },
+    {
+      "name": "wy2u01",
+      "data_types": []
+    },
+    {
+      "name": "wy2gau",
+      "data_types": []
+    },
+    {
+      "name": "wyhash64",
+      "data_types": []
+    },
+    {
+      "name": "wyhash_init",
+      "data_types": []
+    },
+    {
+      "name": "wyhash_final",
+      "data_types": []
+    },
+    {
+      "name": "StringUtils::from_hex",
+      "data_types": []
+    },
+    {
+      "name": "StringUtils::serialize_uint32_t",
+      "data_types": []
+    },
+    {
+      "name": "StringUtils::serialize_uint64_t",
+      "data_types": []
+    },
+    {
+      "name": "StringUtils::hash_combine",
+      "data_types": []
+    },
+    {
+      "name": "wyhash_context_t *",
+      "data_types": []
+    },
+    {
+      "name": "_wyr8",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "_wyr4",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "_wyr3",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "FastestHash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "_wyhash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "wyhash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "_wyhash_loop",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "wyhash_update",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "StringUtils::split",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::split_list_with_backticks",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::join",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::trim",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::url_decode",
+      "data_types": [
+        "URL-encoded string"
+      ]
+    },
+    {
+      "name": "StringUtils::is_float",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::is_integer",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::is_positive_integer",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::is_uint64_t",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::is_int64_t",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::is_uint32_t",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::is_int32_t",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::is_bool",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::toupper",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::tolowercase",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::base64_encode",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "StringUtils::base64_decode",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::deserialize_uint32_t",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "StringUtils::begins_with",
+      "data_types": [
+        "free-form text"
+      ]
+    },
+    {
+      "name": "StringUtils::url_encode",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "An unconstrained byte sequence used as raw memory input. May contain any 8-bit values including null bytes; length is determined by the fuzzed string size and may be sliced as needed."
+    },
+    {
+      "data_type": "free-form text",
+      "description": "An arbitrary UTF-8/byte string treated as generic text for parsing, splitting, trimming, or validation. No specific format or encoding guarantees."
+    },
+    {
+      "data_type": "URL-encoded string",
+      "description": "Percent-encoded form where sequences like %HH represent bytes and '+' may represent space. May also include unencoded characters; used as input to URL decoding routines."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\ndef _make_base64_valid_blocks(rng: random.Random) -> bytes:\n    # Produce ASCII payloads that when base64-encoded/decoded exercise padding boundaries.\n    # Create lengths spanning 0..64 with residues 0,1,2 mod 3.\n    lens = []\n    base = rng.randrange(0, 33)\n    for res in (0, 1, 2):\n        l = base + res\n        if l < 0:\n            l = res\n        lens.append(l)\n    payload = b\"\".join(_rand_bytes(rng, max(0, l)) for l in lens)\n    return payload\n\ndef _make_url_like(rng: random.Random) -> bytes:\n    # Build a string with diverse characters for url_encode and url_decode users.\n    # Include unreserved, reserved, spaces, plus, percent sequences (valid and edge cases).\n    parts: List[bytes] = []\n    unreserved = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~\"\n    reserved = b\"!*'() ;:@&=+$,/?#[]\"  # include space and plus\n    # Valid % sequences\n    valids = [b\"%20\", b\"%2F\", b\"%7e\", b\"%41\", b\"%00\", b\"%FF\"]\n    # Edge/incomplete sequences to stress url_decode (fuzzer stub doesn't use url_decode directly,\n    # but may be used elsewhere). Keep overall buffer valid for other consumers.\n    edge = [b\"%\", b\"%G1\", b\"%1\", b\"%%\"]\n\n    # Compose segments\n    parts.append(b\"q=\")\n    parts.append(bytes(rng.choice(unreserved) for _ in range(rng.randint(3, 10))))\n    parts.append(b\"&path=\")\n    parts.append(b\"/api/v1/\")\n    parts.append(bytes(rng.choice(unreserved + b\"-_.\") for _ in range(rng.randint(3, 8))))\n    parts.append(b\"?\")\n    parts.append(b\"name=\")\n    parts.append(b\"John+Doe \")\n    parts.append(rng.choice(valids))\n    parts.append(b\"&tags=\")\n    # Mix valid % and reserved\n    for _ in range(rng.randint(1, 3)):\n        parts.append(rng.choice(valids + edge))\n        parts.append(b\",\")\n        parts.append(bytes(rng.choice(reserved) for _ in range(rng.randint(1, 3))))\n    return b\"\".join(parts)\n\ndef _make_numeric_strings(rng: random.Random) -> bytes:\n    # Strings that look like numbers for StringUtils::is_* utilities.\n    samples = [\n        b\"0\", b\"123\", b\"-456\", b\"+789\", b\"2147483647\", b\"-2147483648\",\n        b\"4294967295\", b\"18446744073709551615\", b\"3.14159\", b\"-0.0\", b\"1e10\",\n        b\"true\", b\"FALSE\"\n    ]\n    # Join with delimiters to work with split/join too.\n    delim = rng.choice([b\", \", b\"|\", b\"::\", b\"\\t\"])  # includes space to exercise trim\n    return delim.join(samples)\n\ndef _make_wyhash_interesting(rng: random.Random) -> bytes:\n    # Build a buffer exercising wyhash short/medium/long paths and alignment cases.\n    # Include sizes: 0,1,2,3,4,7,8,15,16,31,32,63,64,65.\n    sizes = [0,1,2,3,4,7,8,15,16,31,32,63,64,65]\n    rng.shuffle(sizes)\n    chunks: List[bytes] = []\n    # Deterministic patterns and random bytes.\n    patterns = [\n        b\"\", b\"A\", b\"AB\", b\"ABC\", b\"ABCD\", b\"ABCDEFG\", b\"ABCDEFGH\",\n        b\"abcdefghijklmno\", b\"p\"*31, b\"Q\"*32, b\"R\"*63, b\"S\"*64, b\"T\"*65\n    ]\n    for i, sz in enumerate(sizes[:rng.randint(5, len(sizes))]):\n        if sz == 0:\n            chunks.append(b\"\")\n            continue\n        if i < len(patterns) and len(patterns[i]) == sz:\n            block = patterns[i]\n        else:\n            # Mix aligned and unaligned content by prefixing a random lead-in sometimes.\n            lead = b\"\" if rng.random() < 0.5 else bytes([rng.randrange(256)])\n            core = _rand_bytes(rng, max(0, sz - len(lead)))\n            block = lead + core\n            if len(block) > sz:\n                block = block[:sz]\n            elif len(block) < sz:\n                block += b\"\\x00\" * (sz - len(block))\n        chunks.append(block)\n    return b\"\".join(chunks)\n\ndef _make_backtick_list(rng: random.Random) -> bytes:\n    # For split_list_with_backticks: commas inside backticks should be ignored.\n    items = [b\"alpha\", b\"`bravo,charlie`\", b\"delta\", b\"`echo,foxtrot,golf`\", b\"hotel\"]\n    rng.shuffle(items)\n    return b\",\".join(items)\n\ndef _ensure_min_lengths(blob: bytes, rng: random.Random) -> bytes:\n    # Some stubs require size>=4 or >=8; ensure we include at least an 8-byte tail somewhere.\n    if len(blob) < 8:\n        blob += _rand_bytes(rng, 8 - len(blob))\n    # Also append a 4-byte big-endian serialized int and an 8-byte block to satisfy loaders.\n    be32 = struct.pack(\">I\", rng.getrandbits(32))\n    be64 = struct.pack(\">Q\", rng.getrandbits(64))\n    return blob + be32 + be64\n\ndef _cap(buf: bytes, limit: int = 4096) -> bytes:\n    if len(buf) > limit:\n        return buf[:limit]\n    return buf\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Compose sections targeting different fuzzer paths\n    sections: List[bytes] = []\n\n    # Section 1: wyhash-interesting sizes and patterns\n    sections.append(_make_wyhash_interesting(rng))\n\n    # Section 2: base64-friendly payloads\n    sections.append(_make_base64_valid_blocks(rng))\n\n    # Section 3: URL-like data\n    sections.append(_make_url_like(rng))\n\n    # Section 4: numeric and bool-like strings for predicates\n    sections.append(_make_numeric_strings(rng))\n\n    # Section 5: backtick list for special splitting\n    sections.append(_make_backtick_list(rng))\n\n    # Section 6: random filler to vary seeds and exercise hashing\n    sections.append(_rand_bytes(rng, rng.randint(0, 128)))\n\n    blob = b\"\".join(sections)\n    blob = _ensure_min_lengths(blob, rng)\n\n    # Randomly insert some NULs and high bytes to ensure arbitrary binary coverage\n    if rng.random() < 0.7:\n        insert_positions = sorted({rng.randrange(1, len(blob)) for _ in range(rng.randint(1, 4))})\n        ba = bytearray(blob)\n        for pos in insert_positions:\n            ba[pos] = rng.randrange(0, 256)\n        blob = bytes(ba)\n\n    return _cap(blob)\n"
+    },
+    {
+      "data_type": "free-form text",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets free-form text inputs consumed by StringUtils utilities.\n# It assembles a diverse set of textual payloads separated by newlines to seed\n# FUZZ_PARAM_STR calls across different stubs.\n\nMAX_TOTAL = 4096\n\n_DEF_ALNUM = string.ascii_letters + string.digits\n\n\ndef _rand_choice(rng: random.Random, seq: List[str]) -> str:\n    return rng.choice(seq)\n\n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    l = rng.randint(min_len, max_len)\n    # include spaces and punctuation to create trimming and splitting opportunities\n    alphabet = (\n        string.ascii_letters\n        + string.digits\n        + \" _-.,:/?&=+%\\t\\n\\r|;:()[]{}\"  # punctuation and whitespace\n        + \"'\\\"`\"  # quotes and backtick\n    )\n    return ''.join(rng.choice(alphabet) for _ in range(l))\n\n\ndef _rand_digits(rng: random.Random, min_len: int, max_len: int) -> str:\n    l = rng.randint(min_len, max_len)\n    if l == 0:\n        l = 1\n    return ''.join(rng.choice(string.digits) for _ in range(l))\n\n\ndef _numeric_variants(rng: random.Random) -> List[str]:\n    nums = []\n    # Unsigned / positive\n    nums.append(_rand_digits(rng, 1, 19))  # generic uint\n    nums.append(\"0\")\n    nums.append(\"18446744073709551615\")  # 2^64-1\n    nums.append(\"4294967295\")  # 2^32-1\n    nums.append(\"2147483647\")  # INT32_MAX\n    nums.append(\"-2147483648\")  # INT32_MIN\n    nums.append(\"9223372036854775807\")  # INT64_MAX\n    nums.append(\"-9223372036854775808\")  # INT64_MIN\n    # Signed with +/-\n    nums.append(\"+\" + _rand_digits(rng, 1, 10))\n    nums.append(\"-\" + _rand_digits(rng, 1, 10))\n    # Floats\n    nums.append(\"3.14159\")\n    nums.append(\"-0.000001\")\n    nums.append(\"1e10\")\n    nums.append(\"-2.5E-3\")\n    nums.append(\".5\")\n    nums.append(\"5.\")\n    return nums\n\n\ndef _boolean_variants() -> List[str]:\n    return [\"true\", \"false\", \"TRUE\", \"FALSE\", \"TrUe\", \"FaLsE\"]\n\n\ndef _random_words(rng: random.Random, n: int, min_len: int = 1, max_len: int = 10) -> List[str]:\n    out = []\n    for _ in range(n):\n        l = rng.randint(min_len, max_len)\n        out.append(''.join(rng.choice(_DEF_ALNUM) for _ in range(l)))\n    return out\n\n\ndef _delimiters(rng: random.Random) -> List[str]:\n    # include empty delimiter to trigger StringUtils::split early-return\n    cands = [\"\", \",\", \"|\", \"::\", \"\\t\", \" \", \";\", \":::\", \"--\", \"%%\", \"||\"]\n    rng.shuffle(cands)\n    return cands[: rng.randint(5, len(cands))]\n\n\ndef _build_split_samples(rng: random.Random) -> List[str]:\n    samples = []\n    words = _random_words(rng, rng.randint(5, 12))\n    # join with random delimiter, include extra spaces to test trim\n    for delim in [\",\", \"|\", \"::\", \" \", \"\\t\"]:\n        s = (\" \" * rng.randint(0, 2)) + (delim.join(words)) + (\" \" * rng.randint(0, 2))\n        # Insert empty tokens sometimes\n        if rng.random() < 0.5:\n            insert_pos = rng.randint(0, len(s))\n            s = s[:insert_pos] + delim + s[insert_pos:]\n        samples.append(s)\n    # Edge cases: leading/trailing delimiters\n    samples.append(\",\".join([\"\", words[0], \"\", words[1], words[2], \"\"]))\n    return samples\n\n\ndef _build_backtick_list(rng: random.Random) -> str:\n    tokens = [\"alpha\", \"beta,gamma\", \"`delta,epsilon`\", \"zeta\", \"`eta`\", \"theta,iota\"]\n    rng.shuffle(tokens)\n    s = \",\".join(tokens)\n    # Possibly add unmatched backtick\n    if rng.random() < 0.4:\n        s = s + \"`\"\n    return s\n\n\ndef _b64_encode(data: bytes) -> str:\n    alphabet = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"\n    out = []\n    for i in range(0, len(data), 3):\n        block = data[i:i+3]\n        b = int.from_bytes(block.ljust(3, b\"\\0\"), \"big\")\n        pad = 3 - len(block)\n        out.append(alphabet[(b >> 18) & 0x3F])\n        out.append(alphabet[(b >> 12) & 0x3F])\n        out.append('=' if pad >= 2 else alphabet[(b >> 6) & 0x3F])\n        out.append('=' if pad >= 1 else alphabet[b & 0x3F])\n    return ''.join(out)\n\n\ndef _build_base64_samples(rng: random.Random) -> List[str]:\n    samples = []\n    for l in [0, 1, 2, 3, 5, 10, 16, rng.randint(20, 40)]:\n        blob = bytes(rng.getrandbits(8) for _ in range(l))\n        samples.append(_b64_encode(blob))\n    # without padding variant\n    raw = bytes(rng.getrandbits(8) for _ in range(12))\n    samples.append(_b64_encode(raw).rstrip('='))\n    return samples\n\n\ndef _build_url_samples(rng: random.Random) -> List[str]:\n    q_pairs = [\n        (\"q\", \"hello world\"),\n        (\"page\", str(rng.randint(1, 50))),\n        (\"filter\", \"a+b%20c\"),\n        (\"empty\", \"\"),\n        (\"percents\", \"%25%32%30\"),\n    ]\n\n    def pct_encode(s: str) -> str:\n        out = []\n        safe = string.ascii_letters + string.digits + \"-_.~\"\n        for ch in s:\n            if ch in safe:\n                out.append(ch)\n            elif ch == ' ':\n                out.append('+')\n            else:\n                out.append('%' + format(ord(ch), '02X'))\n        return ''.join(out)\n\n    queries = []\n    parts = [f\"{k}={pct_encode(v)}\" for k, v in q_pairs]\n    queries.append('&'.join(parts))\n    words = [\"hello\", \"%41%42%43\", \"plus+space\", \"%7e~tilde\", \"name%3Dvalue\"]\n    queries.extend(words)\n    return queries\n\n\ndef _hex_of_big_endian(num: int, bytes_len: int) -> str:\n    b = num.to_bytes(bytes_len, 'big', signed=False)\n    return ''.join(f\"{x:02x}\" for x in b)\n\n\ndef _build_prefix_suffix_pairs(rng: random.Random) -> List[str]:\n    base = _rand_ascii(rng, 5, 20)\n    prefix = base[:rng.randint(0, len(base))]\n    return [base, prefix, base + _rand_ascii(rng, 1, 5)]\n\n\ndef _utf8_snippets(rng: random.Random) -> List[str]:\n    emojis = [\n        \"😀\", \"🤖\", \"🔥\", \"雪\", \"漢字\", \"¡Hola!\", \"naïve\", \"ümlaut\", \"край\", \"مرحبا\"\n    ]\n    rng.shuffle(emojis)\n    out = emojis[: rng.randint(3, min(8, len(emojis)))]\n    out.append(_rand_ascii(rng, 10, 30))\n    return out\n\n\ndef _assemble_sections(sections: List[str]) -> bytes:\n    blob = ('\\n'.join(sections)).encode('utf-8', errors='strict')\n    if len(blob) > MAX_TOTAL:\n        blob = blob[:MAX_TOTAL]\n    return blob\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    sections: List[str] = []\n\n    # 1) Numbers\n    sections.extend(_numeric_variants(rng))\n\n    # 2) Booleans\n    sections.extend(_boolean_variants())\n\n    # 3) Base64 samples\n    sections.extend(_build_base64_samples(rng))\n\n    # 4) URL samples\n    sections.extend(_build_url_samples(rng))\n\n    # 5) Split-friendly payloads\n    sections.extend(_build_split_samples(rng))\n\n    # 6) Backtick list\n    sections.append(_build_backtick_list(rng))\n\n    # 7) Random delimiters as separate lines to be picked up for delim\n    sections.extend(_delimiters(rng))\n\n    # 8) Prefix/suffix tests\n    sections.extend(_build_prefix_suffix_pairs(rng))\n\n    # 9) UTF-8 snippets\n    sections.extend(_utf8_snippets(rng))\n\n    # 10) Words for toupper/tolower\n    sections.extend(_random_words(rng, rng.randint(5, 12), 3, 12))\n\n    # 11) Hex strings representing serialized integers, but still textual\n    sections.append(_hex_of_big_endian(rng.getrandbits(32), 4))\n    sections.append(_hex_of_big_endian(rng.getrandbits(64), 8))\n\n    # 12) Crafted split strings with varying prefixes\n    base = _rand_ascii(rng, 15, 40)\n    sections.append(\"\" + base)\n    sections.append(\"X\" + base)\n    sections.append(\"XY\" + base)\n\n    # 13) Include empty line and single-character lines for edge cases\n    sections.append(\"\")\n    sections.extend(list(\" ,|;%\\t\"))\n\n    rng.shuffle(sections)\n\n    return _assemble_sections(sections)\n"
+    },
+    {
+      "data_type": "URL-encoded string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generate valid URL-encoded strings intended for StringUtils::url_decode.\n# Characteristics to cover:\n# - Plain ASCII without encoding\n# - Plus signs mapping to spaces\n# - Percent-encoded bytes: hex pairs, mixed case\n# - Multibyte UTF-8 sequences percent-encoded\n# - Boundary sizes, including empty and near 4096 but kept smaller\n# - Sequences of consecutive encodings\n# - Reserved and unreserved characters\n# - Query-like strings with '&' and '='\n# - Already-decoded percent and plus signs\n# Note: We avoid trailing incomplete % sequences per fuzzer stub precaution.\n\nHEX_UP = \"0123456789ABCDEF\"\nHEX_LO = \"0123456789abcdef\"\nUNRESERVED = string.ascii_letters + string.digits + \"-_.~\"\nRESERVED = \":/?#[]@!$&'()*+,;=\"\nSPACE_CHARS = [\" \", \"\\t\"]\n\n\ndef _rand_hex_byte(rand: random.Random, mix_case: bool = True) -> str:\n    b = rand.randrange(256)\n    hi = (b >> 4) & 0xF\n    lo = b & 0xF\n    if mix_case and rand.random() < 0.5:\n        return \"%\" + HEX_UP[hi] + HEX_LO[lo]\n    else:\n        table = HEX_UP if rand.random() < 0.5 else HEX_LO\n        return \"%\" + table[hi] + table[lo]\n\n\ndef _percent_encode_byte(b: int, rand: random.Random) -> str:\n    hi = (b >> 4) & 0xF\n    lo = b & 0xF\n    if rand.random() < 0.5:\n        return \"%\" + HEX_UP[hi] + HEX_UP[lo]\n    else:\n        return \"%\" + HEX_LO[hi] + HEX_LO[lo]\n\n\ndef _rand_utf8_codepoint(rand: random.Random) -> str:\n    # pick ranges to form valid UTF-8 when percent-encoded later\n    r = rand.random()\n    if r < 0.6:\n        cp = rand.randrange(0x20, 0x7F)  # printable ASCII\n    elif r < 0.8:\n        cp = rand.randrange(0x80, 0x7FF)\n    elif r < 0.95:\n        cp = rand.randrange(0x800, 0xFFFF)\n        # avoid surrogates\n        if 0xD800 <= cp <= 0xDFFF:\n            cp = 0xE000 + (cp - 0xD800)\n    else:\n        cp = rand.randrange(0x10000, 0x10FFFF)\n    return chr(cp)\n\n\ndef _utf8_bytes(s: str) -> bytes:\n    return s.encode('utf-8', 'strict')\n\n\ndef _percent_encode_bytes(buf: bytes, rand: random.Random) -> str:\n    return ''.join(_percent_encode_byte(b, rand) for b in buf)\n\n\ndef _segment_plain(rand: random.Random, length: int) -> str:\n    alphabet = UNRESERVED + RESERVED + \"%+\"  # include characters interesting to decoder\n    return ''.join(rand.choice(alphabet) for _ in range(length))\n\n\ndef _segment_plus_spaces(rand: random.Random, length: int) -> str:\n    out = []\n    for _ in range(length):\n        if rand.random() < 0.5:\n            out.append('+')  # becomes space\n        else:\n            out.append(rand.choice(UNRESERVED))\n    return ''.join(out)\n\n\ndef _segment_percent_ascii(rand: random.Random, count: int) -> str:\n    # percent-encode ASCII including reserved and boundary values\n    choices = [0x00, 0x09, 0x0A, 0x0D, 0x20, 0x25, 0x2B, 0x2F, 0x3F, 0x40, 0x5B, 0x5D, 0x7E]\n    out = []\n    for _ in range(count):\n        b = rand.choice(choices) if rand.random() < 0.7 else rand.randrange(0, 128)\n        out.append(_percent_encode_byte(b, rand))\n    return ''.join(out)\n\n\ndef _segment_percent_utf8(rand: random.Random, count: int) -> str:\n    # percent-encode random Unicode code points as UTF-8\n    parts: List[str] = []\n    for _ in range(count):\n        cp = _rand_utf8_codepoint(rand)\n        parts.append(_percent_encode_bytes(_utf8_bytes(cp), rand))\n    return ''.join(parts)\n\n\ndef _segment_query(rand: random.Random, pairs: int) -> str:\n    # Build k=v pairs with mixed percent-encodings and plus for spaces\n    def rand_token() -> str:\n        token = []\n        length = rand.randint(1, 10)\n        for _ in range(length):\n            r = rand.random()\n            if r < 0.4:\n                token.append(rand.choice(UNRESERVED))\n            elif r < 0.55:\n                token.append('+')\n            elif r < 0.85:\n                token.append(_rand_hex_byte(rand))\n            else:\n                token.append(_percent_encode_byte(rand.randrange(256), rand))\n        return ''.join(token)\n    items = []\n    for i in range(pairs):\n        k = rand_token()\n        v = rand_token()\n        items.append(f\"{k}={v}\")\n    return '&'.join(items)\n\n\ndef _segment_mixed(rand: random.Random, target_len: int) -> str:\n    # Compose a mixture of the above segments to a target length (approximate)\n    segs: List[str] = []\n    while sum(len(s) for s in segs) < target_len:\n        choice = rand.random()\n        if choice < 0.15:\n            segs.append(_segment_plain(rand, rand.randint(1, 12)))\n        elif choice < 0.3:\n            segs.append(_segment_plus_spaces(rand, rand.randint(2, 10)))\n        elif choice < 0.55:\n            segs.append(_segment_percent_ascii(rand, rand.randint(1, 6)))\n        elif choice < 0.85:\n            segs.append(_segment_percent_utf8(rand, rand.randint(1, 3)))\n        else:\n            segs.append(_segment_query(rand, rand.randint(1, 3)))\n        if rand.random() < 0.3:\n            segs.append(rand.choice(['/', '?', '#', ';', ',']))\n    s = ''.join(segs)\n    if len(s) > target_len:\n        s = s[:target_len]\n    return s\n\n\ndef _avoid_trailing_incomplete_percent(s: str) -> str:\n    # Ensure last two chars are not an incomplete % sequence\n    if not s:\n        return s\n    if s[-1] == '%':\n        s = s[:-1] + 'X'\n    if len(s) >= 2 and s[-2] == '%':\n        s = s[:-2] + 'X' + s[-1]\n    return s\n\n\ndef generate(seed: int) -> bytes:\n    rand = random.Random(seed)\n\n    # Decide overall strategy\n    strat = rand.random()\n    if strat < 0.08:\n        s = ''  # empty\n    elif strat < 0.18:\n        # short simple string\n        s = _segment_plain(rand, rand.randint(1, 8))\n    elif strat < 0.30:\n        # plus-heavy\n        s = _segment_plus_spaces(rand, rand.randint(5, 40))\n    elif strat < 0.45:\n        # only percent ASCII\n        s = _segment_percent_ascii(rand, rand.randint(4, 40))\n    elif strat < 0.60:\n        # only percent UTF-8\n        s = _segment_percent_utf8(rand, rand.randint(2, 16))\n    elif strat < 0.80:\n        # query-like\n        s = _segment_query(rand, rand.randint(1, 10))\n    else:\n        # mixed long but bounded\n        target_len = rand.randint(32, 512)\n        s = _segment_mixed(rand, target_len)\n\n    # Occasionally prepend/append interesting prefixes/suffixes\n    prefixes = [\n        '',\n        'http://',\n        'https://',\n        '/',\n        '?',\n    ]\n    suffixes = [\n        '',\n        '/',\n        '?a=%2B&b=%25',\n        '#frag%20ment',\n    ]\n    if rand.random() < 0.5:\n        s = rand.choice(prefixes) + s\n    if rand.random() < 0.5:\n        s = s + rand.choice(suffixes)\n\n    s = _avoid_trailing_incomplete_percent(s)\n\n    # Ensure maximum size\n    if len(s) > 4096:\n        s = s[:4096]\n\n    return s.encode('utf-8', 'strict')\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7016,
+            "output_tokens": 4178,
+            "total_tokens": 11194
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6594,
+            "output_tokens": 411,
+            "total_tokens": 7005
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7478,
+            "output_tokens": 7692,
+            "total_tokens": 15170
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 86551,
+            "output_tokens": 14509,
+            "total_tokens": 101060
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 16722,
+            "output_tokens": 1014,
+            "total_tokens": 17736
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 25762,
+            "output_tokens": 631,
+            "total_tokens": 26393
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 617.7367615699768,
+    "scan_objects": 60.6988799571991,
+    "validate_objects": 0.9462647438049316,
+    "scan_functions": 116.7673077583313,
+    "synthesis": 329.07929825782776,
+    "fill": 28.711344003677368,
+    "classify": 14.12009072303772,
+    "build_generators": 67.4125988483429
+  }
+}

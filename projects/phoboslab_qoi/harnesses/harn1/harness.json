@@ -1,0 +1,218 @@
+{
+  "objects": [
+    {
+      "ptr_type": "qoi_desc *",
+      "aliases": [],
+      "definition": "typedef struct {\n\tunsigned int width;\n\tunsigned int height;\n\tunsigned char channels;\n\tunsigned char colorspace;\n} qoi_desc;",
+      "description": "Image description structure used by all public QOI APIs. Holds width, height, number of channels (3=RGB, 4=RGBA), and colorspace (QOI_SRGB=0 or QOI_LINEAR=1). For write/encode it specifies the input buffer format; for read/decode it is populated from the file header. No ownership semantics; simple POD.",
+      "direct_api_constructors": [
+        "qoi_read",
+        "qoi_decode"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "qoi_write",
+      "signature": "int qoi_write(const char *filename, const void *data, const qoi_desc *desc);",
+      "description": "Encode raw RGB/RGBA pixels to QOI and write them to a file. Wraps qoi_encode and writes the resulting bytes to the given path. Returns 0 on failure, or the number of bytes written on success. Typical usage: fill a qoi_desc with width, height, channels (3 or 4), and colorspace (QOI_SRGB or QOI_LINEAR), then call qoi_write. Notes: This function is only available when QOI_NO_STDIO is not defined; allocation and I/O failures are reported via a 0 return value.",
+      "requirements": [
+        "Only available if QOI_NO_STDIO is not defined at compile time.",
+        "filename must reference a writable path; fopen(filename, \"wb\") must succeed or the function returns 0.",
+        "data must not be NULL (passed through to qoi_encode).",
+        "desc must not be NULL and must have: width > 0, height > 0, channels ∈ {3,4}, colorspace ∈ {0,1}.",
+        "The image size must satisfy height < QOI_PIXELS_MAX / width (i.e., width*height < 400,000,000).",
+        "On success, the number of bytes returned equals the size of the encoded QOI data written.",
+        "On failure (invalid parameters, fopen failure, or allocation failure), the function returns 0.",
+        "Callers do not receive an explicit errno; check for a 0 return to detect failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "qoi_read",
+      "signature": "void *qoi_read(const char *filename, qoi_desc *desc, int channels);",
+      "description": "Read a QOI file from disk and decode it to an RGB/RGBA pixel buffer in memory. If channels is 0, the output uses the file’s channel count; if channels is 3 or 4, the output is forced to that number of channels. On success, returns a heap-allocated pixel buffer and fills desc with the header info; the caller must free() the returned buffer. Returns NULL on failure (I/O error, invalid data, or allocation failure). Notes: Only available when QOI_NO_STDIO is not defined.",
+      "requirements": [
+        "Only available if QOI_NO_STDIO is not defined at compile time.",
+        "filename must reference a readable file; fopen(filename, \"rb\") must succeed or the function returns NULL.",
+        "desc must not be NULL (required by qoi_decode).",
+        "channels must be 0, 3, or 4. If 0, output channels = file header channels; if 3 or 4, output is forced to that number of channels.",
+        "The file must be a valid QOI file: magic \"qoif\", width > 0, height > 0, channels ∈ {3,4}, colorspace ∈ {0,1}, and width*height < 400,000,000; otherwise decoding fails and NULL is returned.",
+        "On success, caller must free() the returned pixel buffer.",
+        "Return value is NULL on failure; no separate error code is provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "qoi_encode",
+      "signature": "void *qoi_encode(const void *data, const qoi_desc *desc, int *out_len);",
+      "description": "Encode raw RGB/RGBA pixels in memory into QOI format. On success, returns a heap-allocated buffer containing the encoded bytes and sets *out_len to the encoded size in bytes. Returns NULL on failure (invalid parameters or allocation failure). Typical usage: provide an input pixel buffer matching desc->width*desc->height*desc->channels, fill desc (width, height, channels=3/4, colorspace=QOI_SRGB/QOI_LINEAR), and pass a valid out_len pointer; free() the returned buffer when done.",
+      "requirements": [
+        "data must not be NULL and must point to a buffer of size width*height*channels bytes matching desc.",
+        "desc must not be NULL and must have: width > 0, height > 0, channels ∈ {3,4}, colorspace ∈ {0,1}.",
+        "out_len must not be NULL; on success *out_len is set to the encoded size in bytes.",
+        "The image size must satisfy height < QOI_PIXELS_MAX / width (i.e., width*height < 400,000,000).",
+        "On failure (invalid parameters or allocation failure), returns NULL and out_len is not modified.",
+        "On success, caller must free() the returned encoded buffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "qoi_decode",
+      "signature": "void *qoi_decode(const void *data, int size, qoi_desc *desc, int channels);",
+      "description": "Decode a QOI image from a memory buffer into raw RGB/RGBA pixels. If channels is 0, the output uses the file’s channel count; if channels is 3 or 4, the output is forced to that number of channels. On success, returns a heap-allocated pixel buffer and fills desc with the header info; the caller must free() the returned buffer. Returns NULL on failure (invalid parameters, invalid data, or allocation failure).",
+      "requirements": [
+        "data must not be NULL and must point to a complete QOI byte stream in memory.",
+        "size must be >= QOI_HEADER_SIZE + 8 (at least 22) and encompass the entire QOI data including the 8-byte end marker.",
+        "desc must not be NULL; on success it is filled from the file header (width, height, channels, colorspace).",
+        "channels must be 0, 3, or 4. If 0, output channels = header channels; if 3 or 4, output is forced to that number of channels.",
+        "The encoded data must have a valid QOI header: magic \"qoif\", width > 0, height > 0, channels ∈ {3,4}, colorspace ∈ {0,1}, and width*height < 400,000,000; otherwise decoding fails and NULL is returned.",
+        "On success, caller must free() the returned pixel buffer.",
+        "On failure (invalid parameters, invalid data, or allocation failure), returns NULL; no separate error code is provided."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "qoi_write",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a valid qoi_desc and pixel buffer matching constraints, then write to a fuzz-file\n// Choose channels in {3,4}\nunsigned int rnd = *FUZZ_PARAM(unsigned int);\nunsigned int channels = (rnd & 1) ? 3u : 4u;\n// Limit total bytes to <= 2048 for performance and ensure width,height >=1\nunsigned int w = ((*FUZZ_PARAM(unsigned int)) % 64u) + 1u;\nunsigned int h = ((*FUZZ_PARAM(unsigned int)) % 64u) + 1u;\nunsigned int max_h_from_budget = 2048u / (w * channels);\nif (max_h_from_budget == 0u) { max_h_from_budget = 1u; }\nif (h > max_h_from_budget) { h = max_h_from_budget; }\n// Enforce QOI image size constraint width*height < 400,000,000 (trivially true with our caps)\nunsigned int colorspace = ((*FUZZ_PARAM(unsigned int)) & 1u);\nqoi_desc desc_local; desc_local.width = w; desc_local.height = h; desc_local.channels = (unsigned char)channels; desc_local.colorspace = (unsigned char)colorspace;\n// Create pixel buffer exactly width*height*channels bytes\nsize_t px_count = (size_t)w * (size_t)h * (size_t)channels;\nstd::string pixels = FUZZ_PARAM_STR();\nif (pixels.size() < px_count) { pixels.resize(px_count, '\\0'); }\nelse if (pixels.size() > px_count) { pixels.resize(px_count); }\n// filename must be writable; the fuzzer runtime provides a valid temporary path\nconst char *path = FUZZ_PARAM_FILENAME();\nint written = qoi_write(path, (const void*)pixels.data(), (const qoi_desc*)&desc_local);\n// If our constructed parameters are valid yet write failed, that's allowed (I/O/alloc failure => 0).\n// No persistent outputs; nothing to free here.\n"
+    },
+    {
+      "name": "qoi_read",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a valid QOI file by encoding and writing a small image, then read it back\n// Construct a tiny valid image buffer\nunsigned int channels = ((*FUZZ_PARAM(unsigned int)) & 1u) ? 3u : 4u;\nunsigned int w = ((*FUZZ_PARAM(unsigned int)) % 32u) + 1u;\nunsigned int h = ((*FUZZ_PARAM(unsigned int)) % 32u) + 1u;\nunsigned int max_h_from_budget = 2048u / (w * channels);\nif (max_h_from_budget == 0u) { max_h_from_budget = 1u; }\nif (h > max_h_from_budget) { h = max_h_from_budget; }\nunsigned int colorspace = ((*FUZZ_PARAM(unsigned int)) & 1u);\nqoi_desc desc_local; desc_local.width = w; desc_local.height = h; desc_local.channels = (unsigned char)channels; desc_local.colorspace = (unsigned char)colorspace;\nsize_t px_count = (size_t)w * (size_t)h * (size_t)channels;\nstd::string pixels = FUZZ_PARAM_STR();\nif (pixels.size() < px_count) { pixels.resize(px_count, '\\0'); }\nelse if (pixels.size() > px_count) { pixels.resize(px_count); }\nconst char *path = FUZZ_PARAM_FILENAME();\nint written = qoi_write(path, (const void*)pixels.data(), &desc_local);\nif (written == 0) { FUZZ_BAIL(); }\n// Choose channels parameter in {0,3,4}\nint ch_sel_raw = (int)(*FUZZ_PARAM(unsigned int) % 3u);\nint ch_param = (ch_sel_raw == 0) ? 0 : ((ch_sel_raw == 1) ? 3 : 4);\nqoi_desc desc_out;\nvoid *decoded_pixels = qoi_read(path, &desc_out, ch_param);\nif (decoded_pixels) {\n    // Validate required properties from the header\n    FUZZ_ASSERT(desc_out.width > 0 && desc_out.height > 0, \"qoi_read: positive dimensions expected\");\n    FUZZ_ASSERT(desc_out.channels == 3 || desc_out.channels == 4, \"qoi_read: channels must be 3 or 4\");\n    FUZZ_ASSERT(desc_out.colorspace == 0 || desc_out.colorspace == 1, \"qoi_read: colorspace must be 0 or 1\");\n    // Free the heap-allocated pixel buffer per API contract\n    free(decoded_pixels);\n}\n// No outputs retained; all allocations freed."
+    },
+    {
+      "name": "qoi_encode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a valid qoi_desc and pixel buffer, then encode to QOI bytes\nunsigned int channels = ((*FUZZ_PARAM(unsigned int)) & 1u) ? 3u : 4u;\nunsigned int w = ((*FUZZ_PARAM(unsigned int)) % 64u) + 1u;\nunsigned int h = ((*FUZZ_PARAM(unsigned int)) % 64u) + 1u;\nunsigned int max_h_from_budget = 2048u / (w * channels);\nif (max_h_from_budget == 0u) { max_h_from_budget = 1u; }\nif (h > max_h_from_budget) { h = max_h_from_budget; }\nunsigned int colorspace = ((*FUZZ_PARAM(unsigned int)) & 1u);\nqoi_desc desc_local; desc_local.width = w; desc_local.height = h; desc_local.channels = (unsigned char)channels; desc_local.colorspace = (unsigned char)colorspace;\nsize_t px_count = (size_t)w * (size_t)h * (size_t)channels;\nstd::string pixels = FUZZ_PARAM_STR();\nif (pixels.size() < px_count) { pixels.resize(px_count, '\\0'); }\nelse if (pixels.size() > px_count) { pixels.resize(px_count); }\nint out_len = 0;\nvoid *encoded = qoi_encode((const void*)pixels.data(), (const qoi_desc*)&desc_local, &out_len);\nif (encoded) {\n    FUZZ_ASSERT(out_len > 0, \"qoi_encode: successful encode must set out_len > 0\");\n    free(encoded);\n}\n// On failure, encoded==NULL and out_len is unmodified per API; nothing to free."
+    },
+    {
+      "name": "qoi_decode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Produce a valid QOI byte stream via qoi_encode, then decode it\n// Step 1: create a small valid raw image\nunsigned int channels = ((*FUZZ_PARAM(unsigned int)) & 1u) ? 3u : 4u;\nunsigned int w = ((*FUZZ_PARAM(unsigned int)) % 32u) + 1u;\nunsigned int h = ((*FUZZ_PARAM(unsigned int)) % 32u) + 1u;\nunsigned int max_h_from_budget = 2048u / (w * channels);\nif (max_h_from_budget == 0u) { max_h_from_budget = 1u; }\nif (h > max_h_from_budget) { h = max_h_from_budget; }\nunsigned int colorspace = ((*FUZZ_PARAM(unsigned int)) & 1u);\nqoi_desc src_desc; src_desc.width = w; src_desc.height = h; src_desc.channels = (unsigned char)channels; src_desc.colorspace = (unsigned char)colorspace;\nsize_t px_count = (size_t)w * (size_t)h * (size_t)channels;\nstd::string pixels = FUZZ_PARAM_STR();\nif (pixels.size() < px_count) { pixels.resize(px_count, '\\0'); }\nelse if (pixels.size() > px_count) { pixels.resize(px_count); }\n// Step 2: encode\nint enc_len = 0;\nvoid *enc_buf = qoi_encode((const void*)pixels.data(), (const qoi_desc*)&src_desc, &enc_len);\nif (!enc_buf) { FUZZ_BAIL(); }\nFUZZ_ASSERT(enc_len >= 22, \"qoi_decode: encoded size should be >= header+end marker\");\n// Step 3: decode with channels in {0,3,4}\nint ch_sel_raw = (int)(*FUZZ_PARAM(unsigned int) % 3u);\nint ch_param = (ch_sel_raw == 0) ? 0 : ((ch_sel_raw == 1) ? 3 : 4);\nqoi_desc out_desc;\nvoid *decoded = qoi_decode((const void*)enc_buf, enc_len, &out_desc, ch_param);\nif (decoded) {\n    FUZZ_ASSERT(out_desc.width > 0 && out_desc.height > 0, \"qoi_decode: positive dimensions expected\");\n    FUZZ_ASSERT(out_desc.channels == 3 || out_desc.channels == 4, \"qoi_decode: channels must be 3 or 4\");\n    FUZZ_ASSERT(out_desc.colorspace == 0 || out_desc.colorspace == 1, \"qoi_decode: colorspace must be 0 or 1\");\n    free(decoded);\n}\nfree(enc_buf);\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "qoi_write",
+      "data_types": [
+        "raw RGB/RGBA pixel bytes",
+        "filename for binary image output"
+      ]
+    },
+    {
+      "name": "qoi_read",
+      "data_types": [
+        "filename for QOI image input"
+      ]
+    },
+    {
+      "name": "qoi_encode",
+      "data_types": [
+        "raw RGB/RGBA pixel bytes"
+      ]
+    },
+    {
+      "name": "qoi_decode",
+      "data_types": [
+        "raw RGB/RGBA pixel bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "raw RGB/RGBA pixel bytes",
+      "description": "A contiguous byte buffer containing uncompressed image pixels in row-major order. Size must be width*height*channels bytes, where channels is 3 for RGB or 4 for RGBA. Each pixel is 8-bit per channel, no headers or metadata."
+    },
+    {
+      "data_type": "filename for binary image output",
+      "description": "A filesystem path where the function will write a binary-encoded image file. The contents written are determined by the function (e.g., QOI format). The path itself is not fuzzed; only the file is used as an output sink."
+    },
+    {
+      "data_type": "filename for QOI image input",
+      "description": "A filesystem path to a file that will be read as a QOI image. The bytes at this path must form a valid QOI file (header with magic 'qoif', dimensions, channels 3/4, colorspace 0/1, and proper end marker). The path string itself is not the fuzz target; the file’s content is."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "raw RGB/RGBA pixel bytes",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# This generator emits raw RGB/RGBA pixel buffers sized to width*height*channels\n# Target fuzzers construct qoi_desc (width,height,channels in {3,4}, colorspace {0,1})\n# and then call FUZZ_PARAM_STR for the pixel buffer, resizing it to exactly px_count.\n# We therefore just need to provide a buffer that is already interesting and valid\n# for a wide variety of small images (<= 2048 bytes) and channel counts.\n#\n# Strategy:\n# - Randomly choose width, height, channels consistent with the stubs' ranges\n#   and ensure total bytes <= 2048.\n# - Populate pixels with patterns that exercise QOI encoder paths:\n#   * Solid color blocks (RLE friendly)\n#   * Horizontal/vertical gradients (varied deltas)\n#   * Repeating small palettes (indexing hits)\n#   * Checkerboard with alpha variations (tests RGBA handling)\n#   * Random noise (worst-case path)\n# - Randomly choose a mix pattern and fill accordingly.\n# - Optionally include some crafted palettes near common colors and deltas.\n# - Keep size <= 4096 and typical <= 2048 to match stub budgeting.\n#\n# The fuzzer will resize our buffer to px_count determined independently, but if we\n# align our size to a plausible px_count, it increases the chance the initial buffer\n# already matches without truncation/padding, preserving our patterns.\n\nMAX_BUDGET = 2048\n\n\ndef _choose_dims(rng: random.Random) -> Tuple[int, int, int]:\n    # Channels in {3,4}\n    channels = 3 if rng.getrandbits(1) else 4\n    # Width, height in [1,64] with constraint width*height*channels <= 2048\n    # Bias toward small sizes and powers-of-two-ish sizes to explore different encoder states\n    candidates_w = [1,2,3,4,5,6,7,8,12,16,24,32,48,64]\n    candidates_h = [1,2,3,4,5,6,7,8,12,16,24,32,48,64]\n\n    rng.shuffle(candidates_w)\n    rng.shuffle(candidates_h)\n\n    # Try to find a pair respecting budget, otherwise fallback to minimal\n    for w in candidates_w:\n        # Cap height based on budget\n        max_h = max(1, min(64, MAX_BUDGET // max(1, w * channels)))\n        # Prefer heights from candidates_h but <= max_h\n        choices = [h for h in candidates_h if h <= max_h]\n        if not choices:\n            continue\n        h = rng.choice(choices)\n        if w * h * channels <= MAX_BUDGET:\n            return w, h, channels\n\n    # Fallback: tiny image\n    return 1, 1, channels\n\n\ndef _pack_pixel(ch: int, r: int, g: int, b: int, a: int = 255) -> bytes:\n    if ch == 3:\n        return bytes((r & 0xFF, g & 0xFF, b & 0xFF))\n    else:\n        return bytes((r & 0xFF, g & 0xFF, b & 0xFF, a & 0xFF))\n\n\ndef _solid_color(w: int, h: int, ch: int, color: Tuple[int,int,int,int]) -> bytes:\n    r,g,b,a = color\n    px = _pack_pixel(ch, r, g, b, a)\n    return px * (w*h)\n\n\ndef _horizontal_gradient(w: int, h: int, ch: int, a_fixed: int) -> bytes:\n    data = bytearray()\n    for y in range(h):\n        for x in range(w):\n            # Smooth gradient across width, with slight y influence\n            r = (x * 255) // max(1, w - 1)\n            g = (y * 255) // max(1, h - 1)\n            b = ((x + y) * 127) // max(1, (w + h - 2) if (w + h - 2) > 0 else 1)\n            a = a_fixed\n            data += _pack_pixel(ch, r, g, b, a)\n    return bytes(data)\n\n\ndef _vertical_stripes(w: int, h: int, ch: int, stripes: int, a_fixed: int) -> bytes:\n    data = bytearray()\n    for y in range(h):\n        for x in range(w):\n            s = (x * stripes) // max(1, w)\n            if s % 2 == 0:\n                r, g, b = 0, 0, 0\n            else:\n                r, g, b = 255, 255, 255\n            data += _pack_pixel(ch, r, g, b, a_fixed)\n    return bytes(data)\n\n\ndef _checkerboard(w: int, h: int, ch: int, a0: int, a1: int) -> bytes:\n    data = bytearray()\n    for y in range(h):\n        for x in range(w):\n            v = ((x >> 1) + (y >> 1)) & 1\n            if v == 0:\n                r, g, b, a = 32, 64, 128, a0\n            else:\n                r, g, b, a = 200, 180, 40, a1\n            data += _pack_pixel(ch, r, g, b, a)\n    return bytes(data)\n\n\ndef _palette_repeat(w: int, h: int, ch: int, palette: List[Tuple[int,int,int,int]]) -> bytes:\n    data = bytearray()\n    pcount = max(1, len(palette))\n    idx = 0\n    for _ in range(w*h):\n        r,g,b,a = palette[idx % pcount]\n        data += _pack_pixel(ch, r, g, b, a)\n        idx += 1\n    return bytes(data)\n\n\ndef _noise(w: int, h: int, ch: int, rng: random.Random) -> bytes:\n    data = bytearray()\n    for _ in range(w*h):\n        r = rng.randrange(256)\n        g = rng.randrange(256)\n        b = rng.randrange(256)\n        a = rng.randrange(256) if ch == 4 else 255\n        data += _pack_pixel(ch, r, g, b, a)\n    return bytes(data)\n\n\ndef _edge_deltas(w: int, h: int, ch: int) -> bytes:\n    # Construct runs with small deltas to tickle QOI_OP_DIFF and QOI_OP_LUMA\n    data = bytearray()\n    r, g, b, a = 100, 100, 100, 255\n    for y in range(h):\n        for x in range(w):\n            data += _pack_pixel(ch, r, g, b, a)\n            # Cycle through tiny changes and occasional alpha toggle\n            if x % 5 == 4:\n                r = (r + 2) & 0xFF\n                g = (g - 1) & 0xFF\n                b = (b + 1) & 0xFF\n            else:\n                r = (r + 1) & 0xFF\n                g = (g + 0) & 0xFF\n                b = (b - 1) & 0xFF\n            if ch == 4 and (x + y) % 13 == 0:\n                a ^= 0x1F\n    return bytes(data)\n\n\ndef _choose_palette(rng: random.Random, ch: int) -> List[Tuple[int,int,int,int]]:\n    # Include common colors to trigger index hits\n    common = [\n        (0,0,0,255), (255,255,255,255), (255,0,0,255), (0,255,0,255), (0,0,255,255),\n        (255,255,0,255), (0,255,255,255), (255,0,255,255), (128,128,128,255), (255,128,0,255)\n    ]\n    # Slight variations to explore hashing\n    variations = []\n    base = rng.choice(common)\n    for dr, dg, db in [(-1,0,0),(1,0,0),(0,-1,0),(0,1,0),(0,0,-1),(0,0,1),(2,-1,1)]:\n        r = (base[0] + dr) & 0xFF\n        g = (base[1] + dg) & 0xFF\n        b = (base[2] + db) & 0xFF\n        variations.append((r,g,b,255))\n    pal = common[:rng.randint(3, min(10, len(common)))] + variations[:rng.randint(2, len(variations))]\n    rng.shuffle(pal)\n    if ch == 3:\n        # Alpha ignored in packing for RGB\n        return pal\n    # Mix in some semi-transparent entries\n    for i in range(len(pal)):\n        if rng.random() < 0.3:\n            r,g,b,_ = pal[i]\n            pal[i] = (r,g,b,rng.randrange(64,256))\n    return pal\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    w, h, ch = _choose_dims(rng)\n\n    # Pick a pattern\n    patterns = [\n        \"solid\", \"hgrad\", \"vstripes\", \"checker\", \"palette\", \"noise\", \"deltas\"\n    ]\n    pat = rng.choice(patterns)\n\n    if pat == \"solid\":\n        # Choose some canonical solids and a random\n        solids = [\n            (0,0,0,255), (255,255,255,255), (255,0,0,255), (0,255,0,255), (0,0,255,255),\n            (255,255,0,255), (0,255,255,255), (255,0,255,255), (127,127,127,255)\n        ]\n        if ch == 4:\n            solids += [(0,0,0,0), (255,255,255,128), (10,20,30,200)]\n        color = rng.choice(solids)\n        buf = _solid_color(w, h, ch, color)\n    elif pat == \"hgrad\":\n        a_fixed = 255 if ch == 3 else rng.choice([128, 200, 255])\n        buf = _horizontal_gradient(w, h, ch, a_fixed)\n    elif pat == \"vstripes\":\n        stripes = rng.randint(2, max(2, min(16, w)))\n        a_fixed = 255 if ch == 3 else rng.choice([64, 128, 192, 255])\n        buf = _vertical_stripes(w, h, ch, stripes, a_fixed)\n    elif pat == \"checker\":\n        a0 = 255 if ch == 3 else rng.choice([0, 64, 128, 192, 255])\n        a1 = 255 if ch == 3 else rng.choice([0, 64, 128, 192, 255])\n        buf = _checkerboard(w, h, ch, a0, a1)\n    elif pat == \"palette\":\n        pal = _choose_palette(rng, ch)\n        buf = _palette_repeat(w, h, ch, pal)\n    elif pat == \"noise\":\n        buf = _noise(w, h, ch, rng)\n    else:  # deltas\n        buf = _edge_deltas(w, h, ch)\n\n    # Ensure size does not exceed 4096 by design (budget <= 2048), but clamp just in case\n    if len(buf) > 4096:\n        buf = buf[:4096]\n\n    return bytes(buf)\n"
+    },
+    {
+      "data_type": "filename for binary image output",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import Tuple\n\n# This generator targets the qoi_write fuzzer stub.\n# The stub:\n# - Picks channels in {3,4}\n# - Picks w in [1,64], h in [1,64], then caps h so that w*h*channels <= 2048\n# - Picks colorspace in {0,1}\n# - Requests FUZZ_PARAM_STR for pixel data, then resizes it to exactly w*h*channels bytes\n# - Requests FUZZ_PARAM_FILENAME for an output path\n# Therefore, the only input buffer we can influence is FUZZ_PARAM_STR (pixel data).\n# To exercise encoder paths (run-lengths, index matches, diffs, luma ops, RGBA),\n# we generate a pixel buffer sequence that includes:\n# - Long runs of the same pixel (QOI_OP_RUN)\n# - Repeated previously-seen pixels separated to enter the index cache (QOI_OP_INDEX)\n# - Small diffs around previous pixel (QOI_OP_DIFF)\n# - Luma-based diffs (QOI_OP_LUMA)\n# - Explicit RGB and RGBA packets (QOI_OP_RGB / QOI_OP_RGBA) via changes that force them\n# The fuzzer stub will resize our buffer to the expected size. We attempt to align our\n# produced buffer size with the typical sizes the stub yields to minimize shrink/expand.\n\nMAX_BYTES = 4096\n\n\ndef _rand_rng(seed: int) -> random.Random:\n    rnd = random.Random()\n    rnd.seed(seed)\n    return rnd\n\n\ndef _choose_dims(rnd: random.Random) -> Tuple[int, int, int]:\n    # Mirror the stub's distribution: w,h in [1,64], channels in {3,4}\n    channels = 3 if (rnd.getrandbits(1) == 1) else 4\n    w = rnd.randrange(1, 65)\n    # Cap h to stay within 2048 budget like the stub will do\n    max_h_from_budget = max(1, 2048 // (w * channels))\n    h = rnd.randrange(1, 65)\n    if h > max_h_from_budget:\n        h = max_h_from_budget\n    return w, h, channels\n\n\ndef _pattern_run(pixel: Tuple[int, int, int, int], count: int, channels: int) -> bytes:\n    r, g, b, a = pixel\n    px = bytes([r, g, b] + ([a] if channels == 4 else []))\n    return px * count\n\n\ndef _clamp8(v: int) -> int:\n    return max(0, min(255, v))\n\n\ndef _vary_pixel(prev: Tuple[int, int, int, int], dr: int, dg: int, db: int, da: int = 0) -> Tuple[int, int, int, int]:\n    r, g, b, a = prev\n    return (_clamp8(r + dr), _clamp8(g + dg), _clamp8(b + db), _clamp8(a + da))\n\n\ndef _emit_sequence(w: int, h: int, channels: int, rnd: random.Random) -> bytes:\n    total = w * h * channels\n    out = bytearray()\n\n    # Seed base pixels that hash to different index cache buckets to trigger INDEX hits later.\n    # A simple spread of colors.\n    palette = [\n        (0, 0, 0, 255),\n        (255, 255, 255, 255),\n        (255, 0, 0, 255),\n        (0, 255, 0, 255),\n        (0, 0, 255, 255),\n        (255, 255, 0, 255),\n        (255, 0, 255, 255),\n        (0, 255, 255, 255),\n        (16, 32, 48, 255),\n        (64, 32, 16, 255),\n    ]\n\n    # Start with a few runs to trigger RUN encoding\n    cur = palette[0]\n    run_len = max(1, min(128, (total // (channels * 16)) + 1))\n    out += _pattern_run(cur, run_len, channels)\n\n    # Insert repeated palette pixels to populate index and later recall them\n    for i in range(1, len(palette)):\n        cur = palette[i]\n        repeat = 1 + (rnd.randrange(0, 3))  # 1-3 times\n        out += _pattern_run(cur, repeat, channels)\n\n    # Generate diff-friendly small changes\n    cur = palette[-1]\n    for _ in range(16):\n        dr = rnd.choice([-2, -1, 0, 1, 2])\n        dg = rnd.choice([-2, -1, 0, 1, 2])\n        db = rnd.choice([-2, -1, 0, 1, 2])\n        cur = _vary_pixel(cur, dr, dg, db)\n        out += _pattern_run(cur, 1, channels)\n\n    # Luma-style changes: vary green strongly and adjust red/blue relatively\n    for _ in range(16):\n        dg = rnd.choice([-32, -16, -8, 8, 16, 32])\n        dr = rnd.choice([-8, -4, -2, 2, 4, 8])\n        db = rnd.choice([-8, -4, -2, 2, 4, 8])\n        cur = _vary_pixel(cur, dr, dg, db)\n        out += _pattern_run(cur, 1, channels)\n\n    # Alternate between two pixels to encourage index cache hits\n    a = palette[2]\n    b = palette[3]\n    for _ in range(32):\n        out += _pattern_run(a, 1, channels)\n        out += _pattern_run(b, 1, channels)\n\n    # Force RGBA-only changes when channels==4 by toggling alpha; for RGB, just vary colors\n    if channels == 4:\n        cur = (cur[0], cur[1], cur[2], 64)\n        out += _pattern_run(cur, 1, channels)\n        cur = (cur[0], cur[1], cur[2], 192)\n        out += _pattern_run(cur, 1, channels)\n        # Long run with same RGBA to trigger RUN\n        out += _pattern_run(cur, min(50, max(1, (total // (channels * 32)))), channels)\n    else:\n        # RGB: create a few larger color jumps to force RGB opcode in encoder\n        for _ in range(8):\n            cur = (\n                rnd.randrange(0, 256),\n                rnd.randrange(0, 256),\n                rnd.randrange(0, 256),\n                255,\n            )\n            out += _pattern_run(cur, 1, channels)\n\n    # Repeat some earlier palette colors to exercise index recall\n    for idx in rnd.sample(range(len(palette)), k=min(5, len(palette))):\n        out += _pattern_run(palette[idx], rnd.randrange(1, 4), channels)\n\n    # Ensure minimum size; then trim or pad to exact total\n    if len(out) < total:\n        # Pad with a patterned gradient to stay valid\n        base = palette[1]\n        while len(out) < total:\n            # simple gradient step\n            step = len(out) // max(1, channels)\n            cur = (_clamp8(base[0] + (step % 37)), _clamp8(base[1] + (step % 53)), _clamp8(base[2] + (step % 97)), base[3])\n            out += _pattern_run(cur, 1, channels)\n    if len(out) > total:\n        out = out[:total]\n\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rnd = _rand_rng(seed)\n\n    # Choose dimensions similar to stub; ensure total bytes <= 2048 and <= MAX_BYTES\n    w, h, channels = _choose_dims(rnd)\n    total = w * h * channels\n\n    # Safety cap: if somehow exceeded, resample dimensions\n    for _ in range(4):\n        if total <= 2048 and total <= MAX_BYTES and total > 0:\n            break\n        w, h, channels = _choose_dims(rnd)\n        total = w * h * channels\n\n    buf = _emit_sequence(w, h, channels, rnd)\n\n    # Final cap to 4096 bytes (should already be <= 2048 due to dims logic)\n    if len(buf) > MAX_BYTES:\n        buf = buf[:MAX_BYTES]\n\n    return buf\n"
+    },
+    {
+      "data_type": "filename for QOI image input",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import Tuple\n\n# This generator produces a valid QOI file byte stream.\n# Reference: https://qoiformat.org/ (but implemented here self-contained)\n# We aim for small images with varied patterns and channels, always valid.\n\nQOI_MAGIC = b\"qoif\"\nQOI_HEADER_SIZE = 14\nQOI_END_MARKER = b\"\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\"\n\n# QOI opcodes masks/constants\nQOI_OP_INDEX = 0x00  # 00xxxxxx\nQOI_OP_DIFF  = 0x40  # 01xxxxxx\nQOI_OP_LUMA  = 0x80  # 10xxxxxx\nQOI_OP_RUN   = 0xC0  # 11xxxxxx\nQOI_OP_RGB   = 0xFE\nQOI_OP_RGBA  = 0xFF\n\nclass Px:\n    __slots__ = (\"r\",\"g\",\"b\",\"a\")\n    def __init__(self, r=0, g=0, b=0, a=255):\n        self.r, self.g, self.b, self.a = r, g, b, a\n    def tuple(self):\n        return (self.r, self.g, self.b, self.a)\n\n\ndef qoi_hash(px: Px) -> int:\n    return (px.r * 3 + px.g * 5 + px.b * 7 + px.a * 11) % 64\n\n\ndef qoi_header(width: int, height: int, channels: int, colorspace: int) -> bytes:\n    return QOI_MAGIC + struct.pack(\n        \">IIBB\", width, height, channels, colorspace\n    )\n\n\ndef clamp(v, lo, hi):\n    return lo if v < lo else hi if v > hi else v\n\n\ndef make_pattern(seed: int, w: int, h: int, channels: int) -> bytes:\n    rnd = random.Random(seed)\n    # Choose a pattern type to exercise encoder paths\n    pat = rnd.choice([\n        \"solid\",\n        \"checker\",\n        \"gradient\",\n        \"stripes_h\",\n        \"stripes_v\",\n        \"noise_low\",\n        \"palette_4\",\n        \"runs\",\n    ])\n\n    # Base colors\n    def rc():\n        return rnd.randrange(0, 256)\n\n    c1 = (rc(), rc(), rc(), 255)\n    c2 = (rc(), rc(), rc(), 255)\n    c3 = (rc(), rc(), rc(), 255)\n    c4 = (rc(), rc(), rc(), 255)\n\n    pixels = []\n\n    for y in range(h):\n        for x in range(w):\n            if pat == \"solid\":\n                c = c1\n            elif pat == \"checker\":\n                c = c1 if ((x ^ y) & 1) == 0 else c2\n            elif pat == \"gradient\":\n                r = (x * 255) // max(1, w - 1)\n                g = (y * 255) // max(1, h - 1)\n                b = ((x + y) * 255) // max(1, (w - 1) + (h - 1))\n                c = (r, g, b, 255)\n            elif pat == \"stripes_h\":\n                c = c1 if (y % 4) < 2 else c2\n            elif pat == \"stripes_v\":\n                c = c1 if (x % 4) < 2 else c2\n            elif pat == \"noise_low\":\n                base = c1\n                # small jitter encourages DIFF/LUMA\n                r = clamp(base[0] + rnd.randint(-2, 2), 0, 255)\n                g = clamp(base[1] + rnd.randint(-2, 2), 0, 255)\n                b = clamp(base[2] + rnd.randint(-2, 2), 0, 255)\n                c = (r, g, b, 255)\n            elif pat == \"palette_4\":\n                idx = ((x & 1) | ((y & 1) << 1))\n                c = [c1, c2, c3, c4][idx]\n            elif pat == \"runs\":\n                # long horizontal runs\n                if (x % 8) < 7:\n                    c = c1\n                else:\n                    c = c2\n            else:\n                c = c1\n\n            if channels == 3:\n                pixels.extend(c[:3])\n            else:\n                # introduce some alpha variation for RGBA\n                if pat in (\"palette_4\", \"runs\") and channels == 4:\n                    a = 255 if ((x + y) % 5) else 200\n                    pixels.extend((c[0], c[1], c[2], a))\n                else:\n                    pixels.extend(c)\n\n    return bytes(pixels)\n\n\ndef qoi_encode_mem(pixels: bytes, w: int, h: int, channels: int, colorspace: int) -> bytes:\n    assert channels in (3, 4)\n    size = w * h\n    assert len(pixels) == size * channels\n\n    # Start with header\n    out = bytearray()\n    out += qoi_header(w, h, channels, colorspace)\n\n    index = [Px() for _ in range(64)]\n    run = 0\n    px_prev = Px(0, 0, 0, 255)\n\n    # iterate pixels\n    it = iter(range(size))\n    p = 0\n    while p < size:\n        i = p * channels\n        if channels == 4:\n            px = Px(pixels[i], pixels[i+1], pixels[i+2], pixels[i+3])\n        else:\n            px = Px(pixels[i], pixels[i+1], pixels[i+2], 255)\n\n        if px.tuple() == px_prev.tuple():\n            run += 1\n            if run == 62 or p == size - 1:\n                out.append(QOI_OP_RUN | (run - 1))\n                run = 0\n        else:\n            if run > 0:\n                out.append(QOI_OP_RUN | (run - 1))\n                run = 0\n\n            idx = qoi_hash(px)\n            if index[idx].tuple() == px.tuple():\n                out.append(QOI_OP_INDEX | idx)\n            else:\n                index[idx] = Px(px.r, px.g, px.b, px.a)\n                if px.a == px_prev.a:\n                    dr = px.r - px_prev.r\n                    dg = px.g - px_prev.g\n                    db = px.b - px_prev.b\n\n                    vr = dr\n                    vg = dg\n                    vb = db\n\n                    if (-2 <= vr <= 1) and (-2 <= vg <= 1) and (-2 <= vb <= 1):\n                        out.append(QOI_OP_DIFF | ((vr + 2) << 4) | ((vg + 2) << 2) | (vb + 2))\n                    else:\n                        dg_ = dg\n                        dr_dg = dr - dg_\n                        db_dg = db - dg_\n                        if (-32 <= dg_ <= 31) and (-8 <= dr_dg <= 7) and (-8 <= db_dg <= 7):\n                            out.append(QOI_OP_LUMA | (dg_ + 32))\n                            out.append(((dr_dg + 8) << 4) | (db_dg + 8))\n                        else:\n                            out.append(QOI_OP_RGB)\n                            out.extend((px.r, px.g, px.b))\n                else:\n                    out.append(QOI_OP_RGBA)\n                    out.extend((px.r, px.g, px.b, px.a))\n\n        px_prev = px\n        p += 1\n\n    out += QOI_END_MARKER\n    return bytes(out)\n\n\ndef choose_dims(rnd: random.Random) -> Tuple[int, int]:\n    # mimic stub: width, height in 1..32, but keep small for budget\n    w = rnd.randint(1, 32)\n    h = rnd.randint(1, 32)\n    channels = rnd.choice([3, 4])\n    # enforce fuzzer budget heuristic used by stub (approx)\n    max_h_from_budget = max(1, 2048 // (w * channels))\n    h = min(h, max_h_from_budget)\n    return w, h\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    w, h = choose_dims(rnd)\n    channels = rnd.choice([3, 4])\n    colorspace = rnd.choice([0, 1])\n\n    # Create raw pixel buffer with deterministic variety\n    pixels = make_pattern(seed ^ 0xA5A5_5A5A, w, h, channels)\n\n    # Encode into a valid QOI stream\n    qoi_bytes = qoi_encode_mem(pixels, w, h, channels, colorspace)\n\n    # Bound size to <= 4096 bytes; if too big, shrink dimensions deterministically\n    if len(qoi_bytes) > 4096:\n        # Reduce to 16x16\n        w, h = min(w, 16), min(h, 16)\n        channels = 3\n        pixels = make_pattern(seed ^ 0x1234_5678, w, h, channels)\n        qoi_bytes = qoi_encode_mem(pixels, w, h, channels, colorspace)\n\n    return qoi_bytes\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6341,
+            "output_tokens": 288,
+            "total_tokens": 6629
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5919,
+            "output_tokens": 31,
+            "total_tokens": 5950
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6368,
+            "output_tokens": 2591,
+            "total_tokens": 8959
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5170,
+            "output_tokens": 4327,
+            "total_tokens": 9497
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4687,
+            "output_tokens": 311,
+            "total_tokens": 4998
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 206.19773697853088,
+    "scan_objects": 13.02043104171753,
+    "validate_objects": 0.18642067909240723,
+    "scan_functions": 53.965150117874146,
+    "synthesis": 90.35467958450317,
+    "fill": 0,
+    "classify": 8.18540072441101,
+    "build_generators": 40.485087156295776
+  }
+}

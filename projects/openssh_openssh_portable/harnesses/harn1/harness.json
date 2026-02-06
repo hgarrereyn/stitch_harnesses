@@ -1,0 +1,580 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct kex_params *",
+      "aliases": [],
+      "definition": "struct kex_params {\n\tchar *proposal[PROPOSAL_MAX];\n};",
+      "description": "Holds key exchange (KEX) proposal strings indexed by proposal slot (0..PROPOSAL_MAX-1). Intended to be optionally supplied to ssh_init() to influence algorithm negotiation during key exchange. Exact semantics of each slot are defined by the PROPOSAL_* indices in included SSH KEX code, not in this header.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "struct ssh *"
+      ]
+    },
+    {
+      "ptr_type": "struct ssh *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque SSH connection handle representing all protocol state, I/O buffers, and key-exchange machinery. It is created by ssh_init() and freed by ssh_free(). Application-specific data may be attached via ssh_set_app_data()/ssh_get_app_data(). Full structure is intentionally not defined in this header.",
+      "direct_api_constructors": [
+        "ssh_init"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct sshkey *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque SSH key object representing a public/private key used for host authentication. Only referenced here; full definition lives in sshkey.h. Used with ssh_add_hostkey() and verify-host-key callback.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "struct ssh *"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "ssh_init",
+      "signature": "int\tssh_init(struct ssh **, int is_server, struct kex_params *kex_params);",
+      "description": "Create and initialize an SSH connection object, optionally using the provided key-exchange parameters. Use is_server to indicate server (non-zero) or client (zero) mode. On success, stores the newly created connection in the output pointer. Call ssh_free() to release resources when done.",
+      "requirements": [
+        "The first argument must be a non-null pointer to a struct ssh* (output parameter) that will receive the created connection handle.",
+        "kex_params may be NULL if no custom key-exchange proposal is needed (per comment: optional).",
+        "Callers must check the return value and only use the connection handle on success (exact success/error codes are not documented; commonly 0 indicates success, but this is not explicitly stated).",
+        "The created connection must be released with ssh_free() exactly once.",
+        "is_server selects connection role; typical usage is 0 for client and non-zero for server (inferred from comments about server hostkeys)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_free",
+      "signature": "void\tssh_free(struct ssh *);",
+      "description": "Release and clean up all resources associated with an SSH connection object previously created by ssh_init(). After this call, the handle must not be used.",
+      "requirements": [
+        "ssh must be a valid connection object obtained from ssh_init().",
+        "Do not use ssh after this call; it becomes invalid.",
+        "Calling ssh_free() more than once on the same object is not allowed (double-free) though behavior is not documented; treat as invalid.",
+        "Behavior when ssh is NULL is not documented (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_set_app_data",
+      "signature": "void\tssh_set_app_data(struct ssh *, void *);",
+      "description": "Attach application-specific user data to the SSH connection state for later retrieval via ssh_get_app_data(). Acts as a per-connection opaque pointer storage.",
+      "requirements": [
+        "ssh must be a valid connection object from ssh_init().",
+        "The lifetime/ownership of the application data pointer is managed by the caller; the API does not copy or free it (inferred from void* storage).",
+        "Whether passing NULL clears/unsets the data is not documented (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_get_app_data",
+      "signature": "void\t*ssh_get_app_data(struct ssh *);",
+      "description": "Retrieve application-specific data previously attached to the SSH connection via ssh_set_app_data(). Returns the stored opaque pointer.",
+      "requirements": [
+        "ssh must be a valid connection object from ssh_init().",
+        "Return value semantics when no data was set are not documented (likely NULL, but unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_add_hostkey",
+      "signature": "int\tssh_add_hostkey(struct ssh *ssh, struct sshkey *key);",
+      "description": "Register a host key (private or public) with the SSH connection. Must be called before key exchange is initiated via ssh_packet_next(). Private host keys are required for server operation; public host keys are used to verify a server when acting as a client.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "key must be a valid struct sshkey pointing to the host key to register.",
+        "Must be called before key exchange starts (before initiating/advancing kex via ssh_packet_next()).",
+        "If acting as a server, provide private hostkeys; if acting as a client, provide public hostkeys for verification (per comments).",
+        "Callers must check the return value for success/failure (exact codes are not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_set_verify_host_key_callback",
+      "signature": "int\tssh_set_verify_host_key_callback(struct ssh *ssh,\n    int (*cb)(struct sshkey *, struct ssh *));",
+      "description": "Register a callback to perform host key verification instead of the default verification. The callback must return 0 if the host key is acceptable and -1 if verification fails.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "cb must be a valid function pointer of type int (*)(struct sshkey *, struct ssh *).",
+        "The callback must return 0 on success and -1 on failure (as specified).",
+        "The callback should be set before host key verification occurs; the exact timing is not explicitly documented (inferred requirement).",
+        "Callers must check the return value for successful registration (exact codes are not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_packet_next",
+      "signature": "int\tssh_packet_next(struct ssh *ssh, u_char *typep);",
+      "description": "Advance processing of the incoming byte-stream, performing decryption and handling key exchange internally, and report the next packet type in typep when a packet is available. If no full packet is available, the caller must append received network data via ssh_input_append() and send any produced output (e.g., for key exchange) via ssh_output_ptr()/ssh_output_consume() to progress.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "typep must be a non-null pointer to receive the packet type result or a status indicator when no packet is available (exact values when none are available are not documented).",
+        "When no packet is available, the caller must provide additional input bytes using ssh_input_append().",
+        "The caller must also transmit bytes from the output byte-stream obtained via ssh_output_ptr() and then call ssh_output_consume() with the number of bytes successfully sent; otherwise key exchange cannot proceed (per comments).",
+        "Callers must check the return value to determine success or the need for more I/O (exact return semantics are not fully documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_packet_payload",
+      "signature": "const u_char\t*ssh_packet_payload(struct ssh *ssh, size_t *lenp);",
+      "description": "Return a pointer to the raw payload data of the current input packet and its length in bytes. The returned pointer remains valid only until the next call to ssh_packet_next().",
+      "requirements": [
+        "ssh must be a valid connection object and must have a current packet selected (i.e., after ssh_packet_next() indicates a packet is available).",
+        "lenp must be a non-null pointer to receive the payload length.",
+        "The returned pointer becomes invalid after the next call to ssh_packet_next().",
+        "Do not modify the returned data (const-qualified)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_packet_put",
+      "signature": "int\tssh_packet_put(struct ssh *ssh, int type, const u_char *data,\n    size_t len);",
+      "description": "Create and append an encrypted packet of the specified type with the provided payload data to the connection’s output byte-stream. The caller must then send the output buffer via network and consume the sent bytes.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "type must be a valid SSH packet type value for the protocol in use (not enumerated here).",
+        "If len > 0, data must point to at least len bytes of readable memory; data may be NULL only if len == 0 (inferred standard practice; not explicitly stated).",
+        "After calling, the caller must obtain the output buffer via ssh_output_ptr() and send/consume the produced bytes.",
+        "Callers must check the return value for success/failure (exact codes are not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_input_space",
+      "signature": "int\tssh_input_space(struct ssh *ssh, size_t len);",
+      "description": "Check whether len bytes can be appended to the input byte-stream buffer for the connection.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "len specifies the number of bytes the caller intends to append; it must fit within size_t limits.",
+        "Return value semantics (e.g., non-zero/zero) are not documented; callers should treat non-zero as success only if verified against implementation (unknown from header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_input_append",
+      "signature": "int\tssh_input_append(struct ssh *ssh, const u_char *data, size_t len);",
+      "description": "Append len bytes of received network data to the connection’s input byte-stream so that ssh_packet_next() can process it.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "If len > 0, data must point to at least len bytes of readable memory; data may be NULL only if len == 0 (inferred standard practice; not explicitly stated).",
+        "Using ssh_input_space() to ensure capacity before appending is suggested by the API design but not strictly documented (unknown).",
+        "Callers must check the return value for success/failure (exact codes are not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_output_space",
+      "signature": "int\tssh_output_space(struct ssh *ssh, size_t len);",
+      "description": "Check whether len bytes can be appended to the output byte-stream buffer. Comment notes 'XXX', indicating incomplete documentation.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "len specifies desired additional output capacity; it must fit within size_t limits.",
+        "Return value semantics and exact behavior are not documented (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_output_ptr",
+      "signature": "const u_char\t*ssh_output_ptr(struct ssh *ssh, size_t *len);",
+      "description": "Retrieve a pointer to the current contents of the connection’s output byte-stream and its length. The caller must transmit these bytes over the network and then remove the sent bytes via ssh_output_consume().",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "len must be a non-null pointer to receive the number of available output bytes.",
+        "The returned pointer refers to internal buffer memory and must be treated as read-only.",
+        "After sending N bytes, the caller must call ssh_output_consume(ssh, N) to remove them from the buffer.",
+        "Stability/lifetime of the returned pointer across subsequent API calls is not documented (unknown beyond general buffer semantics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ssh_output_consume",
+      "signature": "int\tssh_output_consume(struct ssh *ssh, size_t len);",
+      "description": "Remove len bytes from the beginning of the output byte-stream, typically after those bytes have been sent over the network.",
+      "requirements": [
+        "ssh must be a valid connection object.",
+        "len must be less than or equal to the number of bytes currently available in the output buffer (typically obtained via ssh_output_ptr()).",
+        "Callers must check the return value for success/failure (exact codes are not documented)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ssh_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Decide server/client role randomly (0 = client, 1 = server)\nint is_server = (int)(*FUZZ_PARAM(unsigned int) % 2);\n// Optional kex_params not supplied here: PROPOSAL_MAX is unknown, so pass NULL per API allowance\nstruct ssh *ssh = nullptr;\nint rc = ssh_init(&ssh, is_server, nullptr);\n// Enforce success: require non-null handle and success return code (assume 0 indicates success)\nif (rc != 0 || ssh == nullptr) { FUZZ_BAIL(); }\n// Track role and initial protocol state for downstream stubs\nFUZZ_SET_ATTR_INT(ssh, \"is_server\", is_server);\nFUZZ_SET_ATTR_INT(ssh, \"kex_started\", 0);\nFUZZ_SET_ATTR_INT(ssh, \"pkt_available\", 0);\nFUZZ_SET_ATTR_INT(ssh, \"out_available\", 0);\n// No further action; ssh is returned as output"
+    },
+    {
+      "name": "ssh_free",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free a valid SSH handle. After this call, the handle must not be used.\nssh_free(ssh);\n// Do not return ssh; runtime will drop it, preventing double free/use-after-free"
+    },
+    {
+      "name": "ssh_set_app_data",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Generate an opaque pointer value to attach; the API does not copy or free it\nvoid *app_ptr = (void*)(uintptr_t)(*FUZZ_PARAM(uintptr_t));\nssh_set_app_data(ssh, app_ptr);\n// Track for later verification in ssh_get_app_data\nFUZZ_SET_ATTR_PTR(ssh, \"app_data_ptr\", app_ptr);\nFUZZ_SET_ATTR_INT(ssh, \"app_data_set\", 1);\n// ssh remains valid and is returned as output"
+    },
+    {
+      "name": "ssh_get_app_data",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Retrieve the previously attached application data pointer\nvoid *ret = ssh_get_app_data(ssh);\n// If we previously set app data, assert that retrieval matches exactly\nint was_set = FUZZ_GET_ATTR_INT(ssh, \"app_data_set\");\nif (was_set) {\n    void *expected = FUZZ_GET_ATTR_PTR(ssh, \"app_data_ptr\");\n    FUZZ_ASSERT(ret == expected, \"ssh_get_app_data must return the pointer set via ssh_set_app_data\");\n}\n// ssh persists"
+    },
+    {
+      "name": "ssh_add_hostkey",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        },
+        {
+          "name": "key",
+          "type": "struct sshkey *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        },
+        {
+          "name": "key",
+          "type": "struct sshkey *"
+        }
+      ],
+      "code": "// Must be called before key exchange starts\nif (FUZZ_GET_ATTR_INT(ssh, \"kex_started\")) { FUZZ_BAIL(); }\n// Register the provided host key. Treat non-zero return as failure per common convention\nint rc = ssh_add_hostkey(ssh, key);\nif (rc != 0) { FUZZ_BAIL(); }\n// Keep both ssh and key alive"
+    },
+    {
+      "name": "ssh_packet_next",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Provide non-null typep as required\nu_char type = 0;\nint rc = ssh_packet_next(ssh, &type);\n// Mark that key exchange/packet processing has started\nFUZZ_SET_ATTR_INT(ssh, \"kex_started\", 1);\n// Conservatively track packet availability. Without documented semantics, assume rc==0 indicates availability.\nint pkt_avail = (rc == 0) ? 1 : 0;\nFUZZ_SET_ATTR_INT(ssh, \"pkt_available\", pkt_avail);\n// Record last packet type for potential downstream checks\nFUZZ_SET_ATTR_INT(ssh, \"last_type\", (int)type);\n// ssh persists"
+    },
+    {
+      "name": "ssh_packet_payload",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Require that a packet is currently selected (tracked by ssh_packet_next stub)\nif (!FUZZ_GET_ATTR_INT(ssh, \"pkt_available\")) { FUZZ_BAIL(); }\nsize_t len = 0;\nconst u_char *payload = ssh_packet_payload(ssh, &len);\n// Do not modify payload; pointer becomes invalid after next ssh_packet_next()\n(void)payload;\n// ssh persists"
+    },
+    {
+      "name": "ssh_packet_put",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Random packet type (bounded to a byte range typical for SSH message numbers)\nint type = (int)(*FUZZ_PARAM(unsigned int) % 256);\n// Generate payload; allow zero-length case per API convention\nstd::string buf = FUZZ_PARAM_STR();\nsize_t max_len = 1024; // keep allocations small for fuzz performance\nsize_t len = (buf.size() == 0) ? 0 : (buf.size() % 2 ? (buf.size() % max_len) : 0);\nconst u_char *data = (len == 0) ? nullptr : (const u_char *)buf.data();\nint rc = ssh_packet_put(ssh, type, data, len);\nif (rc != 0) { FUZZ_BAIL(); }\n// After putting data, output buffer likely has bytes pending; mark availability unknown but non-negative\n// We can refresh precise availability via ssh_output_ptr() in its stub\n// ssh persists"
+    },
+    {
+      "name": "ssh_input_space",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Query whether we can append a bounded number of bytes to the input stream\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\n(void)ssh_input_space(ssh, len);\n// ssh persists"
+    },
+    {
+      "name": "ssh_input_append",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Append received data to the input stream; allow NULL when len == 0\nstd::string in = FUZZ_PARAM_STR();\nsize_t len = (size_t)(in.size() % 1024);\nconst u_char *data = (len == 0) ? nullptr : (const u_char *)in.data();\nint rc = ssh_input_append(ssh, data, len);\nif (rc != 0) { FUZZ_BAIL(); }\n// ssh persists"
+    },
+    {
+      "name": "ssh_output_space",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Query output buffer capacity for a bounded length\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\n(void)ssh_output_space(ssh, len);\n// ssh persists"
+    },
+    {
+      "name": "ssh_output_ptr",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Retrieve pointer to pending output bytes and their length\nsize_t len = 0;\nconst u_char *outp = ssh_output_ptr(ssh, &len);\n(void)outp; // treat as read-only\n// Track available bytes for ssh_output_consume; clamp to a large, safe int range\nint avail = (len > (size_t)1000000000u) ? 1000000000 : (int)len;\nFUZZ_SET_ATTR_INT(ssh, \"out_available\", avail);\n// ssh persists"
+    },
+    {
+      "name": "ssh_output_consume",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Consume up to the number of bytes known to be available from ssh_output_ptr\nint avail = FUZZ_GET_ATTR_INT(ssh, \"out_available\");\nif (avail <= 0) { FUZZ_BAIL(); }\nunsigned int take = (*FUZZ_PARAM(unsigned int) % (unsigned int)(avail + 1));\nint rc = ssh_output_consume(ssh, (size_t)take);\n// Update tracked availability regardless of rc (conservative); on failure, bail to avoid drift\nif (rc != 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(ssh, \"out_available\", avail - (int)take);\n// ssh persists"
+    },
+    {
+      "name": "struct sshkey *",
+      "inputs": [
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "key",
+          "type": "struct sshkey *"
+        },
+        {
+          "name": "ssh",
+          "type": "struct ssh *"
+        }
+      ],
+      "code": "// Construct (or retrieve) an instance of struct sshkey * for use with this ssh handle.\n// No constructor is exposed in the provided API surface, so we synthesize an opaque,\n// stable, non-null token and bind it to the owning ssh via attributes. Downstream\n// stubs must treat it as opaque and should bail if they require concrete internals.\n\nstruct sshkey *key = nullptr;\nvoid *existing = FUZZ_GET_ATTR_PTR(ssh, \"synth_hostkey_ptr\");\nif (existing != nullptr) {\n    // Reuse previously associated key token for this ssh to preserve identity\n    key = (struct sshkey *)existing;\n} else {\n    // Fabricate a non-null token pointer from fuzzed bits. We do not dereference it.\n    uintptr_t token = *FUZZ_PARAM(uintptr_t);\n    if (token == (uintptr_t)0) {\n        // Ensure non-null; bail to let the fuzzer try a different value rather than risking a null key\n        FUZZ_BAIL();\n    }\n    // Force it to a clearly non-null value; avoid accidental canonical NULL\n    key = (struct sshkey *)((token) | (uintptr_t)0x1);\n    // Persist association on the ssh so future calls return the same token\n    FUZZ_SET_ATTR_PTR(ssh, \"synth_hostkey_ptr\", (void *)key);\n}\n\n// Track provenance and intended usage on the token itself\nFUZZ_SET_ATTR_INT(key, \"is_synthetic\", 1);\nFUZZ_SET_ATTR_PTR(key, \"owner_ssh\", (void *)ssh);\nint is_server = FUZZ_GET_ATTR_INT(ssh, \"is_server\");\nFUZZ_SET_ATTR_INT(key, \"intended_role_server\", is_server);\n\n// Validation summary:\n// - key is guaranteed non-null and stably associated with ssh via attributes.\n// - We do not free or dereference the opaque pointer; runtime retains ownership in the pool."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "ssh_set_verify_host_key_callback",
+      "reason": "Requires supplying a C function pointer callback, which cannot be safely provided within a single in-stub block without defining global/static functions."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "ssh_init",
+      "data_types": []
+    },
+    {
+      "name": "ssh_free",
+      "data_types": []
+    },
+    {
+      "name": "ssh_set_app_data",
+      "data_types": []
+    },
+    {
+      "name": "ssh_get_app_data",
+      "data_types": []
+    },
+    {
+      "name": "ssh_add_hostkey",
+      "data_types": []
+    },
+    {
+      "name": "ssh_packet_next",
+      "data_types": []
+    },
+    {
+      "name": "ssh_packet_payload",
+      "data_types": []
+    },
+    {
+      "name": "ssh_input_space",
+      "data_types": []
+    },
+    {
+      "name": "ssh_output_space",
+      "data_types": []
+    },
+    {
+      "name": "ssh_output_ptr",
+      "data_types": []
+    },
+    {
+      "name": "ssh_output_consume",
+      "data_types": []
+    },
+    {
+      "name": "struct sshkey *",
+      "data_types": []
+    },
+    {
+      "name": "ssh_packet_put",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ssh_input_append",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A buffer of raw bytes with no required encoding or structure. May include any byte values (0x00–0xFF), arbitrary lengths including zero-length. Suitable for APIs that accept opaque payloads or network byte streams without specific format constraints."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nfrom typing import List\n\n# This generator targets APIs that accept arbitrary binary data buffers, used by:\n#  - ssh_packet_put: payload bytes for an SSH packet\n#  - ssh_input_append: incoming network byte-stream bytes\n# The fuzzer stubs limit lengths to <= 1024 and may choose zero-length.\n# We generate plausible SSH-like sequences to exercise negotiation and kex paths\n# while remaining valid as arbitrary binary (no strict structure enforced).\n\nSSH_MSG_MIN = 1\nSSH_MSG_MAX = 255\n\n# Common SSH message numbers (subset) to increase variety\nCOMMON_MSG_TYPES = [\n    1,   # SSH_MSG_DISCONNECT\n    2,   # SSH_MSG_IGNORE\n    3,   # SSH_MSG_UNIMPLEMENTED\n    4,   # SSH_MSG_DEBUG\n    5,   # SSH_MSG_SERVICE_REQUEST\n    6,   # SSH_MSG_SERVICE_ACCEPT\n    20,  # SSH_MSG_KEXINIT\n    21,  # SSH_MSG_NEWKEYS\n    30,  # SSH_MSG_KEXDH_INIT (v1) / generic KEX init\n    31,  # SSH_MSG_KEXDH_REPLY\n    50,  # SSH_MSG_USERAUTH_REQUEST\n    51,  # SSH_MSG_USERAUTH_FAILURE\n    52,  # SSH_MSG_USERAUTH_SUCCESS\n    90,  # SSH_MSG_CHANNEL_OPEN\n    94,  # SSH_MSG_CHANNEL_DATA\n    95,  # SSH_MSG_CHANNEL_EXTENDED_DATA\n    96,  # SSH_MSG_CHANNEL_EOF\n    97,  # SSH_MSG_CHANNEL_CLOSE\n]\n\n# Some useful payload patterns\ndef rand_bytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.getrandbits(8) for _ in range(n))\n\ndef pattern_zero(n: int) -> bytes:\n    return b\"\\x00\" * n\n\ndef pattern_inc(n: int, start: int = 0) -> bytes:\n    return bytes((start + i) & 0xFF for i in range(n))\n\ndef pattern_repeat(b: int, n: int) -> bytes:\n    return bytes([b & 0xFF]) * n\n\n# Construct a plausible SSH-like packet payload. Not necessarily fully compliant\n# but resembles typical fields: name-lists, strings, mpints, booleans\n\ndef u32be(x: int) -> bytes:\n    return x.to_bytes(4, 'big', signed=False)\n\n\ndef ssh_string(s: bytes) -> bytes:\n    return u32be(len(s)) + s\n\n\ndef ssh_namelist(names: List[str]) -> bytes:\n    joined = \",\".join(names).encode('ascii', 'ignore')\n    return ssh_string(joined)\n\n\ndef make_kexinit_like(r: random.Random, max_payload: int) -> bytes:\n    # SSH_MSG_KEXINIT structure (simplified, no cookie randomness constraints)\n    # byte      SSH_MSG_KEXINIT\n    # byte[16]  cookie\n    # name-list kex_algorithms\n    # name-list server_host_key_algorithms\n    # name-list encryption_algorithms_client_to_server\n    # name-list encryption_algorithms_server_to_client\n    # name-list mac_algorithms_client_to_server\n    # name-list mac_algorithms_server_to_client\n    # name-list compression_algorithms_client_to_server\n    # name-list compression_algorithms_server_to_client\n    # name-list languages_client_to_server\n    # name-list languages_server_to_client\n    # boolean   first_kex_packet_follows\n    # uint32    0 (reserved)\n    kex = [\n        'curve25519-sha256', 'curve25519-sha256@libssh.org', 'diffie-hellman-group14-sha1',\n        'diffie-hellman-group14-sha256', 'sntrup761x25519-sha512@openssh.com'\n    ]\n    hostkey = [\n        'ssh-ed25519', 'rsa-sha2-512', 'rsa-sha2-256', 'ssh-rsa'\n    ]\n    ciphers = ['chacha20-poly1305@openssh.com', 'aes128-ctr', 'aes256-ctr', 'aes128-gcm@openssh.com']\n    macs = ['umac-64-etm@openssh.com', 'umac-128-etm@openssh.com', 'hmac-sha2-256-etm@openssh.com']\n    comp = ['none', 'zlib@openssh.com']\n\n    parts = [bytes([20]), rand_bytes(r, 16)]\n    parts += [\n        ssh_namelist(r.sample(kex, k=min(len(kex), r.randint(1, len(kex))))),\n        ssh_namelist(r.sample(hostkey, k=min(len(hostkey), r.randint(1, len(hostkey))))),\n        ssh_namelist(r.sample(ciphers, k=min(len(ciphers), r.randint(1, len(ciphers))))),\n        ssh_namelist(r.sample(ciphers, k=min(len(ciphers), r.randint(1, len(ciphers))))),\n        ssh_namelist(r.sample(macs, k=min(len(macs), r.randint(1, len(macs))))),\n        ssh_namelist(r.sample(macs, k=min(len(macs), r.randint(1, len(macs))))),\n        ssh_namelist(r.sample(comp, k=min(len(comp), r.randint(1, len(comp))))),\n        ssh_namelist(r.sample(comp, k=min(len(comp), r.randint(1, len(comp))))),\n        ssh_namelist([]),\n        ssh_namelist([]),\n        bytes([r.randrange(0, 2)]),\n        u32be(0),\n    ]\n    payload = b\"\".join(parts)\n    # trim if necessary (should be small already)\n    if len(payload) > max_payload:\n        payload = payload[:max_payload]\n    return payload\n\n\ndef make_service_request_like(r: random.Random) -> bytes:\n    svc = r.choice([b'ssh-userauth', b'ssh-connection', b'ssh-test'])\n    return bytes([5]) + ssh_string(svc)\n\n\ndef make_channel_data_like(r: random.Random, max_payload: int) -> bytes:\n    # SSH_MSG_CHANNEL_DATA: byte type, uint32 recipient channel, string data\n    data_len = r.randint(0, max(0, max_payload - 1 - 4 - 4))\n    return bytes([94]) + u32be(r.getrandbits(16)) + ssh_string(rand_bytes(r, data_len))\n\n\ndef make_debug_like(r: random.Random, max_payload: int) -> bytes:\n    # SSH_MSG_DEBUG: byte type, boolean always_display, string message, string lang\n    msg_choices = [\n        b'ok', b'test', b'hello', b'unexpected packet', b'negotiation', b'kex', b'auth'\n    ]\n    msg = r.choice(msg_choices)\n    lang = b''\n    payload = bytes([4]) + bytes([r.randrange(0, 2)]) + ssh_string(msg) + ssh_string(lang)\n    if len(payload) > max_payload:\n        payload = payload[:max_payload]\n    return payload\n\n\ndef assemble_stream(r: random.Random, budget: int) -> bytes:\n    # Create a sequence of packets/payload-like chunks to feed either input or as data payloads.\n    # Not actual SSH framing; stubs accept raw bytes. We mix patterns to hit diverse code paths.\n    chunks: List[bytes] = []\n\n    # Include some pure binary patterns\n    for _ in range(r.randint(1, 3)):\n        mode = r.randrange(0, 5)\n        n = r.randint(0, min(256, budget))\n        if mode == 0:\n            chunks.append(pattern_zero(n))\n        elif mode == 1:\n            chunks.append(pattern_inc(n, start=r.randrange(0, 256)))\n        elif mode == 2:\n            chunks.append(pattern_repeat(r.randrange(0, 256), n))\n        elif mode == 3:\n            chunks.append(os.urandom(n))  # extra entropy\n        else:\n            chunks.append(rand_bytes(r, n))\n        budget -= n\n        if budget <= 0:\n            break\n\n    # Include some SSH-like messages to guide protocol paths\n    makers = [make_kexinit_like, make_service_request_like, make_channel_data_like, make_debug_like]\n    r.shuffle(makers)\n    for mk in makers:\n        if budget <= 0:\n            break\n        if mk is make_service_request_like:\n            msg = mk(r)\n        elif mk is make_kexinit_like:\n            msg = mk(r, max_payload=min(600, budget))\n        elif mk is make_channel_data_like:\n            msg = mk(r, max_payload=min(512, budget))\n        else:\n            msg = mk(r, max_payload=min(256, budget))\n        msg = msg[:budget]\n        chunks.append(msg)\n        budget -= len(msg)\n\n    # Optionally end with some random length prefix followed by data to mimic ssh_string\n    if budget > 8 and r.random() < 0.7:\n        tail_len = r.randint(0, budget - 4)\n        tail = rand_bytes(r, tail_len)\n        chunks.append(u32be(tail_len) + tail)\n\n    out = b\"\".join(chunks)\n    return out[:max(0, budget + len(out) - budget)]  # ensure not exceeding original budget\n\n\ndef generate(seed: int) -> bytes:\n    # Produce a seeded, varied, but valid arbitrary binary buffer sized for the fuzz stubs.\n    r = random.Random(seed)\n\n    # Target sizes consistent with fuzzers (<= 1024); allow variety and include zero-length cases\n    # We keep total <= 1024, and global instruction requires <= 4096.\n    max_total = r.choice([0, r.randint(1, 128), r.randint(129, 512), r.randint(513, 1024)])\n\n    # With some probability, generate a single-message payload; otherwise a mixed stream\n    if max_total == 0:\n        return b\"\"\n\n    choice = r.random()\n    if choice < 0.25:\n        # A single KEXINIT-like payload\n        buf = make_kexinit_like(r, max_total)\n    elif choice < 0.45:\n        # A single channel-data-like payload\n        buf = make_channel_data_like(r, max_total)\n    elif choice < 0.6:\n        # A single debug or service request\n        if r.random() < 0.5:\n            buf = make_debug_like(r, max_total)\n        else:\n            buf = make_service_request_like(r)\n            buf = buf[:max_total]\n    else:\n        buf = assemble_stream(r, max_total)\n\n    # Ensure size limit\n    return buf[:max_total]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1736,
+            "output_tokens": 286,
+            "total_tokens": 2022
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1314,
+            "output_tokens": 76,
+            "total_tokens": 1390
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1818,
+            "output_tokens": 3715,
+            "total_tokens": 5533
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6258,
+            "output_tokens": 5451,
+            "total_tokens": 11709
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 14970,
+            "output_tokens": 5344,
+            "total_tokens": 20314
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3917,
+            "output_tokens": 112,
+            "total_tokens": 4029
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 350.04931259155273,
+    "scan_objects": 13.537734508514404,
+    "validate_objects": 0.6349883079528809,
+    "scan_functions": 51.54928421974182,
+    "synthesis": 121.32148551940918,
+    "fill": 126.46434211730957,
+    "classify": 3.5260565280914307,
+    "build_generators": 33.0143780708313
+  }
+}

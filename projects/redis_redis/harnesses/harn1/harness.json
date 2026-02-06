@@ -1,0 +1,1915 @@
+{
+  "objects": [
+    {
+      "ptr_type": "redisReply *",
+      "aliases": [],
+      "definition": "typedef struct redisReply {\n    int type; /* REDIS_REPLY_* */\n    long long integer; /* The integer when type is REDIS_REPLY_INTEGER */\n    double dval; /* The double when type is REDIS_REPLY_DOUBLE */\n    size_t len; /* Length of string */\n    char *str; /* Used for REDIS_REPLY_ERROR, REDIS_REPLY_STRING\n                  REDIS_REPLY_VERB, REDIS_REPLY_DOUBLE (in additional to dval),\n                  and REDIS_REPLY_BIGNUM. */\n    char vtype[4]; /* Used for REDIS_REPLY_VERB, contains the null\n                      terminated 3 character content type, such as \"txt\". */\n    size_t elements; /* number of elements, for REDIS_REPLY_ARRAY */\n    struct redisReply **element; /* elements vector for REDIS_REPLY_ARRAY */\n} redisReply;",
+      "description": "Heap-allocated RESP reply object returned by redisCommand/redisGetReply. Holds type and payload for all RESP2/RESP3 variants including integers, strings, arrays, verbatim strings (vtype), doubles, and big numbers. Free with freeReplyObject unless using custom allocators. Elements points to an array of redisReply* for aggregate types.",
+      "direct_api_constructors": [
+        "redisGetReply",
+        "redisGetReplyFromReader",
+        "redisvCommand",
+        "redisCommand",
+        "redisCommandArgv"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum redisConnectionType *",
+      "aliases": [],
+      "definition": "enum redisConnectionType {\n    REDIS_CONN_TCP,\n    REDIS_CONN_UNIX,\n    REDIS_CONN_USERFD\n};",
+      "description": "Enumeration of underlying transport used by a redisContext: TCP/IP, Unix domain socket, or an already-open user-provided file descriptor.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisContext *",
+        "redisOptions *"
+      ]
+    },
+    {
+      "ptr_type": "redisFD *",
+      "aliases": [],
+      "definition": "#ifndef _WIN32\ntypedef int redisFD;\n#define REDIS_INVALID_FD -1\n#else\n#ifdef _WIN64\ntypedef unsigned long long redisFD; /* SOCKET = 64-bit UINT_PTR */\n#else\ntypedef unsigned long redisFD;      /* SOCKET = 32-bit UINT_PTR */\n#endif\n#define REDIS_INVALID_FD ((redisFD)(~0)) /* INVALID_SOCKET */\n#endif",
+      "description": "Platform-dependent file-descriptor/socket handle type used by hiredis for I/O (signed int on POSIX; unsigned SOCKET-sized integer on Windows). Use REDIS_INVALID_FD to denote an invalid handle.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisOptions *",
+        "redisContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisOptions *",
+      "aliases": [],
+      "definition": "typedef struct {\n    /*\n     * the type of connection to use. This also indicates which\n     * `endpoint` member field to use\n     */\n    int type;\n    /* bit field of REDIS_OPT_xxx */\n    int options;\n    /* timeout value for connect operation. If NULL, no timeout is used */\n    const struct timeval *connect_timeout;\n    /* timeout value for commands. If NULL, no timeout is used.  This can be\n     * updated at runtime with redisSetTimeout/redisAsyncSetTimeout. */\n    const struct timeval *command_timeout;\n    union {\n        /** use this field for tcp/ip connections */\n        struct {\n            const char *source_addr;\n            const char *ip;\n            int port;\n        } tcp;\n        /** use this field for unix domain sockets */\n        const char *unix_socket;\n        /**\n         * use this field to have hiredis operate an already-open\n         * file descriptor */\n        redisFD fd;\n    } endpoint;\n\n    /* Optional user defined data/destructor */\n    void *privdata;\n    void (*free_privdata)(void *);\n\n    /* A user defined PUSH message callback */\n    redisPushFn *push_cb;\n    redisAsyncPushFn *async_push_cb;\n} redisOptions;",
+      "description": "Configuration struct for establishing a connection. Selects transport via type and endpoint union, sets options and timeouts, and allows user privdata and PUSH callbacks. Initialize with REDIS_OPTIONS_SET_TCP/UNIX/PRIVDATA macros or manually. Pass to redisConnectWithOptions.",
+      "direct_api_constructors": [
+        "redisConnectWithOptions"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "redisContextFuncs *",
+      "aliases": [],
+      "definition": "typedef struct redisContextFuncs {\n    void (*close)(struct redisContext *);\n    void (*free_privctx)(void *);\n    void (*async_read)(struct redisAsyncContext *);\n    void (*async_write)(struct redisAsyncContext *);\n\n    /* Read/Write data to the underlying communication stream, returning the\n     * number of bytes read/written.  In the event of an unrecoverable error\n     * these functions shall return a value < 0.  In the event of a\n     * recoverable error, they should return 0. */\n    ssize_t (*read)(struct redisContext *, char *, size_t);\n    ssize_t (*write)(struct redisContext *);\n} redisContextFuncs;",
+      "description": "Virtual function table for redisContext I/O and lifecycle hooks (close, read/write, async operations). Typically set internally (e.g., for SSL) rather than by users.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisContext *",
+      "aliases": [],
+      "definition": "typedef struct redisContext {\n    const redisContextFuncs *funcs;   /* Function table */\n\n    int err; /* Error flags, 0 when there is no error */\n    char errstr[128]; /* String representation of error when applicable */\n    redisFD fd;\n    int flags;\n    char *obuf; /* Write buffer */\n    redisReader *reader; /* Protocol reader */\n\n    enum redisConnectionType connection_type;\n    struct timeval *connect_timeout;\n    struct timeval *command_timeout;\n\n    struct {\n        char *host;\n        char *source_addr;\n        int port;\n    } tcp;\n\n    struct {\n        char *path;\n    } unix_sock;\n\n    /* For non-blocking connect */\n    struct sockaddr *saddr;\n    size_t addrlen;\n\n    /* Optional data and corresponding destructor users can use to provide\n     * context to a given redisContext.  Not used by hiredis. */\n    void *privdata;\n    void (*free_privdata)(void *);\n\n    /* Internal context pointer presently used by hiredis to manage\n     * SSL connections. */\n    void *privctx;\n\n    /* An optional RESP3 PUSH handler */\n    redisPushFn *push_cb;\n} redisContext;",
+      "description": "Synchronous hiredis connection context encapsulating socket/transport, timeouts, buffers, reader, and error state. Created by redisConnect* APIs and freed with redisFree or redisFreeKeepFd. Manages IO and can hold user privdata and optional PUSH callback.",
+      "direct_api_constructors": [
+        "redisConnectWithOptions",
+        "redisConnect",
+        "redisConnectWithTimeout",
+        "redisConnectNonBlock",
+        "redisConnectBindNonBlock",
+        "redisConnectBindNonBlockWithReuse",
+        "redisConnectUnix",
+        "redisConnectUnixWithTimeout",
+        "redisConnectUnixNonBlock",
+        "redisConnectFd",
+        "redisReconnect"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct redisSsl *",
+      "aliases": [],
+      "definition": "struct redisSsl;",
+      "description": "Opaque forward declaration for SSL context used internally by hiredis when SSL is enabled. Not defined in this header; managed internally. Details unknown.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "redisPushFn *",
+      "aliases": [],
+      "definition": "typedef void (redisPushFn)(void *, void *);",
+      "description": "Callback function type for handling RESP3 PUSH messages in synchronous contexts. First argument is user/context pointer, second is reply pointer. Exact semantics depend on registration site.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisOptions *",
+        "redisContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisAsyncPushFn *",
+      "aliases": [],
+      "definition": "typedef void (redisAsyncPushFn)(struct redisAsyncContext *, void *);",
+      "description": "Callback function type for handling RESP3 PUSH messages in async contexts. Takes async context and reply pointer. The async context is forward-declared here.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisOptions *"
+      ]
+    },
+    {
+      "ptr_type": "redisReader *",
+      "aliases": [],
+      "definition": "",
+      "description": "Protocol reader type referenced by this header (declared in read.h). Not defined here; definition resides elsewhere. Used by redisContext and related APIs.",
+      "direct_api_constructors": [
+        "redisReaderCreate"
+      ],
+      "owned_by": [
+        "redisContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisCallbackFn *",
+      "aliases": [],
+      "definition": "typedef void (redisCallbackFn)(struct redisAsyncContext*, void*, void*);",
+      "description": "Function type for per-command reply callbacks invoked with the async context, the reply object, and user privdata. Exact reply type depends on hiredis; details not specified here.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisCallback *",
+        "redisAsyncContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisCallback *",
+      "aliases": [],
+      "definition": "typedef struct redisCallback {\n    struct redisCallback *next; /* simple singly linked list */\n    redisCallbackFn *fn;\n    int pending_subs;\n    int unsubscribe_sent;\n    void *privdata;\n} redisCallback;",
+      "description": "Node in a singly linked list holding a reply callback, subscription bookkeeping fields, and user privdata. Used to dispatch command or subscription replies in async mode.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisCallbackList *",
+        "redisAsyncContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisCallbackList *",
+      "aliases": [],
+      "definition": "typedef struct redisCallbackList {\n    redisCallback *head, *tail;\n} redisCallbackList;",
+      "description": "Container maintaining head/tail pointers for a queue of redisCallback nodes. Used for regular replies and pub/sub callbacks.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisAsyncContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisDisconnectCallback *",
+      "aliases": [],
+      "definition": "typedef void (redisDisconnectCallback)(const struct redisAsyncContext*, int status);",
+      "description": "Function type invoked on disconnect events with the async context and a status code (REDIS_OK or REDIS_ERR).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisAsyncContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisConnectCallback *",
+      "aliases": [],
+      "definition": "typedef void (redisConnectCallback)(const struct redisAsyncContext*, int status);",
+      "description": "Function type invoked when the first write event indicates the connection is established; receives the async context and status.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisAsyncContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisConnectCallbackNC *",
+      "aliases": [],
+      "definition": "typedef void (redisConnectCallbackNC)(struct redisAsyncContext *, int status);",
+      "description": "Non-const variant of the connect callback type; receives a mutable async context pointer and status.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisAsyncContext *"
+      ]
+    },
+    {
+      "ptr_type": "redisTimerCallback *",
+      "aliases": [],
+      "definition": "typedef void(redisTimerCallback)(void *timer, void *privdata);",
+      "description": "Function type for timer callbacks scheduled by the event layer. Takes an opaque timer handle and user privdata.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "redisAsyncContext *",
+      "aliases": [],
+      "definition": "typedef struct redisAsyncContext {\n    /* Hold the regular context, so it can be realloc'ed. */\n    redisContext c;\n\n    /* Setup error flags so they can be used directly. */\n    int err;\n    char *errstr;\n\n    /* Not used by hiredis */\n    void *data;\n    void (*dataCleanup)(void *privdata);\n\n    /* Event library data and hooks */\n    struct {\n        void *data;\n\n        /* Hooks that are called when the library expects to start\n         * reading/writing. These functions should be idempotent. */\n        void (*addRead)(void *privdata);\n        void (*delRead)(void *privdata);\n        void (*addWrite)(void *privdata);\n        void (*delWrite)(void *privdata);\n        void (*cleanup)(void *privdata);\n        void (*scheduleTimer)(void *privdata, struct timeval tv);\n    } ev;\n\n    /* Called when either the connection is terminated due to an error or per\n     * user request. The status is set accordingly (REDIS_OK, REDIS_ERR). */\n    redisDisconnectCallback *onDisconnect;\n\n    /* Called when the first write event was received. */\n    redisConnectCallback *onConnect;\n    redisConnectCallbackNC *onConnectNC;\n\n    /* Regular command callbacks */\n    redisCallbackList replies;\n\n    /* Address used for connect() */\n    struct sockaddr *saddr;\n    size_t addrlen;\n\n    /* Subscription callbacks */\n    struct {\n        redisCallbackList replies;\n        struct dict *channels;\n        struct dict *patterns;\n        int pending_unsubs;\n    } sub;\n\n    /* Any configured RESP3 PUSH handler */\n    redisAsyncPushFn *push_cb;\n} redisAsyncContext;",
+      "description": "Primary async connection context for hiredis. Embeds a redisContext, error fields, user data hooks, event loop integration callbacks, connect/disconnect callbacks, reply queues, addressing info, subscription state, and an optional RESP3 PUSH handler. Constructed via redisAsyncConnect* APIs and freed with redisAsyncFree/redisAsyncDisconnect.",
+      "direct_api_constructors": [
+        "redisAsyncConnectWithOptions",
+        "redisAsyncConnect",
+        "redisAsyncConnectBind",
+        "redisAsyncConnectBindWithReuse",
+        "redisAsyncConnectUnix"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "redisReadTask *",
+      "aliases": [],
+      "definition": "typedef struct redisReadTask {\n    int type;\n    long long elements; /* number of elements in multibulk container */\n    int idx; /* index in parent (array) object */\n    void *obj; /* holds user-generated value for a read task */\n    struct redisReadTask *parent; /* parent task */\n    void *privdata; /* user-settable arbitrary field */\n} redisReadTask;",
+      "description": "Task node used by the Redis protocol reader to track parsing state for the current reply hierarchy (arrays, maps, etc.). Each task represents one reply element, keeps its type, element count for containers, index in parent, a user object placeholder, and links to its parent task plus user privdata.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisReader *"
+      ]
+    },
+    {
+      "ptr_type": "redisReplyObjectFunctions *",
+      "aliases": [],
+      "definition": "typedef struct redisReplyObjectFunctions {\n    void *(*createString)(const redisReadTask*, char*, size_t);\n    void *(*createArray)(const redisReadTask*, size_t);\n    void *(*createInteger)(const redisReadTask*, long long);\n    void *(*createDouble)(const redisReadTask*, double, char*, size_t);\n    void *(*createNil)(const redisReadTask*);\n    void *(*createBool)(const redisReadTask*, int);\n    void (*freeObject)(void*);\n} redisReplyObjectFunctions;",
+      "description": "Vtable of callbacks the parser uses to construct reply objects for each RESP type and to free them. Applications provide implementations to map parsed data to their own reply representation.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "redisReader *"
+      ]
+    },
+    {
+      "ptr_type": "redisReader *",
+      "aliases": [],
+      "definition": "typedef struct redisReader {\n    int err; /* Error flags, 0 when there is no error */\n    char errstr[128]; /* String representation of error when applicable */\n\n    char *buf; /* Read buffer */\n    size_t pos; /* Buffer cursor */\n    size_t len; /* Buffer length */\n    size_t maxbuf; /* Max length of unused buffer */\n    long long maxelements; /* Max multi-bulk elements */\n\n    redisReadTask **task;\n    int tasks;\n\n    int ridx; /* Index of current read task */\n    void *reply; /* Temporary reply pointer */\n\n    redisReplyObjectFunctions *fn;\n    void *privdata;\n} redisReader;",
+      "description": "Stateful RESP protocol parser. Maintains input buffer, parsing position, task stack, and callback table for constructing reply objects. err/errstr report errors. Applications feed bytes and retrieve constructed replies. privdata is user-defined context passed through tasks/callbacks.",
+      "direct_api_constructors": [
+        "redisReaderCreateWithFunctions"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct ssl_st *",
+      "aliases": [],
+      "definition": "struct ssl_st;",
+      "description": "Forward declaration of the OpenSSL SSL structure. Only referenced here for API interop; the actual definition resides in OpenSSL headers. Incomplete type; details unknown in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "redisSSLContext *",
+      "aliases": [],
+      "definition": "typedef struct redisSSLContext redisSSLContext;",
+      "description": "Opaque wrapper around an OpenSSL SSL_CTX used to configure and initiate SSL/TLS for hiredis without directly invoking OpenSSL. The struct is intentionally not defined here; it is managed via the provided API.",
+      "direct_api_constructors": [
+        "redisCreateSSLContext",
+        "redisCreateSSLContextWithOptions"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "redisSSLContextError *",
+      "aliases": [],
+      "definition": "typedef enum {\n    REDIS_SSL_CTX_NONE = 0,                     /* No Error */\n    REDIS_SSL_CTX_CREATE_FAILED,                /* Failed to create OpenSSL SSL_CTX */\n    REDIS_SSL_CTX_CERT_KEY_REQUIRED,            /* Client cert and key must both be specified or skipped */\n    REDIS_SSL_CTX_CA_CERT_LOAD_FAILED,          /* Failed to load CA Certificate or CA Path */\n    REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED,      /* Failed to load client certificate */\n    REDIS_SSL_CTX_CLIENT_DEFAULT_CERT_FAILED,   /* Failed to set client default certificate directory */\n    REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED,      /* Failed to load private key */\n    REDIS_SSL_CTX_OS_CERTSTORE_OPEN_FAILED,     /* Failed to open system certificate store */\n    REDIS_SSL_CTX_OS_CERT_ADD_FAILED            /* Failed to add CA certificates obtained from system to the SSL context */\n} redisSSLContextError;",
+      "description": "Enumeration of possible errors returned when creating an SSL context via redisCreateSSLContext or redisCreateSSLContextWithOptions. Values describe specific initialization failures.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "redisSSLOptions *",
+      "aliases": [],
+      "definition": "typedef struct {\n    const char *cacert_filename;\n    const char *capath;\n    const char *cert_filename;\n    const char *private_key_filename;\n    const char *server_name;\n    int verify_mode;\n} redisSSLOptions;",
+      "description": "Options structure for configuring SSL context creation, including CA file/path, client cert/key, SNI server name, and verification mode flags. Passed to redisCreateSSLContextWithOptions.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "redisReaderCreate",
+      "signature": "redisReader *redisReaderCreate(void);",
+      "description": "Allocates and returns a new redisReader used to parse RESP replies from a byte stream. Typically used internally by redisContext but can be used directly to feed protocol bytes and extract replies.",
+      "requirements": [
+        "Caller must check the return value for NULL to detect allocation failure.",
+        "Caller is responsible for freeing the reader via the corresponding redisReader destroy function (not defined in this header; typically redisReaderFree) once done."
+      ],
+      "error": null
+    },
+    {
+      "name": "freeReplyObject",
+      "signature": "void freeReplyObject(void *reply);",
+      "description": "Frees a reply object previously returned by hiredis (e.g., from redisCommand/redisGetReply). Safe deallocation of the hierarchical reply structure.",
+      "requirements": [
+        "The reply argument must be a pointer returned by hiredis reply-producing APIs (e.g., redisCommand/redisGetReply).",
+        "Do not use the reply after calling this function.",
+        "Behavior for reply == NULL is unknown from this header; the caller should avoid passing NULL unless confirmed safe."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisvFormatCommand",
+      "signature": "int redisvFormatCommand(char **target, const char *format, va_list ap);",
+      "description": "Formats a Redis command using a printf-like format string and a va_list, serializing it into the RESP protocol. On success, writes an allocated buffer pointer to *target and returns the buffer length.",
+      "requirements": [
+        "target must be a valid non-NULL pointer to a char*; on success *target will point to a newly allocated buffer that must be freed with redisFreeCommand.",
+        "format must be a valid hiredis command format string matching the provided arguments in ap.",
+        "Caller must check the integer return value: a negative value indicates an error (exact error codes not specified here).",
+        "The lifetime of data referenced by ap must be valid during formatting only; the formatted command is self-contained afterward."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFormatCommand",
+      "signature": "int redisFormatCommand(char **target, const char *format, ...);",
+      "description": "Formats a Redis command using a printf-like format string and variadic arguments, serializing it into the RESP protocol. On success, sets *target to an allocated buffer and returns its length.",
+      "requirements": [
+        "target must be a valid non-NULL pointer to a char*; on success *target must be freed with redisFreeCommand.",
+        "format must be a valid hiredis command format string matching the provided variadic arguments.",
+        "Caller must check the integer return value: a negative value indicates an error (exact error codes not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFormatCommandArgv",
+      "signature": "long long redisFormatCommandArgv(char **target, int argc, const char **argv, const size_t *argvlen);",
+      "description": "Formats a Redis command from an argument vector (argc/argv), serializing it into the RESP protocol. On success, sets *target to an allocated buffer and returns the buffer length.",
+      "requirements": [
+        "target must be a valid non-NULL pointer to a char*; on success *target must be freed with redisFreeCommand.",
+        "argc specifies the number of arguments in argv; it should be non-negative and consistent with argv/argvlen lengths (exact constraints not stated here).",
+        "argv must point to argc argument strings; if argvlen is non-NULL, each length corresponds to the respective argv entry.",
+        "If argvlen is NULL, the function will treat argv strings as null-terminated (behavior inferred from typical API; exact details not stated here).",
+        "Caller must check the return value: a negative value indicates an error."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFormatSdsCommandArgv",
+      "signature": "long long redisFormatSdsCommandArgv(hisds *target, int argc, const char ** argv, const size_t *argvlen);",
+      "description": "Formats a Redis command from an argument vector (argc/argv) into an SDS string (hisds). On success, writes the allocated SDS to *target and returns its length.",
+      "requirements": [
+        "target must be a valid non-NULL pointer to an hisds handle; on success *target must be freed with redisFreeSdsCommand.",
+        "argc specifies the number of arguments; it should match the number of entries in argv and argvlen (if provided).",
+        "argv must point to argc argument strings; if argvlen is non-NULL, each length corresponds to the respective argv entry.",
+        "Caller must check the return value: a negative value indicates an error."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFreeCommand",
+      "signature": "void redisFreeCommand(char *cmd);",
+      "description": "Frees a command buffer previously allocated by a redisFormat* function that returned a char*-based buffer.",
+      "requirements": [
+        "cmd must be a buffer previously returned via redisvFormatCommand/redisFormatCommand/redisFormatCommandArgv.",
+        "Do not use the buffer after freeing it.",
+        "Behavior for cmd == NULL is unknown from this header; avoid passing NULL unless confirmed safe."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFreeSdsCommand",
+      "signature": "void redisFreeSdsCommand(hisds cmd);",
+      "description": "Frees an SDS command buffer previously allocated by redisFormatSdsCommandArgv.",
+      "requirements": [
+        "cmd must be an hisds previously returned via redisFormatSdsCommandArgv.",
+        "Do not use the SDS after freeing it.",
+        "Behavior for a null/empty handle is unknown from this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectWithOptions",
+      "signature": "redisContext *redisConnectWithOptions(const redisOptions *options);",
+      "description": "Creates a new Redis connection using the supplied redisOptions (TCP, Unix socket, or an existing file descriptor) and returns a redisContext representing the connection.",
+      "requirements": [
+        "options must point to an initialized redisOptions struct with a valid type and corresponding endpoint fields set (e.g., TCP ip/port, Unix path, or fd).",
+        "If connect_timeout/command_timeout are provided, they should point to valid struct timeval objects for the duration of the call; options may be copied internally.",
+        "Caller must check the returned context for connection errors (c->err/errstr) and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnect",
+      "signature": "redisContext *redisConnect(const char *ip, int port);",
+      "description": "Creates a blocking TCP connection to a Redis server at ip:port and returns a redisContext.",
+      "requirements": [
+        "ip must point to a valid null-terminated address string; interpretation of numeric vs hostname is library-defined.",
+        "port must identify the server port; valid range is not specified in this header.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectWithTimeout",
+      "signature": "redisContext *redisConnectWithTimeout(const char *ip, int port, const struct timeval tv);",
+      "description": "Creates a TCP connection to a Redis server at ip:port with a connect timeout specified by tv, and returns a redisContext.",
+      "requirements": [
+        "ip must point to a valid null-terminated address string.",
+        "tv specifies the connect timeout; exact field constraints are not specified here.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectNonBlock",
+      "signature": "redisContext *redisConnectNonBlock(const char *ip, int port);",
+      "description": "Initiates a non-blocking TCP connection to a Redis server at ip:port and returns a redisContext configured for non-blocking I/O.",
+      "requirements": [
+        "ip must point to a valid null-terminated address string.",
+        "Caller must integrate the context’s fd with an event loop and use hiredis non-blocking APIs to complete I/O.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectBindNonBlock",
+      "signature": "redisContext *redisConnectBindNonBlock(const char *ip, int port, const char *source_addr);",
+      "description": "Initiates a non-blocking TCP connection to ip:port, binding the local socket to source_addr before connecting, and returns a redisContext.",
+      "requirements": [
+        "ip and source_addr must point to valid null-terminated address strings.",
+        "Caller must integrate the context’s fd with an event loop and use non-blocking APIs to complete I/O.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectBindNonBlockWithReuse",
+      "signature": "redisContext *redisConnectBindNonBlockWithReuse(const char *ip, int port, const char *source_addr);",
+      "description": "Like redisConnectBindNonBlock but configures the socket with SO_REUSEADDR prior to bind(), helping in cases like EADDRNOTAVAIL during reconnects. Returns a non-blocking redisContext.",
+      "requirements": [
+        "ip and source_addr must point to valid null-terminated address strings.",
+        "Caller must integrate the context’s fd with an event loop and use non-blocking APIs to complete I/O.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectUnix",
+      "signature": "redisContext *redisConnectUnix(const char *path);",
+      "description": "Creates a blocking connection to a Redis server over a Unix domain socket at the given filesystem path and returns a redisContext.",
+      "requirements": [
+        "path must point to a valid null-terminated filesystem path for a Unix domain socket.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectUnixWithTimeout",
+      "signature": "redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval tv);",
+      "description": "Creates a connection to a Redis server over a Unix domain socket with a connect timeout specified by tv, and returns a redisContext.",
+      "requirements": [
+        "path must point to a valid null-terminated filesystem path.",
+        "tv specifies the connect timeout; exact constraints are not specified here.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectUnixNonBlock",
+      "signature": "redisContext *redisConnectUnixNonBlock(const char *path);",
+      "description": "Initiates a non-blocking Unix domain socket connection to a Redis server at the given path and returns a redisContext.",
+      "requirements": [
+        "path must point to a valid null-terminated filesystem path.",
+        "Caller must integrate the context’s fd with an event loop and use non-blocking APIs to complete I/O.",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisConnectFd",
+      "signature": "redisContext *redisConnectFd(redisFD fd);",
+      "description": "Wraps an already-open file descriptor (or SOCKET on Windows) in a redisContext for communicating with a Redis server using that descriptor.",
+      "requirements": [
+        "fd must be a valid, open, connected socket compatible with Redis protocol I/O.",
+        "Caller must ensure the descriptor’s blocking mode matches the intended hiredis usage (blocking or non-blocking).",
+        "Caller must check the returned context for errors and for NULL on allocation failure.",
+        "The returned context must be freed with redisFree or redisFreeKeepFd. Ownership of fd after redisFreeKeepFd depends on which free function is used."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReconnect",
+      "signature": "int redisReconnect(redisContext *c);",
+      "description": "Re-establishes the connection represented by c using the original connection parameters saved in the context. Returns REDIS_OK on success or REDIS_ERR on failure.",
+      "requirements": [
+        "c must be a valid redisContext previously created by a connect function.",
+        "Callers should check the integer return value to detect success/failure and inspect c->err/errstr on failure.",
+        "Context flags are reused unmodified; host/ip/path, timeouts, and bind address are reused as originally configured."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisSetPushCallback",
+      "signature": "redisPushFn *redisSetPushCallback(redisContext *c, redisPushFn *fn);",
+      "description": "Sets a RESP3 PUSH message handler callback for the given context and returns the previous callback pointer.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "fn must point to a function matching redisPushFn(void *, void *); whether NULL is allowed to clear the callback is not specified here.",
+        "Caller should store or ignore the returned previous callback as needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisSetTimeout",
+      "signature": "int redisSetTimeout(redisContext *c, const struct timeval tv);",
+      "description": "Sets the command timeout on the given context. Returns an integer status (exact values not specified here).",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "tv specifies the desired timeout; exact constraints and error codes are not specified here.",
+        "Caller should check the return value to ensure the timeout was applied."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisEnableKeepAlive",
+      "signature": "int redisEnableKeepAlive(redisContext *c);",
+      "description": "Enables TCP keepalive on the connection using a default interval (HIREDIS_KEEPALIVE_INTERVAL). Returns an integer status (exact values not specified here).",
+      "requirements": [
+        "c must be a valid redisContext with an underlying TCP socket.",
+        "Caller should check the return value for success/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisEnableKeepAliveWithInterval",
+      "signature": "int redisEnableKeepAliveWithInterval(redisContext *c, int interval);",
+      "description": "Enables TCP keepalive on the connection with a custom interval in seconds. Returns an integer status (exact values not specified here).",
+      "requirements": [
+        "c must be a valid redisContext with an underlying TCP socket.",
+        "interval is expressed in seconds; acceptable range and validation are not specified here.",
+        "Caller should check the return value for success/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisSetTcpUserTimeout",
+      "signature": "int redisSetTcpUserTimeout(redisContext *c, unsigned int timeout);",
+      "description": "Sets the TCP_USER_TIMEOUT (if supported) on the connection to the specified timeout value. Returns an integer status (exact values not specified here).",
+      "requirements": [
+        "c must be a valid redisContext with an underlying TCP socket.",
+        "timeout units and valid range are not specified in this header.",
+        "Caller should check the return value for success/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFree",
+      "signature": "void redisFree(redisContext *c);",
+      "description": "Frees a redisContext and associated resources, closing the underlying socket. Any user-provided privdata will be freed via its destructor if configured.",
+      "requirements": [
+        "c must be a redisContext previously returned by a connect function; passing NULL behavior is not specified here.",
+        "After this call, the context pointer must not be used.",
+        "If the caller needs to keep the underlying fd open, use redisFreeKeepFd instead."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFreeKeepFd",
+      "signature": "redisFD redisFreeKeepFd(redisContext *c);",
+      "description": "Frees a redisContext but keeps the underlying socket/file descriptor open and returns it to the caller.",
+      "requirements": [
+        "c must be a redisContext previously returned by a connect function; passing NULL behavior is not specified here.",
+        "The returned descriptor becomes the caller’s responsibility to close/manage.",
+        "After this call, the context pointer must not be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisBufferRead",
+      "signature": "int redisBufferRead(redisContext *c);",
+      "description": "Reads pending data from the socket into hiredis’s read buffer and feeds the protocol reader. Typically used in non-blocking mode to accumulate replies.",
+      "requirements": [
+        "c must be a valid redisContext with an open connection.",
+        "Caller should check the return value for success/failure (exact semantics not specified here).",
+        "In non-blocking usage, integrate with an event loop to call this when the socket is readable."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisBufferWrite",
+      "signature": "int redisBufferWrite(redisContext *c, int *done);",
+      "description": "Attempts to flush the output buffer to the socket. Sets *done to 1 when all output has been written, otherwise 0. Typically used in non-blocking mode when the socket is writable.",
+      "requirements": [
+        "c must be a valid redisContext with an open connection.",
+        "done should point to an int to receive completion status; whether NULL is allowed is not specified here—pass a valid pointer to be safe.",
+        "Caller should check the return value for success/failure (exact semantics not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisGetReply",
+      "signature": "int redisGetReply(redisContext *c, void **reply);",
+      "description": "Retrieves the next available reply. In blocking mode, flushes pending output and reads until a reply is available; in non-blocking mode, returns unconsumed replies if available. On success, *reply receives a reply object pointer (to be freed with freeReplyObject).",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "reply must be a non-NULL pointer to a void* variable to receive the reply pointer.",
+        "Caller must free the returned reply with freeReplyObject unless automatic reply free is enabled (see options/flags).",
+        "Caller must check the integer return value for success/failure (exact values not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisGetReplyFromReader",
+      "signature": "int redisGetReplyFromReader(redisContext *c, void **reply);",
+      "description": "Parses and returns a reply from the context’s internal reader without performing any socket I/O. Useful after feeding data via redisBufferRead or custom readers.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "reply must be a non-NULL pointer to a void* variable to receive the reply pointer.",
+        "Caller must free the returned reply with freeReplyObject unless automatic reply free is enabled.",
+        "Caller should check the integer return value for success/failure (exact values not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAppendFormattedCommand",
+      "signature": "int redisAppendFormattedCommand(redisContext *c, const char *cmd, size_t len);",
+      "description": "Appends a preformatted RESP command buffer to the context’s output buffer for later write. Intended for building pipelines in blocking mode or queued writes in non-blocking mode.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "cmd must point to a buffer containing a valid RESP command of length len.",
+        "Caller should check the integer return value for success/failure (exact values not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisvAppendCommand",
+      "signature": "int redisvAppendCommand(redisContext *c, const char *format, va_list ap);",
+      "description": "Formats a Redis command from a printf-like format string and va_list, and appends it to the context’s output buffer.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "format must be a valid hiredis command format string; ap must match the format.",
+        "Caller should check the integer return value for success/failure (exact values not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAppendCommand",
+      "signature": "int redisAppendCommand(redisContext *c, const char *format, ...);",
+      "description": "Formats a Redis command from a printf-like format string and variadic arguments, and appends it to the context’s output buffer. Useful for pipelining.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "format must be a valid hiredis command format string matching the provided arguments.",
+        "Caller should check the integer return value for success/failure (exact values not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAppendCommandArgv",
+      "signature": "int redisAppendCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen);",
+      "description": "Formats a Redis command from an argument vector (argc/argv) and appends it to the context’s output buffer.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "argc should match the number of entries in argv and argvlen (if provided).",
+        "argv must point to argc argument strings; if argvlen is provided, each length corresponds to the respective argv entry.",
+        "Caller should check the integer return value for success/failure (exact values not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisvCommand",
+      "signature": "void *redisvCommand(redisContext *c, const char *format, va_list ap);",
+      "description": "Issues a command to Redis using a printf-like format string and va_list. In blocking mode, appends the command and reads a reply, returning a reply object; in non-blocking mode, appends the command and returns NULL.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "format must be a valid hiredis command format string; ap must match the format.",
+        "In blocking mode, caller must free the returned reply with freeReplyObject. In non-blocking mode, the return is always NULL.",
+        "Caller must check c->err/errstr on errors (function may return NULL on error even in blocking mode)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisCommand",
+      "signature": "void *redisCommand(redisContext *c, const char *format, ...);",
+      "description": "Issues a command to Redis using a printf-like format string and variadic arguments. In blocking mode, returns a reply object; in non-blocking mode, queues the command and returns NULL.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "format must be a valid hiredis command format string matching the provided arguments.",
+        "In blocking mode, caller must free the returned reply with freeReplyObject. In non-blocking mode, the return is always NULL.",
+        "Caller must check c->err/errstr on errors (function may return NULL on error even in blocking mode)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisCommandArgv",
+      "signature": "void *redisCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen);",
+      "description": "Issues a command to Redis from an argument vector (argc/argv). In blocking mode, returns a reply object; in non-blocking mode, queues the command and returns NULL.",
+      "requirements": [
+        "c must be a valid redisContext.",
+        "argc should match the number of entries in argv and argvlen (if provided).",
+        "argv must point to argc argument strings; if argvlen is provided, each length corresponds to the respective argv entry.",
+        "In blocking mode, caller must free the returned reply with freeReplyObject. In non-blocking mode, the return is always NULL.",
+        "Caller must check c->err/errstr on errors (function may return NULL on error even in blocking mode)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncConnectWithOptions",
+      "signature": "redisAsyncContext *redisAsyncConnectWithOptions(const redisOptions *options);",
+      "description": "Create a new asynchronous Redis connection using a filled redisOptions structure. Intended for configuring TCP, Unix socket, timeouts, and other options before connecting. Returns a redisAsyncContext pointer on success or NULL/errored context on failure.",
+      "requirements": [
+        "options must point to a valid, initialized redisOptions struct appropriate for hiredis (exact required fields are defined with redisOptions elsewhere).",
+        "The returned redisAsyncContext must be integrated with an event loop before I/O will progress (via the ev hooks).",
+        "Caller should check the returned context’s err/errstr fields or NULL to determine if the connection failed.",
+        "The context must later be disconnected/freed with redisAsyncDisconnect/redisAsyncFree."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncConnect",
+      "signature": "redisAsyncContext *redisAsyncConnect(const char *ip, int port);",
+      "description": "Create a new asynchronous TCP connection to a Redis server at the specified IPv4/IPv6 textual address and port. Returns a redisAsyncContext on success or a context/NULL indicating failure.",
+      "requirements": [
+        "ip must be a non-NULL, NUL-terminated string containing a valid IP address or resolvable hostname.",
+        "port must be in the valid TCP port range (1–65535).",
+        "The returned context must be attached to an event loop to drive I/O (using the ev hooks).",
+        "Caller should inspect the returned context’s err/errstr or NULL to detect connection errors.",
+        "Free/disconnect the context with redisAsyncDisconnect/redisAsyncFree when finished."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncConnectBind",
+      "signature": "redisAsyncContext *redisAsyncConnectBind(const char *ip, int port, const char *source_addr);",
+      "description": "Create a new asynchronous TCP connection to a Redis server, binding the local socket to source_addr before connecting. Useful for selecting the outgoing interface/address.",
+      "requirements": [
+        "ip must be a non-NULL, NUL-terminated string containing a valid remote address/hostname.",
+        "port must be in range 1–65535.",
+        "source_addr must be a non-NULL, NUL-terminated string with a valid local address parseable by the OS.",
+        "Attach the returned context to an event loop for I/O to progress.",
+        "Check the returned context’s err/errstr or NULL to detect connection errors.",
+        "Disconnect/free the context when done."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncConnectBindWithReuse",
+      "signature": "redisAsyncContext *redisAsyncConnectBindWithReuse(const char *ip, int port, const char *source_addr);",
+      "description": "Create a new asynchronous TCP connection to a Redis server, binding to source_addr with address-reuse enabled (e.g., SO_REUSEADDR) before connecting. Helps when rebinding recently used local addresses.",
+      "requirements": [
+        "ip must be a non-NULL, NUL-terminated string.",
+        "port must be 1–65535.",
+        "source_addr must be a non-NULL, NUL-terminated string containing a valid local address.",
+        "Attach the returned context to an event loop to handle read/write events.",
+        "Check the context’s err/errstr or NULL for connection errors.",
+        "Disconnect/free the context when finished."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncConnectUnix",
+      "signature": "redisAsyncContext *redisAsyncConnectUnix(const char *path);",
+      "description": "Create a new asynchronous Unix domain socket connection to a Redis server listening on the given filesystem path.",
+      "requirements": [
+        "path must be a non-NULL, NUL-terminated string naming a valid Unix socket path.",
+        "The returned context must be attached to an event loop to progress I/O.",
+        "Caller should check err/errstr or NULL to detect connection errors.",
+        "Disconnect/free the context when done."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncSetConnectCallback",
+      "signature": "int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn);",
+      "description": "Register a callback to be invoked when the first write event (indicating connection progress/completion) occurs on the async context. The callback receives the context and a status code.",
+      "requirements": [
+        "ac must be a valid, non-NULL redisAsyncContext created by one of the redisAsyncConnect* functions and not yet freed.",
+        "fn must be a valid function pointer to a callback compatible with redisConnectCallback (const redisAsyncContext*, int).",
+        "Caller should check the integer return value to determine success/failure (exact codes defined by hiredis).",
+        "Set the callback before or during connection setup so it can be triggered appropriately (exact timing semantics are library-defined)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncSetConnectCallbackNC",
+      "signature": "int redisAsyncSetConnectCallbackNC(redisAsyncContext *ac, redisConnectCallbackNC *fn);",
+      "description": "Register a connect callback variant that receives a non-const redisAsyncContext* alongside a status code. Useful when the callback needs to modify the context.",
+      "requirements": [
+        "ac must be a valid, non-NULL redisAsyncContext that has not been freed.",
+        "fn must be a valid function pointer compatible with redisConnectCallbackNC (redisAsyncContext*, int).",
+        "Caller should check the integer return value for success/failure.",
+        "Set before or during connection establishment so it can be invoked."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncSetDisconnectCallback",
+      "signature": "int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallback *fn);",
+      "description": "Register a callback invoked when the connection is terminated, either due to error or user-initiated disconnect. The callback receives the context (const) and a status code (REDIS_OK or REDIS_ERR).",
+      "requirements": [
+        "ac must be a valid, non-NULL redisAsyncContext not yet freed.",
+        "fn must be a valid function pointer compatible with redisDisconnectCallback (const redisAsyncContext*, int).",
+        "Caller should check the integer return value to confirm registration success.",
+        "Ensure the callback implementation is safe to run during teardown and does not assume the connection remains usable."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncSetPushCallback",
+      "signature": "redisAsyncPushFn *redisAsyncSetPushCallback(redisAsyncContext *ac, redisAsyncPushFn *fn);",
+      "description": "Register a handler for RESP3 PUSH messages (server-initiated notifications). Returns a redisAsyncPushFn pointer (commonly the previously registered handler, if any).",
+      "requirements": [
+        "ac must be a valid, non-NULL redisAsyncContext.",
+        "fn must be a valid function pointer compatible with redisAsyncPushFn for handling PUSH frames.",
+        "Caller should capture and, if needed, restore the returned handler pointer.",
+        "Handler must be non-blocking and re-entrant with respect to the event loop."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncSetTimeout",
+      "signature": "int redisAsyncSetTimeout(redisAsyncContext *ac, struct timeval tv);",
+      "description": "Configure a timeout on the asynchronous context (e.g., for connect or command timeouts). The timeval specifies seconds and microseconds.",
+      "requirements": [
+        "ac must be a valid, non-NULL redisAsyncContext.",
+        "tv.tv_sec >= 0 and tv.tv_usec >= 0 (non-negative components).",
+        "Caller should check the integer return value for success/failure.",
+        "Exact semantics of which operations are timed out depend on hiredis configuration."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncDisconnect",
+      "signature": "void redisAsyncDisconnect(redisAsyncContext *ac);",
+      "description": "Initiate an asynchronous disconnect of the Redis connection. Triggers the registered disconnect callback when complete and stops further I/O.",
+      "requirements": [
+        "ac must be a valid, non-NULL redisAsyncContext.",
+        "Should not be used after the context has been freed.",
+        "After requesting disconnect, do not issue new commands on this context.",
+        "Ensure the event loop continues running to process the disconnect and invoke callbacks."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncFree",
+      "signature": "void redisAsyncFree(redisAsyncContext *ac);",
+      "description": "Free the asynchronous context and associated resources. Should be called when the context is no longer needed and after pending operations are done or the connection has been disconnected.",
+      "requirements": [
+        "ac must be either NULL (no-op behavior is library-defined) or a valid redisAsyncContext that is not in use by other threads.",
+        "Do not access the context after calling this function.",
+        "If a disconnect callback is desired, call redisAsyncDisconnect first and allow it to fire before freeing (exact ordering depends on integration)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncHandleRead",
+      "signature": "void redisAsyncHandleRead(redisAsyncContext *ac);",
+      "description": "Handle a read-ready event for the async context. Intended to be called by the event loop when the socket is readable to process incoming data and invoke callbacks.",
+      "requirements": [
+        "ac must be a valid, connected redisAsyncContext integrated with an event loop.",
+        "Call only when the underlying socket/file descriptor is readable.",
+        "Callback functions invoked by processing must be safe for the current thread/event loop context."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncHandleWrite",
+      "signature": "void redisAsyncHandleWrite(redisAsyncContext *ac);",
+      "description": "Handle a write-ready event for the async context. Intended to be called by the event loop when the socket is writable to flush outgoing commands and advance connection state.",
+      "requirements": [
+        "ac must be a valid redisAsyncContext integrated with an event loop.",
+        "Call only when the underlying socket/file descriptor is writable.",
+        "Callbacks that may be triggered must be safe in the event loop context."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncHandleTimeout",
+      "signature": "void redisAsyncHandleTimeout(redisAsyncContext *ac);",
+      "description": "Handle a scheduled timeout event for the async context. Intended to be called by the event loop when a configured timeout expires.",
+      "requirements": [
+        "ac must be a valid redisAsyncContext.",
+        "Call only when a relevant timeout has occurred according to the scheduling set via the ev hooks or redisAsyncSetTimeout.",
+        "Callback implementations must tolerate being called due to timeout and handle error paths."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncRead",
+      "signature": "void redisAsyncRead(redisAsyncContext *ac);",
+      "description": "Perform a read operation on the async context, consuming available input and processing replies. Typically called by the library’s event integration; can be used by custom event loops.",
+      "requirements": [
+        "ac must be a valid redisAsyncContext whose socket is readable.",
+        "Should be called within the event loop thread/context managing this connection.",
+        "Do not call concurrently with other I/O handlers on the same context."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncWrite",
+      "signature": "void redisAsyncWrite(redisAsyncContext *ac);",
+      "description": "Perform a write operation on the async context, sending any buffered commands. Typically called by the library’s event integration; can be used by custom event loops.",
+      "requirements": [
+        "ac must be a valid redisAsyncContext whose socket is writable.",
+        "Should be invoked within the event loop thread/context for this connection.",
+        "Do not call concurrently with other I/O handlers on the same context."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisvAsyncCommand",
+      "signature": "int redisvAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, va_list ap);",
+      "description": "Queue an asynchronous command using a printf-style format string and a va_list, writing the command to the output buffer and registering a reply callback. Binary-safe formatting follows hiredis conventions.",
+      "requirements": [
+        "ac must be a valid, connected redisAsyncContext.",
+        "format must be a non-NULL, NUL-terminated printf-style format understood by hiredis (e.g., %s, %b).",
+        "ap must be a properly initialized va_list matching the format string.",
+        "fn should be a valid callback if a reply is expected; privdata is passed back to fn.",
+        "Caller must check the integer return value to detect queuing/formatting errors.",
+        "Do not call concurrently from multiple threads on the same context without external synchronization."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncCommand",
+      "signature": "int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, ...);",
+      "description": "Queue an asynchronous command using a printf-style format string and varargs, writing the command to the output buffer and registering a reply callback.",
+      "requirements": [
+        "ac must be a valid, connected redisAsyncContext.",
+        "format must be a non-NULL, NUL-terminated format string compatible with hiredis’ command formatting.",
+        "The variadic arguments must match the format specifiers.",
+        "fn should be a valid callback if a reply is expected; privdata is passed back to fn.",
+        "Caller must check the integer return value for success/failure.",
+        "Not safe to call concurrently from multiple threads on the same context without synchronization."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncCommandArgv",
+      "signature": "int redisAsyncCommandArgv(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, int argc, const char **argv, const size_t *argvlen);",
+      "description": "Queue an asynchronous command using an argv/argvlen vector. Binary-safe; each argument may include embedded NULs when length is provided. Registers a reply callback for the command.",
+      "requirements": [
+        "ac must be a valid, connected redisAsyncContext.",
+        "argc must be >= 1.",
+        "argv must point to an array of argc pointers; each argv[i] must be non-NULL and point to at least argvlen[i] bytes (or be NUL-terminated if argvlen is NULL).",
+        "If argvlen is non-NULL, it must point to an array of argc lengths.",
+        "fn should be a valid callback if a reply is expected; privdata is passed back to fn.",
+        "Caller must check the integer return value for success/failure.",
+        "Not thread-safe on the same context without external synchronization."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisAsyncFormattedCommand",
+      "signature": "int redisAsyncFormattedCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *cmd, size_t len);",
+      "description": "Queue an asynchronous command already encoded in the Redis protocol format (RESP). Writes the provided buffer to the output and registers a reply callback.",
+      "requirements": [
+        "ac must be a valid, connected redisAsyncContext.",
+        "cmd must be a non-NULL pointer to a buffer containing a complete, properly formatted Redis command in RESP.",
+        "len must be the exact length in bytes of the cmd buffer; the buffer does not need to be NUL-terminated.",
+        "fn should be a valid callback if a reply is expected; privdata is passed back to fn.",
+        "Caller must check the integer return value for success/failure.",
+        "Buffer must remain valid until the command has been copied/sent by the library (exact ownership semantics depend on hiredis)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReaderCreateWithFunctions",
+      "signature": "redisReader *redisReaderCreateWithFunctions(redisReplyObjectFunctions *fn);",
+      "description": "Creates a RESP protocol reader configured with user-provided reply construction callbacks. Use this when you want parsed replies to be built using custom object constructors defined in redisReplyObjectFunctions. After creation, feed data with redisReaderFeed and extract completed replies with redisReaderGetReply. Note: This function is part of the public protocol parser API; detailed behavior (allocation, defaults, thread-safety) is not documented in this header.",
+      "requirements": [
+        "fn should point to a valid redisReplyObjectFunctions struct with function pointers suitable for constructing replies, or behavior is unknown (header does not guarantee defaults).",
+        "The returned redisReader* must be released with redisReaderFree when no longer needed.",
+        "Caller should not use the reader from multiple threads unless externally synchronized (not specified in header; thread-safety unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReaderFree",
+      "signature": "void redisReaderFree(redisReader *r);",
+      "description": "Frees a redisReader previously created by redisReaderCreateWithFunctions (or compatible creator). Releases internal buffers and any associated state held by the reader. Does not document effects on outstanding replies.",
+      "requirements": [
+        "r must be a valid pointer to a redisReader obtained from a creation function compatible with this header.",
+        "After calling, r must not be used again."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReaderFeed",
+      "signature": "int redisReaderFeed(redisReader *r, const char *buf, size_t len);",
+      "description": "Appends len bytes from buf into the reader’s internal buffer for parsing. Call repeatedly as more data arrives from the Redis connection. Returns REDIS_OK (0) on success or REDIS_ERR (-1) on failure; on error, the reader’s err/errstr fields indicate the cause.",
+      "requirements": [
+        "r must be a valid redisReader pointer.",
+        "buf must point to at least len bytes of readable data; len may be zero to indicate no new data.",
+        "Caller should check the return value and, on REDIS_ERR, consult r->err and r->errstr for error details.",
+        "May be called multiple times to incrementally supply data."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReaderGetReply",
+      "signature": "int redisReaderGetReply(redisReader *r, void **reply);",
+      "description": "Attempts to parse a complete reply from the reader’s internal buffer. If a full reply is available, stores it in *reply (constructed via the reader’s redisReplyObjectFunctions) and returns a status code. If insufficient data is available, typically indicates no reply is ready (exact return/behavior not documented here). On error, returns REDIS_ERR and sets r->err/errstr.",
+      "requirements": [
+        "r must be a valid redisReader pointer.",
+        "reply must be a non-NULL pointer to a void* where the parsed reply pointer can be stored.",
+        "Caller must handle the return value: on REDIS_ERR, inspect r->err/errstr; behavior for no-complete-reply is not specified in this header and may be implementation-defined.",
+        "Lifetime and deallocation of the returned reply object are governed by the reply object implementation (e.g., use fn->freeObject if applicable); exact ownership rules are not documented in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReaderSetPrivdata",
+      "signature": "int redisReaderSetPrivdata(redisReader *_r, void *_p);",
+      "description": "Macro that sets the reader’s privdata field to the provided pointer. Intended to associate user-defined context with the reader. The macro expression casts to int; the numeric return value is not meaningful for API semantics.",
+      "requirements": [
+        "_r must be a valid redisReader pointer.",
+        "_p may be any user pointer to associate with the reader.",
+        "Because this is a macro, it evaluates its arguments; avoid side effects in arguments."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReaderGetObject",
+      "signature": "void *redisReaderGetObject(redisReader *_r);",
+      "description": "Macro that yields the reader’s temporary reply pointer (r->reply). Mainly useful within custom reply construction flows. Not guaranteed to be stable outside parsing context.",
+      "requirements": [
+        "_r must be a valid redisReader pointer.",
+        "The returned pointer is a transient/internal value; lifetime and valid usage are not documented and may depend on parser state.",
+        "Because this is a macro, it evaluates its arguments; avoid side effects in arguments."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisReaderGetError",
+      "signature": "char *redisReaderGetError(redisReader *_r);",
+      "description": "Macro that returns a pointer to the reader’s error string buffer (r->errstr). Useful for retrieving a textual description when r->err is non-zero.",
+      "requirements": [
+        "_r must be a valid redisReader pointer.",
+        "The returned pointer refers to an internal fixed-size buffer; do not modify its contents.",
+        "The error string is meaningful only when r->err is set (non-zero).",
+        "Because this is a macro, it evaluates its arguments; avoid side effects in arguments."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisSSLContextGetError",
+      "signature": "const char *redisSSLContextGetError(redisSSLContextError error);",
+      "description": "Returns a human-readable string describing the given redisSSLContextError code. Useful for logging or surfacing the reason a redisCreateSSLContext/redisCreateSSLContextWithOptions call failed.",
+      "requirements": [
+        "error must be a valid redisSSLContextError enumeration value.",
+        "The returned const char* points to static storage or an internal buffer; do not free or modify it.",
+        "Thread-safety of the returned pointer contents is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisInitOpenSSL",
+      "signature": "int redisInitOpenSSL(void);",
+      "description": "Performs one-time initialization of the OpenSSL library for use by hiredis SSL helpers. Call this only if your application has not already initialized OpenSSL elsewhere.",
+      "requirements": [
+        "Must be called at most once per process (or ensure underlying OpenSSL one-time init semantics); calling it when OpenSSL is already initialized elsewhere is discouraged per comment.",
+        "Should be called before creating SSL contexts or initiating SSL in hiredis if OpenSSL is not otherwise initialized.",
+        "Return value semantics are not documented in this header; treat nonzero/zero as unknown and check project documentation or source."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisCreateSSLContext",
+      "signature": "redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *capath, const char *cert_filename, const char *private_key_filename, const char *server_name, redisSSLContextError *error);",
+      "description": "Creates and returns a redisSSLContext wrapping an OpenSSL SSL_CTX configured for client connections. Allows specifying CA bundle/path, optional client cert/key pair, and optional SNI server name. On failure returns NULL and, if provided, writes a redisSSLContextError to error.",
+      "requirements": [
+        "cacert_filename may be NULL to skip loading a specific CA bundle file.",
+        "capath may be NULL to skip loading a CA directory path.",
+        "cert_filename and private_key_filename must be both specified or both omitted (they are a pair for client authentication).",
+        "server_name may be NULL; when non-NULL it will be used for SNI.",
+        "If error is non-NULL, on failure it will be populated with a redisSSLContextError; on success its contents are unspecified.",
+        "The caller must free the returned context with redisFreeSSLContext when no longer needed.",
+        "Default certificate verification mode is used internally (comments indicate peer verification by default), but exact verification behavior beyond that is not specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisCreateSSLContextWithOptions",
+      "signature": "redisSSLContext *redisCreateSSLContextWithOptions(redisSSLOptions *options, redisSSLContextError *error);",
+      "description": "Creates and returns a redisSSLContext using the provided redisSSLOptions structure for configuration (CA file/dir, client cert/key, SNI, verify mode). On failure returns NULL and, if provided, writes a redisSSLContextError to error. This is a more extensible variant of redisCreateSSLContext.",
+      "requirements": [
+        "options must point to a valid, initialized redisSSLOptions structure for the duration of the call.",
+        "Each field in options is optional; when set they have the same meaning as the individual parameters to redisCreateSSLContext (e.g., cert/private_key must be both provided or both omitted).",
+        "options->verify_mode controls the OpenSSL verify mode; constants mirror OpenSSL (e.g., REDIS_SSL_VERIFY_PEER, REDIS_SSL_VERIFY_NONE, etc.).",
+        "If error is non-NULL, on failure it will be populated with a redisSSLContextError; on success its contents are unspecified.",
+        "The caller must free the returned context with redisFreeSSLContext when no longer needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisFreeSSLContext",
+      "signature": "void redisFreeSSLContext(redisSSLContext *redis_ssl_ctx);",
+      "description": "Frees a redisSSLContext previously created by redisCreateSSLContext or redisCreateSSLContextWithOptions and releases associated OpenSSL resources.",
+      "requirements": [
+        "redis_ssl_ctx must be a context returned by redisCreateSSLContext or redisCreateSSLContextWithOptions and not already freed.",
+        "Do not use redis_ssl_ctx after this call (dangling pointer).",
+        "NULL handling is not documented in this header; pass a non-NULL pointer to be safe."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisInitiateSSLWithContext",
+      "signature": "int redisInitiateSSLWithContext(redisContext *c, redisSSLContext *redis_ssl_ctx);",
+      "description": "Initiates SSL/TLS on an existing redisContext using a previously created redisSSLContext, abstracting direct OpenSSL usage. Performs the SSL handshake/setup for the connection represented by c.",
+      "requirements": [
+        "c must point to a valid, initialized redisContext associated with a connected socket (specific state requirements are not detailed here).",
+        "redis_ssl_ctx must be a valid redisSSLContext created by the corresponding create function and not freed.",
+        "Should be called when upgrading a plain redisContext to SSL/TLS; whether it can be called after commands have been issued or on an already-SSL context is not specified.",
+        "Return value/error semantics are not documented here; caller should check for success/failure per hiredis documentation or source."
+      ],
+      "error": null
+    },
+    {
+      "name": "redisInitiateSSL",
+      "signature": "int redisInitiateSSL(redisContext *c, struct ssl_st *ssl);",
+      "description": "Initiates SSL/TLS negotiation on redisContext c using a caller-provided OpenSSL SSL* (struct ssl_st). This variant is for applications that manage OpenSSL objects directly.",
+      "requirements": [
+        "c must point to a valid, initialized redisContext associated with a connected socket (specific state requirements are not detailed here).",
+        "ssl must be a properly created and configured OpenSSL SSL* object suitable for client use and for the underlying socket associated with c.",
+        "Ownership/lifetime of ssl is not specified here; ensure it remains valid for the duration of the handshake and subsequent I/O as required by hiredis.",
+        "Return value/error semantics are not documented here; caller should check for success/failure per hiredis/OpenSSL integration guidelines."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "redisReaderCreate",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "reader",
+          "type": "redisReader *"
+        }
+      ],
+      "code": "// Create a new RESP reader and validate allocation succeeds.\nredisReader *reader = redisReaderCreate();\nif (!reader) { FUZZ_BAIL(); }\n// No additional initialization required here. Caller (fuzzer runtime) will own and eventually free via the appropriate API.\n// Output: reader"
+    },
+    {
+      "name": "freeReplyObject",
+      "inputs": [
+        {
+          "name": "reply",
+          "type": "redisReply *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free a hiredis reply object. The input is expected to be produced by hiredis APIs.\n// Do not pass NULL per requirement ambiguity; inputs are guaranteed non-null by runtime.\nfreeReplyObject((void*)reply);\n// The reply must not be used afterward (we also do not return it as an output)."
+    },
+    {
+      "name": "redisFreeCommand",
+      "inputs": [
+        {
+          "name": "cmd_buf",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free a command buffer previously allocated by redisFormat* returning char*.\n// Enforce that this buffer was tagged as a char-based command.\nconst char *kind = FUZZ_GET_ATTR_STR(cmd_buf, \"cmd_kind\");\nif (!kind || kind[0] == '\\0') { FUZZ_BAIL(); }\nif (strcmp(kind, \"char\") != 0) { FUZZ_BAIL(); }\nchar *buf = (char*)cmd_buf;\nredisFreeCommand(buf);\n// Do not return the buffer; it is freed and must not be used further."
+    },
+    {
+      "name": "redisFreeSdsCommand",
+      "inputs": [
+        {
+          "name": "sds_cmd",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free an SDS command buffer previously allocated by redisFormatSdsCommandArgv.\nconst char *kind = FUZZ_GET_ATTR_STR(sds_cmd, \"cmd_kind\");\nif (!kind || kind[0] == '\\0') { FUZZ_BAIL(); }\nif (strcmp(kind, \"sds\") != 0) { FUZZ_BAIL(); }\nhisds handle = (hisds)sds_cmd;\nredisFreeSdsCommand(handle);\n// Not returning the handle; it is freed now."
+    },
+    {
+      "name": "redisFormatCommand",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "cmd_buf",
+          "type": "void *"
+        }
+      ],
+      "code": "// Format a RESP command using the variadic API and return the heap buffer as an output for later freeing via redisFreeCommand.\n// We exercise several format patterns to improve coverage while keeping sizes bounded.\nunsigned int choice = *FUZZ_PARAM(unsigned int);\nstd::string s1 = FUZZ_PARAM_STR();\nstd::string s2 = FUZZ_PARAM_STR();\nstd::string s3 = FUZZ_PARAM_STR();\nif (s1.size() > 1024) s1.resize(1024);\nif (s2.size() > 1024) s2.resize(1024);\nif (s3.size() > 1024) s3.resize(1024);\nchar *cmd = nullptr;\nint rc = -1;\nswitch (choice % 5) {\n    case 0: {\n        // Simple PING\n        rc = redisFormatCommand(&cmd, \"PING\");\n        break;\n    }\n    case 1: {\n        // GET with %s\n        rc = redisFormatCommand(&cmd, \"GET %s\", s1.c_str());\n        break;\n    }\n    case 2: {\n        // SET with binary-safe %b %b\n        rc = redisFormatCommand(&cmd, \"SET %b %b\", s1.data(), (size_t)s1.size(), s2.data(), (size_t)s2.size());\n        break;\n    }\n    case 3: {\n        // HSET mixing %s and %b\n        rc = redisFormatCommand(&cmd, \"HSET %s %s %b\", s1.c_str(), s2.c_str(), s3.data(), (size_t)s3.size());\n        break;\n    }\n    default: {\n        // INCRBY with integer argument\n        long long inc = (long long)(*FUZZ_PARAM(unsigned int) % 100000);\n        rc = redisFormatCommand(&cmd, \"INCRBY %s %lld\", s1.c_str(), inc);\n        break;\n    }\n}\n// Enforce API requirement: negative rc indicates error and cmd must be non-null on success.\nif (rc < 0 || !cmd) { FUZZ_BAIL(); }\n// Define output and tag for correct free function usage.\nvoid *cmd_buf = (void*)cmd;\nFUZZ_SET_ATTR_STR(cmd_buf, \"cmd_kind\", \"char\");\nFUZZ_SET_ATTR_INT(cmd_buf, \"len\", rc);\n// Validation: Produces a non-null heap buffer with length attribute; consumer must free via redisFreeCommand."
+    },
+    {
+      "name": "redisFormatCommandArgv",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "cmd_buf",
+          "type": "void *"
+        }
+      ],
+      "code": "// Format a command from argv/argvlen and return the allocated char* buffer.\n// Build up to 4 arguments, argc in [1,4].\nstd::string a0 = FUZZ_PARAM_STR();\nstd::string a1 = FUZZ_PARAM_STR();\nstd::string a2 = FUZZ_PARAM_STR();\nstd::string a3 = FUZZ_PARAM_STR();\nif (a0.size() > 512) a0.resize(512);\nif (a1.size() > 512) a1.resize(512);\nif (a2.size() > 512) a2.resize(512);\nif (a3.size() > 512) a3.resize(512);\nint argc = (int)(*FUZZ_PARAM(unsigned int) % 4) + 1;\nconst char *argv_local[4];\nsize_t argvlen_local[4];\nargv_local[0] = a0.c_str(); argvlen_local[0] = a0.size();\nargv_local[1] = a1.c_str(); argvlen_local[1] = a1.size();\nargv_local[2] = a2.c_str(); argvlen_local[2] = a2.size();\nargv_local[3] = a3.c_str(); argvlen_local[3] = a3.size();\n// Randomly decide whether to provide explicit lengths.\nbool provide_len = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nchar *out = nullptr;\nlong long rc = redisFormatCommandArgv(&out, argc, argv_local, provide_len ? argvlen_local : nullptr);\n// Enforce API: negative indicates error; out must be non-null on success.\nif (rc < 0 || !out) { FUZZ_BAIL(); }\n// Define output and tag for correct free function usage.\nvoid *cmd_buf = (void*)out;\nFUZZ_SET_ATTR_STR(cmd_buf, \"cmd_kind\", \"char\");\nFUZZ_SET_ATTR_INT(cmd_buf, \"len\", (int)rc);\n// Validation: Returns a non-null buffer with recorded length; caller must free using redisFreeCommand."
+    },
+    {
+      "name": "redisFormatSdsCommandArgv",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "sds_cmd",
+          "type": "void *"
+        }
+      ],
+      "code": "// Format a command from argv into an SDS (hisds) buffer and return it for later freeing via redisFreeSdsCommand.\nstd::string a0 = FUZZ_PARAM_STR();\nstd::string a1 = FUZZ_PARAM_STR();\nstd::string a2 = FUZZ_PARAM_STR();\nif (a0.size() > 512) a0.resize(512);\nif (a1.size() > 512) a1.resize(512);\nif (a2.size() > 512) a2.resize(512);\nint argc = (int)(*FUZZ_PARAM(unsigned int) % 3) + 1; // 1..3\nconst char *argv_local[3];\nsize_t argvlen_local[3];\nargv_local[0] = a0.c_str(); argvlen_local[0] = a0.size();\nargv_local[1] = a1.c_str(); argvlen_local[1] = a1.size();\nargv_local[2] = a2.c_str(); argvlen_local[2] = a2.size();\nbool provide_len = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nhisds out = NULL;\nlong long rc = redisFormatSdsCommandArgv(&out, argc, argv_local, provide_len ? argvlen_local : nullptr);\n// Enforce API: negative indicates error; out must be non-null on success.\nif (rc < 0 || !out) { FUZZ_BAIL(); }\n// Define output and tag for correct free function usage.\nvoid *sds_cmd = (void*)out;\nFUZZ_SET_ATTR_STR(sds_cmd, \"cmd_kind\", \"sds\");\nFUZZ_SET_ATTR_INT(sds_cmd, \"len\", (int)rc);\n// Validation: Produces a valid hisds handle tagged for redisFreeSdsCommand; length recorded for downstream checks."
+    },
+    {
+      "name": "redisAsyncConnectWithOptions",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Build a minimal redisOptions on the stack; we keep timeouts NULL to avoid blocking.\nredisOptions opts;\nopts.type = (*FUZZ_PARAM(unsigned int) % 2) ? REDIS_CONN_TCP : REDIS_CONN_UNIX; // limit to TCP/UNIX\nopts.options = 0;\nopts.connect_timeout = NULL;\nopts.command_timeout = NULL;\nopts.endpoint.tcp.source_addr = NULL;\nopts.endpoint.tcp.ip = NULL;\nopts.endpoint.tcp.port = 0;\nopts.endpoint.unix_socket = NULL;\nopts.endpoint.fd = REDIS_INVALID_FD;\nopts.privdata = NULL;\nopts.free_privdata = NULL;\nopts.push_cb = NULL;\nopts.async_push_cb = NULL;\n\nif (opts.type == REDIS_CONN_TCP) {\n    // Provide a NUL-terminated IP/host and a valid port range 1..65535\n    std::string ip_s = FUZZ_PARAM_STR();\n    if (ip_s.empty()) { FUZZ_BAIL(); }\n    int port = (int)(*FUZZ_PARAM(unsigned int) % 65535u) + 1;\n    opts.endpoint.tcp.ip = ip_s.c_str();\n    opts.endpoint.tcp.port = port;\n    // optional source addr left NULL\n} else { // REDIS_CONN_UNIX\n    // Use a valid filesystem path (not necessarily a socket); connect may fail fast, which is OK.\n    const char *path = FUZZ_PARAM_FILENAME();\n    opts.endpoint.unix_socket = path;\n}\n\nredisAsyncContext *ac = redisAsyncConnectWithOptions(&opts);\nif (!ac) { FUZZ_BAIL(); }\n// Track essential attributes for downstream stubs.\nFUZZ_SET_ATTR_INT(ac, \"usable\", 1);\nFUZZ_SET_ATTR_INT(ac, \"connected\", 1); // treat as logically connected for queuing-only APIs\nFUZZ_SET_ATTR_INT(ac, \"transport\", opts.type);\n// Validation: ac is non-NULL and tagged with usability/connection attributes for safe reuse in later stubs."
+    },
+    {
+      "name": "redisAsyncConnect",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Generate remote endpoint. ip must be NUL-terminated; port in [1,65535].\nstd::string ip_s = FUZZ_PARAM_STR();\nif (ip_s.empty()) { FUZZ_BAIL(); }\nint port = (int)(*FUZZ_PARAM(unsigned int) % 65535u) + 1;\nredisAsyncContext *ac = redisAsyncConnect(ip_s.c_str(), port);\nif (!ac) { FUZZ_BAIL(); }\n// Tag context for later constraints and lifetime tracking.\nFUZZ_SET_ATTR_INT(ac, \"usable\", 1);\nFUZZ_SET_ATTR_INT(ac, \"connected\", 1);\nFUZZ_SET_ATTR_INT(ac, \"transport\", REDIS_CONN_TCP);\n// Validation: non-NULL ac returned and annotated; consumers must check usable flag before use."
+    },
+    {
+      "name": "redisAsyncConnectBind",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Prepare remote and bind addresses; both must be non-NULL NUL-terminated strings.\nstd::string ip_s = FUZZ_PARAM_STR();\nstd::string src_s = FUZZ_PARAM_STR();\nif (ip_s.empty() || src_s.empty()) { FUZZ_BAIL(); }\nint port = (int)(*FUZZ_PARAM(unsigned int) % 65535u) + 1;\nredisAsyncContext *ac = redisAsyncConnectBind(ip_s.c_str(), port, src_s.c_str());\nif (!ac) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(ac, \"usable\", 1);\nFUZZ_SET_ATTR_INT(ac, \"connected\", 1);\nFUZZ_SET_ATTR_INT(ac, \"transport\", REDIS_CONN_TCP);\n// Validation: Ensure both ip/source_addr were non-empty; ac tracked for reuse."
+    },
+    {
+      "name": "redisAsyncConnectBindWithReuse",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Construct remote and bind addresses, enforcing non-empty strings and a valid port.\nstd::string ip_s = FUZZ_PARAM_STR();\nstd::string src_s = FUZZ_PARAM_STR();\nif (ip_s.empty() || src_s.empty()) { FUZZ_BAIL(); }\nint port = (int)(*FUZZ_PARAM(unsigned int) % 65535u) + 1;\nredisAsyncContext *ac = redisAsyncConnectBindWithReuse(ip_s.c_str(), port, src_s.c_str());\nif (!ac) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(ac, \"usable\", 1);\nFUZZ_SET_ATTR_INT(ac, \"connected\", 1);\nFUZZ_SET_ATTR_INT(ac, \"transport\", REDIS_CONN_TCP);\n// Validation: ac non-NULL and annotated; REUSE semantics exercised by API path."
+    },
+    {
+      "name": "redisAsyncConnectUnix",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Use a filesystem path for a Unix domain socket; must be NUL-terminated and non-NULL.\nconst char *path = FUZZ_PARAM_FILENAME();\nredisAsyncContext *ac = redisAsyncConnectUnix(path);\nif (!ac) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(ac, \"usable\", 1);\nFUZZ_SET_ATTR_INT(ac, \"connected\", 1);\nFUZZ_SET_ATTR_INT(ac, \"transport\", REDIS_CONN_UNIX);\n// Validation: ac created and tagged; note that actual connection may fail, which is acceptable for non-blocking fuzzing."
+    },
+    {
+      "name": "redisAsyncSetTimeout",
+      "inputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Ensure the context is still valid and not freed.\nif (FUZZ_GET_ATTR_INT(ac, \"usable\") != 1) { FUZZ_BAIL(); }\n// Create a non-negative timeval with small bounds to avoid long waits.\nstruct timeval tv;\ntv.tv_sec = (long)(*FUZZ_PARAM(unsigned int) % 5u);      // 0..4 seconds\ntv.tv_usec = (long)(*FUZZ_PARAM(unsigned int) % 1000000u); // 0..999999 usec\nint rc = redisAsyncSetTimeout(ac, tv);\n(void)rc; // We don't assert on rc to avoid flakiness; callers should check rc per API.\n// Keep ac available for subsequent operations.\n// Validation: Non-negative timeval enforced; ac usability checked before call."
+    },
+    {
+      "name": "redisAsyncDisconnect",
+      "inputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Validate context has not been freed.\nif (FUZZ_GET_ATTR_INT(ac, \"usable\") != 1) { FUZZ_BAIL(); }\n// Request asynchronous disconnect; event loop would complete teardown.\nredisAsyncDisconnect(ac);\n// Mark logical state for downstream checks; the object remains owned until freed explicitly.\nFUZZ_SET_ATTR_INT(ac, \"disconnected\", 1);\n// Validation: Called only on a usable context; we retain ac so it can be freed later."
+    },
+    {
+      "name": "redisAsyncFree",
+      "inputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free a context that must not be used afterward.\nif (FUZZ_GET_ATTR_INT(ac, \"usable\") != 1) { FUZZ_BAIL(); }\nredisAsyncFree(ac);\n// Do not return ac; runtime will drop it from the pool to avoid UAF.\n// Validation: Ensures single free by not returning ac; post-free access is avoided."
+    },
+    {
+      "name": "redisAsyncCommandArgv",
+      "inputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Ensure context is alive; for queuing semantics, treat as connected if attribute says so.\nif (FUZZ_GET_ATTR_INT(ac, \"usable\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(ac, \"connected\") != 1) { FUZZ_BAIL(); }\n// Build a small argv vector with argc >= 1, each element non-NULL. Provide lengths for binary-safety.\nconst int argc = (int)(*FUZZ_PARAM(unsigned int) % 4u) + 1; // 1..4\nstatic const size_t MAX_ARGC = 4;\nconst char *argv[MAX_ARGC];\nsize_t argvlen[MAX_ARGC];\nfor (int i = 0; i < argc; ++i) {\n    std::string s = FUZZ_PARAM_STR();\n    // Ensure at least one byte; FUZZ_PARAM_STR guarantees 1..4096, but guard anyway.\n    if (s.size() == 0) { FUZZ_BAIL(); }\n    argv[i] = s.data();\n    argvlen[i] = s.size();\n}\n// Callback and privdata: pass NULL callback when no reply handling is needed.\nint rc = redisAsyncCommandArgv(ac, /*fn=*/NULL, /*privdata=*/NULL, argc, argv, argvlen);\n(void)rc; // Accept library's return code without asserting to avoid over-constraining outcomes.\n// Keep the context available for subsequent stubs.\n// Validation: argc>=1 enforced; every argv[i] non-NULL with explicit lengths; ac checked for usability/connectedness."
+    },
+    {
+      "name": "redisAsyncFormattedCommand",
+      "inputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ac",
+          "type": "redisAsyncContext *"
+        }
+      ],
+      "code": "// Validate async context is alive and logically connected for queuing.\nif (FUZZ_GET_ATTR_INT(ac, \"usable\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(ac, \"connected\") != 1) { FUZZ_BAIL(); }\n\n// Build a small, properly formatted RESP command buffer to maximize success paths.\n// Randomly choose among a few simple commands: PING, ECHO <msg>, SET <key> <val>.\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 3u;\nstd::string arg1 = FUZZ_PARAM_STR();\nstd::string arg2 = FUZZ_PARAM_STR();\nstd::string arg3 = FUZZ_PARAM_STR();\n// Constrain argument sizes to keep total buffer small (<2048 bytes) and avoid huge allocations.\nconst size_t MAX_ARG = 128;\nif (arg1.size() > MAX_ARG) arg1.resize(MAX_ARG);\nif (arg2.size() > MAX_ARG) arg2.resize(MAX_ARG);\nif (arg3.size() > MAX_ARG) arg3.resize(MAX_ARG);\n\n// Prepare arguments vector based on choice.\n// We avoid loops with FUZZ_PARAM_* macros; strings are already generated above.\nstd::string a0, a1, a2;\nint argc = 0;\nif (choice == 0) {\n    // PING\n    a0 = \"PING\"; argc = 1;\n} else if (choice == 1) {\n    // ECHO <msg>\n    a0 = \"ECHO\"; a1 = arg1; argc = 2;\n    if (a1.empty()) { a1 = \"x\"; }\n} else {\n    // SET <key> <val>\n    a0 = \"SET\"; a1 = arg1; a2 = arg2; argc = 3;\n    if (a1.empty()) { a1 = \"k\"; }\n    if (a2.empty()) { a2 = \"v\"; }\n}\n\n// Encode to RESP: *<argc>\\r\\n$<len>\\r\\n<data>\\r\\n ...\nstd::string resp;\nresp.reserve(256);\nauto appendBulk = [&](const std::string &s){\n    // $<len>\\r\\n<data>\\r\\n\n    resp.append(\"$\");\n    resp.append(std::to_string(s.size()));\n    resp.append(\"\\r\\n\");\n    resp.append(s);\n    resp.append(\"\\r\\n\");\n};\n\nresp.append(\"*\");\nresp.append(std::to_string(argc));\nresp.append(\"\\r\\n\");\nappendBulk(a0);\nif (argc >= 2) appendBulk(a1);\nif (argc >= 3) appendBulk(a2);\n\n// Ensure size is reasonable\nif (resp.size() == 0 || resp.size() > 2048) { FUZZ_BAIL(); }\n\n// Queue the formatted command. We pass NULL callback/privdata to simplify harnessing.\nint rc = redisAsyncFormattedCommand(ac, /*fn=*/NULL, /*privdata=*/NULL, resp.data(), resp.size());\n(void)rc; // Do not assert on rc; library may reject malformed inputs despite our effort.\n\n// Keep context available for subsequent operations.\n// Validation: We enforced a complete RESP frame and bounded sizes; ac usability/connectedness checked."
+    },
+    {
+      "name": "redisReaderCreateWithFunctions",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "code": "// Create a reader using the library's default reply object functions by passing NULL.\n// This avoids needing to define custom constructors inside the harness (not allowed here).\nredisReader *r = redisReaderCreateWithFunctions(NULL);\n// Validate creation succeeded.\nif (!r) { FUZZ_BAIL(); }\n// Mark that this reader was created via defaults for downstream stubs if needed.\nFUZZ_SET_ATTR_INT(r, \"created\", 1);\n// Validation: r is non-null and owned by the fuzzer pool after this stub."
+    },
+    {
+      "name": "redisReaderFree",
+      "inputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free a reader previously created by the compatible constructor.\n// After this call, r must not be used; we therefore do not return it as an output.\nredisReaderFree(r);\n// Validation: No outputs returned; ownership transferred to callee and object dropped from pool."
+    },
+    {
+      "name": "redisReaderFeed",
+      "inputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "code": "// Generate a fuzz buffer to feed into the reader.\nstd::string buf = FUZZ_PARAM_STR();\n// Sometimes feed zero bytes to exercise no-op path.\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nsize_t len = (pick & 1) ? 0 : buf.size();\n// Enforce API requirement: r must be valid; buf must be at least len bytes (true by construction).\nint rc = redisReaderFeed(r, buf.data(), len);\n// On error, bail; caller can inspect r->err/errstr separately in other stubs.\nif (rc == -1) { FUZZ_BAIL(); }\n// Return r to the pool since it remains valid and owned by the fuzzer.\n// Validation: Handles len==0 and non-zero; bails on REDIS_ERR and preserves the reader."
+    },
+    {
+      "name": "redisReaderGetReply",
+      "inputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "code": "// Attempt to extract a reply from the reader's internal buffer.\nvoid *reply_tmp = NULL;\nint rc = redisReaderGetReply(r, &reply_tmp);\n// On parser error, bail as per API guidance.\nif (rc == -1) { FUZZ_BAIL(); }\n// If a reply object was produced, free it via the reader's vtable if available to avoid leaks.\nif (reply_tmp) {\n    redisReplyObjectFunctions *fns = r->fn;\n    if (fns && fns->freeObject) {\n        fns->freeObject(reply_tmp);\n        reply_tmp = NULL;\n    }\n}\n// Return r; it remains valid.\n// Validation: Properly handles success, no-reply, and error paths; frees produced replies using fn->freeObject when available."
+    },
+    {
+      "name": "redisReaderGetObject",
+      "inputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "code": "// Obtain the reader's transient reply pointer. Do not dereference; just observe/null-check.\nvoid *obj = redisReaderGetObject(r);\n// Track whether the object was non-null for potential downstream validation.\nFUZZ_SET_ATTR_INT(r, \"last_obj_nonnull\", obj ? 1 : 0);\n// Return r unchanged.\n// Validation: Non-invasive access to internal pointer; maintains reader ownership."
+    },
+    {
+      "name": "redisReaderGetError",
+      "inputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "code": "// Get pointer to internal error string; do not modify.\nchar *errstr = redisReaderGetError(r);\n// Record whether an error string appears present when an error flag is set (best-effort without asserting specifics).\nint had_err = r->err != 0;\nFUZZ_SET_ATTR_INT(r, \"had_err\", had_err);\nFUZZ_SET_ATTR_INT(r, \"errstr_seen\", (errstr && *errstr) ? 1 : 0);\n// Return r unchanged.\n// Validation: Read-only access to internal buffer; attributes capture observation without mutating state."
+    },
+    {
+      "name": "redisReply *",
+      "inputs": [
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reply",
+          "type": "redisReply *"
+        },
+        {
+          "name": "r",
+          "type": "redisReader *"
+        }
+      ],
+      "code": "// Produce a redisReply* by feeding a well-formed RESP frame into an existing redisReader and extracting a reply.\n// We return both the produced reply (for downstream use/free) and the reader (since we don't free it here).\n\n// Choose a reply kind to exercise multiple parser paths while ensuring frames are complete and small.\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 5u;\nstd::string s1 = FUZZ_PARAM_STR();\nif (s1.size() > 64) s1.resize(64);\n// Sanitize for simple status/error lines (they must not contain CR/LF in the middle of the line per RESP).\nstd::string s_line = s1;\nfor (char &ch : s_line) { if (ch == '\\r' || ch == '\\n') ch = 'X'; }\nif (s_line.empty()) s_line = \"OK\";\n\n// Build a valid RESP reply frame.\nstd::string frame;\nif (choice == 0) {\n    // Simple String: +<text>\\r\\n\n    frame.reserve(8 + s_line.size());\n    frame.append(\"+\");\n    frame.append(s_line);\n    frame.append(\"\\r\\n\");\n} else if (choice == 1) {\n    // Error: -ERR <text>\\r\\n\n    frame.reserve(12 + s_line.size());\n    frame.append(\"-ERR \");\n    frame.append(s_line);\n    frame.append(\"\\r\\n\");\n} else if (choice == 2) {\n    // Integer: :<n>\\r\\n\n    long long n = (long long)(*FUZZ_PARAM(unsigned int) % 100000u);\n    frame = \":\" + std::to_string(n) + \"\\r\\n\";\n} else if (choice == 3) {\n    // Bulk String: $<len>\\r\\n<data>\\r\\n\n    frame.reserve(16 + s1.size());\n    frame.append(\"$\");\n    frame.append(std::to_string(s1.size()));\n    frame.append(\"\\r\\n\");\n    frame.append(s1);\n    frame.append(\"\\r\\n\");\n} else {\n    // Array of two integers: *2\\r\\n:1\\r\\n:2\\r\\n\n    frame = \"*2\\r\\n:1\\r\\n:2\\r\\n\";\n}\n\n// Feed the frame into the reader and parse a reply.\nif (frame.empty() || frame.size() > 2048) { FUZZ_BAIL(); }\nint feed_rc = redisReaderFeed(r, frame.data(), frame.size());\nif (feed_rc == -1) { FUZZ_BAIL(); }\n\nvoid *tmp = NULL;\nint get_rc = redisReaderGetReply(r, &tmp);\nif (get_rc == -1) { FUZZ_BAIL(); }\n// Ensure a complete reply was produced; if not, bail because we must output a non-null redisReply*.\nif (!tmp) { FUZZ_BAIL(); }\n\n// The default reader functions produce redisReply objects; cast and minimally validate.\nredisReply *reply = (redisReply*)tmp;\n// Property: type must be one of the known RESP types. We don't have the exact enum here, but we can assert len consistency for bulk strings.\nif (reply->type == /* REDIS_REPLY_STRING, REDIS_REPLY_ERROR, or REDIS_REPLY_VERB etc. */ 0) {\n    // If the build encodes types differently, we avoid strict enum checks. Instead, check bulk length invariant when len is set.\n}\nif (reply->str && reply->len == 0) {\n    // Some reply kinds legitimately have len==0 with non-null str; we avoid hard assertions. Just a soft guard.\n}\n// Attach helpful metadata for downstream stubs (optional; not required by freeReplyObject).\nFUZZ_SET_ATTR_INT(reply, \"reply_type\", reply->type);\n\n// Validation: We constructed a complete RESP frame, fed it, parsed one reply, and return both reply and reader (still valid)."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "redisvFormatCommand",
+      "reason": "Requires constructing a va_list, which cannot be safely or portably generated within this fuzzer stub without variadic wrapper functions."
+    },
+    {
+      "name": "redisConnectWithOptions",
+      "reason": "Establishing real network connections can block or depend on external services, which is unsafe for the fuzzer runtime."
+    },
+    {
+      "name": "redisConnect",
+      "reason": "Initiating real TCP connections introduces external I/O and blocking behavior unsuitable for fuzzing."
+    },
+    {
+      "name": "redisConnectWithTimeout",
+      "reason": "Network connection attempts (even with timeouts) can block and depend on external environment, making them unsuitable for this fuzzer model."
+    },
+    {
+      "name": "redisConnectNonBlock",
+      "reason": "Non-blocking connects still require real sockets and event loop integration, which is incompatible with the fuzzer environment."
+    },
+    {
+      "name": "redisConnectBindNonBlock",
+      "reason": "Requires real network sockets and binding to addresses, which is not safe or meaningful in the fuzzer context."
+    },
+    {
+      "name": "redisConnectBindNonBlockWithReuse",
+      "reason": "Requires real network sockets and OS-level socket options, which are unsuitable for fuzzing."
+    },
+    {
+      "name": "redisConnectUnix",
+      "reason": "Unix domain socket connections depend on external filesystem endpoints and may block, making them unsuitable for fuzzing."
+    },
+    {
+      "name": "redisConnectUnixWithTimeout",
+      "reason": "Unix domain socket connection attempts involve external I/O and possible blocking, which is unsuitable for fuzzing."
+    },
+    {
+      "name": "redisConnectUnixNonBlock",
+      "reason": "Requires an external Unix socket and event loop integration, which the fuzzer cannot provide safely."
+    },
+    {
+      "name": "redisConnectFd",
+      "reason": "Needs a valid connected socket descriptor; providing arbitrary fds is unsafe and may cause undefined behavior."
+    },
+    {
+      "name": "redisReconnect",
+      "reason": "Reconnect performs network I/O and may block or depend on prior connection state, which is unsuitable for fuzzing."
+    },
+    {
+      "name": "redisSetPushCallback",
+      "reason": "Setting a callback requires a valid function pointer, but defining such functions is disallowed in the stub and NULL safety is unspecified."
+    },
+    {
+      "name": "redisSetTimeout",
+      "reason": "Requires a valid connected redisContext and would alter socket timeouts, which we cannot safely provide in this fuzzer environment."
+    },
+    {
+      "name": "redisEnableKeepAlive",
+      "reason": "Requires a valid TCP-backed redisContext with an open socket, which we cannot guarantee without external networking."
+    },
+    {
+      "name": "redisEnableKeepAliveWithInterval",
+      "reason": "Requires a valid TCP-backed redisContext and network socket state not available in the fuzzer environment."
+    },
+    {
+      "name": "redisSetTcpUserTimeout",
+      "reason": "Requires a valid TCP socket within redisContext and OS-specific socket options unavailable in this harness."
+    },
+    {
+      "name": "redisFree",
+      "reason": "Needs a real redisContext created by connect APIs; creating such a context requires external networking not available here."
+    },
+    {
+      "name": "redisFreeKeepFd",
+      "reason": "Needs a real redisContext from a live connection to return a valid file descriptor, which we cannot establish here."
+    },
+    {
+      "name": "redisBufferRead",
+      "reason": "Operates on a connected redisContext’s socket and reader, requiring live I/O unavailable in the fuzzer environment."
+    },
+    {
+      "name": "redisBufferWrite",
+      "reason": "Flushes data to a connected socket via redisContext, which requires external networking not available here."
+    },
+    {
+      "name": "redisGetReply",
+      "reason": "Requires a valid connected redisContext and pending I/O; not feasible without external Redis server interaction."
+    },
+    {
+      "name": "redisGetReplyFromReader",
+      "reason": "Depends on a properly initialized redisContext reader state fed by socket I/O, which we cannot provide here."
+    },
+    {
+      "name": "redisAppendFormattedCommand",
+      "reason": "Appends to a redisContext output buffer tied to a live connection; a valid context cannot be created without networking."
+    },
+    {
+      "name": "redisvAppendCommand",
+      "reason": "Requires a valid redisContext and formats with va_list, but meaningful execution relies on a live connection unavailable here."
+    },
+    {
+      "name": "redisAppendCommand",
+      "reason": "Requires a valid redisContext and would queue data for a live socket, which is not available in this harness."
+    },
+    {
+      "name": "redisAppendCommandArgv",
+      "reason": "Requires a valid redisContext and would queue data for a live socket, which is not available in this harness."
+    },
+    {
+      "name": "redisvCommand",
+      "reason": "Executes or queues a command on a redisContext and potentially performs I/O, which needs external networking not available here."
+    },
+    {
+      "name": "redisCommand",
+      "reason": "Executes or queues a command on a redisContext and potentially performs I/O, which needs external networking not available here."
+    },
+    {
+      "name": "redisCommandArgv",
+      "reason": "Executes or queues a command on a redisContext and potentially performs I/O, which needs external networking not available here."
+    },
+    {
+      "name": "redisAsyncSetConnectCallback",
+      "reason": "Requires providing a real function pointer callback, which cannot be safely generated within this fuzzer model."
+    },
+    {
+      "name": "redisAsyncSetConnectCallbackNC",
+      "reason": "Requires a valid function pointer for the connect callback, which the fuzzer cannot synthesize safely."
+    },
+    {
+      "name": "redisAsyncSetDisconnectCallback",
+      "reason": "Needs a real disconnect callback function pointer not safely creatable by the fuzzer."
+    },
+    {
+      "name": "redisAsyncSetPushCallback",
+      "reason": "Registers a function pointer handler and assumes event-loop reentrancy, which cannot be safely provided by the harness."
+    },
+    {
+      "name": "redisAsyncHandleRead",
+      "reason": "Must be invoked only when the socket is readable under an event loop; the harness cannot guarantee correct I/O readiness or integration."
+    },
+    {
+      "name": "redisAsyncHandleWrite",
+      "reason": "Requires event-loop integration and writable socket state, which the fuzzer cannot ensure."
+    },
+    {
+      "name": "redisAsyncHandleTimeout",
+      "reason": "Depends on scheduled timeouts and event-loop semantics not available in the harness environment."
+    },
+    {
+      "name": "redisAsyncRead",
+      "reason": "Performs I/O assuming readable socket and event-loop context, which the harness cannot safely emulate."
+    },
+    {
+      "name": "redisAsyncWrite",
+      "reason": "Performs I/O assuming writable socket and event-loop context, which the harness cannot safely emulate."
+    },
+    {
+      "name": "redisvAsyncCommand",
+      "reason": "Cannot safely construct a matching va_list for arbitrary formats within the harness."
+    },
+    {
+      "name": "redisAsyncCommand",
+      "reason": "Variadic arguments must match the format string, which the harness cannot safely synthesize."
+    },
+    {
+      "name": "redisReaderSetPrivdata",
+      "reason": "Its macro definition casts a pointer to int, which triggers a compile-time error on 64-bit platforms under current toolchain flags, so it cannot be invoked in the harness without modifying headers or build flags."
+    },
+    {
+      "name": "redisInitiateSSL",
+      "reason": "Requires a valid and properly configured OpenSSL SSL* object, which cannot be safely synthesized or validated by the fuzzer under the current model."
+    },
+    {
+      "name": "redisSSLContextGetError",
+      "reason": "The hiredis symbol is not available in this environment, causing an undefined reference at link time."
+    },
+    {
+      "name": "redisInitOpenSSL",
+      "reason": "The hiredis/OpenSSL initialization symbol is not available to the toolchain, leading to a link-time undefined reference."
+    },
+    {
+      "name": "redisCreateSSLContext",
+      "reason": "This hiredis function is not linked in the harness environment, resulting in an undefined reference during linking."
+    },
+    {
+      "name": "redisCreateSSLContextWithOptions",
+      "reason": "The hiredis function symbol is missing from the link environment, making it impossible to harness."
+    },
+    {
+      "name": "redisFreeSSLContext",
+      "reason": "The required hiredis free function is not present in the link environment, producing an undefined reference."
+    },
+    {
+      "name": "redisInitiateSSLWithContext",
+      "reason": "The hiredis SSL initiation symbol is unavailable in the toolchain, so the stub cannot link or execute."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "redisReaderCreate",
+      "data_types": []
+    },
+    {
+      "name": "freeReplyObject",
+      "data_types": []
+    },
+    {
+      "name": "redisFreeCommand",
+      "data_types": []
+    },
+    {
+      "name": "redisFreeSdsCommand",
+      "data_types": []
+    },
+    {
+      "name": "redisAsyncSetTimeout",
+      "data_types": []
+    },
+    {
+      "name": "redisAsyncDisconnect",
+      "data_types": []
+    },
+    {
+      "name": "redisAsyncFree",
+      "data_types": []
+    },
+    {
+      "name": "redisReaderCreateWithFunctions",
+      "data_types": []
+    },
+    {
+      "name": "redisReaderFree",
+      "data_types": []
+    },
+    {
+      "name": "redisReaderGetReply",
+      "data_types": []
+    },
+    {
+      "name": "redisReaderGetObject",
+      "data_types": []
+    },
+    {
+      "name": "redisReaderGetError",
+      "data_types": []
+    },
+    {
+      "name": "redisFormatCommand",
+      "data_types": [
+        "Redis command format string",
+        "Redis bulk-safe binary data"
+      ]
+    },
+    {
+      "name": "redisFormatCommandArgv",
+      "data_types": [
+        "Redis command arguments",
+        "Redis command arguments with lengths"
+      ]
+    },
+    {
+      "name": "redisFormatSdsCommandArgv",
+      "data_types": [
+        "Redis command arguments",
+        "Redis command arguments with lengths"
+      ]
+    },
+    {
+      "name": "redisAsyncConnectWithOptions",
+      "data_types": [
+        "IP/hostname string",
+        "Filesystem path"
+      ]
+    },
+    {
+      "name": "redisAsyncConnect",
+      "data_types": [
+        "IP/hostname string"
+      ]
+    },
+    {
+      "name": "redisAsyncConnectBind",
+      "data_types": [
+        "IP/hostname string",
+        "IP address string (source)"
+      ]
+    },
+    {
+      "name": "redisAsyncConnectBindWithReuse",
+      "data_types": [
+        "IP/hostname string",
+        "IP address string (source)"
+      ]
+    },
+    {
+      "name": "redisAsyncConnectUnix",
+      "data_types": [
+        "Filesystem path"
+      ]
+    },
+    {
+      "name": "redisAsyncCommandArgv",
+      "data_types": [
+        "Redis command arguments with lengths"
+      ]
+    },
+    {
+      "name": "redisAsyncFormattedCommand",
+      "data_types": [
+        "RESP-encoded Redis command"
+      ]
+    },
+    {
+      "name": "redisReaderFeed",
+      "data_types": [
+        "Arbitrary byte buffer"
+      ]
+    },
+    {
+      "name": "redisReply *",
+      "data_types": [
+        "Arbitrary byte buffer",
+        "RESP-encoded Redis reply"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "Redis command format string",
+      "description": "A printf-like hiredis command format string consumed by redisFormatCommand/redisvFormatCommand. Supports tokens such as %s (C-string), %b (binary data with explicit length), and numeric specifiers like %d/%lld. The string should form a valid Redis command when combined with provided arguments."
+    },
+    {
+      "data_type": "Redis bulk-safe binary data",
+      "description": "Arbitrary bytes used as Redis command arguments when paired with an explicit length (for %b). May contain NULs and any 8-bit values."
+    },
+    {
+      "data_type": "Redis command arguments",
+      "description": "A vector of NUL-terminated strings representing Redis command tokens (command name and arguments). Each element is a byte string interpreted as text when no length array is provided."
+    },
+    {
+      "data_type": "Redis command arguments with lengths",
+      "description": "A vector of byte buffers plus a parallel array of sizes, representing binary-safe Redis command arguments (argv/argvlen). Each argument may contain embedded NUL bytes."
+    },
+    {
+      "data_type": "IP/hostname string",
+      "description": "A NUL-terminated textual network address suitable for TCP connection APIs, e.g., an IPv4/IPv6 literal or a resolvable hostname like 127.0.0.1 or example.com."
+    },
+    {
+      "data_type": "IP address string (source)",
+      "description": "A NUL-terminated local interface or IP address string used for binding the local socket before connect (source address selection)."
+    },
+    {
+      "data_type": "Filesystem path",
+      "description": "A NUL-terminated path string to a Unix domain socket file. May refer to any filesystem location; expected to be a socket path for successful connect."
+    },
+    {
+      "data_type": "RESP-encoded Redis command",
+      "description": "A byte buffer containing a complete Redis Serialization Protocol (RESP) command frame, e.g., *<argc>\\r\\n$<len>\\r\\n<data>\\r\\n... suitable for sending directly to Redis."
+    },
+    {
+      "data_type": "Arbitrary byte buffer",
+      "description": "Opaque bytes with no required structure. Used to feed parsers or buffers where any data is accepted, including zero-length."
+    },
+    {
+      "data_type": "RESP-encoded Redis reply",
+      "description": "A byte buffer containing a complete RESP reply frame such as +OK\\r\\n, -ERR msg\\r\\n, :123\\r\\n, $<len>\\r\\n<data>\\r\\n, or array/map forms, suitable for parsing by a Redis protocol reader."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "Redis command format string",
+      "generator": "import random\nimport struct\nimport string\n\n# Generator for hiredis redisFormatCommand fuzzer stub.\n# The stub will call FUZZ_PARAM_STR three times and select among 5 format cases.\n# We must return a bytes buffer that the fuzzer framework will slice to serve\n# FUZZ_PARAM(unsigned int) and FUZZ_PARAM_STR calls. We craft the buffer so that\n# each call receives valid, interesting values producing sensible commands.\n#\n# Assumed FUZZ_PARAM layout (common in fuzzing harnesses):\n# - When an unsigned int is requested, the framework consumes 4 bytes little-endian.\n# - When a string is requested, the framework consumes a length prefix and then bytes,\n#   or it may scan for NUL terminator. We can't be certain. To be robust, we embed\n#   multiple NUL-terminated strings back-to-back and also include length-prefixed\n#   variants so either convention yields usable data. Many fuzzers use NUL-terminated\n#   for FUZZ_PARAM_STR, so we ensure NULs are present and within limits.\n#\n# Strategy:\n# - Emit a 4-byte choice selector to drive the switch (case 0..4).\n# - Then for each of three strings, emit both a NUL-terminated view and a binary blob\n#   the harness might choose from. The content is crafted to be valid Redis arguments\n#   for commands issued in the stub: keys, values, field names, integers (for INCRBY key).\n# - Keep total size <= 4096.\n#\n# String themes we generate:\n# - Redis-safe ASCII keys (alnum, punctuation).\n# - Binary-like payloads including spaces, newlines, and NULs kept after the first NUL\n#   so C-string paths remain valid while %b variants can still consume lengths from s.data().\n# - Special names like \"key\", \"field\", \"hash\", and variable randoms to vary coverage.\n\nMAX_TOTAL = 4096\n\nALNUM_PUNCT = string.ascii_letters + string.digits + \"-_:.@/[]{}()$#,+*=!\" \n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    n = rng.randint(min_len, max_len)\n    return ''.join(rng.choice(ALNUM_PUNCT) for _ in range(n))\n\ndef _rand_binary(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    n = rng.randint(min_len, max_len)\n    # Mix printable and control bytes but keep at least one NUL not at the start.\n    data = bytearray(rng.getrandbits(8) for _ in range(n))\n    if n > 2:\n        pos = rng.randint(1, n-1)\n        data[pos] = 0\n    return bytes(data)\n\ndef _nul_terminated(b: bytes) -> bytes:\n    # Ensure exactly one NUL terminator added (safe if already contains NUL earlier).\n    if not b or b[-1] != 0:\n        return b + b\"\\x00\"\n    return b\n\ndef _make_str_block(rng: random.Random, theme: str) -> bytes:\n    # Create a block representing one FUZZ_PARAM_STR that is useful for both %s and %b uses.\n    # Layout:\n    # [ASCII c-string]\\0 [binary payload length (LE32)] [binary payload bytes]\n    # Many harnesses will only use the c-string portion; hiredis %b uses provided data/len\n    # from the stub, not from our buffer, but we keep binary part to satisfy possible\n    # length-prefixed consumers.\n    if theme == 'key':\n        base = rng.choice(['key', 'user', 'session', 'account', 'k']) + ':' + _rand_ascii(rng, 3, 12)\n    elif theme == 'field':\n        base = rng.choice(['field', 'col', 'attr', 'f']) + '_' + _rand_ascii(rng, 2, 10)\n    elif theme == 'value':\n        base = rng.choice(['val', 'json', 'blob', 'data']) + '-' + _rand_ascii(rng, 2, 8)\n    elif theme == 'hash':\n        base = 'hash:' + _rand_ascii(rng, 4, 10)\n    elif theme == 'intlike':\n        # For INCRBY key %lld, the key is s1.c_str(); we make it alnum so it's valid key.\n        base = rng.choice(['counter', 'cnt', 'hits']) + ':' + _rand_ascii(rng, 2, 8)\n    else:\n        base = _rand_ascii(rng, 3, 16)\n\n    cstr = _nul_terminated(base.encode('utf-8'))\n\n    # Binary payload: build something different from cstr to exercise %b paths.\n    bin_payload = _rand_binary(rng, 0, 64)\n    # Sometimes embed textual JSON-like or spaces/newlines to test tokenization\n    if rng.random() < 0.5:\n        extra = (rng.choice(['{\"a\":1}', '{\"ok\":true}', 'line1\\nline2', 'value with spaces']).encode('utf-8'))\n        # Keep first NUL early for C-string; append binary after it so %b will see full data\n        bin_payload = (b\"\\x00\" if rng.random() < 0.4 else b\"\") + extra + (b\"\\x00\" if rng.random() < 0.3 else b\"\")\n    le_len = struct.pack('<I', len(bin_payload))\n    return cstr + le_len + bin_payload\n\ndef _build_case_selector(rng: random.Random) -> int:\n    # Choose among 5 cases with some weighting to cover all\n    weights = [1, 2, 2, 2, 2]  # include simple PING but favor others\n    choices = []\n    for i, w in enumerate(weights):\n        choices.extend([i] * w)\n    return rng.choice(choices)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Select case for the first FUZZ_PARAM(unsigned int)\n    case = _build_case_selector(rng)\n    buf = bytearray()\n    buf += struct.pack('<I', case)\n\n    # Build three FUZZ_PARAM_STR blocks tailored for each case to produce valid commands\n    # case 0: PING ignores strings, but we still provide sensible data\n    # case 1: GET %s -> s1 should be a key\n    # case 2: SET %b %b -> s1 and s2 can be arbitrary/binary; we ensure non-empty sometimes\n    # case 3: HSET %s %s %b -> s1 hash key, s2 field, s3 value (binary ok)\n    # case 4: INCRBY %s %lld -> s1 key; we also need another FUZZ_PARAM(unsigned int) for inc\n\n    # s1\n    theme1 = 'key' if case in (1, 4) else ('hash' if case == 3 else 'value')\n    buf += _make_str_block(rng, theme1)\n\n    # s2\n    theme2 = 'value' if case == 2 else ('field' if case == 3 else 'value')\n    buf += _make_str_block(rng, theme2)\n\n    # s3\n    theme3 = 'value'\n    buf += _make_str_block(rng, theme3)\n\n    # For default case in stub (case 4), it consumes another unsigned int to compute inc\n    if case == 4:\n        # Choose a range including negatives when cast to long long via modulo, but stub uses % 100000\n        inc = rng.randrange(0, 200000)\n        buf += struct.pack('<I', inc)\n\n    # Bound the total size\n    return bytes(buf[:MAX_TOTAL])\n"
+    },
+    {
+      "data_type": "Redis bulk-safe binary data",
+      "generator": "import random\nimport struct\nimport zlib\n\n# Generator for Redis bulk-safe binary data to be used by hiredis redisFormatCommand fuzzer stub.\n# The fuzzer stub requests three FUZZ_PARAM_STR strings (s1, s2, s3), each truncated to 1024 bytes.\n# It then selects one of several command formatting patterns that use %s and %b (binary-safe) specifiers.\n# Our goal is to return a single bytes buffer that the harness will split to feed FUZZ_PARAM_STR calls.\n# We therefore pack multiple interesting byte sequences concatenated, letting the harness slice them\n# deterministically. We keep total size <= 4096.\n\nMAX_PART = 1024\nMAX_TOTAL = 4096\n\nASCII_KEYS = [\n    b\"key\",\n    b\"foo\",\n    b\"bar\",\n    b\"baz\",\n    b\"long_key_name_with_namespace:sub:leaf\",\n    b\"utf8:\\xe2\\x98\\x83:snowman\",  # UTF-8\n    b\"empty\",  # sometimes empty will be separate variant\n]\n\nBINARY_PATTERNS = [\n    # Pure binary with NULs and high bytes\n    lambda rng, n: bytes(rng.getrandbits(8) for _ in range(n)),\n    # Repeating small pattern\n    lambda rng, n: (b\"\\x00\\xff\\x7f\\x80ABC\\n\\r\\t\" * (n // 9 + 1))[:n],\n    # Incrementing bytes\n    lambda rng, n: bytes((i % 256) for i in range(n)),\n    # Zlib member (valid compressed stream)\n    lambda rng, n: (zlib.compress(b\"Z\" * max(1, min(n, 512))) + b\"X\" * n)[:n],\n    # Mixed text + NULs\n    lambda rng, n: (b\"value\\x00with\\x00nuls:\" + bytes(rng.getrandbits(8) for _ in range(max(0, n-17))))[:n],\n]\n\ndef _rand_len(rng: random.Random, max_len: int) -> int:\n    # Bias lengths toward edge cases and a spread across the range\n    choices = [0, 1, 2, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 768, 1023, 1024]\n    if rng.random() < 0.6:\n        return min(max_len, rng.choice(choices))\n    # Otherwise uniform in range\n    return rng.randrange(0, max_len + 1)\n\ndef _make_ascii_like(rng: random.Random, max_len: int) -> bytes:\n    # Generate plausible key/field names (for %s cases): mix of predefined and random safe chars\n    if rng.random() < 0.5:\n        base = rng.choice(ASCII_KEYS)\n        extra_len = max(0, _rand_len(rng, max_len) - len(base))\n        suffix = b\"\"\n        if extra_len > 0:\n            pool = b\"-_:.@/\\\"'[]{}()$%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\"\n            suffix = bytes(pool[rng.randrange(len(pool))] for _ in range(extra_len))\n        out = (base + suffix)[:max_len]\n        return out\n    # random ascii-safe length up to max\n    n = _rand_len(rng, max_len)\n    pool = b\"-_:.@/\\\"'[]{}()$%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\"\n    return bytes(pool[rng.randrange(len(pool))] for _ in range(n))\n\ndef _make_binary(rng: random.Random, max_len: int) -> bytes:\n    n = _rand_len(rng, max_len)\n    patt = rng.choice(BINARY_PATTERNS)\n    return patt(rng, n)\n\ndef _ensure_nonempty_pref(rng: random.Random, b: bytes, fallback: bytes) -> bytes:\n    if len(b) == 0:\n        return fallback\n    return b\n\ndef _compose_parts(parts):\n    # Join and truncate to MAX_TOTAL\n    data = b\"\".join(parts)\n    return data[:MAX_TOTAL]\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # We craft three segments corresponding to s1, s2, s3 consumed by the stub.\n    # To encourage coverage across switch cases, we mix ASCII-like and binary-safe payloads, including edge lengths.\n\n    # s1 is frequently used as key name with %s and %b; prefer ASCII-like but sometimes binary\n    if rng.random() < 0.75:\n        s1 = _make_ascii_like(rng, MAX_PART)\n        s1 = _ensure_nonempty_pref(rng, s1, b\"key\")\n    else:\n        s1 = _make_binary(rng, MAX_PART)\n        s1 = _ensure_nonempty_pref(rng, s1, b\"k\")\n\n    # s2 can be either value or field; mix texty and binary\n    if rng.random() < 0.5:\n        s2 = _make_binary(rng, MAX_PART)\n        s2 = _ensure_nonempty_pref(rng, s2, b\"v\")\n    else:\n        s2 = _make_ascii_like(rng, MAX_PART)\n        s2 = _ensure_nonempty_pref(rng, s2, b\"val\")\n\n    # s3 used as %b in HSET case; prefer more binary with embedded NULs\n    s3 = _make_binary(rng, MAX_PART)\n    s3 = _ensure_nonempty_pref(rng, s3, b\"data\")\n\n    # Occasionally craft special interesting shapes\n    # 1) Large near-1KB payloads\n    if rng.random() < 0.2:\n        s2 = BINARY_PATTERNS[2](rng, 1024)\n    if rng.random() < 0.2:\n        s3 = BINARY_PATTERNS[0](rng, 1024)\n    # 2) Include exact edge sizes 0, 1, 1024 to check truncation behaviors\n    if rng.random() < 0.1:\n        s1 = s1[:0]\n    if rng.random() < 0.1:\n        s2 = s2[:1]\n    if rng.random() < 0.1:\n        s3 = s3[:1024]\n\n    # Prepend a small header that might be consumed by the harness as non-string data\n    # The stub first reads an unsigned int for choice; we supply 4 bytes up front so the\n    # harness can deterministically read a value that influences the switch case.\n    # Encode a biased choice cycling 0..4 for coverage.\n    choice = rng.randrange(0, 5)\n    header = struct.pack(\"<I\", choice)\n\n    # Concatenate header + s1 + s2 + s3; the harness will use them in sequence via FUZZ_PARAM*\n    out = _compose_parts([header, s1, s2, s3])\n    return out\n"
+    },
+    {
+      "data_type": "Redis command arguments",
+      "generator": "import random\nimport struct\nfrom typing import List\n\nASCII = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:'\n\ndef _rand_choice(r: random.Random, seq):\n    return seq[r.randrange(len(seq))]\n\ndef _rand_ascii(r: random.Random, min_len: int, max_len: int) -> str:\n    # Guard against invalid ranges\n    if max_len < 0:\n        max_len = 0\n    if min_len < 0:\n        min_len = 0\n    if max_len < min_len:\n        max_len = min_len\n    return ''.join(_rand_choice(r, ASCII) for _ in range(r.randint(min_len, max_len))) if max_len > 0 else ''\n\ndef _rand_bytes(r: random.Random, min_len: int, max_len: int) -> bytes:\n    # Guard against invalid ranges\n    if max_len < 0:\n        max_len = 0\n    if min_len < 0:\n        min_len = 0\n    if max_len < min_len:\n        max_len = min_len\n    n = r.randint(min_len, max_len) if max_len > 0 else 0\n    return bytes(r.getrandbits(8) for _ in range(n))\n\ndef _int_to_bytes(i: int) -> bytes:\n    return str(i).encode('ascii')\n\ndef _float_to_bytes(f: float) -> bytes:\n    s = (\"%.8f\" % f).rstrip('0').rstrip('.')\n    if s == '':\n        s = '0'\n    return s.encode('ascii')\n\ndef _clip(b: bytes, max_len: int = 512) -> bytes:\n    return b[:max_len]\n\ndef _make_bulk(r: random.Random, approx: int) -> bytes:\n    # Normalize approx to a safe positive window [low, high]\n    if approx is None:\n        approx = 1\n    if approx < 1:\n        approx = 1\n    low = max(1, approx // 2)\n    high = max(low, approx)\n    mode = r.choice(['ascii', 'binary', 'mix'])\n    if mode == 'ascii':\n        return _clip(_rand_ascii(r, low, high).encode('ascii'))\n    elif mode == 'binary':\n        return _clip(_rand_bytes(r, low, high))\n    else:\n        a = _rand_ascii(r, low, high).encode('ascii')\n        b = _rand_bytes(r, 0, max(0, approx // 3))\n        return _clip(a + b)\n\ndef _build_command_tokens(r: random.Random) -> List[bytes]:\n    def cmd_set():\n        key = _rand_ascii(r, 1, 32)\n        val = _make_bulk(r, r.randint(1, 300))\n        opts = []\n        if r.random() < 0.5:\n            opts.extend([b'EX', _int_to_bytes(r.randint(1, 600))])\n        if r.random() < 0.5:\n            opts.extend([b'PX', _int_to_bytes(r.randint(1, 100000))])\n        if r.random() < 0.5:\n            opts.append(r.choice([b'NX', b'XX']))\n        return [b'SET', key.encode('ascii'), val] + opts\n\n    def cmd_get():\n        key = _rand_ascii(r, 1, 32)\n        return [b'GET', key.encode('ascii')]\n\n    def cmd_incrbyfloat():\n        key = _rand_ascii(r, 1, 32)\n        inc = _float_to_bytes(r.uniform(-1000.0, 1000.0))\n        return [b'INCRBYFLOAT', key.encode('ascii'), inc]\n\n    def cmd_hset():\n        key = _rand_ascii(r, 1, 32)\n        fields = []\n        pairs = r.randint(1, 3)\n        for _ in range(pairs):\n            f = _rand_ascii(r, 1, 16).encode('ascii')\n            v = _make_bulk(r, r.randint(1, 200))\n            fields.extend([f, v])\n        return [b'HSET', key.encode('ascii')] + fields\n\n    def cmd_lpush():\n        key = _rand_ascii(r, 1, 32)\n        count = r.randint(1, 5)\n        vals = [_make_bulk(r, r.randint(1, 120)) for _ in range(count)]\n        return [b'LPUSH', key.encode('ascii')] + vals\n\n    def cmd_zadd():\n        key = _rand_ascii(r, 1, 32)\n        count = r.randint(1, 4)\n        args = []\n        for _ in range(count):\n            score = _float_to_bytes(r.uniform(-10000, 10000))\n            member = _make_bulk(r, r.randint(1, 120))\n            args.extend([score, member])\n        opts = []\n        if r.random() < 0.3:\n            opts.append(r.choice([b'NX', b'XX']))\n        if r.random() < 0.3:\n            opts.append(b'CH')\n        if r.random() < 0.3:\n            opts.append(b'INCR')\n        return [b'ZADD', key.encode('ascii')] + opts + args\n\n    def cmd_eval():\n        script = _clip(b\"return ARGV[1] or KEYS[1]\")\n        numkeys = r.randint(0, 3)\n        keys = [_rand_ascii(r, 1, 16).encode('ascii') for _ in range(numkeys)]\n        argv_cnt = r.randint(0, 3)\n        argv = [_make_bulk(r, r.randint(1, 64)) for _ in range(argv_cnt)]\n        return [b'EVAL', script, _int_to_bytes(numkeys)] + keys + argv\n\n    def cmd_publish():\n        ch = _rand_ascii(r, 1, 24).encode('ascii')\n        msg = _make_bulk(r, r.randint(1, 200))\n        return [b'PUBLISH', ch, msg]\n\n    def cmd_geoadd():\n        key = _rand_ascii(r, 1, 32).encode('ascii')\n        n = r.randint(1, 3)\n        args = []\n        for _ in range(n):\n            lon = _float_to_bytes(r.uniform(-180, 180))\n            lat = _float_to_bytes(r.uniform(-85, 85))\n            member = _make_bulk(r, r.randint(1, 80))\n            args.extend([lon, lat, member])\n        return [b'GEOADD', key] + args\n\n    def cmd_xadd():\n        key = _rand_ascii(r, 1, 32).encode('ascii')\n        idpart = r.choice([b'*', _int_to_bytes(r.randint(0, 2**31-1)) + b\"-\" + _int_to_bytes(r.randint(0, 2**31-1))])\n        pairs = r.randint(1, 3)\n        fields = []\n        for _ in range(pairs):\n            f = _rand_ascii(r, 1, 12).encode('ascii')\n            v = _make_bulk(r, r.randint(1, 120))\n            fields.extend([f, v])\n        return [b'XADD', key, idpart] + fields\n\n    templates = [\n        cmd_set, cmd_get, cmd_incrbyfloat, cmd_hset, cmd_lpush,\n        cmd_zadd, cmd_eval, cmd_publish, cmd_geoadd, cmd_xadd\n    ]\n    tmpl = r.choice(templates)\n    tokens = tmpl()\n    btoks = [_clip(t if isinstance(t, (bytes, bytearray)) else str(t).encode('utf-8')) for t in tokens]\n    return btoks\n\ndef _encode_for_harness(strings: List[bytes], tail_uint: int) -> bytes:\n    body = b\"\\x00\".join(strings)\n    if len(body) > 4000:\n        body = body[:4000]\n    return body + struct.pack('<I', tail_uint & 0xFFFFFFFF)\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    tokens = _build_command_tokens(r)\n\n    # Ensure at least 3 tokens for the SDS stub (1..3) and up to 4 for argv stub (1..4)\n    while len(tokens) < 3:\n        tokens.append(_clip(_make_bulk(r, r.randint(1, 64))))\n    tokens = tokens[:4]\n    if r.random() < 0.3 and len(tokens) < 4:\n        tokens.append(_clip(_make_bulk(r, r.randint(1, 64))))\n\n    tail_uint = r.getrandbits(32)\n    buf = _encode_for_harness(tokens, tail_uint)\n    return buf[:4096]\n"
+    },
+    {
+      "data_type": "Redis command arguments with lengths",
+      "generator": "import random\nfrom typing import List\n\n# This generator produces a single bytes buffer that the fuzzing harness will\n# hand to FUZZ_PARAM_STR / FUZZ_PARAM_FILENAME / FUZZ_PARAM(unsigned int).\n# We focus on generating valid and interesting Redis command argv elements\n# (binary-safe), covering common commands and edge cases, while keeping inputs\n# within 4096 bytes.\n\nMAX_TOTAL = 4096\n\n# A small corpus of realistic Redis command argument vectors. We encode them\n# as a single bytes blob that the harness will split into FUZZ_PARAM_STR pulls.\n# Since the stubs fetch up to 4 strings per call, we pack multiple logical\n# strings in one buffer using a simple length-prefixed format that typical\n# fuzz harnesses can sample from. However, we cannot rely on harness decoding.\n# Therefore we instead provide a flat bytes blob consisting of concatenated\n# ASCII and binary chunks separated by random delimiters and nulls; most\n# consumers will slice substrings from this buffer, yielding useful argv.\n\nASCII_COMMAND_SETS: List[List[bytes]] = [\n    [b\"PING\"],\n    [b\"ECHO\", b\"Hello, world!\"],\n    [b\"SET\", b\"mykey\", b\"myvalue\"],\n    [b\"GET\", b\"mykey\"],\n    [b\"DEL\", b\"mykey\"],\n    [b\"INCR\", b\"counter\"],\n    [b\"LPUSH\", b\"list\", b\"a\", b\"b\"],\n    [b\"RPUSH\", b\"list\", b\"x\", b\"y\", b\"z\"],\n    [b\"HSET\", b\"hash\", b\"field\", b\"val\"],\n    [b\"HGET\", b\"hash\", b\"field\"],\n    [b\"ZADD\", b\"z\", b\"1\", b\"a\", b\"2\", b\"b\"],\n    [b\"ZINCRBY\", b\"z\", b\"2.5\", b\"member\"],\n    [b\"MSET\", b\"k1\", b\"v1\", b\"k2\", b\"v2\"],\n    [b\"SETEX\", b\"expkey\", b\"10\", b\"val\"],\n    [b\"PSETEX\", b\"expkeyms\", b\"1500\", b\"val\"],\n    [b\"SET\", b\"nxkey\", b\"nxval\", b\"NX\"],\n    [b\"SET\", b\"xxkey\", b\"xxval\", b\"XX\"],\n    [b\"SET\", b\"keepttl\", b\"v\", b\"KEEPTTL\"],\n    [b\"GETRANGE\", b\"mykey\", b\"0\", b\"-1\"],\n    [b\"APPEND\", b\"mykey\", b\"suffix\"],\n    [b\"BITCOUNT\", b\"mykey\"],\n    [b\"SCAN\", b\"0\"],\n    [b\"EVAL\", b\"return ARGV[1]\", b\"0\", b\"arg\"],\n    [b\"EVAL\", b\"return KEYS[1]\", b\"1\", b\"k\"],\n    [b\"PFADD\", b\"hll\", b\"a\", b\"b\"],\n    [b\"GEOADD\", b\"geo\", b\"13.361389\", b\"38.115556\", b\"Palermo\"],\n    [b\"XADD\", b\"stream\", b\"*\", b\"f\", b\"v\"],\n    [b\"JSON.SET\", b\"doc\", b\"$\", b\"{\\\"a\\\":1}\"],\n]\n\n# Binary payload makers for argvlen coverage (embedded NULs, high bytes, etc.)\n\ndef make_binary_blob(rnd: random.Random, min_len: int = 1, max_len: int = 256) -> bytes:\n    n = rnd.randint(min_len, max_len)\n    # Mix ASCII, NULs, and random bytes\n    parts = []\n    i = 0\n    while i < n:\n        choice = rnd.randint(0, 4)\n        if choice == 0:\n            # ASCII run\n            run = rnd.randint(1, min(16, n - i))\n            s = bytes(rnd.choice(b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_:\") for _ in range(run))\n            parts.append(s)\n            i += run\n        elif choice == 1:\n            # NUL bytes\n            run = rnd.randint(1, min(8, n - i))\n            parts.append(b\"\\x00\" * run)\n            i += run\n        else:\n            # Raw random\n            run = rnd.randint(1, min(16, n - i))\n            parts.append(bytes(rnd.getrandbits(8) for _ in range(run)))\n            i += run\n    return b\"\".join(parts)\n\n# Compose a buffer that contains multiple plausible argv strings concatenated\n# with separators that allow the harness to extract diverse substrings when it\n# calls FUZZ_PARAM_STR multiple times.\n\ndef compose_buffer(chunks: List[bytes], rnd: random.Random) -> bytes:\n    # Use a mix of separators including newlines, spaces, CRLF, and NULs.\n    seps = [b\"\\n\", b\" \", b\"\\r\\n\", b\"\\x00\", b\"\\t\"]\n    out = bytearray()\n    for i, c in enumerate(chunks):\n        out += c\n        if i != len(chunks) - 1:\n            # 1-3 separators\n            for _ in range(rnd.randint(1, 3)):\n                out += rnd.choice(seps)\n    return bytes(out)\n\n# Build a set of up to 4 arguments for the stubs that request up to 4 FUZZ_PARAM_STRs.\n\ndef build_argset(rnd: random.Random) -> List[bytes]:\n    choice = rnd.random()\n    args: List[bytes] = []\n    if choice < 0.6:\n        # Pick from known ASCII command sets\n        cmd = rnd.choice(ASCII_COMMAND_SETS)\n        args = list(cmd)\n    else:\n        # Construct a random command with binary-safe args\n        verbs = [\n            b\"SET\", b\"GET\", b\"DEL\", b\"ECHO\", b\"INCR\", b\"LPUSH\", b\"RPUSH\",\n            b\"HSET\", b\"HGET\", b\"ZADD\", b\"EVAL\", b\"XADD\"\n        ]\n        argc = rnd.randint(1, 4)\n        if argc >= 1:\n            args.append(rnd.choice(verbs))\n        for _ in range(argc - 1):\n            # Mix of ascii and binary blobs\n            if rnd.random() < 0.5:\n                args.append(make_binary_blob(rnd, 1, 64))\n            else:\n                # short ascii token\n                token_len = rnd.randint(1, 16)\n                token = bytes(rnd.choice(b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_:\") for _ in range(token_len))\n                args.append(token)\n    # Trim to 4 maximum\n    return args[:4]\n\n# Generate additional entropy buffer to satisfy FUZZ_PARAM(unsigned int) consumption.\n# Many harnesses will pull raw bytes; providing some random tail helps.\n\ndef make_uint_entropy(rnd: random.Random, count: int = 8) -> bytes:\n    return b\"\".join((rnd.getrandbits(32)).to_bytes(4, \"little\") for _ in range(count))\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Build one or two arg sets to populate enough material for multiple stubs.\n    argsets = [build_argset(rnd)]\n    if rnd.random() < 0.5:\n        argsets.append(build_argset(rnd))\n\n    chunks: List[bytes] = []\n    # Interleave argument sets with occasional RESP-like fragments to exercise\n    # formatted command expectations without relying on strict RESP framing.\n    for args in argsets:\n        # Add args\n        chunks.extend(args)\n        # Optionally add a RESP-like hint buffer\n        if rnd.random() < 0.5:\n            # Minimal RESP array for the first two args, e.g., *2\\r\\n$3\\r\\nGET\\r\\n$3\\r\\nkey\\r\\n\n            a = args[:]\n            if len(a) >= 1 and len(a[0]) > 0:\n                # limit bulk lengths to not exceed MAX_TOTAL\n                def bulk(b: bytes) -> bytes:\n                    return b\"$\" + str(len(b)).encode() + b\"\\r\\n\" + b + b\"\\r\\n\"\n                resp = bytearray()\n                resp += b\"*\" + str(len(a)).encode() + b\"\\r\\n\"\n                for part in a:\n                    # Cap very large bulk to 128 to keep total under budget\n                    p = part if len(part) <= 128 else part[:128]\n                    resp += bulk(p)\n                chunks.append(bytes(resp))\n\n        # Add some binary blobs to force argvlen paths\n        if rnd.random() < 0.7:\n            chunks.append(make_binary_blob(rnd, 1, 64))\n\n    # Compose base buffer\n    buf = compose_buffer(chunks, rnd)\n\n    # Append uint entropy and some extra separators\n    tail = bytearray()\n    tail += b\"\\r\\n\\n\\x00\"\n    tail += make_uint_entropy(rnd, count=8)\n\n    out = buf + bytes(tail)\n\n    # Ensure size limit\n    if len(out) > MAX_TOTAL:\n        out = out[:MAX_TOTAL]\n\n    # Guarantee non-empty\n    if not out:\n        out = b\"PING\\n\"\n\n    return out\n"
+    },
+    {
+      "data_type": "IP/hostname string",
+      "generator": "import random\nimport struct\nimport ipaddress\n\n# Data type: IP/hostname string\n# We generate a NUL-terminated textual network address suitable for TCP APIs.\n# The fuzz stubs request strings for:\n# - Remote IP/host (must be non-empty)\n# - Optional source/bind address (must be non-empty)\n# - Unix socket path via FUZZ_PARAM_FILENAME (not our type here)\n# Our generator returns a bytes buffer that the fuzzer will consume to seed FUZZ_PARAM_STR.\n# We include diverse valid values:\n# - IPv4 literals (normal, edge ranges, broadcast-like, leading zeros, mixed lengths)\n# - IPv6 literals (short/long forms, with zero compression, embedded IPv4, scoped)\n# - Hostnames (simple, multi-label, hyphens, punycode-like, long labels within limits)\n# The buffer contains one or more NUL-terminated strings concatenated, so multiple\n# FUZZ_PARAM_STR calls can consume distinct values from the same buffer.\n\nMAX_TOTAL = 4096\n\nIPv4_COMMON = [\n    \"127.0.0.1\", \"0.0.0.0\", \"255.255.255.255\", \"192.168.1.1\", \"10.0.0.1\",\n    \"172.16.0.1\", \"8.8.8.8\", \"1.1.1.1\", \"169.254.1.1\", \"224.0.0.1\",\n]\n\nIPv6_COMMON = [\n    \"::1\", \"::\", \"2001:db8::1\", \"fe80::1\", \"ff02::1\",\n    \"2001:4860:4860::8888\", \"2620:fe::fe\", \"2001:db8:0:0:0:0:2:1\",\n    \"2001:db8::2:1\", \"::ffff:192.0.2.128\",\n]\n\nHOSTNAMES_COMMON = [\n    \"localhost\", \"example.com\", \"redis.local\", \"test\", \"a\", \"aa\",\n    \"sub.domain.example\", \"xn--exmple-cua.com\", \"a-b-c.example\", \"srv01\",\n]\n\n\ndef rand_ipv4(rng: random.Random) -> str:\n    # Mix of common and random; ensure valid dotted-quad\n    if rng.random() < 0.5:\n        return rng.choice(IPv4_COMMON)\n    # Generate random octets with occasional edge values\n    def roct():\n        x = rng.randrange(0, 256)\n        if rng.random() < 0.2:\n            x = rng.choice([0, 1, 127, 224, 255])\n        return x\n    o = [roct() for _ in range(4)]\n    s = \".\".join(str(v) for v in o)\n    # Sometimes add leading zeros in octets (still valid text for many resolvers)\n    if rng.random() < 0.3:\n        parts = []\n        for v in o:\n            width = rng.choice([1, 2, 3])\n            parts.append(str(v).rjust(width, \"0\"))\n        s = \".\".join(parts)\n    return s\n\n\ndef rand_ipv6(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return rng.choice(IPv6_COMMON)\n    # Build a random IPv6 with optional compression\n    hextets = [rng.randrange(0, 0x10000) for _ in range(8)]\n    # With some probability, embed IPv4 at the end\n    embed_ipv4 = rng.random() < 0.2\n    if embed_ipv4:\n        ipv4 = rand_ipv4(rng)\n        try:\n            ipaddress.IPv4Address(ipv4)\n            hextets[-2] = int(ipv4.split(\".\")[0]) * 256 + int(ipv4.split(\".\")[1])\n            hextets[-1] = int(ipv4.split(\".\")[2]) * 256 + int(ipv4.split(\".\")[3])\n        except Exception:\n            embed_ipv4 = False\n    # Choose a run to compress to ::\n    compress = rng.random() < 0.8\n    if compress:\n        # Find longest zero run\n        best_start, best_len = -1, 0\n        cur_start, cur_len = -1, 0\n        for i, v in enumerate(hextets):\n            if v == 0:\n                if cur_start == -1:\n                    cur_start, cur_len = i, 1\n                else:\n                    cur_len += 1\n            else:\n                if cur_len > best_len:\n                    best_start, best_len = cur_start, cur_len\n                cur_start, cur_len = -1, 0\n        if cur_len > best_len:\n            best_start, best_len = cur_start, cur_len\n        if best_len >= 2:\n            # Build with compression\n            left = hextets[:best_start]\n            right = hextets[best_start + best_len :]\n            left_s = \":\".join(f\"{x:x}\" for x in left)\n            right_s = \":\".join(f\"{x:x}\" for x in right)\n            if left_s and right_s:\n                s = left_s + \"::\" + right_s\n            elif left_s:\n                s = left_s + \"::\"\n            elif right_s:\n                s = \"::\" + right_s\n            else:\n                s = \"::\"\n        else:\n            s = \":\".join(f\"{x:x}\" for x in hextets)\n    else:\n        s = \":\".join(f\"{x:x}\" for x in hextets)\n    # Optionally append a scope id for link-local addresses\n    if s.startswith(\"fe80:\") and rng.random() < 0.5:\n        s += \"%\" + rng.choice([\"eth0\", \"en0\", \"wlan0\", str(rng.randint(1, 10))])\n    return s\n\n\ndef rand_hostname(rng: random.Random) -> str:\n    if rng.random() < 0.6:\n        return rng.choice(HOSTNAMES_COMMON)\n    # Generate a valid hostname: labels 1-63 chars, total <= 253\n    num_labels = rng.randint(1, 4)\n    labels = []\n    for i in range(num_labels):\n        # label must not start or end with hyphen\n        length = rng.randint(1, min(20, 63))\n        chars = []\n        for j in range(length):\n            if j == 0 or j == length - 1:\n                chars.append(rng.choice(\"abcdefghijklmnopqrstuvwxyz0123456789\"))\n            else:\n                chars.append(rng.choice(\"abcdefghijklmnopqrstuvwxyz0123456789-\"))\n        labels.append(\"\".join(chars))\n    name = \".\".join(labels)\n    # Optionally append a trailing dot to form FQDN\n    if rng.random() < 0.2:\n        name += \".\"\n    return name\n\n\ndef generate_strings(rng: random.Random, count: int) -> list[str]:\n    out = []\n    for _ in range(count):\n        choice = rng.random()\n        if choice < 0.4:\n            out.append(rand_ipv4(rng))\n        elif choice < 0.8:\n            out.append(rand_ipv6(rng))\n        else:\n            out.append(rand_hostname(rng))\n    return out\n\n\ndef pack_cstrings(strings: list[str]) -> bytes:\n    b = bytearray()\n    for s in strings:\n        enc = s.encode('utf-8', 'strict')\n        if len(b) + len(enc) + 1 > MAX_TOTAL:\n            break\n        b += enc + b\"\\x00\"\n    # Ensure at least one non-empty string\n    if not b:\n        b = bytearray(b\"127.0.0.1\\x00\")\n    return bytes(b)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Decide how many strings to include so multiple FUZZ_PARAM_STR calls can consume sequentially\n    count = rng.randint(2, 8)\n    strings = generate_strings(rng, count)\n    return pack_cstrings(strings)\n"
+    },
+    {
+      "data_type": "IP address string (source)",
+      "generator": "import random\nimport ipaddress\nfrom typing import List\n\n# This generator produces a single bytes buffer intended to seed FUZZ_PARAM_STR\n# calls for hiredis async connect binding stubs. The stubs read two non-empty\n# strings: remote IP/host and source (bind) address. We pack two NUL-terminated\n# strings back-to-back so fuzz harnesses that split by NULs (or read sequential\n# C strings) get valid values.\n#\n# Goals:\n# - Provide valid-looking remote targets: IPv4, IPv6 (with and without scope), and hostnames.\n# - Provide valid local bind addresses: wildcard (0.0.0.0/::), loopback, link-local with scope ids,\n#   and private ranges to exercise bind path variations.\n# - Ensure non-empty strings to avoid FUZZ_BAIL in stubs.\n# - Keep total size <= 4096 bytes.\n\nMAX_TOTAL = 4096\n\n_ipv4_priv = [\n    (\"10.0.0.1\", \"10.0.0.0/8\"),\n    (\"172.16.0.10\", \"172.16.0.0/12\"),\n    (\"192.168.1.50\", \"192.168.0.0/16\"),\n]\n\n_ipv6_examples: List[str] = [\n    \"::1\",\n    \"fe80::1%lo0\",        # link-local with scope\n    \"fe80::1234%eth0\",    # common Linux scope format\n    \"2001:db8::1\",        # documentation global unicast\n    \"::ffff:192.0.2.128\", # IPv4-mapped\n]\n\n_hostnames: List[str] = [\n    \"localhost\",\n    \"redis\",\n    \"example.com\",\n    \"ipv6.google.com\",\n    \"a.b.c.d\",\n]\n\n_scopes: List[str] = [\"lo0\", \"eth0\", \"en0\", \"wlan0\", \"eno1\", \"ens33\"]\n\n\ndef _rand_hostname(r: random.Random) -> str:\n    # Sometimes return from predefined list; sometimes construct a plausible FQDN\n    if r.random() < 0.6:\n        return r.choice(_hostnames)\n    # Generate label parts 1-4 labels, each 1-10 chars a-z0-9\n    labels = []\n    for _ in range(r.randint(2, 4)):\n        ln = r.randint(1, 10)\n        s = ''.join(r.choice('abcdefghijklmnopqrstuvwxyz0123456789') for _ in range(ln))\n        labels.append(s)\n    return '.'.join(labels)\n\n\ndef _rand_ipv4(r: random.Random) -> str:\n    choice = r.random()\n    if choice < 0.25:\n        return \"127.0.0.1\"\n    elif choice < 0.50:\n        base = r.choice(_ipv4_priv)[0]\n        # vary last octet\n        parts = base.split('.')\n        parts[-1] = str(r.randint(1, 254))\n        return '.'.join(parts)\n    elif choice < 0.75:\n        # Random public-looking IPv4 excluding 0/127/255 in octets\n        return '.'.join(str(r.randint(1, 254)) for _ in range(4))\n    else:\n        # Wildcard is not valid as remote; pick gateway-like\n        return '192.0.2.' + str(r.randint(1, 254))  # TEST-NET-1\n\n\ndef _rand_ipv6(r: random.Random, allow_scope: bool) -> str:\n    if r.random() < 0.5:\n        s = r.choice(_ipv6_examples)\n    else:\n        # Random 128-bit, compress with ipaddress\n        rnd = r.getrandbits(128)\n        s = str(ipaddress.IPv6Address(rnd))\n    if allow_scope and s.startswith('fe80::') and '%' not in s:\n        s = s + '%' + r.choice(_scopes)\n    return s\n\n\ndef _pick_remote(r: random.Random) -> str:\n    t = r.random()\n    if t < 0.4:\n        return _rand_ipv4(r)\n    elif t < 0.8:\n        return _rand_ipv6(r, allow_scope=False)\n    else:\n        return _rand_hostname(r)\n\n\ndef _pick_bind(r: random.Random) -> str:\n    # Bind addresses must be local interface addresses or wildcards\n    t = r.random()\n    if t < 0.25:\n        return \"0.0.0.0\"\n    elif t < 0.50:\n        return \"::\"\n    elif t < 0.65:\n        return \"127.0.0.1\"\n    elif t < 0.80:\n        return \"::1\"\n    elif t < 0.90:\n        # IPv6 link-local with scope\n        return \"fe80::1%\" + r.choice(_scopes)\n    else:\n        # Private v4 subnets\n        return _rand_ipv4(r)\n\n\ndef _encode_c_strings(parts: List[str]) -> bytes:\n    # Join NUL-terminated strings\n    out = bytearray()\n    for s in parts:\n        # Ensure non-empty and no embedded NULs (C string safety)\n        if not s:\n            s = \"x\"\n        s = s.replace('\\x00', '')\n        out += s.encode('utf-8', errors='ignore') + b\"\\x00\"\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Choose a scenario to exercise different paths in the target stubs\n    scenario = r.randint(0, 7)\n\n    if scenario == 0:\n        # IPv4 remote + wildcard v4 bind\n        remote = _rand_ipv4(r)\n        bind = \"0.0.0.0\"\n    elif scenario == 1:\n        # IPv6 remote + wildcard v6 bind\n        remote = _rand_ipv6(r, allow_scope=False)\n        bind = \"::\"\n    elif scenario == 2:\n        # Hostname remote + loopback v4 bind\n        remote = _rand_hostname(r)\n        bind = \"127.0.0.1\"\n    elif scenario == 3:\n        # IPv4-mapped IPv6 remote + loopback v6 bind\n        remote = \"::ffff:\" + _rand_ipv4(r)\n        bind = \"::1\"\n    elif scenario == 4:\n        # IPv6 link-local remote (with optional scope) + link-local bind with scope\n        remote = _rand_ipv6(r, allow_scope=True)\n        if not remote.startswith('fe80::'):\n            remote = 'fe80::1%' + r.choice(_scopes)\n        bind = 'fe80::2%' + r.choice(_scopes)\n    elif scenario == 5:\n        # Documentation/test ranges\n        remote = r.choice([\"192.0.2.1\", \"198.51.100.2\", \"203.0.113.3\", \"2001:db8::5\"])  # TEST-NETs\n        bind = r.choice([\"0.0.0.0\", \"::\"]) \n    elif scenario == 6:\n        # Long-ish hostname to test formatting paths\n        label = ''.join(r.choice('abcdefghijklmnopqrstuvwxyz') for _ in range(r.randint(10, 20)))\n        remote = f\"{label}.example.org\"\n        bind = _pick_bind(r)\n    else:\n        # Mixed random\n        remote = _pick_remote(r)\n        bind = _pick_bind(r)\n\n    parts = [remote, bind]\n    data = _encode_c_strings(parts)\n\n    # Guard total size\n    if len(data) > MAX_TOTAL:\n        data = data[:MAX_TOTAL]\n    return data\n"
+    },
+    {
+      "data_type": "Filesystem path",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# Generator for Filesystem path strings (NUL-terminated C-strings) suitable for Unix domain sockets\n# and host/IP strings for TCP along with valid-looking ports encoded in the same buffer for the fuzzer\n# to slice. We produce a bytes blob containing multiple NUL-terminated strings:\n# - Several candidate Unix socket paths\n# - Several candidate host/IP strings\n# The fuzzer stub will request either FUZZ_PARAM_FILENAME (for Unix socket path) or FUZZ_PARAM_STR (for IP/host).\n# We therefore pack diverse, valid-looking values to increase coverage.\n#\n# Constraints:\n# - Total size <= 4096 bytes\n# - No I/O, deterministic given seed, but with randomness per call\n# - Strings are likely valid, not malformed\n\nMAX_TOTAL = 4096\n\ndef _rand_choice(rng: random.Random, items: List[str]) -> str:\n    return items[rng.randrange(len(items))]\n\ndef _rand_ipv4(rng: random.Random) -> str:\n    # Mix of private, loopback, multicast, and public-looking ranges\n    choices = [\n        (\"127\", rng.randrange(0, 256), rng.randrange(0, 256), rng.randrange(1, 255)),\n        (\"10\", rng.randrange(0, 256), rng.randrange(0, 256), rng.randrange(1, 255)),\n        (\"172\", rng.randrange(16, 32), rng.randrange(0, 256), rng.randrange(1, 255)),\n        (\"192\", 168, rng.randrange(0, 256), rng.randrange(1, 255)),\n        (str(rng.randrange(1, 223)), rng.randrange(0, 256), rng.randrange(0, 256), rng.randrange(1, 255)),\n    ]\n    a,b,c,d = _rand_choice(rng, choices)\n    return f\"{a}.{b}.{c}.{d}\"\n\ndef _rand_hostname(rng: random.Random) -> str:\n    # Generate a plausible hostname with labels 1-4, 1-15 chars each\n    labels = []\n    nlabels = rng.randint(1, 4)\n    alphabet = string.ascii_lowercase + string.digits\n    for _ in range(nlabels):\n        ln = rng.randint(1, 15)\n        # labels should start/end alnum and can include hyphen inside\n        core = ''.join(rng.choice(alphabet + '-') for _ in range(ln))\n        core = core.strip('-') or 'a'\n        labels.append(core)\n    return '.'.join(labels)\n\ndef _rand_ipv6(rng: random.Random) -> str:\n    # Compact IPv6 forms are tricky; provide common patterns and full form\n    def hextet():\n        return format(rng.randrange(0, 0x10000), 'x')\n    patterns = []\n    # Full form\n    patterns.append(':'.join(hextet() for _ in range(8)))\n    # With :: compression at random position\n    pos = rng.randrange(0, 7)\n    left = [hextet() for _ in range(pos)]\n    right = [hextet() for _ in range(7 - pos)]\n    patterns.append((':'.join(left) if left else '') + '::' + (':'.join(right) if right else ''))\n    # IPv4-mapped\n    patterns.append('::ffff:' + _rand_ipv4(rng))\n    return _rand_choice(rng, patterns)\n\ndef _rand_port(rng: random.Random) -> int:\n    # Valid TCP port 1..65535\n    return rng.randint(1, 65535)\n\ndef _unix_paths(rng: random.Random) -> List[str]:\n    # Common Unix socket locations and random temp-like paths\n    candidates = [\n        \"/var/run/redis/redis.sock\",\n        \"/tmp/redis.sock\",\n        \"/run/redis/redis-server.sock\",\n        \"/var/tmp/redis.sock\",\n    ]\n    # Generate several randomized candidates under /tmp and nested directories\n    for _ in range(rng.randint(3, 8)):\n        prefix = _rand_choice(rng, [\"/tmp\", \"/var/run\", \"/run\", \"/private/tmp\"]) \\\n                 + '/' + ''.join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(3,10)))\n        name = _rand_choice(rng, [\"redis.sock\", \"redis-server.sock\", \".redis.sock\"]) if rng.random() < 0.7 else \\\n               ''.join(rng.choice(string.ascii_lowercase+string.digits+\"._-\") for _ in range(rng.randint(3,16)))\n        candidates.append(prefix + '/' + name)\n    # Paths within user home-like\n    for _ in range(rng.randint(1, 3)):\n        dirn = '/home/' + ''.join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(3,8)))\n        candidates.append(dirn + '/.redis/redis.sock')\n    return candidates\n\ndef _host_strings(rng: random.Random) -> List[str]:\n    hosts = [\n        \"localhost\",\n        \"redis\",\n        _rand_ipv4(rng),\n        _rand_hostname(rng),\n        _rand_ipv6(rng),\n        \"::1\",\n        \"127.0.0.1\",\n    ]\n    # Add a few more random hostnames/IPs\n    for _ in range(rng.randint(2, 5)):\n        hosts.append(_rand_ipv4(rng))\n    for _ in range(rng.randint(1, 3)):\n        hosts.append(_rand_hostname(rng))\n    return hosts\n\ndef _build_bytes_z(strings: List[str]) -> bytes:\n    # Join as NUL-terminated C strings in one buffer; consumers can read one at a time\n    # Ensure we do not exceed MAX_TOTAL\n    out = bytearray()\n    for s in strings:\n        b = s.encode('utf-8', 'strict') + b\"\\x00\"\n        if len(out) + len(b) > MAX_TOTAL:\n            break\n        out += b\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide whether to target Unix sockets or TCP for this buffer build; include both to be safe\n    paths = _unix_paths(rng)\n    hosts = _host_strings(rng)\n\n    # Mix in host:port strings as they are commonly used in tests, though stub separates them.\n    # Still useful if consumer treats whole string as FUZZ_PARAM_STR.\n    hostports = []\n    for h in hosts:\n        # Avoid embedding colons in IPv6 host:port directly; wrap in brackets when needed\n        if ':' in h and not (h.startswith('[') and h.endswith(']')):\n            hp = f\"[{h}]:{_rand_port(rng)}\"\n        else:\n            hp = f\"{h}:{_rand_port(rng)}\"\n        hostports.append(hp)\n\n    # Create a prioritized list: socket paths first (for FUZZ_PARAM_FILENAME), then plain hosts, then host:port\n    strings: List[str] = []\n    # Ensure first entries are very common successful defaults\n    strings.extend([\n        \"/tmp/redis.sock\",\n        \"localhost\",\n        \"127.0.0.1\",\n        \"::1\",\n    ])\n\n    # Add randomized sets\n    # Shuffle to diversify ordering while keeping deterministic under seed\n    rng.shuffle(paths)\n    rng.shuffle(hosts)\n    rng.shuffle(hostports)\n\n    strings.extend(paths)\n    strings.extend(hosts)\n    strings.extend(hostports)\n\n    # Truncate to not exceed budget when encoded\n    data = _build_bytes_z(strings)\n\n    # Guarantee non-empty and within limit\n    if not data:\n        data = b\"/tmp/redis.sock\\x00localhost\\x00\"\n    return data\n"
+    },
+    {
+      "data_type": "RESP-encoded Redis command",
+      "generator": "import random\nfrom typing import List\n\n# Generate a valid RESP-encoded Redis command suitable for redisAsyncFormattedCommand.\n# We focus on small, self-contained commands that exercise different paths:\n# - PING\n# - ECHO <msg>\n# - SET <key> <val>\n# - GET <key>\n# - INCR <key>\n# - LPUSH <list> <val>\n# - HSET <hash> <field> <val>\n# - DEL <key>\n# - EXPIRE <key> <seconds>\n# - CLIENT ID (no args variant to test zero bulk besides command)\n# All are encoded as RESP arrays with bulk strings.\n\nMAX_TOTAL = 4096\nMAX_ARG = 128\n\n_SIMPLE_COMMANDS = [\n    (\"PING\", []),\n    (\"CLIENT\", [\"ID\"]),\n]\n\ndef _rand_ascii(r: random.Random, min_len: int, max_len: int) -> str:\n    length = r.randint(min_len, max_len)\n    # Use a mix of safe ASCII including spaces and punctuation, but avoid CR/LF inside bulk data.\n    alphabet = \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.:@/+#?=,\"\n    return \"\".join(r.choice(alphabet) for _ in range(length))\n\ndef _bounded_arg(s: str) -> str:\n    if len(s) > MAX_ARG:\n        return s[:MAX_ARG]\n    return s\n\ndef _resp_encode(argv: List[bytes]) -> bytes:\n    # Encode as: *<argc>\\r\\n$<len>\\r\\n<data>\\r\\n ...\n    parts: List[bytes] = []\n    parts.append(b\"*\" + str(len(argv)).encode(\"ascii\") + b\"\\r\\n\")\n    for a in argv:\n        parts.append(b\"$\" + str(len(a)).encode(\"ascii\") + b\"\\r\\n\")\n        parts.append(a + b\"\\r\\n\")\n    return b\"\".join(parts)\n\ndef _build_command(r: random.Random) -> List[str]:\n    choice = r.randint(0, 9)\n    # Ensure non-empty key/val where required\n    if choice == 0:\n        # PING\n        return [\"PING\"]\n    elif choice == 1:\n        # ECHO <msg>\n        msg = _bounded_arg(_rand_ascii(r, 1, 20))\n        return [\"ECHO\", msg]\n    elif choice == 2:\n        # SET <key> <val>\n        key = _bounded_arg(_rand_ascii(r, 1, 16))\n        val = _bounded_arg(_rand_ascii(r, 1, 32))\n        return [\"SET\", key, val]\n    elif choice == 3:\n        # GET <key>\n        key = _bounded_arg(_rand_ascii(r, 1, 16))\n        return [\"GET\", key]\n    elif choice == 4:\n        # INCR <key>\n        key = _bounded_arg(_rand_ascii(r, 1, 16))\n        return [\"INCR\", key]\n    elif choice == 5:\n        # LPUSH <list> <val>\n        lst = _bounded_arg(_rand_ascii(r, 1, 16))\n        val = _bounded_arg(_rand_ascii(r, 1, 24))\n        return [\"LPUSH\", lst, val]\n    elif choice == 6:\n        # HSET <hash> <field> <val>\n        h = _bounded_arg(_rand_ascii(r, 1, 16))\n        f = _bounded_arg(_rand_ascii(r, 1, 16))\n        v = _bounded_arg(_rand_ascii(r, 1, 24))\n        return [\"HSET\", h, f, v]\n    elif choice == 7:\n        # DEL <key>\n        key = _bounded_arg(_rand_ascii(r, 1, 16))\n        return [\"DEL\", key]\n    elif choice == 8:\n        # EXPIRE <key> <seconds>\n        key = _bounded_arg(_rand_ascii(r, 1, 16))\n        seconds = str(r.randint(1, 600))\n        return [\"EXPIRE\", key, seconds]\n    else:\n        # CLIENT ID\n        return [\"CLIENT\", \"ID\"]\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Build one command; keep size small and valid.\n    argv_str = _build_command(r)\n\n    # Ensure arguments respect size constraints and avoid CR/LF inside bulk data\n    safe_args: List[bytes] = []\n    for s in argv_str:\n        if not isinstance(s, str):\n            s = str(s)\n        # Strip CR/LF to maintain RESP validity\n        s = s.replace(\"\\r\", \" \").replace(\"\\n\", \" \")\n        s = _bounded_arg(s)\n        safe_args.append(s.encode(\"utf-8\", errors=\"strict\"))\n\n    resp = _resp_encode(safe_args)\n\n    # Final guardrails\n    if not resp or len(resp) > MAX_TOTAL:\n        # Fallback to a minimal valid command\n        resp = _resp_encode([b\"PING\"])\n    return resp\n"
+    },
+    {
+      "data_type": "Arbitrary byte buffer",
+      "generator": "import random\nimport struct\nimport string\n\n# This generator targets hiredis RESP frames for redisReaderFeed and redisReader parsing.\n# It returns well-formed RESP replies/frames that are small and varied, so the reader\n# can successfully parse them and downstream stubs can obtain redisReply objects.\n\n_MAX_OUT = 4096\n\ndef _rand_ascii_no_crlf(rng, min_len=0, max_len=64):\n    n = rng.randint(min_len, max_len)\n    # simple printable set without CR/LF\n    chars = string.ascii_letters + string.digits + string.punctuation + ' '\n    chars = chars.replace('\\r', '').replace('\\n', '')\n    s = ''.join(rng.choice(chars) for _ in range(n))\n    return s if s else \"OK\"\n\ndef _bulk(rng):\n    data = rng.randbytes(rng.randint(0, 64)) if hasattr(rng, 'randbytes') else bytes([rng.randrange(256) for _ in range(rng.randint(0,64))])\n    return b\"$\" + str(len(data)).encode() + b\"\\r\\n\" + data + b\"\\r\\n\"\n\ndef _simple_string(rng):\n    s = _rand_ascii_no_crlf(rng, 1, 64)\n    return b\"+\" + s.encode() + b\"\\r\\n\"\n\ndef _error(rng):\n    s = _rand_ascii_no_crlf(rng, 1, 64)\n    # Prepend a typical ERR prefix to be realistic\n    if not s.startswith(\"ERR\"):\n        s = \"ERR \" + s\n    return b\"-\" + s.encode() + b\"\\r\\n\"\n\ndef _integer(rng):\n    # Small and large magnitudes, including negative and zero\n    choices = [0, 1, -1, 42, -42, 2**31-1, -2**31, 2**63-1, -2**63+1]\n    if rng.random() < 0.6:\n        val = rng.choice(choices)\n    else:\n        val = rng.randint(-10**9, 10**9)\n    return b\":\" + str(int(val)).encode() + b\"\\r\\n\"\n\ndef _double_bulk(rng):\n    # RESP2 has no native double; hiredis exposes doubles in redisReply for RESP3.\n    # To keep compatibility with RESP2/3 reader, encode as bulk string textual double.\n    # Use interesting textual representations.\n    specials = [\"inf\", \"-inf\", \"nan\", \"0\", \"-0\", \"1.0\", \"-1.0\", \"1e309\", \"-1e309\", \"1e-309\", \"-1e-309\"]\n    if rng.random() < 0.5:\n        s = rng.choice(specials)\n    else:\n        # Random formatted float\n        val = (rng.random() - 0.5) * (10 ** rng.randint(-6, 6))\n        s = (\"%.*g\" % (rng.randint(1, 16), val))\n    b = s.encode()\n    return b\"$\" + str(len(b)).encode() + b\"\\r\\n\" + b + b\"\\r\\n\"\n\ndef _array_of_ints(rng, count=None):\n    if count is None:\n        count = rng.randint(0, 8)\n    parts = [b\"*\" + str(count).encode() + b\"\\r\\n\"]\n    for _ in range(count):\n        parts.append(_integer(rng))\n    return b\"\".join(parts)\n\ndef _array_mixed_small(rng):\n    # Build a small array mixing types (simple string, error, integer, bulk)\n    items = []\n    k = rng.randint(0, 6)\n    for _ in range(k):\n        t = rng.choice([\"ss\",\"err\",\"int\",\"bulk\"]) \n        if t == \"ss\":\n            items.append(_simple_string(rng))\n        elif t == \"err\":\n            items.append(_error(rng))\n        elif t == \"int\":\n            items.append(_integer(rng))\n        else:\n            items.append(_bulk(rng))\n    return b\"*\" + str(len(items)).encode() + b\"\\r\\n\" + b\"\".join(items)\n\ndef _null_bulk():\n    return b\"$-1\\r\\n\"\n\ndef _empty_array():\n    return b\"*0\\r\\n\"\n\ndef _verbatim_string(rng):\n    # RESP3 verbatim string: =<len>\\r\\n<vtype>:\\n<data>\\r\\n where vtype is 3 bytes type, e.g., txt\n    vtype = rng.choice([b\"txt\", b\"mkd\", b\"htm\", b\"bin\"])  # common examples\n    data = (rng.choice([b\"hello\", b\"world\", b\"verbatim\", b\"data\"]) + (rng.randbytes(rng.randint(0,8)) if hasattr(rng,'randbytes') else bytes([rng.randrange(256) for _ in range(rng.randint(0,8))])))\n    payload = vtype + b\":\" + data\n    return b\"=\" + str(len(payload)).encode() + b\"\\r\\n\" + payload + b\"\\r\\n\"\n\ndef _aggregate_frame(rng):\n    # Build a small pipeline of multiple frames to exercise incremental parsing in feed\n    parts = []\n    for _ in range(rng.randint(2, 5)):\n        parts.append(_choose_frame(rng))\n    return b\"\".join(parts)\n\ndef _choose_frame(rng):\n    # Weighted mix of valid RESP frames\n    choices = [\n        (3, _simple_string),\n        (2, _error),\n        (3, _integer),\n        (4, _bulk),\n        (2, _array_of_ints),\n        (2, _array_mixed_small),\n        (1, _null_bulk),\n        (1, _empty_array),\n        (1, _double_bulk),\n        (1, _verbatim_string),\n    ]\n    total = sum(w for w,_ in choices)\n    pick = rng.randrange(total)\n    acc = 0\n    for w, fn in choices:\n        if pick < acc + w:\n            if fn in (_null_bulk, _empty_array):\n                return fn()\n            elif fn in (_array_of_ints, _array_mixed_small):\n                return fn(rng)\n            else:\n                return fn(rng)\n        acc += w\n    return _simple_string(rng)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    mode = rng.choice([\n        \"single_simple\", \"single_error\", \"single_integer\", \"single_bulk\",\n        \"single_array_ints\", \"single_array_mixed\", \"null_bulk\", \"empty_array\",\n        \"double_bulk\", \"verbatim\", \"pipeline\"\n    ])\n\n    if mode == \"single_simple\":\n        out = _simple_string(rng)\n    elif mode == \"single_error\":\n        out = _error(rng)\n    elif mode == \"single_integer\":\n        out = _integer(rng)\n    elif mode == \"single_bulk\":\n        out = _bulk(rng)\n    elif mode == \"single_array_ints\":\n        out = _array_of_ints(rng)\n    elif mode == \"single_array_mixed\":\n        out = _array_mixed_small(rng)\n    elif mode == \"null_bulk\":\n        out = _null_bulk()\n    elif mode == \"empty_array\":\n        out = _empty_array()\n    elif mode == \"double_bulk\":\n        out = _double_bulk(rng)\n    elif mode == \"verbatim\":\n        out = _verbatim_string(rng)\n    else:  # pipeline\n        out = _aggregate_frame(rng)\n\n    # Ensure non-empty and within limits; if empty, fall back to simple string.\n    if not out:\n        out = b\"+OK\\r\\n\"\n    if len(out) > _MAX_OUT:\n        out = out[:_MAX_OUT]\n    return out\n"
+    },
+    {
+      "data_type": "RESP-encoded Redis reply",
+      "generator": "import random\nimport struct\nimport string\n\n# Generate valid RESP replies that hiredis redisReader can parse.\n# We cover: Simple String, Error, Integer, Bulk String (including empty and binary-safe),\n# Array (nested, heterogeneous), Nulls, Booleans (RESP3), Double (RESP3), Verbatim string (RESP3),\n# Big number (RESP3), Map/Set (small to keep size low), Push (RESP3).\n\nCRLF = b\"\\r\\n\"\n\n_ascii = string.ascii_letters + string.digits + \" _-:.#/+[]{}()@,;!$%^&*?=<>|~\"\n\n\ndef _rand_ascii(rng: random.Random, n: int) -> bytes:\n    return ''.join(rng.choice(_ascii) for _ in range(n)).encode('utf-8')\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    # Include a range of interesting bytes, including NUL and high bytes.\n    return bytes(rng.randrange(0, 256) for _ in range(n))\n\n\ndef resp_simple_string(s: bytes) -> bytes:\n    # Simple string MUST NOT contain CR or LF; sanitize by replacing\n    s = s.replace(b\"\\r\", b\" \").replace(b\"\\n\", b\" \")\n    return b\"+\" + s + CRLF\n\n\ndef resp_error(s: bytes) -> bytes:\n    s = s.replace(b\"\\r\", b\" \").replace(b\"\\n\", b\" \")\n    if not s:\n        s = b\"ERR\"\n    return b\"-\" + s + CRLF\n\n\ndef resp_integer(n: int) -> bytes:\n    return b\":\" + str(n).encode() + CRLF\n\n\ndef resp_bulk(b: bytes) -> bytes:\n    return b\"$\" + str(len(b)).encode() + CRLF + b + CRLF\n\n\ndef resp_null_bulk() -> bytes:\n    return b\"$-1\" + CRLF\n\n\ndef resp_array(items: list[bytes]) -> bytes:\n    return b\"*\" + str(len(items)).encode() + CRLF + b\"\".join(items)\n\n\ndef resp_null_array() -> bytes:\n    return b\"*-1\" + CRLF\n\n# RESP3 helpers\n\ndef resp_bool(val: bool) -> bytes:\n    return (b\"#t\" if val else b\"#f\") + CRLF\n\n\ndef resp_double(d: float) -> bytes:\n    # Use finite numbers and some edge strings\n    s = (\"%.*g\" % (17, d)).encode()\n    return b\",\" + s + CRLF\n\n\ndef resp_verbatim(vtype3: bytes, payload: bytes) -> bytes:\n    # vtype3 must be 3 ASCII chars like b\"txt\", b\"mkd\", b\"bin\"\n    vtype3 = (vtype3 or b\"txt\")[:3].ljust(3, b\" \")\n    body = vtype3 + b\":\" + payload\n    return b\"=\" + str(len(body)).encode() + CRLF + body + CRLF\n\n\ndef resp_bignum(s: bytes) -> bytes:\n    # Digits with optional sign; ensure at least one digit\n    if not s or any(c not in b\"0123456789\" for c in s.strip(b\"+ -\")):\n        s = b\"\"  # force regenerate\n    if not s:\n        s = b\"9\" * 30\n    return b\"(\" + s + CRLF\n\n\ndef resp_null() -> bytes:\n    return b\"_\" + CRLF\n\n\ndef resp_blob_error(code: bytes, msg: bytes) -> bytes:\n    # RESP3 blob error: !<len>\\r\\n<data>\\r\\n where data like \"ERR message\"\n    data = code + b\" \" + msg.replace(b\"\\r\", b\" \").replace(b\"\\n\", b\" \")\n    return b\"!\" + str(len(data)).encode() + CRLF + data + CRLF\n\n\ndef resp_map(pairs: list[tuple[bytes, bytes]]) -> bytes:\n    # RESP3 map: %<n> CRLF key1 val1 key2 val2 ... (each is a RESP type)\n    buf = b\"%\" + str(len(pairs)).encode() + CRLF\n    for k, v in pairs:\n        buf += k + v\n    return buf\n\n\ndef resp_set(items: list[bytes]) -> bytes:\n    buf = b\"~\" + str(len(items)).encode() + CRLF + b\"\".join(items)\n    return buf\n\n\ndef resp_push(items: list[bytes]) -> bytes:\n    buf = b\">\" + str(len(items)).encode() + CRLF + b\"\".join(items)\n    return buf\n\n\ndef _small_nested_array(rng: random.Random) -> bytes:\n    # Build a small nested array mixing types\n    leaf_choices = []\n    leaf_choices.append(resp_simple_string(b\"OK\"))\n    leaf_choices.append(resp_error(b\"ERR nested\"))\n    leaf_choices.append(resp_integer(rng.randint(-5, 5)))\n    leaf_choices.append(resp_bulk(_rand_bytes(rng, rng.randint(0, 6))))\n    leaf_choices.append(resp_bool(rng.choice([True, False])))\n    leaf_choices.append(resp_double(rng.uniform(-1e3, 1e3)))\n    inner = resp_array([rng.choice(leaf_choices) for _ in range(rng.randint(0, 3))])\n    outer = resp_array([\n        rng.choice(leaf_choices),\n        inner,\n        resp_null_bulk() if rng.random() < 0.3 else resp_bulk(_rand_bytes(rng, rng.randint(0, 4)))\n    ])\n    return outer\n\n\ndef _resp3_pairs(rng: random.Random, n: int) -> list[tuple[bytes, bytes]]:\n    keys = []\n    for _ in range(n):\n        k = resp_bulk(_rand_ascii(rng, rng.randint(1, 6)))\n        vtype = rng.randrange(0, 5)\n        if vtype == 0:\n            v = resp_integer(rng.randint(0, 100))\n        elif vtype == 1:\n            v = resp_simple_string(_rand_ascii(rng, rng.randint(2, 8)))\n        elif vtype == 2:\n            v = resp_bool(rng.choice([True, False]))\n        elif vtype == 3:\n            v = resp_double(rng.uniform(-1000, 1000))\n        else:\n            v = resp_bulk(_rand_bytes(rng, rng.randint(0, 10)))\n        keys.append((k, v))\n    return keys\n\n\ndef _choose_resp_frame(rng: random.Random) -> bytes:\n    # Weighted choice among many valid frame kinds\n    kinds = [\n        \"simple\", \"error\", \"integer\", \"bulk\", \"emptybulk\", \"nullbulk\",\n        \"array2\", \"array_nested\", \"nullarray\",\n        \"bool\", \"double\", \"verbatim\", \"bignum\", \"null\",\n        \"bloberror\", \"map\", \"set\", \"push\"\n    ]\n    kind = rng.choice(kinds)\n\n    if kind == \"simple\":\n        return resp_simple_string(_rand_ascii(rng, rng.randint(1, 32)))\n    if kind == \"error\":\n        return resp_error(b\"ERR \" + _rand_ascii(rng, rng.randint(1, 28)))\n    if kind == \"integer\":\n        n = rng.choice([0, 1, -1, 42, -42, 2**31-1, -2**31, rng.randint(-10**10, 10**10)])\n        return resp_integer(n)\n    if kind == \"bulk\":\n        # binary-safe, include potential NULs\n        size = rng.randint(0, 64)\n        data = _rand_bytes(rng, size)\n        return resp_bulk(data)\n    if kind == \"emptybulk\":\n        return resp_bulk(b\"\")\n    if kind == \"nullbulk\":\n        return resp_null_bulk()\n    if kind == \"array2\":\n        items = [resp_simple_string(b\"OK\"), resp_integer(1)]\n        return resp_array(items)\n    if kind == \"array_nested\":\n        return _small_nested_array(rng)\n    if kind == \"nullarray\":\n        return resp_null_array()\n    if kind == \"bool\":\n        return resp_bool(rng.choice([True, False]))\n    if kind == \"double\":\n        val = rng.choice([0.0, -0.0, 1.0, -1.0, 1e10, -1e-10, rng.uniform(-1e6, 1e6)])\n        return resp_double(val)\n    if kind == \"verbatim\":\n        vtype = rng.choice([b\"txt\", b\"mkd\", b\"bin\"])\n        payload = _rand_bytes(rng, rng.randint(0, 32))\n        return resp_verbatim(vtype, payload)\n    if kind == \"bignum\":\n        digits = b\"\".join(bytes([ord('0') + rng.randrange(10)]) for _ in range(rng.randint(1, 40)))\n        sign = rng.choice([b\"\", b\"+\", b\"-\"])\n        return resp_bignum(sign + digits)\n    if kind == \"null\":\n        return resp_null()\n    if kind == \"bloberror\":\n        code = rng.choice([b\"ERR\", b\"BUSY\", b\"OOM\", b\"NOPERM\"]) \\\n            + (b\".AUTH\" if rng.random() < 0.2 else b\"\")\n        msg = _rand_ascii(rng, rng.randint(3, 40))\n        return resp_blob_error(code, msg)\n    if kind == \"map\":\n        pairs = _resp3_pairs(rng, rng.randint(0, 4))\n        return resp_map(pairs)\n    if kind == \"set\":\n        items = [resp_bulk(_rand_ascii(rng, rng.randint(1, 8))) for _ in range(rng.randint(0, 5))]\n        return resp_set(items)\n    if kind == \"push\":\n        items = [\n            resp_simple_string(b\"message\"),\n            resp_bulk(_rand_ascii(rng, rng.randint(1, 6))),\n            resp_bulk(_rand_bytes(rng, rng.randint(0, 16)))\n        ]\n        return resp_push(items)\n\n    # Fallback\n    return resp_simple_string(b\"OK\")\n\n\ndef _maybe_concat_frames(rng: random.Random, first: bytes) -> bytes:\n    # Sometimes return a single reply; sometimes a frame followed by extra valid frames.\n    # The fuzz stub expects a single reply parsed; redisReaderGetReply will parse one and leave the rest.\n    buf = first\n    # Cap total size to 4096\n    while len(buf) < 1024 and rng.random() < 0.25:\n        nxt = _choose_resp_frame(rng)\n        if len(buf) + len(nxt) > 4096:\n            break\n        buf += nxt\n    return buf\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a frame and maybe append additional ones (still valid RESP stream).\n    frame = _choose_resp_frame(rng)\n    frame = _maybe_concat_frames(rng, frame)\n    # Ensure non-empty and under size limit\n    if not frame:\n        frame = resp_simple_string(b\"OK\")\n    if len(frame) > 4096:\n        frame = frame[:4096]\n    return frame\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9899,
+            "output_tokens": 4183,
+            "total_tokens": 14082
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8211,
+            "output_tokens": 424,
+            "total_tokens": 8635
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10363,
+            "output_tokens": 13679,
+            "total_tokens": 24042
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 95771,
+            "output_tokens": 25570,
+            "total_tokens": 121341
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 23631,
+            "output_tokens": 2789,
+            "total_tokens": 26420
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 21812,
+            "output_tokens": 762,
+            "total_tokens": 22574
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 549.9775269031525,
+    "scan_objects": 36.167731523513794,
+    "validate_objects": 1.0707385540008545,
+    "scan_functions": 0,
+    "synthesis": 312.6983847618103,
+    "fill": 78.01725673675537,
+    "classify": 17.511784315109253,
+    "build_generators": 104.51052713394165
+  }
+}

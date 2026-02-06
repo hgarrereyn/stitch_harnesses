@@ -1,0 +1,172 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [
+        "mmapFile return type"
+      ],
+      "definition": "",
+      "description": "Opaque pointer to memory-mapped file data returned by mmapFile. It represents a contiguous memory region mapped from a file. The header does not define a custom type; this is the built-in void pointer used as a handle to the mapped data.",
+      "direct_api_constructors": [
+        "mmapFile"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "size_t *",
+      "aliases": [
+        "outSize parameter type"
+      ],
+      "definition": "",
+      "description": "Pointer to a size_t used as an out-parameter by mmapFile to receive the size of the mapped region. Not a custom typedef; included here only if treating built-in pointer as the out-parameter handle. The header defines no custom data types.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "mmapFile",
+      "signature": "void* mmapFile(const char* path, size_t* outSize);",
+      "description": "Maps the contents of a file into memory and returns a pointer to the mapped region; writes the size of the mapped region to outSize. Intended for efficient, file-backed access without copying. Exact access permissions, error signaling, and mapping lifetime semantics are not documented here and remain unknown.",
+      "requirements": [
+        "path must be a valid, non-null C string naming a file (inferred from the function name and typical mmap patterns).",
+        "outSize should be a non-null pointer where the function will store the size of the mapped region (inferred).",
+        "The caller should not modify the file or unmap concurrently in ways that invalidate the mapping (unknown/unspecified; typical constraint).",
+        "On success, the caller is responsible for releasing the mapping by calling unmapFile with the returned pointer and the size written to outSize (inferred).",
+        "The returned pointer should be treated as a memory-mapped region; accessing it after it has been unmapped is invalid (inferred).",
+        "Error return convention (e.g., returning NULL on failure) is unknown; callers must be prepared for unspecified failure signaling."
+      ],
+      "error": null
+    },
+    {
+      "name": "unmapFile",
+      "signature": "void unmapFile(void* data, size_t size);",
+      "description": "Releases a previously created file mapping. The data argument is the pointer returned by mmapFile, and size is the exact mapping size associated with that pointer. After this call, the mapping is invalid and must not be accessed.",
+      "requirements": [
+        "data must be the non-null pointer previously returned by mmapFile (inferred).",
+        "size must exactly match the size value originally returned via outSize from the corresponding mmapFile call (inferred).",
+        "Each mapping must be unmapped exactly once; do not call unmapFile multiple times on the same pointer (inferred).",
+        "After unmapFile returns, the memory region referenced by data must not be accessed (inferred).",
+        "Behavior on invalid pointers, mismatched size, or double unmapping is unspecified."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "mmapFile",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "void *"
+        }
+      ],
+      "code": "// Generate a valid filename with randomized contents. This satisfies the \"path must be a valid file\" requirement.\nconst char *path = FUZZ_PARAM_FILENAME();\n\n// out-parameter for size must be non-null; use a local then persist via attribute for downstream unmapFile.\nsize_t outSize = 0;\nsize_t *size_cookie = new size_t(0); // will be set to the true size if mapping succeeds\n\n// Call the target function.\nvoid *data = mmapFile(path, &outSize);\n\n// If mapping failed (unspecified convention, but NULL is typical), bail and avoid leaking the cookie.\nif (!data) {\n    delete size_cookie;\n    FUZZ_BAIL();\n}\n\n// Persist mapping metadata on the returned opaque pointer for correctness in later stubs.\n// - Track exact mapping size via a heap \"cookie\" to avoid integer truncation issues.\n*size_cookie = outSize;\nFUZZ_SET_ATTR_PTR(data, \"size_cookie\", (void*)size_cookie);\n\n// - Track mapping state to enforce single unmap and prevent use-after-unmap.\nFUZZ_SET_ATTR_INT(data, \"is_mapped\", 1);\n\n// - Optionally retain the source path to aid debugging/correlation (not required for API correctness).\nFUZZ_SET_ATTR_STR(data, \"path\", path);\n\n// Validation summary:\n// - Ensures non-null path and outSize pointer.\n// - Bails on NULL return; otherwise, records size and mapping state for safe lifetime management."
+    },
+    {
+      "name": "unmapFile",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce that this pointer represents a live mapping created by mmapFile.\nint is_mapped = FUZZ_GET_ATTR_INT(data, \"is_mapped\");\nif (!is_mapped) { FUZZ_BAIL(); }\n\n// Retrieve the exact size captured at mapping time.\nsize_t *size_cookie = (size_t*)FUZZ_GET_ATTR_PTR(data, \"size_cookie\");\nif (!size_cookie) { FUZZ_BAIL(); }\nsize_t size = *size_cookie;\n\n// Call the target function to release the mapping.\nunmapFile(data, size);\n\n// Mark as unmapped to prevent double-unmap and use-after-free.\nFUZZ_SET_ATTR_INT(data, \"is_mapped\", 0);\n\n// Clean up auxiliary metadata now that the mapping is released.\ndelete size_cookie; // safe: mapping will not be returned to the pool\n\n// Validation summary:\n// - Verifies the object is a live mapping and uses the exact recorded size.\n// - Prevents double unmapping by clearing state and not returning the object."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "unmapFile",
+      "data_types": []
+    },
+    {
+      "name": "mmapFile",
+      "data_types": [
+        "filesystem path string",
+        "arbitrary binary file data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path string",
+      "description": "A C-style string representing a valid filesystem path to an existing file. It may include directories, file name, and extension. Must be null-terminated and refer to a file accessible by the process."
+    },
+    {
+      "data_type": "arbitrary binary file data",
+      "description": "Raw bytes stored in a file with no assumed encoding or structure. The function reads or memory-maps the entire file content as-is; contents can be any sequence of bytes, including zeros or non-text data."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path string",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator creates a valid file path string pointing to an on-disk file\n# with interesting contents for mmapFile(path, &outSize).\n# It ensures the path exists and is readable. No external deps, no network.\n\n_MAX_TOTAL_SIZE = 4096\n\ndef _rand_rng(seed: int) -> random.Random:\n    return random.Random(seed)\n\ndef _pick_dir(rng: random.Random) -> str:\n    base = os.getcwd()\n    depth = rng.choice([0, 1, 2])\n    parts: List[str] = [base]\n    for _ in range(depth):\n        name = _random_safe_name(rng, rng.randint(3, 10))\n        path = os.path.join(*parts, name)\n        try:\n            os.makedirs(path, exist_ok=True)\n        except Exception:\n            return base\n        parts.append(path)\n    return parts[-1]\n\ndef _random_safe_name(rng: random.Random, n: int) -> str:\n    alphabet = string.ascii_letters + string.digits + \"-_.@#%+=\"\n    return ''.join(rng.choice(alphabet) for _ in range(n))\n\ndef _choose_extension(rng: random.Random) -> str:\n    exts = [\n        \"\", \".bin\", \".txt\", \".dat\", \".log\", \".json\", \".cfg\", \".tmp\",\n        \".img\", \".map\", \".zip\"\n    ]\n    return rng.choice(exts)\n\ndef _gen_pattern_block(rng: random.Random, kind: str, size: int, align: int = 1) -> bytes:\n    if size <= 0:\n        return b\"\"\n    if kind == \"zeros\":\n        return b\"\\x00\" * size\n    if kind == \"ones\":\n        return b\"\\xFF\" * size\n    if kind == \"ascii\":\n        # Printable ASCII with whitespace\n        chars = (string.ascii_letters + string.digits + string.punctuation + \" \\n\\t\").encode()\n        return bytes(rng.choice(chars) for _ in range(size))\n    if kind == \"seq\":\n        start = rng.randrange(256)\n        return bytes((start + i) % 256 for i in range(size))\n    if kind == \"words\":\n        out = bytearray()\n        a = rng.getrandbits(32).to_bytes(4, 'little')\n        b = (~int.from_bytes(a, 'little') & 0xFFFFFFFF).to_bytes(4, 'little')\n        tgt = max(align, 4)\n        while len(out) < size:\n            out += a if ((len(out) // tgt) % 2 == 0) else b\n        return bytes(out[:size])\n    if kind == \"utf8\":\n        # Generate valid UTF-8 only; avoid surrogates (U+D800..U+DFFF)\n        out = bytearray()\n        while len(out) < size:\n            choice = rng.random()\n            if choice < 0.7:\n                out.append(rng.randint(0x20, 0x7E))\n            elif choice < 0.85:\n                cp = rng.randint(0x80, 0x7FF)\n                out += chr(cp).encode('utf-8')\n            elif choice < 0.97:\n                # select a 3-byte cp excluding surrogates\n                while True:\n                    cp = rng.randint(0x800, 0xFFFF)\n                    if not (0xD800 <= cp <= 0xDFFF):\n                        break\n                out += chr(cp).encode('utf-8')\n            else:\n                cp = rng.randint(0x10000, 0x10FFFF)\n                out += chr(cp).encode('utf-8')\n        return bytes(out[:size])\n    # default random\n    return rng.randbytes(size)\n\ndef _compose_contents(rng: random.Random, target_size: int) -> bytes:\n    min_size = 1\n    target_size = max(min_size, min(target_size, _MAX_TOTAL_SIZE))\n\n    segment_kinds = [\"zeros\", \"ones\", \"ascii\", \"seq\", \"words\", \"utf8\", \"rand\"]\n    segs = []\n\n    nseg = rng.randint(1, 6)\n    remaining = target_size\n    for i in range(nseg):\n        kind = rng.choice(segment_kinds)\n        if i == nseg - 1:\n            size = remaining\n        else:\n            size = rng.choice([\n                rng.randint(1, min(32, remaining)),\n                rng.randint(33, min(512, remaining)) if remaining > 33 else 1,\n                rng.randint(513, min(2048, remaining)) if remaining > 513 else 1,\n                min(remaining, rng.choice([4096, 8192, 16384]))\n            ])\n            size = max(1, min(size, remaining))\n        remaining -= size\n        segs.append((kind, size))\n        if remaining <= 0:\n            break\n\n    chunks: List[bytes] = []\n    for kind, size in segs:\n        align = rng.choice([1, 2, 4, 8])\n        blk = _gen_pattern_block(rng, kind if kind != \"rand\" else \"\", size, align)\n        if blk is None or len(blk) != size:\n            blk = rng.randbytes(size)\n        chunks.append(blk)\n\n    data = b\"\".join(chunks)\n\n    if rng.random() < 0.3:\n        page = rng.choice([4096, 8192])\n        pad_to = min(_MAX_TOTAL_SIZE, ((len(data) + page - 1) // page) * page)\n        if pad_to > len(data):\n            pad_kind = rng.choice([\"zeros\", \"ones\", \"seq\", \"words\"])\n            data += _gen_pattern_block(rng, pad_kind, pad_to - len(data))\n\n    if not data:\n        data = b\"X\"\n    return data[:_MAX_TOTAL_SIZE]\n\ndef _maybe_sparse_write(path: str, rng: random.Random, data: bytes) -> None:\n    try:\n        with open(path, 'wb') as f:\n            mode = rng.random()\n            if mode < 0.25 and len(data) > 64:\n                head = data[: len(data)//4]\n                tail = data[-len(data)//4:]\n                f.write(head)\n                hole = rng.randint(1, min(65536, 4 * len(data)))\n                f.seek(hole, os.SEEK_CUR)\n                f.write(tail)\n            elif mode < 0.5 and len(data) > 0:\n                off = rng.randint(1, 4096)\n                f.seek(off, os.SEEK_SET)\n                f.write(data)\n            else:\n                f.write(data)\n    except Exception:\n        with open(path, 'wb') as f:\n            f.write(data)\n\ndef _build_path(rng: random.Random) -> str:\n    directory = _pick_dir(rng)\n    base = _random_safe_name(rng, rng.randint(5, 16))\n    ext = _choose_extension(rng)\n    if rng.random() < 0.3:\n        base = base + rng.choice([\".\", \"..\", \".hidden\"]) \n        base = base.replace(\"/\", \"_\")\n    filename = base + ext\n    path = os.path.join(directory, filename)\n    if len(path) > 240:\n        filename = filename[:16] + ext\n        path = os.path.join(directory, filename)\n    return path\n\ndef generate(seed: int) -> bytes:\n    rng = _rand_rng(seed)\n\n    size_choice = rng.random()\n    if size_choice < 0.15:\n        target_size = rng.randint(1, 64)\n    elif size_choice < 0.35:\n        target_size = rng.randint(65, 1024)\n    elif size_choice < 0.8:\n        target_size = rng.randint(1025, 4096)\n    else:\n        target_size = 4096\n\n    data = _compose_contents(rng, target_size)\n\n    path = _build_path(rng)\n\n    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)\n\n    _maybe_sparse_write(path, rng, data)\n\n    return path.encode('utf-8')\n"
+    },
+    {
+      "data_type": "arbitrary binary file data",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# Generator for valid arbitrary binary file data to be used by FUZZ_PARAM_FILENAME.\n# Produces deterministic-by-seed, varied contents up to 4096 bytes.\n\nMAX_SIZE = 4096\nPAGE = 4096\n\n\ndef _rand(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _pattern_repeat(byte_val: int, length: int) -> bytes:\n    return bytes([byte_val]) * length\n\n\ndef _alternating(a: int, b: int, length: int) -> bytes:\n    out = bytearray(length)\n    for i in range(length):\n        out[i] = a if (i & 1) == 0 else b\n    return bytes(out)\n\n\ndef _rle_segments(rng: random.Random, total: int) -> bytes:\n    # Build run-length encoded style segments of repeated and random spans\n    out = bytearray()\n    while len(out) < total:\n        remain = total - len(out)\n        kind = rng.choice([\"repeat\", \"random\", \"zeros\", \"incr\"])\n        span = min(remain, rng.randint(1, max(1, remain)))\n        if kind == \"repeat\":\n            out.extend(_pattern_repeat(rng.randrange(256), span))\n        elif kind == \"random\":\n            out.extend(_rand(rng, span))\n        elif kind == \"zeros\":\n            out.extend(b\"\\x00\" * span)\n        else:  # incr pattern 0..255 wrap\n            start = rng.randrange(256)\n            out.extend(bytes(((start + i) & 0xFF) for i in range(span)))\n    return bytes(out)\n\n\ndef _mix_sections(rng: random.Random, total: int) -> bytes:\n    # Compose a file of several sections with tiny headers to vary locality\n    sections: List[bytes] = []\n    produced = 0\n    while produced < total:\n        remain = total - produced\n        section_len = min(remain, rng.randint(8, max(8, remain)))\n        tag = rng.choice([b\"RAND\", b\"ZERO\", b\"REPT\", b\"ALTN\", b\"TEXT\", b\"BINA\"])  # 4-5 bytes\n        if tag == b\"RAND\":\n            body = _rand(rng, section_len)\n        elif tag == b\"ZERO\":\n            body = b\"\\x00\" * section_len\n        elif tag == b\"REPT\":\n            body = _pattern_repeat(rng.randrange(256), section_len)\n        elif tag == b\"ALTN\":\n            body = _alternating(rng.randrange(256), rng.randrange(256), section_len)\n        elif tag == b\"TEXT\":\n            # Mostly printable ASCII with occasional control chars\n            body = bytes((rng.choice([rng.randrange(32, 127), 10, 13, 9, 0])) for _ in range(section_len))\n        else:\n            body = _rle_segments(rng, section_len)\n        # Simple 4-byte little-endian length header (valid struct format)\n        header = struct.pack(\"<I\", len(body))\n        chunk = header + tag + body\n        # Truncate to fit requested total\n        chunk = chunk[:section_len]\n        sections.append(chunk)\n        produced += len(chunk)\n    return b\"\".join(sections)[:total]\n\n\ndef _choose_size(rng: random.Random) -> int:\n    # Favor interesting sizes including edge cases and page boundaries\n    choices = [\n        0,\n        1, 2, 3, 7, 8, 15, 16, 31, 32,\n        63, 64, 127, 128, 255, 256,\n        PAGE - 1, PAGE, PAGE + 1,\n        1024, 2048, 3072, 3500, 4000, MAX_SIZE,\n    ]\n    if rng.random() < 0.6:\n        choices.append(rng.randint(0, MAX_SIZE))\n    size = rng.choice(choices)\n    return max(0, min(MAX_SIZE, size))\n\n\ndef _build_content(rng: random.Random, size: int) -> bytes:\n    if size == 0:\n        return b\"\"\n    strategy = rng.choices(\n        [\n            \"random\",\n            \"zeros\",\n            \"ones\",\n            \"alt\",\n            \"rle\",\n            \"mixed\",\n            \"header_body\",\n        ],\n        weights=[25, 10, 5, 10, 20, 20, 10],\n        k=1,\n    )[0]\n    if strategy == \"random\":\n        return _rand(rng, size)\n    if strategy == \"zeros\":\n        return b\"\\x00\" * size\n    if strategy == \"ones\":\n        return b\"\\xFF\" * size\n    if strategy == \"alt\":\n        return _alternating(rng.randrange(256), rng.randrange(256), size)\n    if strategy == \"rle\":\n        return _rle_segments(rng, size)\n    if strategy == \"mixed\":\n        return _mix_sections(rng, size)\n    # header_body: small header with declared size followed by payload; still arbitrary bytes overall\n    header_extra = min(12, max(0, size - 4))\n    header = struct.pack(\"<I\", size) + _rand(rng, header_extra)\n    payload_len = max(0, size - len(header))\n    payload = _rle_segments(rng, payload_len)\n    return (header + payload)[:size]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    size = _choose_size(rng)\n    content = _build_content(rng, size)\n    assert len(content) == size\n    return content"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 715,
+            "output_tokens": 177,
+            "total_tokens": 892
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 293,
+            "output_tokens": 23,
+            "total_tokens": 316
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 732,
+            "output_tokens": 1020,
+            "total_tokens": 1752
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4267,
+            "output_tokens": 2810,
+            "total_tokens": 7077
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1984,
+            "output_tokens": 146,
+            "total_tokens": 2130
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 194.82130217552185,
+    "scan_objects": 4.718062162399292,
+    "validate_objects": 0.2047712802886963,
+    "scan_functions": 22.138900995254517,
+    "synthesis": 80.43906307220459,
+    "fill": 0,
+    "classify": 5.51145076751709,
+    "build_generators": 81.80827760696411
+  }
+}

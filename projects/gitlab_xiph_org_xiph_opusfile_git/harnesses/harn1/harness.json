@@ -1,0 +1,2256 @@
+{
+  "objects": [
+    {
+      "ptr_type": "OpusHead *",
+      "aliases": [],
+      "definition": "struct OpusHead{\n  int           version;\n  int           channel_count;\n  unsigned      pre_skip;\n  opus_uint32   input_sample_rate;\n  int           output_gain;\n  int           mapping_family;\n  int           stream_count;\n  int           coupled_count;\n  unsigned char mapping[OPUS_CHANNEL_COUNT_MAX];\n};",
+      "description": "Bitstream ID header for an Ogg Opus stream. Contains core playback parameters (channels, pre-skip, original input sample rate, output gain, mapping family and layout). Used by libopusfile to configure decoding and channel mapping.",
+      "direct_api_constructors": [
+        "opus_head_parse"
+      ],
+      "owned_by": [
+        "OggOpusFile *"
+      ]
+    },
+    {
+      "ptr_type": "OpusTags *",
+      "aliases": [],
+      "definition": "struct OpusTags{\n  char **user_comments;\n  int   *comment_lengths;\n  int    comments;\n  char  *vendor;\n};",
+      "description": "Vorbis-style comment header metadata for an Ogg Opus stream. Holds vendor string and a list of (tag,value) comment entries. Binary-compatible with vorbis_comment.",
+      "direct_api_constructors": [
+        "opus_tags_parse"
+      ],
+      "owned_by": [
+        "OggOpusFile *"
+      ]
+    },
+    {
+      "ptr_type": "OpusPictureTag *",
+      "aliases": [],
+      "definition": "struct OpusPictureTag{\n  opus_int32     type;\n  char          *mime_type;\n  char          *description;\n  opus_uint32    width;\n  opus_uint32    height;\n  opus_uint32    depth;\n  opus_uint32    colors;\n  opus_uint32    data_length;\n  unsigned char *data;\n  int            format;\n};",
+      "description": "Decoded representation of a METADATA_BLOCK_PICTURE tag: descriptive fields, dimensions, and the embedded image data (or URL), with detected format when recognized.",
+      "direct_api_constructors": [
+        "opus_picture_tag_parse"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "OpusServerInfo *",
+      "aliases": [],
+      "definition": "struct OpusServerInfo{\n  char        *name;\n  char        *description;\n  char        *genre;\n  char        *url;\n  char        *server;\n  char        *content_type;\n  opus_int32   bitrate_kbps;\n  int          is_public;\n  int          is_ssl;\n};",
+      "description": "Information parsed from HTTP/Shoutcast/Icecast response headers for URL streams (e.g., station name, description, content type, nominal bitrate, flags).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "OpusFileCallbacks *",
+      "aliases": [],
+      "definition": "struct OpusFileCallbacks{\n  op_read_func  read;\n  op_seek_func  seek;\n  op_tell_func  tell;\n  op_close_func close;\n};",
+      "description": "Callback vtable used by libopusfile to read/seek/tell/close an abstract byte stream backing an Ogg Opus source.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "OggOpusFile *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque handle for an opened Ogg Opus stream managed by libopusfile. Represents decoder state, stream topology (links), buffering, and headers. Full definition is private to the library.",
+      "direct_api_constructors": [
+        "op_open_file",
+        "op_open_memory",
+        "op_vopen_url",
+        "op_open_url",
+        "op_open_callbacks",
+        "op_test_file",
+        "op_test_memory",
+        "op_vtest_url",
+        "op_test_url",
+        "op_test_callbacks"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "opus_head_parse",
+      "signature": "int opus_head_parse(OpusHead *_head, const unsigned char *_data, size_t _len)",
+      "description": "Parses an Opus ID header packet into an OpusHead structure. Use to validate and retrieve stream parameters (channels, mapping, gain, etc.). On error, _head is left unchanged. Pass _head = NULL to validate only.",
+      "requirements": [
+        "_data must point to the full ID header packet; _len is its byte length.",
+        "_data must begin with the ASCII string \"OpusHead\" or the function returns OP_ENOTFORMAT.",
+        "Channel mapping family 255 is rejected (returns OP_EIMPL) for general-purpose players.",
+        "If parsing fails, return is a negative error; check it before using _head.",
+        "_head may be NULL to perform validation only."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_granule_sample",
+      "signature": "ogg_int64_t opus_granule_sample(const OpusHead *_head, ogg_int64_t _gp)",
+      "description": "Converts an Opus granule position to a 48 kHz sample offset for a given stream. Effectively returns _gp - _head->pre_skip, but safely handles very large (wrapped) granule positions and negative results.",
+      "requirements": [
+        "_head must be a valid, initialized OpusHead for the stream.",
+        "Returns -1 if _gp < _head->pre_skip (audio that should not be played).",
+        "Counts samples at 48 kHz."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_parse",
+      "signature": "int opus_tags_parse(OpusTags *_tags, const unsigned char *_data, size_t _len)",
+      "description": "Parses an Opus comment (OpusTags) header packet into an OpusTags structure. Use to retrieve vendor string and user comments. On error, _tags is left unchanged. Pass _tags = NULL to validate only.",
+      "requirements": [
+        "_data must point to the full 'OpusTags' header packet; _len is its byte length.",
+        "_data must begin with the ASCII string \"OpusTags\" or the function returns OP_ENOTFORMAT.",
+        "If memory allocation fails, returns OP_EFAULT.",
+        "On failure, do not use or free fields in _tags."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_copy",
+      "signature": "int opus_tags_copy(OpusTags *_dst, const OpusTags *_src)",
+      "description": "Performs a deep copy of an OpusTags structure from _src to _dst.",
+      "requirements": [
+        "_dst must be a valid pointer to an OpusTags to receive the copy.",
+        "_src may be NULL only if caller intends undefined behavior; passing NULL violates OP_ARG_NONNULL(1) only on _dst. Source must logically be a valid OpusTags.",
+        "On failure (OP_EFAULT), _dst remains unmodified."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_init",
+      "signature": "void opus_tags_init(OpusTags *_tags)",
+      "description": "Initializes an OpusTags structure for use before adding or parsing tags.",
+      "requirements": [
+        "_tags must be a valid pointer to an allocated OpusTags.",
+        "Call before using _tags with add/query functions or before manual population.",
+        "After use, free with opus_tags_clear()."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_add",
+      "signature": "int opus_tags_add(OpusTags *_tags, const char *_tag, const char *_value)",
+      "description": "Adds a (tag, value) pair to an initialized OpusTags. Values with embedded NULs are not supported by this helper.",
+      "requirements": [
+        "_tags must be initialized with opus_tags_init() or populated by parse.",
+        "_tag must be a NUL-terminated ASCII, case-insensitive tag name without '='.",
+        "_value must be a NUL-terminated UTF-8 string (no embedded NULs supported by this API).",
+        "On allocation failure returns OP_EFAULT; check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_add_comment",
+      "signature": "int opus_tags_add_comment(OpusTags *_tags, const char *_comment)",
+      "description": "Adds a raw comment string in \"TAG=value\" form to an initialized OpusTags. Embedded NULs are not supported by this helper.",
+      "requirements": [
+        "_tags must be initialized prior to call.",
+        "_comment must be a NUL-terminated UTF-8 string in TAG=value form (no embedded NULs supported by this API).",
+        "On allocation failure returns OP_EFAULT; check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_set_binary_suffix",
+      "signature": "int opus_tags_set_binary_suffix(OpusTags *_tags, const unsigned char *_data, int _len)",
+      "description": "Sets or replaces the binary suffix data after the encoded user comments in an OpusTags packet. Pass _len = 0 to remove any existing binary suffix.",
+      "requirements": [
+        "_tags must be initialized.",
+        "If _len < 0, returns OP_EINVAL.",
+        "If _len > 0: _data must be non-NULL and the least significant bit of _data[0] must be set; otherwise returns OP_EINVAL.",
+        "May return OP_EFAULT on allocation failure; check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_query",
+      "signature": "const char *opus_tags_query(const OpusTags *_tags, const char *_tag, int _count)",
+      "description": "Looks up the value for the _count-th occurrence of tag name _tag in an OpusTags. Returns a direct pointer into the OpusTags storage; do not modify or free it.",
+      "requirements": [
+        "_tags must be initialized and populated.",
+        "_tag must be a NUL-terminated ASCII tag name (case-insensitive).",
+        "_count selects the occurrence index (0-based). Use opus_tags_query_count() to get the valid range.",
+        "Returned pointer becomes invalid if the OpusTags is modified or cleared.",
+        "Returns NULL if no matching tag or index is out of range."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_query_count",
+      "signature": "int opus_tags_query_count(const OpusTags *_tags, const char *_tag)",
+      "description": "Returns the number of instances of a given tag name in an OpusTags.",
+      "requirements": [
+        "_tags must be initialized and populated.",
+        "_tag must be a NUL-terminated ASCII tag name (case-insensitive)."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_get_binary_suffix",
+      "signature": "const unsigned char *opus_tags_get_binary_suffix(const OpusTags *_tags, int *_len)",
+      "description": "Retrieves the binary suffix data and length from an OpusTags, if any. Returns NULL if none present.",
+      "requirements": [
+        "_tags must be initialized.",
+        "_len must be a valid pointer to receive length.",
+        "Returned pointer is owned by OpusTags; do not free or modify and it may be invalidated by later modifications or clear."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_get_album_gain",
+      "signature": "int opus_tags_get_album_gain(const OpusTags *_tags, int *_gain_q8)",
+      "description": "Parses the first R128_ALBUM_GAIN tag and returns its value in Q8 dB (1/256 dB units) if present and valid. Intended for apps that need to display or apply album gain.",
+      "requirements": [
+        "_tags must be initialized and populated.",
+        "_gain_q8 must be a valid pointer to receive the gain value.",
+        "On success, value is in [-32768, 32767].",
+        "Returns OP_FALSE if no album gain is available; check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_get_track_gain",
+      "signature": "int opus_tags_get_track_gain(const OpusTags *_tags, int *_gain_q8)",
+      "description": "Parses the first R128_TRACK_GAIN tag and returns its value in Q8 dB (1/256 dB units) if present and valid. Intended for apps that need to display or apply track gain.",
+      "requirements": [
+        "_tags must be initialized and populated.",
+        "_gain_q8 must be a valid pointer to receive the gain value.",
+        "On success, value is in [-32768, 32767].",
+        "Returns OP_FALSE if no track gain is available; check return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tags_clear",
+      "signature": "void opus_tags_clear(OpusTags *_tags)",
+      "description": "Frees all memory used by an OpusTags structure. Call when the tags are no longer needed.",
+      "requirements": [
+        "_tags must be a valid pointer to an OpusTags that was initialized and/or populated.",
+        "Do not use pointers previously returned by opus_tags_query()/get_binary_suffix() after clearing."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tagcompare",
+      "signature": "int opus_tagcompare(const char *_tag_name, const char *_comment)",
+      "description": "Compares a comment string against a tag name (case-insensitive ASCII) to determine if it is an instance of that tag (\"tag=value\"). Returns <0, 0, or >0 like strcmp-style comparison relative to a matching \"tag=value\" string.",
+      "requirements": [
+        "_tag_name must be a NUL-terminated ASCII tag name without '='.",
+        "_comment must be a NUL-terminated comment string to check."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_tagncompare",
+      "signature": "int opus_tagncompare(const char *_tag_name, int _tag_len, const char *_comment)",
+      "description": "Like opus_tagcompare() but takes a known tag name length for efficiency. Compares the first _tag_len characters of _tag_name against the tag part of \"tag=value\".",
+      "requirements": [
+        "_tag_len must be non-negative.",
+        "_tag_name must reference at least _tag_len characters of a case-insensitive ASCII tag name (no '=').",
+        "_comment must be a NUL-terminated comment string to check."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_picture_tag_parse",
+      "signature": "int opus_picture_tag_parse(OpusPictureTag *_pic, const char *_tag)",
+      "description": "Parses a METADATA_BLOCK_PICTURE tag (optionally prefixed by \"METADATA_BLOCK_PICTURE=\") from base64 to an OpusPictureTag, filling MIME type, description, dimensions (if determinable), and raw image data. Attempts to detect JPEG/PNG/GIF and set format; may override parameters from tag if extracted from image data.",
+      "requirements": [
+        "_pic must be an allocated OpusPictureTag; contents left unmodified on failure.",
+        "_tag must be a NUL-terminated UTF-8 string with the METADATA_BLOCK_PICTURE content; the leading key is optional.",
+        "On success, caller must later free with opus_picture_tag_clear().",
+        "Returns OP_ENOTFORMAT if contents invalid; OP_EFAULT on allocation failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_picture_tag_init",
+      "signature": "void opus_picture_tag_init(OpusPictureTag *_pic)",
+      "description": "Initializes an OpusPictureTag so it can be safely populated or cleared later.",
+      "requirements": [
+        "_pic must be a valid pointer to an allocated OpusPictureTag.",
+        "Call before parse/fill; clear later with opus_picture_tag_clear()."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_picture_tag_clear",
+      "signature": "void opus_picture_tag_clear(OpusPictureTag *_pic)",
+      "description": "Frees all memory referenced by an OpusPictureTag. Call when no longer needed.",
+      "requirements": [
+        "_pic must be a valid pointer to an OpusPictureTag previously initialized.",
+        "Do not use internal pointers after clearing."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_server_info_init",
+      "signature": "void opus_server_info_init(OpusServerInfo *_info)",
+      "description": "Initializes an OpusServerInfo with default values indicating fields not present. Requires linking against libopusurl.",
+      "requirements": [
+        "_info must be a valid pointer to an allocated OpusServerInfo.",
+        "Link with libopusurl when using this API."
+      ],
+      "error": null
+    },
+    {
+      "name": "opus_server_info_clear",
+      "signature": "void opus_server_info_clear(OpusServerInfo *_info)",
+      "description": "Frees all memory used by an OpusServerInfo. Requires linking against libopusurl.",
+      "requirements": [
+        "_info must be a valid pointer to an OpusServerInfo previously initialized or filled via OP_GET_SERVER_INFO.",
+        "Link with libopusurl when using this API."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_fopen",
+      "signature": "void *op_fopen(OpusFileCallbacks *_cb, const char *_path, const char *_mode)",
+      "description": "Opens a stdio FILE* via fopen() and returns an opaque stream handle plus fills OpusFileCallbacks to access it using 64-bit safe seek/tell. Useful to avoid cross-module FILE* issues and to get portable callbacks.",
+      "requirements": [
+        "_cb must be non-NULL; on error, it is left untouched.",
+        "_path must be a valid path (UTF-8 on Windows; native encoding elsewhere).",
+        "_mode must be a valid fopen() mode string.",
+        "Returns NULL on error; check before using callbacks."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_fdopen",
+      "signature": "void *op_fdopen(OpusFileCallbacks *_cb, int _fd, const char *_mode)",
+      "description": "Wraps fdopen() to create a stream and fill OpusFileCallbacks for it. Provides portable 64-bit seek/tell callback wrappers.",
+      "requirements": [
+        "_cb must be non-NULL; left untouched on error.",
+        "_fd must be a valid file descriptor suitable for fdopen().",
+        "_mode must be a valid mode string for fdopen().",
+        "Returns NULL on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_freopen",
+      "signature": "void *op_freopen(OpusFileCallbacks *_cb, const char *_path, const char *_mode, void *_stream)",
+      "description": "Wraps freopen() on an existing stream created by op_fopen/op_fdopen/op_freopen and fills OpusFileCallbacks, returning a new stream handle for use with those callbacks.",
+      "requirements": [
+        "_cb, _path, _mode, and _stream must be non-NULL.",
+        "_stream must be a stream previously returned by op_fopen/op_fdopen/op_freopen.",
+        "Returns NULL on error; on error _cb is left untouched."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_mem_stream_create",
+      "signature": "void *op_mem_stream_create(OpusFileCallbacks *_cb, const unsigned char *_data, size_t _size)",
+      "description": "Creates a non-seek or seek-capable stream (as implemented internally) that reads from the provided memory block containing the complete stream. Fills callbacks to access it and returns an opaque stream handle.",
+      "requirements": [
+        "_cb must be non-NULL; on error, left untouched.",
+        "_data may be NULL only if _size==0 to create an empty stream; typical use passes the full data buffer.",
+        "_size is the total number of bytes of the complete stream image.",
+        "Returns NULL on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_url_stream_vcreate",
+      "signature": "void *op_url_stream_vcreate(OpusFileCallbacks *_cb, const char *_url, va_list _ap)",
+      "description": "Creates a stream that reads from a URL (file/http/https), filling callbacks for access; takes a va_list of URL options (terminated by NULL). Does not call va_end. Requires linking against libopusurl.",
+      "requirements": [
+        "_cb and _url must be non-NULL.",
+        "URL must currently use file:, http:, or https: scheme; http/https may be disabled at compile time.",
+        "_ap must be a valid va_list of url_options terminated by NULL; its value is undefined after the call.",
+        "Returns NULL on error; on error _cb is left untouched.",
+        "Link with libopusurl."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_url_stream_create",
+      "signature": "void *op_url_stream_create(OpusFileCallbacks *_cb, const char *_url, ...)",
+      "description": "Creates a stream that reads from a URL (file/http/https), filling callbacks for access; takes variable URL options (terminated by NULL). Requires linking against libopusurl.",
+      "requirements": [
+        "_cb and _url must be non-NULL.",
+        "Only file:, http:, and https: supported (http/https may be disabled at build time).",
+        "Variadic url_options must be terminated with NULL.",
+        "Returns NULL on error; on error _cb is left untouched.",
+        "Link with libopusurl."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_test",
+      "signature": "int op_test(OpusHead *_head, const unsigned char *_initial_data, size_t _initial_bytes)",
+      "description": "Quickly tests whether the provided initial bytes look like an Opus stream; optionally returns parsed ID header in _head. Intended as a fast rejection filter; does not guarantee full validity.",
+      "requirements": [
+        "Provide at least ~57 bytes for pure Opus-only streams for good results; ~512 bytes recommended for multiplexed streams.",
+        "_initial_data must contain data from the start of the stream; length is _initial_bytes.",
+        "_head may be NULL if header info not needed; on failure, _head is unmodified.",
+        "Check return: 0 means looks like Opus; negative error otherwise (OP_FALSE if insufficient data)."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_open_file",
+      "signature": "OggOpusFile *op_open_file(const char *_path, int *_error)",
+      "description": "Opens an Ogg Opus stream from a filesystem path and returns an OggOpusFile handle on success. On error returns NULL and optionally stores an error code in _error.",
+      "requirements": [
+        "_path must be non-NULL and refer to a readable file.",
+        "If _error is non-NULL, it receives 0 on success or an error code. If the file could not be opened, _error is OP_EFAULT; otherwise errors are from op_open_callbacks().",
+        "Caller must later call op_free() on a successful open."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_open_memory",
+      "signature": "OggOpusFile *op_open_memory(const unsigned char *_data, size_t _size, int *_error)",
+      "description": "Opens an Ogg Opus stream from a memory buffer and returns an OggOpusFile. On error returns NULL and optionally stores an error code.",
+      "requirements": [
+        "_data must point to a buffer containing the complete stream image; _size is its length.",
+        "_error, if non-NULL, receives 0 on success or an error code per op_open_callbacks().",
+        "On success, free with op_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_vopen_url",
+      "signature": "OggOpusFile *op_vopen_url(const char *_url, int *_error, va_list _ap)",
+      "description": "Opens an Ogg Opus stream from a URL using a va_list of URL options (terminated by NULL). Does not call va_end. Requires linking against libopusurl.",
+      "requirements": [
+        "_url must be non-NULL and use file:, http:, or https: (http/https may be disabled).",
+        "_ap must be a valid va_list of url_options terminated by NULL; its value is undefined after the call.",
+        "_error, if non-NULL, receives 0 on success or an error code per op_open_callbacks().",
+        "On success, free with op_free().",
+        "Link with libopusurl."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_open_url",
+      "signature": "OggOpusFile *op_open_url(const char *_url, int *_error, ...)",
+      "description": "Opens an Ogg Opus stream from a URL with variadic URL options (terminated by NULL). Requires linking against libopusurl.",
+      "requirements": [
+        "_url must be non-NULL and use file:, http:, or https: (http/https may be disabled).",
+        "Variadic url_options must be terminated with NULL.",
+        "_error, if non-NULL, receives 0 on success or an error code per op_open_callbacks().",
+        "On success, free with op_free().",
+        "Link with libopusurl."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_open_callbacks",
+      "signature": "OggOpusFile *op_open_callbacks(void *_stream, const OpusFileCallbacks *_cb, const unsigned char *_initial_data, size_t _initial_bytes, int *_error)",
+      "description": "Opens an Ogg Opus stream using application-provided callbacks for I/O. Supports unseekable and seekable sources. If callbacks include a successful seek(), then tell() must be provided and work consistently. On failure, the stream is not taken over (caller must close it).",
+      "requirements": [
+        "_cb must be non-NULL and its read() must be implemented; seek()/tell() may be NULL or may return -1 to indicate unseekable. If seek() succeeds on this stream, tell() must also be implemented and succeed.",
+        "If close() is non-NULL it will be called when op_free() destroys the OggOpusFile; it is not called if op_open_callbacks() itself fails.",
+        "_initial_data/_initial_bytes may provide pre-read bytes from the start of the stream. If the stream is seekable, the current position (tell() at entry) must equal _initial_bytes; otherwise absolute seeks will be inconsistent.",
+        "_error, if non-NULL, receives an error code on failure (see documented list: OP_EREAD, OP_EFAULT, OP_EIMPL, OP_EINVAL, OP_ENOTFORMAT, OP_EBADHEADER, OP_EVERSION, OP_EBADLINK, OP_EBADTIMESTAMP).",
+        "On success, later free with op_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_test_file",
+      "signature": "OggOpusFile *op_test_file(const char *_path, int *_error)",
+      "description": "Partially opens a stream from a file path. Loads headers for the first link and tests for seekability but does not fully open or allow decoding. Finish with op_test_open() or free with op_free().",
+      "requirements": [
+        "_path must be non-NULL.",
+        "_error, if non-NULL, receives 0 on success or an error code (OP_EFAULT if the file could not be opened; otherwise from op_open_callbacks()).",
+        "Only limited queries are available until op_test_open() succeeds."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_test_memory",
+      "signature": "OggOpusFile *op_test_memory(const unsigned char *_data, size_t _size, int *_error)",
+      "description": "Partially opens a stream from a memory buffer. Loads headers for the first link and tests for seekability but does not fully open or allow decoding. Finish with op_test_open() or free with op_free().",
+      "requirements": [
+        "_data must point to a buffer with the stream image; _size is its length.",
+        "_error, if non-NULL, receives 0 on success or an error per op_open_callbacks()."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_vtest_url",
+      "signature": "OggOpusFile *op_vtest_url(const char *_url, int *_error, va_list _ap)",
+      "description": "Partially opens a stream from a URL using a va_list of URL options (terminated by NULL). Loads first-link headers and tests for seekability. Requires linking against libopusurl. Finish with op_test_open() or free with op_free().",
+      "requirements": [
+        "_url must be non-NULL and use file:, http:, or https: (http/https may be disabled).",
+        "_ap must be a valid va_list of url_options terminated by NULL; value is undefined after the call.",
+        "_error, if non-NULL, receives 0 on success or an error per op_open_callbacks().",
+        "Link with libopusurl."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_test_url",
+      "signature": "OggOpusFile *op_test_url(const char *_url, int *_error, ...)",
+      "description": "Partially opens a stream from a URL with variadic URL options (terminated by NULL). Loads first-link headers and tests for seekability. Requires linking against libopusurl. Finish with op_test_open() or free with op_free().",
+      "requirements": [
+        "_url must be non-NULL and use file:, http:, or https: (http/https may be disabled).",
+        "Variadic url_options must be terminated with NULL.",
+        "_error, if non-NULL, receives 0 on success or an error per op_open_callbacks().",
+        "Link with libopusurl."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_test_callbacks",
+      "signature": "OggOpusFile *op_test_callbacks(void *_stream, const OpusFileCallbacks *_cb, const unsigned char *_initial_data, size_t _initial_bytes, int *_error)",
+      "description": "Partially opens a stream using application-provided callbacks. Tests for Opusness, loads headers for the first link, and tests seekability without fully opening. Only limited queries are available until op_test_open().",
+      "requirements": [
+        "_cb must be non-NULL; read() must be implemented. If seek() succeeds on the source, tell() must also be implemented and succeed.",
+        "_initial_data/_initial_bytes can include bytes from the start. If the stream is seekable, the current position at entry must equal _initial_bytes.",
+        "_error, if non-NULL, receives 0 on success or an error per op_open_callbacks().",
+        "On failure, stream ownership is not taken; caller must close it."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_test_open",
+      "signature": "int op_test_open(OggOpusFile *_of)",
+      "description": "Finishes opening a stream previously partially opened with op_test_callbacks() or its convenience wrappers. After success the stream supports full operations (decoding, seeking if available).",
+      "requirements": [
+        "_of must be a partially opened OggOpusFile obtained from op_test_* functions.",
+        "Returns 0 on success; otherwise a negative error (OP_EREAD, OP_EFAULT, OP_EIMPL, OP_EINVAL, OP_ENOTFORMAT, OP_EBADHEADER, OP_EVERSION, OP_EBADLINK, OP_EBADTIMESTAMP).",
+        "Regardless of success, caller must free _of with op_free() eventually."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_free",
+      "signature": "void op_free(OggOpusFile *_of)",
+      "description": "Releases all resources associated with an OggOpusFile. Calls the close() callback if provided during open. Safe to call on partially or fully opened handles.",
+      "requirements": [
+        "_of must be a pointer returned by an op_open_* or op_test_* function (may be NULL for no-op depending on implementation; specification does not state; pass valid pointer).",
+        "After calling, the handle must not be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_seekable",
+      "signature": "int op_seekable(const OggOpusFile *_of)",
+      "description": "Reports whether the stream is seekable (callbacks support seek/tell and succeeded at least once). May be called on partially-opened streams.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "Returns non-zero if seekable, 0 if not."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_link_count",
+      "signature": "int op_link_count(const OggOpusFile *_of)",
+      "description": "Returns the number of links in the chained stream. On partially-opened streams always returns 1; actual count requires fully opened, seekable streams.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "For partially-open or unseekable streams, expect return 1."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_serialno",
+      "signature": "opus_uint32 op_serialno(const OggOpusFile *_of, int _li)",
+      "description": "Returns the Ogg serial number of the specified link. Negative _li requests the current link. For non-seekable streams always returns the current link's serial number. If _li exceeds the number of links, returns the last link's serial.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "_li < 0 selects current link; otherwise selects link by index (out-of-range yields last link)."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_channel_count",
+      "signature": "int op_channel_count(const OggOpusFile *_of, int _li)",
+      "description": "Returns the channel count for the specified link. Negative _li requests the current link. For non-seekable streams always returns the current link's channel count.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "_li < 0 selects current link; otherwise selects link by index (out-of-range yields last link)."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_raw_total",
+      "signature": "opus_int64 op_raw_total(const OggOpusFile *_of, int _li)",
+      "description": "Returns the total compressed byte size of the stream or a specific link (including headers and muxing overhead). For multiplexed streams, this is the entire link size, not just Opus bytes.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "Stream must be seekable and fully opened; otherwise returns OP_EINVAL.",
+        "_li < 0 requests entire stream; non-negative requests link index; if _li >= link count returns OP_EINVAL.",
+        "May be smaller than underlying file size if trailing garbage was detected."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_pcm_total",
+      "signature": "ogg_int64_t op_pcm_total(const OggOpusFile *_of, int _li)",
+      "description": "Returns the total number of 48 kHz PCM samples in the stream or a specific link.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "Stream must be seekable and fully opened; otherwise returns OP_EINVAL.",
+        "_li < 0 requests entire stream; non-negative requests link index; if _li >= link count returns OP_EINVAL."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_head",
+      "signature": "const OpusHead *op_head(const OggOpusFile *_of, int _li)",
+      "description": "Returns a pointer to the Opus ID header (OpusHead) for the specified link. On partially-opened streams, always returns the first link's header.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "_li < 0 selects current link; for unseekable streams, _li is ignored and current link info is returned if available.",
+        "Returned pointer is owned by the library; do not free or modify and it may be invalidated after op_free() or after operations affecting metadata caches."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_tags",
+      "signature": "const OpusTags *op_tags(const OggOpusFile *_of, int _li)",
+      "description": "Returns a pointer to the OpusTags for the specified link, or NULL for unseekable streams that encountered an invalid link. On partially-opened streams, always returns the first link's tags.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "_li < 0 selects current link; for unseekable streams, _li is ignored and current link info is returned if available.",
+        "Returned pointer is owned by the library; do not free or modify. May be NULL if invalid."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_current_link",
+      "signature": "int op_current_link(const OggOpusFile *_of)",
+      "description": "Returns the index of the current link (the one most recently decoded from, or reached by a seek). For unseekable streams, starts at 0 and increments at each new link. Returns OP_EINVAL if the stream is only partially open.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "Do not call on a partially opened stream if you expect a non-negative index; check for OP_EINVAL."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_bitrate",
+      "signature": "opus_int32 op_bitrate(const OggOpusFile *_of, int _li)",
+      "description": "Computes the average bitrate (bits per second) of the entire stream or a specific link. Requires a seekable, fully opened stream.",
+      "requirements": [
+        "_of must be non-NULL and fully opened.",
+        "Stream must be seekable; otherwise returns OP_EINVAL.",
+        "_li < 0 for whole stream, non-negative for link index; if _li >= link count returns OP_EINVAL.",
+        "For multiplexed streams, uses the total stream/link size (not Opus-only)."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_bitrate_instant",
+      "signature": "opus_int32 op_bitrate_instant(OggOpusFile *_of)",
+      "description": "Returns the instantaneous bitrate since the last call/seek/start. May spike after seeks or chain boundaries due to pre-skip/pre-roll/end-trim. Returns OP_FALSE if no data has been decoded yet; OP_EINVAL if only partially open.",
+      "requirements": [
+        "_of must be non-NULL and at least fully opened for decoding.",
+        "Interpreting negative return values as errors is required (OP_FALSE, OP_EINVAL)."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_raw_tell",
+      "signature": "opus_int64 op_raw_tell(const OggOpusFile *_of)",
+      "description": "Returns the current byte position being read from. Returns OP_EINVAL if the stream is only partially open.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "Do not call on a partially opened stream if you expect a position; check for OP_EINVAL."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_pcm_tell",
+      "signature": "ogg_int64_t op_pcm_tell(const OggOpusFile *_of)",
+      "description": "Returns the current 48 kHz PCM offset of the next sample to be read. On ill-timestamped streams, this may not be strictly monotonic. Returns OP_EINVAL if only partially open.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "Do not call on a partially opened stream if you expect a valid offset; check for OP_EINVAL."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_raw_seek",
+      "signature": "int op_raw_seek(OggOpusFile *_of, opus_int64 _byte_offset)",
+      "description": "Seeks to a byte position within the compressed data, scanning packets to update the PCM cursor. Fast (at most one physical seek). May cross a logical bitstream boundary if necessary.",
+      "requirements": [
+        "_of must be non-NULL and refer to a seekable, fully opened stream.",
+        "_byte_offset must be within [0, op_raw_total(_of, -1)].",
+        "Returns 0 on success or a negative error: OP_EREAD, OP_EINVAL (partially open or out of range), OP_ENOSEEK (unseekable), OP_EBADLINK."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_pcm_seek",
+      "signature": "int op_pcm_seek(OggOpusFile *_of, ogg_int64_t _pcm_offset)",
+      "description": "Seeks to an exact 48 kHz PCM sample offset so that subsequent decoding begins at the requested position. Handles required decoder pre-roll internally.",
+      "requirements": [
+        "_of must be non-NULL and refer to a seekable, fully opened stream.",
+        "_pcm_offset must be within the valid PCM range of the stream.",
+        "Returns 0 on success or a negative error: OP_EREAD, OP_EINVAL (partially open or out of range), OP_ENOSEEK (unseekable), OP_EBADLINK."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_set_decode_callback",
+      "signature": "void op_set_decode_callback(OggOpusFile *_of, op_decode_cb_func _decode_cb, void *_ctx)",
+      "description": "Registers a per-packet decode callback. If set, libopusfile invokes it for each packet needing decoding, allowing advanced processing or custom decoding. The callback may return OP_DEC_USE_DEFAULT to let libopusfile decode normally.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "_decode_cb may be NULL to disable the callback.",
+        "Callback must fill exactly nsamples*nchannels in the requested format when returning success (0).",
+        "Callback errors should mirror opus_multistream_decode[_float] error codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_set_gain_offset",
+      "signature": "int op_set_gain_offset(OggOpusFile *_of, int _gain_type, opus_int32 _gain_offset_q8)",
+      "description": "Controls the playback gain. Selects how to combine header gain and optional R128 album/track gain with an additional offset (Q8 dB). Total gain is clamped to [-32768,32767]/256 dB. New gain does not retroactively affect buffered decoded audio.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "_gain_type must be one of OP_HEADER_GAIN, OP_ALBUM_GAIN, OP_TRACK_GAIN, or OP_ABSOLUTE_GAIN; otherwise returns OP_EINVAL.",
+        "_gain_offset_q8 is in 1/256 dB units.",
+        "Do not expect sample-by-sample gain changes; at best updates per packet."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_set_dither_enabled",
+      "signature": "void op_set_dither_enabled(OggOpusFile *_of, int _enabled)",
+      "description": "Enables or disables noise-shaping dithering when producing 16-bit samples via op_read()/op_read_stereo() in floating-point builds. Has no effect when using op_read_float()/op_read_float_stereo() or when built for fixed-point decoding.",
+      "requirements": [
+        "_of must be non-NULL.",
+        "_enabled: non-zero enables dithering; 0 disables."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_read",
+      "signature": "int op_read(OggOpusFile *_of, opus_int16 *_pcm, int _buf_size, int *_li)",
+      "description": "Decodes and returns interleaved 16-bit PCM samples at 48 kHz. Returns the number of samples per channel. Channel count may change at chain boundaries; optionally returns the link index in *_li.",
+      "requirements": [
+        "_of must be non-NULL and fully opened (not just partially).",
+        "_pcm must have room for at least _buf_size 16-bit values; returned count is per channel, not total values.",
+        "_buf_size should ideally allow ≥120 ms per channel (5760 values/channel) to reduce buffering; smaller is allowed but may return fewer samples.",
+        "_li may be NULL if link index is not needed; on error it is left unset.",
+        "Check negative returns for errors (listed in header), including OP_EREAD (e.g., https truncation), OP_EINVAL (partially open), OP_EBADPACKET, etc."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_read_float",
+      "signature": "int op_read_float(OggOpusFile *_of, float *_pcm, int _buf_size, int *_li)",
+      "description": "Decodes and returns interleaved 32-bit float PCM samples at 48 kHz, with nominal range [-1.0, 1.0]. Returns the number of samples per channel. Channel count may change at chain boundaries; optionally returns the link index.",
+      "requirements": [
+        "_of must be non-NULL and fully opened (not just partially).",
+        "_pcm must have room for at least _buf_size floats; returned count is per channel.",
+        "_buf_size should ideally allow ≥120 ms per channel (5760 samples/channel); smaller is allowed.",
+        "_li may be NULL; left unset on error.",
+        "Check negative returns for errors (same set as op_read)."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_read_stereo",
+      "signature": "int op_read_stereo(OggOpusFile *_of, opus_int16 *_pcm, int _buf_size)",
+      "description": "Decodes and returns 16-bit PCM samples downmixed to stereo (interleaved), regardless of source channel count. Returns samples per channel (per left/right).",
+      "requirements": [
+        "_of must be non-NULL and fully opened.",
+        "_pcm must have room for at least _buf_size 16-bit values; returned count is per channel.",
+        "_buf_size ideally ≥11520 values total (120 ms stereo) to reduce buffering.",
+        "Check negative returns for errors (same set as op_read)."
+      ],
+      "error": null
+    },
+    {
+      "name": "op_read_float_stereo",
+      "signature": "int op_read_float_stereo(OggOpusFile *_of, float *_pcm, int _buf_size)",
+      "description": "Decodes and returns float PCM samples downmixed to stereo (interleaved), regardless of source channel count. Returns samples per channel.",
+      "requirements": [
+        "_of must be non-NULL and fully opened.",
+        "_pcm must have room for at least _buf_size floats; returned count is per channel.",
+        "_buf_size ideally ≥11520 values total (120 ms stereo).",
+        "Check negative returns for errors (same set as op_read_float)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "opus_head_parse",
+      "inputs": [
+        {
+          "name": "head",
+          "type": "OpusHead *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "head",
+          "type": "OpusHead *"
+        }
+      ],
+      "code": "// Prepare an ID header packet. Sometimes valid (with magic), sometimes not, to cover paths.\nstd::string pkt = FUZZ_PARAM_STR();\n// Ensure size within reasonable bounds for speed.\nif (pkt.size() > 1024) pkt.resize(1024);\n// 50% chance: force correct magic prefix to exercise success paths.\nif ((*FUZZ_PARAM(unsigned int) & 1u) && pkt.size() >= 8){\n  memcpy(&pkt[0], \"OpusHead\", 8);\n} else if (pkt.size() < 1){\n  // Ensure non-empty buffer to avoid undefined behavior on &pkt[0].\n  pkt.push_back('\\0');\n}\n// Optionally validate-only by passing NULL for _head to exercise that contract.\nOpusHead *maybe_head = ((*FUZZ_PARAM(unsigned int) & 2u) ? nullptr : head);\nint ret = opus_head_parse(maybe_head, (const unsigned char*)pkt.data(), (size_t)pkt.size());\n// If we parsed into a real head and it succeeded, track that it's initialized/parsed for downstream users.\nif (maybe_head && ret >= 0){\n  FUZZ_SET_ATTR_INT(head, \"parsed\", 1);\n  // Record pre_skip to support opus_granule_sample property checks.\n  FUZZ_SET_ATTR_INT(head, \"pre_skip\", (int)head->pre_skip);\n}"
+    },
+    {
+      "name": "opus_granule_sample",
+      "inputs": [
+        {
+          "name": "head",
+          "type": "OpusHead *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "head",
+          "type": "OpusHead *"
+        }
+      ],
+      "code": "// Require a valid, initialized OpusHead (ideally from opus_head_parse).\nint parsed = FUZZ_GET_ATTR_INT(head, \"parsed\");\nif (!parsed){ FUZZ_BAIL(); }\n// Generate a granule position, possibly around pre_skip to exercise both sides and large values.\nogg_int64_t ps = (ogg_int64_t)FUZZ_GET_ATTR_INT(head, \"pre_skip\");\nogg_int64_t wiggle = (ogg_int64_t)(*FUZZ_PARAM(unsigned int) % 100000);\n// Randomly pick below or above pre_skip; also allow a large wrap-like number.\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 3u;\nogg_int64_t gp = (mode==0 ? ps - wiggle : (mode==1 ? ps + wiggle : ((ogg_int64_t)1<<40) + wiggle));\nogg_int64_t sample = opus_granule_sample((const OpusHead*)head, gp);\n// Property: when gp < pre_skip, return should be -1.\nif (gp < ps){ FUZZ_ASSERT(sample==-1, \"opus_granule_sample must return -1 for gp < pre_skip\"); }"
+    },
+    {
+      "name": "opus_tags_parse",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "// Prepare a comment header packet; sometimes prepend correct magic.\nstd::string pkt = FUZZ_PARAM_STR();\nif (pkt.size() > 2048) pkt.resize(2048);\nif ((*FUZZ_PARAM(unsigned int) & 1u) && pkt.size() >= 8){\n  memcpy(&pkt[0], \"OpusTags\", 8);\n} else if (pkt.empty()){\n  pkt.push_back('\\0');\n}\n// Optionally validation-only path.\nOpusTags *maybe_tags = ((*FUZZ_PARAM(unsigned int) & 2u) ? nullptr : tags);\nint ret = opus_tags_parse(maybe_tags, (const unsigned char*)pkt.data(), (size_t)pkt.size());\nif (maybe_tags && ret >= 0){\n  // Mark as initialized/populated for downstream operations.\n  FUZZ_SET_ATTR_INT(tags, \"initialized\", 1);\n  FUZZ_SET_ATTR_INT(tags, \"populated\", 1);\n}"
+    },
+    {
+      "name": "opus_tags_copy",
+      "inputs": [
+        {
+          "name": "dst",
+          "type": "OpusTags *"
+        },
+        {
+          "name": "src",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dst",
+          "type": "OpusTags *"
+        },
+        {
+          "name": "src",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "// Source must be logically valid/populated.\nint src_ok = FUZZ_GET_ATTR_INT(src, \"initialized\") || FUZZ_GET_ATTR_INT(src, \"populated\");\nif (!src_ok){ FUZZ_BAIL(); }\nint ret = opus_tags_copy(dst, (const OpusTags*)src);\nif (ret >= 0){\n  // On success, destination becomes initialized/populated deep copy.\n  FUZZ_SET_ATTR_INT(dst, \"initialized\", 1);\n  FUZZ_SET_ATTR_INT(dst, \"populated\", 1);\n}"
+    },
+    {
+      "name": "opus_tags_init",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "opus_tags_init(tags);\n// Mark initialized; not yet populated.\nFUZZ_SET_ATTR_INT(tags, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(tags, \"populated\", 0);"
+    },
+    {
+      "name": "opus_tags_add",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "// Must be initialized first.\nif (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\n// Generate tag and value; enforce simple constraints: tag has no '=' and is ASCII-ish.\nstd::string t = FUZZ_PARAM_STR();\nstd::string v = FUZZ_PARAM_STR();\nif (t.size() > 64) t.resize(64);\nfor (char &c : t){ if (c=='=') c = ':'; }\n// Ensure NUL-terminated C-strings for API.\nt.push_back('\\0'); v.push_back('\\0');\nint ret = opus_tags_add(tags, t.c_str(), v.c_str());\nif (ret >= 0){ FUZZ_SET_ATTR_INT(tags, \"populated\", 1); }"
+    },
+    {
+      "name": "opus_tags_add_comment",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "// Require initialized.\nif (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\n// Build a TAG=value string; ensure there is exactly one '=' and no embedded NULs.\nstd::string tag = FUZZ_PARAM_STR();\nstd::string val = FUZZ_PARAM_STR();\nif (tag.size() > 32) tag.resize(32);\nfor (char &c : tag){ if (c=='=') c=':'; }\nstd::string comment = tag + \"=\" + val;\ncomment.push_back('\\0');\nint ret = opus_tags_add_comment(tags, comment.c_str());\nif (ret >= 0){ FUZZ_SET_ATTR_INT(tags, \"populated\", 1); }"
+    },
+    {
+      "name": "opus_tags_set_binary_suffix",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "// Require initialized.\nif (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\n// Choose a length that may be 0 (remove suffix), positive (set suffix), or negative (expect OP_EINVAL).\nint choice = (int)(*FUZZ_PARAM(unsigned int) % 3u);\nint len;\nif (choice==0){ len = 0; }\nelse if (choice==1){ len = (int)(*FUZZ_PARAM(unsigned int) % 256u) + 1; }\nelse { len = - (int)(*FUZZ_PARAM(unsigned int) % 256u) - 1; }\nstd::string data;\nconst unsigned char *ptr = nullptr;\nif (len > 0){\n  data = FUZZ_PARAM_STR();\n  if ((int)data.size() < len) data.resize((size_t)len, '\\0');\n  // Enforce LSB of first byte set per API requirement.\n  if (!data.empty()) data[0] = (char)((unsigned char)data[0] | 1u);\n  ptr = (const unsigned char*)data.data();\n}\nint ret = opus_tags_set_binary_suffix(tags, ptr, len);\n(void)ret;"
+    },
+    {
+      "name": "opus_tags_query",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "// Require initialized and preferably populated to get non-NULL returns.\nif (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\nstd::string t = FUZZ_PARAM_STR();\nif (t.size() > 32) t.resize(32);\nfor (char &c : t){ if (c=='=') c=':'; }\nt.push_back('\\0');\nint count = (int)(*FUZZ_PARAM(unsigned int) % 4u);\nconst char *val = opus_tags_query((const OpusTags*)tags, t.c_str(), count);\n// Returned pointer, if any, is owned by tags. We don't dereference it beyond checking non-NULL.\nif (val){ (void)val[0]; }"
+    },
+    {
+      "name": "opus_tags_query_count",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\nstd::string t = FUZZ_PARAM_STR();\nif (t.size() > 32) t.resize(32);\nfor (char &c : t){ if (c=='=') c=':'; }\nt.push_back('\\0');\nint n = opus_tags_query_count((const OpusTags*)tags, t.c_str());\n(void)n;"
+    },
+    {
+      "name": "opus_tags_get_binary_suffix",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\nint len_out = -1;\nconst unsigned char *suffix = opus_tags_get_binary_suffix((const OpusTags*)tags, &len_out);\nif (suffix && len_out > 0){\n  // Touch a byte to ensure pointer is usable; do not modify or free.\n  volatile unsigned char tmp = suffix[0];\n  (void)tmp;\n}"
+    },
+    {
+      "name": "opus_tags_get_album_gain",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\nint gain_q8 = 0;\nint r = opus_tags_get_album_gain((const OpusTags*)tags, &gain_q8);\nif (r > 0){\n  // On success, gain must be within [-32768, 32767].\n  FUZZ_ASSERT(gain_q8 >= -32768 && gain_q8 <= 32767, \"album gain out of documented range\");\n}"
+    },
+    {
+      "name": "opus_tags_get_track_gain",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(tags, \"initialized\")){ FUZZ_BAIL(); }\nint gain_q8 = 0;\nint r = opus_tags_get_track_gain((const OpusTags*)tags, &gain_q8);\nif (r > 0){\n  FUZZ_ASSERT(gain_q8 >= -32768 && gain_q8 <= 32767, \"track gain out of documented range\");\n}"
+    },
+    {
+      "name": "opus_tags_clear",
+      "inputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Only clear if we had at least been initialized or populated.\nint init = FUZZ_GET_ATTR_INT(tags, \"initialized\");\nint pop = FUZZ_GET_ATTR_INT(tags, \"populated\");\nif (!init && !pop){ FUZZ_BAIL(); }\nopus_tags_clear(tags);\n// After clear, object should not be used; drop it by not returning it."
+    },
+    {
+      "name": "opus_tagcompare",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string tn = FUZZ_PARAM_STR();\nstd::string cm = FUZZ_PARAM_STR();\nif (tn.size() > 64) tn.resize(64);\nfor (char &c : tn){ if (c=='=') c=':'; }\ntn.push_back('\\0'); cm.push_back('\\0');\nint r = opus_tagcompare(tn.c_str(), cm.c_str());\n(void)r;"
+    },
+    {
+      "name": "opus_tagncompare",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string tn = FUZZ_PARAM_STR();\nstd::string cm = FUZZ_PARAM_STR();\nif (tn.size() > 64) tn.resize(64);\nfor (char &c : tn){ if (c=='=') c=':'; }\nint tag_len = (int)(*FUZZ_PARAM(unsigned int) % (tn.size()+1));\ntn.push_back('\\0'); cm.push_back('\\0');\nint r = opus_tagncompare(tn.c_str(), tag_len, cm.c_str());\n(void)r;"
+    },
+    {
+      "name": "opus_picture_tag_parse",
+      "inputs": [
+        {
+          "name": "pic",
+          "type": "OpusPictureTag *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pic",
+          "type": "OpusPictureTag *"
+        }
+      ],
+      "code": "// Require prior initialization.\nif (!FUZZ_GET_ATTR_INT(pic, \"initialized\")){ FUZZ_BAIL(); }\n// Build a plausible METADATA_BLOCK_PICTURE string (base64-ish), with or without the leading key.\nstd::string payload = FUZZ_PARAM_STR();\nif (payload.size() > 1024) payload.resize(1024);\nbool with_key = ((*FUZZ_PARAM(unsigned int) & 1u) != 0);\nstd::string tag = with_key ? std::string(\"METADATA_BLOCK_PICTURE=\") + payload : payload;\ntag.push_back('\\0');\nint ret = opus_picture_tag_parse(pic, tag.c_str());\nif (ret >= 0){\n  // Mark as populated for later clear.\n  FUZZ_SET_ATTR_INT(pic, \"populated\", 1);\n}"
+    },
+    {
+      "name": "opus_picture_tag_init",
+      "inputs": [
+        {
+          "name": "pic",
+          "type": "OpusPictureTag *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pic",
+          "type": "OpusPictureTag *"
+        }
+      ],
+      "code": "opus_picture_tag_init(pic);\nFUZZ_SET_ATTR_INT(pic, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(pic, \"populated\", 0);"
+    },
+    {
+      "name": "opus_picture_tag_clear",
+      "inputs": [
+        {
+          "name": "pic",
+          "type": "OpusPictureTag *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Require prior initialization before clear.\nif (!FUZZ_GET_ATTR_INT(pic, \"initialized\")){ FUZZ_BAIL(); }\nopus_picture_tag_clear(pic);\n// After clear, drop the object by not returning it."
+    },
+    {
+      "name": "opus_server_info_init",
+      "inputs": [
+        {
+          "name": "info",
+          "type": "OpusServerInfo *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "info",
+          "type": "OpusServerInfo *"
+        }
+      ],
+      "code": "// Initialize structure. Note: functions require linking with libopusurl; this stub assumes environment is properly linked at build/run time.\nopus_server_info_init(info);\nFUZZ_SET_ATTR_INT(info, \"initialized\", 1);"
+    },
+    {
+      "name": "opus_server_info_clear",
+      "inputs": [
+        {
+          "name": "info",
+          "type": "OpusServerInfo *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Require the struct to have been initialized via opus_server_info_init.\nif (!FUZZ_GET_ATTR_INT(info, \"initialized\")) { FUZZ_BAIL(); }\n// Clear and drop the object afterwards.\nopus_server_info_clear(info);\n// Do not return info: ownership ends here; subsequent use would be invalid."
+    },
+    {
+      "name": "op_fopen",
+      "inputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        },
+        {
+          "name": "stream",
+          "type": "void *"
+        }
+      ],
+      "code": "// Prepare a valid path and a plausible fopen mode.\nconst char *path = FUZZ_PARAM_FILENAME();\nconst char *modes[] = {\"rb\", \"r\", \"wb\", \"r+b\", \"rb+\"};\nconst char *mode = modes[*FUZZ_PARAM(unsigned int) % (sizeof(modes)/sizeof(modes[0]))];\n// Invoke and require success to return a non-NULL stream output.\nvoid *stream = op_fopen(cb, path, mode);\nif (!stream) { FUZZ_BAIL(); }\n// Track that callbacks were filled for a stdio-backed stream.\nFUZZ_SET_ATTR_INT(cb, \"filled\", 1);\nFUZZ_SET_ATTR_STR(cb, \"kind\", \"stdio\");\nFUZZ_SET_ATTR_PTR(cb, \"stream\", stream);\n// Track stream metadata for later validation (e.g., op_freopen, op_open_callbacks).\nFUZZ_SET_ATTR_STR(stream, \"kind\", \"stdio\");\nFUZZ_SET_ATTR_PTR(stream, \"cb\", cb);\n// Return both cb (still usable) and the new stream."
+    },
+    {
+      "name": "op_fdopen",
+      "inputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        },
+        {
+          "name": "stream",
+          "type": "void *"
+        }
+      ],
+      "code": "// Provide a (possibly invalid) file descriptor and a valid mode string.\n// If _fd is invalid, op_fdopen() should return NULL per API; we enforce non-NULL by retrying a few modes/values or bailing.\nint fd = (int)(*FUZZ_PARAM(unsigned int));\nconst char *modes[] = {\"rb\", \"r\", \"wb\", \"r+b\", \"rb+\"};\nconst char *mode = modes[*FUZZ_PARAM(unsigned int) % (sizeof(modes)/sizeof(modes[0]))];\nvoid *stream = op_fdopen(cb, fd, mode);\nif (!stream) { FUZZ_BAIL(); }\n// Mark callbacks and stream association.\nFUZZ_SET_ATTR_INT(cb, \"filled\", 1);\nFUZZ_SET_ATTR_STR(cb, \"kind\", \"stdio\");\nFUZZ_SET_ATTR_PTR(cb, \"stream\", stream);\nFUZZ_SET_ATTR_STR(stream, \"kind\", \"stdio\");\nFUZZ_SET_ATTR_PTR(stream, \"cb\", cb);\n// Return cb and the created stream."
+    },
+    {
+      "name": "op_freopen",
+      "inputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        },
+        {
+          "name": "stream",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        },
+        {
+          "name": "stream_new",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate inputs: cb must have been filled and associated with a stdio stream.\nif (!FUZZ_GET_ATTR_INT(cb, \"filled\")) { FUZZ_BAIL(); }\nconst char *cb_kind = FUZZ_GET_ATTR_STR(cb, \"kind\");\nconst char *stream_kind = FUZZ_GET_ATTR_STR(stream, \"kind\");\nif (!cb_kind || !stream_kind || strcmp(cb_kind, \"stdio\") != 0 || strcmp(stream_kind, \"stdio\") != 0) { FUZZ_BAIL(); }\nvoid *expected = FUZZ_GET_ATTR_PTR(cb, \"stream\");\nif (expected != stream) { FUZZ_BAIL(); }\n// Build new path/mode for freopen.\nconst char *path = FUZZ_PARAM_FILENAME();\nconst char *modes[] = {\"rb\", \"r\", \"wb\", \"r+b\", \"rb+\"};\nconst char *mode = modes[*FUZZ_PARAM(unsigned int) % (sizeof(modes)/sizeof(modes[0]))];\nvoid *stream_new = op_freopen(cb, path, mode, stream);\nif (!stream_new) { FUZZ_BAIL(); }\n// Update associations to point to the new stream; old stream is no longer returned, so it drops from the pool.\nFUZZ_SET_ATTR_PTR(cb, \"stream\", stream_new);\nFUZZ_SET_ATTR_STR(stream_new, \"kind\", \"stdio\");\nFUZZ_SET_ATTR_PTR(stream_new, \"cb\", cb);\n// Return cb and the refreshed stream handle."
+    },
+    {
+      "name": "op_mem_stream_create",
+      "inputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        },
+        {
+          "name": "stream",
+          "type": "void *"
+        }
+      ],
+      "code": "// Build a data buffer. Occasionally create an empty stream per API (_data==NULL when _size==0).\nstd::string data = FUZZ_PARAM_STR();\nif (data.size() > 2048) data.resize(2048);\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 2u;\nconst unsigned char *pdata = mode==0 ? (const unsigned char*)data.data() : NULL;\nsize_t psize = mode==0 ? (size_t)data.size() : (size_t)0;\nvoid *stream = op_mem_stream_create(cb, pdata, psize);\nif (!stream) { FUZZ_BAIL(); }\n// Mark callbacks as filled for a mem-backed stream and associate both ways.\nFUZZ_SET_ATTR_INT(cb, \"filled\", 1);\nFUZZ_SET_ATTR_STR(cb, \"kind\", \"mem\");\nFUZZ_SET_ATTR_PTR(cb, \"stream\", stream);\nFUZZ_SET_ATTR_STR(stream, \"kind\", \"mem\");\nFUZZ_SET_ATTR_PTR(stream, \"cb\", cb);\n// Return cb and stream."
+    },
+    {
+      "name": "op_url_stream_create",
+      "inputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        },
+        {
+          "name": "stream",
+          "type": "void *"
+        }
+      ],
+      "code": "// Construct a URL with allowed schemes; options are terminated by NULL per API.\nconst char *schemes[] = {\"file://\", \"http://\", \"https://\"};\nstd::string tail = FUZZ_PARAM_STR();\nif (tail.size() > 256) tail.resize(256);\nstd::string url = std::string(schemes[*FUZZ_PARAM(unsigned int)%3]) + tail;\nurl.push_back('\\0');\nvoid *stream = op_url_stream_create(cb, url.c_str(), (const char*)NULL);\nif (!stream) { FUZZ_BAIL(); }\n// Mark callbacks and stream association for a url-backed stream.\nFUZZ_SET_ATTR_INT(cb, \"filled\", 1);\nFUZZ_SET_ATTR_STR(cb, \"kind\", \"url\");\nFUZZ_SET_ATTR_PTR(cb, \"stream\", stream);\nFUZZ_SET_ATTR_STR(stream, \"kind\", \"url\");\nFUZZ_SET_ATTR_PTR(stream, \"cb\", cb);\n// Return cb and stream."
+    },
+    {
+      "name": "op_test",
+      "inputs": [
+        {
+          "name": "head",
+          "type": "OpusHead *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "head",
+          "type": "OpusHead *"
+        }
+      ],
+      "code": "// Prepare initial bytes from the start of a stream image; length can be small or large.\nstd::string initial = FUZZ_PARAM_STR();\nif (initial.size() > 1024) initial.resize(1024);\n// Optionally validate-only: pass NULL for _head.\nOpusHead *maybe_head = ((*FUZZ_PARAM(unsigned int) & 1u) ? nullptr : head);\nint ret = op_test(maybe_head, (const unsigned char*)initial.data(), (size_t)initial.size());\n// On success (0), if we provided a head, record that it contains header-like data.\nif (ret == 0 && maybe_head) {\n  FUZZ_SET_ATTR_INT(head, \"parsed\", 1);\n}\n// Always return the original head object to the pool (it remains valid regardless of ret)."
+    },
+    {
+      "name": "op_open_file",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nint err = 0;\nOggOpusFile *of = op_open_file(path, &err);\nif (!of) { FUZZ_BAIL(); }\n// Mark as fully opened.\nFUZZ_SET_ATTR_STR(of, \"state\", \"full\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);\n// Caller must op_free() later; we return the handle."
+    },
+    {
+      "name": "op_open_memory",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "std::string image = FUZZ_PARAM_STR();\nif (image.size() > 4096) image.resize(4096);\nint err = 0;\nOggOpusFile *of = op_open_memory((const unsigned char*)image.data(), (size_t)image.size(), &err);\nif (!of) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(of, \"state\", \"full\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);"
+    },
+    {
+      "name": "op_open_url",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "const char *schemes[] = {\"file://\", \"http://\", \"https://\"};\nstd::string tail = FUZZ_PARAM_STR();\nif (tail.size() > 256) tail.resize(256);\nstd::string url = std::string(schemes[*FUZZ_PARAM(unsigned int)%3]) + tail;\nurl.push_back('\\0');\nint err = 0;\nOggOpusFile *of = op_open_url(url.c_str(), &err, (const char*)NULL);\nif (!of) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(of, \"state\", \"full\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);"
+    },
+    {
+      "name": "op_open_callbacks",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "void *"
+        },
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Validate that callbacks were previously filled and correspond to this stream.\nif (!FUZZ_GET_ATTR_INT(cb, \"filled\")) { FUZZ_BAIL(); }\nvoid *associated = FUZZ_GET_ATTR_PTR(cb, \"stream\");\nif (associated != stream) { FUZZ_BAIL(); }\n// Provide optional initial data from the start of the stream.\nstd::string initial = FUZZ_PARAM_STR();\nif (initial.size() > 1024) initial.resize(1024);\nint err = 0;\nOggOpusFile *of = op_open_callbacks(stream, (const OpusFileCallbacks*)cb,\n                                    (const unsigned char*)initial.data(), (size_t)initial.size(), &err);\n// On failure the stream is not taken over; to avoid ownership ambiguity, require success.\nif (!of) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(of, \"state\", \"full\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);\n// Do not return the stream: on success the library owns it until op_free()."
+    },
+    {
+      "name": "op_test_file",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "const char *path = FUZZ_PARAM_FILENAME();\nint err = 0;\nOggOpusFile *of = op_test_file(path, &err);\nif (!of) { FUZZ_BAIL(); }\n// Mark as partially opened per API contract.\nFUZZ_SET_ATTR_STR(of, \"state\", \"partial\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);"
+    },
+    {
+      "name": "op_test_memory",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "std::string image = FUZZ_PARAM_STR();\nif (image.size() > 4096) image.resize(4096);\nint err = 0;\nOggOpusFile *of = op_test_memory((const unsigned char*)image.data(), (size_t)image.size(), &err);\nif (!of) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(of, \"state\", \"partial\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);"
+    },
+    {
+      "name": "op_test_url",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "const char *schemes[] = {\"file://\", \"http://\", \"https://\"};\nstd::string tail = FUZZ_PARAM_STR();\nif (tail.size() > 256) tail.resize(256);\nstd::string url = std::string(schemes[*FUZZ_PARAM(unsigned int)%3]) + tail;\nurl.push_back('\\0');\nint err = 0;\nOggOpusFile *of = op_test_url(url.c_str(), &err, (const char*)NULL);\nif (!of) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(of, \"state\", \"partial\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);"
+    },
+    {
+      "name": "op_test_callbacks",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "void *"
+        },
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Ensure callbacks are filled and tied to this stream.\nif (!FUZZ_GET_ATTR_INT(cb, \"filled\")) { FUZZ_BAIL(); }\nvoid *associated = FUZZ_GET_ATTR_PTR(cb, \"stream\");\nif (associated != stream) { FUZZ_BAIL(); }\n// Provide some initial data from the start of the stream.\nstd::string initial = FUZZ_PARAM_STR();\nif (initial.size() > 1024) initial.resize(1024);\nint err = 0;\nOggOpusFile *of = op_test_callbacks(stream, (const OpusFileCallbacks*)cb,\n                                    (const unsigned char*)initial.data(), (size_t)initial.size(), &err);\nif (!of) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(of, \"state\", \"partial\");\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 0);\n// Do not return stream; on success the caller still owns it until a later open, but\n// we retain the handle inside this stub by bailing on failure only and not returning the input."
+    },
+    {
+      "name": "op_test_open",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Must be a partially opened handle created by an op_test_* function.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"partial\") != 0) { FUZZ_BAIL(); }\nint ret = op_test_open(of);\n// On success, upgrade state; on failure keep handle valid for op_free().\nif (ret == 0) {\n  FUZZ_SET_ATTR_STR(of, \"state\", \"full\");\n}\n// Always return the handle to the pool; caller must op_free() eventually."
+    },
+    {
+      "name": "op_free",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free the OggOpusFile regardless of its state (partial or full).\nop_free(of);\n// Drop the handle from the pool after free."
+    },
+    {
+      "name": "op_seekable",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Query seekability and cache the result for downstream stubs.\nint sk = op_seekable((const OggOpusFile*)of);\nFUZZ_SET_ATTR_INT(of, \"seekable\", sk);\nFUZZ_SET_ATTR_INT(of, \"seekable_known\", 1);\n// Validation: non-NULL precondition is enforced by the fuzzer runtime; we simply cache the result."
+    },
+    {
+      "name": "op_link_count",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// May be called on partially-open streams; always returns at least 1.\nint li = op_link_count((const OggOpusFile*)of);\n(void)li;\n// Validation: input handle is preserved; function has minimal preconditions."
+    },
+    {
+      "name": "op_serialno",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Accept negative index to select current link or a small non-negative index.\nint choice = (int)(*FUZZ_PARAM(unsigned int) % 4u);\nint sel = (choice==0) ? -1 : (int)(*FUZZ_PARAM(unsigned int) % 4u);\nopus_uint32 sn = op_serialno((const OggOpusFile*)of, sel);\n(void)sn;\n// Validation: non-NULL precondition satisfied; we keep the handle alive."
+    },
+    {
+      "name": "op_channel_count",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "int choice = (int)(*FUZZ_PARAM(unsigned int) % 4u);\nint sel = (choice==0) ? -1 : (int)(*FUZZ_PARAM(unsigned int) % 4u);\nint ch = op_channel_count((const OggOpusFile*)of, sel);\n(void)ch;\n// Validation: may be called on partially-open streams; handle is returned."
+    },
+    {
+      "name": "op_raw_total",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Must be fully opened per API.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\n// Select whole stream or a small link index.\nint choice = (int)(*FUZZ_PARAM(unsigned int) % 4u);\nint sel = (choice==0) ? -1 : (int)(*FUZZ_PARAM(unsigned int) % 4u);\nopus_int64 total = op_raw_total((const OggOpusFile*)of, sel);\n(void)total;\n// Validation: we enforce full-open requirement; seekability errors (OP_EINVAL) are acceptable and not fatal here."
+    },
+    {
+      "name": "op_pcm_total",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Must be fully opened per API.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\nint choice = (int)(*FUZZ_PARAM(unsigned int) % 4u);\nint sel = (choice==0) ? -1 : (int)(*FUZZ_PARAM(unsigned int) % 4u);\nogg_int64_t total = op_pcm_total((const OggOpusFile*)of, sel);\n(void)total;\n// Validation: full-open enforced; function may still return OP_EINVAL for unseekable or out-of-range, which we accept."
+    },
+    {
+      "name": "op_head",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Works on partial or full; returned pointer is owned by library.\nconst OpusHead *hd = op_head((const OggOpusFile*)of, ((*FUZZ_PARAM(unsigned int)%2u)?-1:(int)(*FUZZ_PARAM(unsigned int)%3u)));\nif (hd){\n  // Touch a field to ensure pointer usability; do not modify or store.\n  volatile int c = hd->channel_count;\n  (void)c;\n}\n// Validation: we do not return the library-owned header pointer to the pool."
+    },
+    {
+      "name": "op_tags",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Works on partial/full; may return NULL (e.g., invalid link on unseekable streams).\nconst OpusTags *tg = op_tags((const OggOpusFile*)of, ((*FUZZ_PARAM(unsigned int)%2u)?-1:(int)(*FUZZ_PARAM(unsigned int)%3u)));\nif (tg){\n  // Touch vendor string pointer if present without dereferencing deeply.\n  volatile const char *v = tg->vendor;\n  (void)v;\n}\n// Validation: returned pointer is library-owned and not returned as an output."
+    },
+    {
+      "name": "op_current_link",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "int cli = op_current_link((const OggOpusFile*)of);\n(void)cli;\n// Validation: if only partially open, OP_EINVAL may be returned which we accept; handle remains valid."
+    },
+    {
+      "name": "op_bitrate",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Must be fully opened per API.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\nint choice = (int)(*FUZZ_PARAM(unsigned int) % 4u);\nint sel = (choice==0) ? -1 : (int)(*FUZZ_PARAM(unsigned int) % 4u);\nopus_int32 br = op_bitrate((const OggOpusFile*)of, sel);\n(void)br;\n// Validation: full-open enforced; seekability errors are acceptable; we keep the handle."
+    },
+    {
+      "name": "op_bitrate_instant",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Requires at least a fully opened stream for decoding.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\nopus_int32 inst = op_bitrate_instant(of);\n(void)inst;\n// Validation: negative returns (OP_FALSE/OP_EINVAL) are acceptable; we enforce full-open precondition."
+    },
+    {
+      "name": "op_raw_tell",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "opus_int64 pos = op_raw_tell((const OggOpusFile*)of);\n(void)pos;\n// Validation: If only partially open, OP_EINVAL may be returned; we do not assume success."
+    },
+    {
+      "name": "op_pcm_tell",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "ogg_int64_t off = op_pcm_tell((const OggOpusFile*)of);\n(void)off;\n// Validation: If only partially open, OP_EINVAL may be returned; we accept it and keep the handle."
+    },
+    {
+      "name": "op_raw_seek",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Must be fully opened; seekability affects success but we can still exercise error paths.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\n// Get total to bound the target offset when available.\nopus_int64 total = op_raw_total((const OggOpusFile*)of, -1);\nopus_int64 tgt;\nif (total >= 0){\n  // Choose an in-range or slightly out-of-range target.\n  unsigned int m = *FUZZ_PARAM(unsigned int) % 3u;\n  if (m==0) tgt = 0;\n  else if (m==1) tgt = total;\n  else tgt = total + (opus_int64)(*FUZZ_PARAM(unsigned int) % 1024u);\n} else {\n  tgt = (opus_int64)(*FUZZ_PARAM(unsigned int) % 4096u);\n}\nint r = op_raw_seek(of, tgt);\n(void)r;\n// Validation: full-open enforced; offset is bounded when possible; negative returns are acceptable."
+    },
+    {
+      "name": "op_pcm_seek",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Must be fully opened; seekability impacts return code.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\nogg_int64_t total = op_pcm_total((const OggOpusFile*)of, -1);\nogg_int64_t tgt;\nif (total >= 0){\n  unsigned int m = *FUZZ_PARAM(unsigned int) % 3u;\n  if (m==0) tgt = 0;\n  else if (m==1) tgt = total;\n  else tgt = total + (ogg_int64_t)(*FUZZ_PARAM(unsigned int)%1024u);\n} else {\n  tgt = (ogg_int64_t)(*FUZZ_PARAM(unsigned int) % 8192u);\n}\nint r = op_pcm_seek(of, tgt);\n(void)r;\n// Validation: full-open enforced; target offset is derived from pcm_total when available; return value is checked only for flow."
+    },
+    {
+      "name": "op_set_decode_callback",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Register or disable a decode callback. To avoid mismatched callback semantics under fuzzing,\n// explicitly disable by passing NULL; context is ignored in that case.\nop_set_decode_callback(of, NULL, NULL);\n// Validation: non-NULL handle enforced by runtime; disabling callback exercises API path safely."
+    },
+    {
+      "name": "op_set_gain_offset",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Use random gain type/value; unknown types should yield OP_EINVAL per API.\nint gain_type = (int)(*FUZZ_PARAM(unsigned int));\nopus_int32 gain_q8 = (opus_int32)(*FUZZ_PARAM(unsigned int));\nint ret = op_set_gain_offset(of, gain_type, gain_q8);\n(void)ret;\n// Validation: handle kept; API may clamp/return EINVAL; we don't assume specific constants at compile time."
+    },
+    {
+      "name": "op_set_dither_enabled",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "int enabled = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nop_set_dither_enabled(of, enabled);\n// Validation: trivial setter with non-NULL precondition; we keep the handle."
+    },
+    {
+      "name": "op_read",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Requires fully opened for decoding.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\n// Prepare a small PCM buffer; size is in number of 16-bit values.\nint buf_size = (int)(*FUZZ_PARAM(unsigned int) % 15360u); // up to 120ms stereo worth, but capped\nif (buf_size < 1) buf_size = 1;\nstd::vector<opus_int16> pcm((size_t)buf_size);\nint li_out = -1;\nint *pli = ((*FUZZ_PARAM(unsigned int) & 1u) ? &li_out : (int*)NULL);\nint n = op_read(of, pcm.data(), buf_size, pli);\n(void)n;\n// Validation: preconditions enforced; negative returns are treated as error codes but not fatal here."
+    },
+    {
+      "name": "op_read_float",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Requires fully opened for decoding.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\nint buf_size = (int)(*FUZZ_PARAM(unsigned int) % 11520u);\nif (buf_size < 1) buf_size = 1;\nstd::vector<float> pcm((size_t)buf_size);\nint li_out = -1;\nint *pli = ((*FUZZ_PARAM(unsigned int) & 1u) ? &li_out : (int*)NULL);\nint n = op_read_float(of, pcm.data(), buf_size, pli);\n(void)n;\n// Validation: preconditions enforced; buffer sized modestly to stay performant; handle preserved."
+    },
+    {
+      "name": "op_read_stereo",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Requires a fully opened stream per API.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\n// Prepare a modest PCM buffer for interleaved stereo 16-bit samples.\n// Guidance suggests ideally >= 11520 total values (120 ms stereo), but smaller is allowed.\nint buf_size = (int)(*FUZZ_PARAM(unsigned int) % 11520u);\nif (buf_size < 1) buf_size = 1;\nstd::vector<opus_int16> pcm((size_t)buf_size);\nint n = op_read_stereo(of, pcm.data(), buf_size);\n(void)n;\n// Validation: preconditions enforced; negative returns are allowed error codes.\n// We preserve and return the handle; the buffer is ephemeral."
+    },
+    {
+      "name": "op_read_float_stereo",
+      "inputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "of",
+          "type": "OggOpusFile *"
+        }
+      ],
+      "code": "// Requires a fully opened stream per API.\nconst char *state = FUZZ_GET_ATTR_STR(of, \"state\");\nif (!state || strcmp(state, \"full\") != 0) { FUZZ_BAIL(); }\n// Prepare a modest PCM buffer for interleaved stereo float samples.\nint buf_size = (int)(*FUZZ_PARAM(unsigned int) % 11520u);\nif (buf_size < 1) buf_size = 1;\nstd::vector<float> pcm((size_t)buf_size);\nint n = op_read_float_stereo(of, pcm.data(), buf_size);\n(void)n;\n// Validation: full-open precondition enforced; negative returns are acceptable error codes.\n// We return the handle; buffer is temporary."
+    },
+    {
+      "name": "OpusHead *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "head",
+          "type": "OpusHead *"
+        }
+      ],
+      "code": "// Allocate an OpusHead and attempt to parse a plausibly valid ID header into it.\nOpusHead *head = new OpusHead();\n// Pre-initialize fields so the struct is in a defined state even if parsing fails.\nmemset(head, 0, sizeof(*head));\n// Build an ID header packet, often with the correct magic to exercise success paths.\nstd::string pkt = FUZZ_PARAM_STR();\nif (pkt.size() < 8) pkt.resize(8, '\\0');\nif (pkt.size() > 1024) pkt.resize(1024);\nmemcpy(&pkt[0], \"OpusHead\", 8);\nint ret = opus_head_parse(head, (const unsigned char*)pkt.data(), (size_t)pkt.size());\nif (ret >= 0){\n  FUZZ_SET_ATTR_INT(head, \"parsed\", 1);\n  FUZZ_SET_ATTR_INT(head, \"pre_skip\", (int)head->pre_skip);\n} else {\n  // Parsing failed; keep the object but mark it as not parsed so downstream stubs can bail appropriately.\n  FUZZ_SET_ATTR_INT(head, \"parsed\", 0);\n  FUZZ_SET_ATTR_INT(head, \"pre_skip\", 0);\n}"
+    },
+    {
+      "name": "OpusServerInfo *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "info",
+          "type": "OpusServerInfo *"
+        }
+      ],
+      "code": "// Allocate and initialize OpusServerInfo (user-managed type; requires libopusurl at link time).\nOpusServerInfo *info = new OpusServerInfo();\nmemset(info, 0, sizeof(*info));\nopus_server_info_init(info);\nFUZZ_SET_ATTR_INT(info, \"initialized\", 1);"
+    },
+    {
+      "name": "OpusFileCallbacks *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "code": "// Allocate an OpusFileCallbacks vtable holder. Do not set function pointers here; dedicated stubs\n// (op_fopen/op_fdopen/op_freopen/op_mem_stream_create/op_url_stream_create) will fill these.\nOpusFileCallbacks *cb = new OpusFileCallbacks();\nmemset(cb, 0, sizeof(*cb));\n// Track fill status and associations; currently unfilled, no associated stream.\nFUZZ_SET_ATTR_INT(cb, \"filled\", 0);\nFUZZ_SET_ATTR_STR(cb, \"kind\", \"\");\nFUZZ_SET_ATTR_PTR(cb, \"stream\", nullptr);"
+    },
+    {
+      "name": "OpusTags *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "tags",
+          "type": "OpusTags *"
+        }
+      ],
+      "code": "// Allocate and initialize an OpusTags structure for later population or parsing.\nOpusTags *tags = new OpusTags();\nmemset(tags, 0, sizeof(*tags));\nopus_tags_init(tags);\nFUZZ_SET_ATTR_INT(tags, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(tags, \"populated\", 0);"
+    },
+    {
+      "name": "void *",
+      "inputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cb",
+          "type": "OpusFileCallbacks *"
+        },
+        {
+          "name": "stream",
+          "type": "void *"
+        }
+      ],
+      "code": "// Construct a memory-backed stream using provided callbacks holder; this fills the callbacks.\n// Ensure cb is present (runtime guarantees non-NULL). Build a modest data buffer.\nstd::string data = FUZZ_PARAM_STR();\nif (data.size() > 2048) data.resize(2048);\nconst unsigned char *pdata = (const unsigned char*)data.data();\nsize_t psize = (size_t)data.size();\nvoid *stream = op_mem_stream_create(cb, pdata, psize);\nif (!stream){ FUZZ_BAIL(); }\n// Mark callbacks as filled and associate with the created stream for downstream validation.\nFUZZ_SET_ATTR_INT(cb, \"filled\", 1);\nFUZZ_SET_ATTR_STR(cb, \"kind\", \"mem\");\nFUZZ_SET_ATTR_PTR(cb, \"stream\", stream);\n// Annotate the stream side of the association as well.\nFUZZ_SET_ATTR_STR(stream, \"kind\", \"mem\");\nFUZZ_SET_ATTR_PTR(stream, \"cb\", cb);"
+    },
+    {
+      "name": "OpusPictureTag *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "pic",
+          "type": "OpusPictureTag *"
+        }
+      ],
+      "code": "// Allocate and initialize an OpusPictureTag for later parse/fill.\nOpusPictureTag *pic = new OpusPictureTag();\nmemset(pic, 0, sizeof(*pic));\nopus_picture_tag_init(pic);\nFUZZ_SET_ATTR_INT(pic, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(pic, \"populated\", 0);"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "op_url_stream_vcreate",
+      "reason": "Cannot safely or portably construct a va_list to pass URL options in a C++ fuzzer stub."
+    },
+    {
+      "name": "op_vopen_url",
+      "reason": "Cannot safely or portably construct a va_list to pass URL options in a C++ fuzzer stub."
+    },
+    {
+      "name": "op_vtest_url",
+      "reason": "Cannot safely or portably construct a va_list to pass URL options in a C++ fuzzer stub."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "opus_granule_sample",
+      "data_types": []
+    },
+    {
+      "name": "opus_tags_copy",
+      "data_types": []
+    },
+    {
+      "name": "opus_tags_init",
+      "data_types": []
+    },
+    {
+      "name": "opus_tags_get_binary_suffix",
+      "data_types": []
+    },
+    {
+      "name": "opus_tags_get_album_gain",
+      "data_types": []
+    },
+    {
+      "name": "opus_tags_get_track_gain",
+      "data_types": []
+    },
+    {
+      "name": "opus_tags_clear",
+      "data_types": []
+    },
+    {
+      "name": "opus_picture_tag_init",
+      "data_types": []
+    },
+    {
+      "name": "opus_picture_tag_clear",
+      "data_types": []
+    },
+    {
+      "name": "opus_server_info_init",
+      "data_types": []
+    },
+    {
+      "name": "opus_server_info_clear",
+      "data_types": []
+    },
+    {
+      "name": "op_fdopen",
+      "data_types": []
+    },
+    {
+      "name": "op_test_open",
+      "data_types": []
+    },
+    {
+      "name": "op_free",
+      "data_types": []
+    },
+    {
+      "name": "op_seekable",
+      "data_types": []
+    },
+    {
+      "name": "op_link_count",
+      "data_types": []
+    },
+    {
+      "name": "op_serialno",
+      "data_types": []
+    },
+    {
+      "name": "op_channel_count",
+      "data_types": []
+    },
+    {
+      "name": "op_raw_total",
+      "data_types": []
+    },
+    {
+      "name": "op_pcm_total",
+      "data_types": []
+    },
+    {
+      "name": "op_head",
+      "data_types": []
+    },
+    {
+      "name": "op_tags",
+      "data_types": []
+    },
+    {
+      "name": "op_current_link",
+      "data_types": []
+    },
+    {
+      "name": "op_bitrate",
+      "data_types": []
+    },
+    {
+      "name": "op_bitrate_instant",
+      "data_types": []
+    },
+    {
+      "name": "op_raw_tell",
+      "data_types": []
+    },
+    {
+      "name": "op_pcm_tell",
+      "data_types": []
+    },
+    {
+      "name": "op_raw_seek",
+      "data_types": []
+    },
+    {
+      "name": "op_pcm_seek",
+      "data_types": []
+    },
+    {
+      "name": "op_set_decode_callback",
+      "data_types": []
+    },
+    {
+      "name": "op_set_gain_offset",
+      "data_types": []
+    },
+    {
+      "name": "op_set_dither_enabled",
+      "data_types": []
+    },
+    {
+      "name": "op_read",
+      "data_types": []
+    },
+    {
+      "name": "op_read_float",
+      "data_types": []
+    },
+    {
+      "name": "op_read_stereo",
+      "data_types": []
+    },
+    {
+      "name": "op_read_float_stereo",
+      "data_types": []
+    },
+    {
+      "name": "OpusServerInfo *",
+      "data_types": []
+    },
+    {
+      "name": "OpusFileCallbacks *",
+      "data_types": []
+    },
+    {
+      "name": "OpusTags *",
+      "data_types": []
+    },
+    {
+      "name": "OpusPictureTag *",
+      "data_types": []
+    },
+    {
+      "name": "opus_head_parse",
+      "data_types": [
+        "Opus ID header packet"
+      ]
+    },
+    {
+      "name": "opus_tags_parse",
+      "data_types": [
+        "OpusTags header packet"
+      ]
+    },
+    {
+      "name": "opus_tags_add",
+      "data_types": [
+        "ASCII tag name",
+        "UTF-8 string"
+      ]
+    },
+    {
+      "name": "opus_tags_add_comment",
+      "data_types": [
+        "TAG=value string (UTF-8)"
+      ]
+    },
+    {
+      "name": "opus_tags_set_binary_suffix",
+      "data_types": [
+        "OpusTags binary suffix blob"
+      ]
+    },
+    {
+      "name": "opus_tags_query",
+      "data_types": [
+        "ASCII tag name"
+      ]
+    },
+    {
+      "name": "opus_tags_query_count",
+      "data_types": [
+        "ASCII tag name"
+      ]
+    },
+    {
+      "name": "opus_tagcompare",
+      "data_types": [
+        "ASCII tag name",
+        "TAG=value string (UTF-8)"
+      ]
+    },
+    {
+      "name": "opus_tagncompare",
+      "data_types": [
+        "ASCII tag name",
+        "TAG=value string (UTF-8)"
+      ]
+    },
+    {
+      "name": "opus_picture_tag_parse",
+      "data_types": [
+        "Opus METADATA_BLOCK_PICTURE tag (base64)"
+      ]
+    },
+    {
+      "name": "op_fopen",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "op_freopen",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "op_mem_stream_create",
+      "data_types": [
+        "opaque binary stream image"
+      ]
+    },
+    {
+      "name": "op_url_stream_create",
+      "data_types": [
+        "URL string"
+      ]
+    },
+    {
+      "name": "op_test",
+      "data_types": [
+        "opaque binary stream prefix"
+      ]
+    },
+    {
+      "name": "op_open_file",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "op_open_memory",
+      "data_types": [
+        "opaque binary stream image"
+      ]
+    },
+    {
+      "name": "op_open_url",
+      "data_types": [
+        "URL string"
+      ]
+    },
+    {
+      "name": "op_open_callbacks",
+      "data_types": [
+        "opaque binary stream prefix"
+      ]
+    },
+    {
+      "name": "op_test_file",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "op_test_memory",
+      "data_types": [
+        "opaque binary stream image"
+      ]
+    },
+    {
+      "name": "op_test_url",
+      "data_types": [
+        "URL string"
+      ]
+    },
+    {
+      "name": "op_test_callbacks",
+      "data_types": [
+        "opaque binary stream prefix"
+      ]
+    },
+    {
+      "name": "OpusHead *",
+      "data_types": [
+        "Opus ID header packet"
+      ]
+    },
+    {
+      "name": "void *",
+      "data_types": [
+        "opaque binary stream image"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "Opus ID header packet",
+      "description": "Binary buffer containing the full Opus ID header (first Opus header packet). Must begin with ASCII \"OpusHead\" followed by fields specifying version, channel count, pre-skip, input sample rate, output gain, and channel mapping."
+    },
+    {
+      "data_type": "OpusTags header packet",
+      "description": "Binary buffer containing the full Opus comment header packet. Must begin with ASCII \"OpusTags\" and encode a vendor string and user comments per Vorbis comment framing used by Opus."
+    },
+    {
+      "data_type": "ASCII tag name",
+      "description": "A NUL-terminated ASCII tag identifier used in Opus/Vorbis comments. Case-insensitive, contains no '=' character."
+    },
+    {
+      "data_type": "UTF-8 string",
+      "description": "A NUL-terminated UTF-8 text string without embedded NULs."
+    },
+    {
+      "data_type": "TAG=value string (UTF-8)",
+      "description": "A NUL-terminated UTF-8 string in the form TAG=value used for Opus/Vorbis comments. TAG is ASCII without '=', value is UTF-8; no embedded NULs."
+    },
+    {
+      "data_type": "OpusTags binary suffix blob",
+      "description": "Arbitrary binary data appended after encoded user comments in an OpusTags packet. When present, first byte must have LSB set (bit 0 = 1) per libopusfile requirement."
+    },
+    {
+      "data_type": "Opus METADATA_BLOCK_PICTURE tag (base64)",
+      "description": "A string (optionally prefixed with \"METADATA_BLOCK_PICTURE=\") whose value is base64-encoded METADATA_BLOCK_PICTURE data per Vorbis/Opus conventions. Decodes to fields describing an embedded image and its data; often contains JPEG/PNG/GIF bytes."
+    },
+    {
+      "data_type": "filesystem path",
+      "description": "A path string referring to a local file, suitable for fopen/freopen. On Windows typically UTF-8 as used by the API wrapper here."
+    },
+    {
+      "data_type": "opaque binary stream image",
+      "description": "A raw memory buffer containing the complete bytestream image of a potentially Ogg Opus stream. Contents are treated as opaque bytes by the opener."
+    },
+    {
+      "data_type": "URL string",
+      "description": "A string URL using file:, http:, or https: scheme, optionally followed by additional path/query content."
+    },
+    {
+      "data_type": "opaque binary stream prefix",
+      "description": "A buffer of initial bytes from the start of a stream image used for quick format testing or as pre-read data when opening via callbacks."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "Opus ID header packet",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\ndef _le16(u: int) -> bytes:\n    return struct.pack('<H', u & 0xFFFF)\n\ndef _le32(u: int) -> bytes:\n    return struct.pack('<I', u & 0xFFFFFFFF)\n\ndef _clamp(v: int, lo: int, hi: int) -> int:\n    return lo if v < lo else hi if v > hi else v\n\n# Build an Opus ID header (per RFC 7845 / libopusfile expectations)\n# Layout (little-endian):\n#  0..7   magic: \"OpusHead\"\n#  8      version (0..255)\n#  9      channel_count (1..255, but libopusfile typical 1..8)\n# 10..11  pre_skip (LE16)\n# 12..15  input_sample_rate (LE32, informational; often 0 or original)\n# 16..17  output_gain (LE16 signed Q8 dB)\n# 18      mapping_family (0,1, or 255 reserved/rejected)\n# 19      stream_count (if mapping_family != 0)\n# 20      coupled_count (if mapping_family != 0)\n# 21..    mapping[channels] (if mapping_family != 0)\n# For mapping_family==0, there are no stream/coupled/mapping bytes.\n# libopusfile rejects mapping_family 255 in general-purpose mode; to exercise success paths use 0 or 1.\n\n# Provide a few interesting valid variants:\n# - Mono, stereo, surround up to 8 channels\n# - mapping family 0 (implicit) and 1 (explicit Vorbis order mapping)\n# - Various pre-skip, sample rate (0 and common rates), and output gain values\n\n# Channel mapping presets for mapping_family=1: mapping tables from RFC (Vorbis order)\n# For simplicity we include valid tables for up to 8 channels.\n_MAPPING_FAM1: dict[int, Tuple[int, int, List[int]]] = {\n    # channels: (stream_count, coupled_count, mapping[channels])\n    1: (1, 0, [0]),\n    2: (1, 1, [0, 1]),\n    3: (2, 1, [0, 2, 1]),                  # L, C, R\n    4: (2, 2, [0, 1, 2, 3]),               # FL, FR, RL, RR\n    5: (3, 2, [0, 1, 2, 3, 4]),            # FL, FR, FC, RL, RR\n    6: (4, 2, [0, 1, 2, 3, 4, 5]),         # FL, FR, FC, LFE, RL, RR\n    7: (4, 3, [0, 1, 2, 3, 4, 5, 6]),\n    8: (5, 3, [0, 1, 2, 3, 4, 5, 6, 7]),\n}\n\n_COMMON_SAMPLE_RATES = [0, 8000, 12000, 16000, 24000, 44100, 48000, 96000]\n\ndef _build_header(version: int,\n                  channels: int,\n                  pre_skip: int,\n                  input_rate: int,\n                  gain_q8: int,\n                  mapping_family: int,\n                  rng: random.Random) -> bytes:\n    b = bytearray()\n    b += b\"OpusHead\"\n    b.append(version & 0xFF)\n    b.append(channels & 0xFF)\n    b += _le16(pre_skip)\n    b += _le32(input_rate)\n    # gain is signed 16-bit Q8 dB; clamp to int16 range\n    gain_q8 = _clamp(gain_q8, -32768, 32767)\n    b += struct.pack('<h', gain_q8)\n    b.append(mapping_family & 0xFF)\n\n    if mapping_family == 0:\n        # No stream_count/coupled_count/mapping[]\n        return bytes(b)\n\n    # mapping_family == 1: include counts and mapping table\n    # Ensure we have a valid preset; if not, fall back to stereo\n    if channels not in _MAPPING_FAM1:\n        channels = 2\n    stream_count, coupled_count, mapping = _MAPPING_FAM1[channels]\n    b.append(stream_count & 0xFF)\n    b.append(coupled_count & 0xFF)\n    # Optionally shuffle mapping occasionally while keeping it a permutation of 0..channels-1\n    if rng.random() < 0.3:\n        mapping = mapping[:]  # copy\n        rng.shuffle(mapping)\n    b += bytes(int(x) & 0xFF for x in mapping[:channels])\n    return bytes(b)\n\ndef _pick_channels(rng: random.Random) -> int:\n    # Bias towards common cases but include up to 8\n    choices = [1, 2, 2, 2, 5, 6, 8, 3, 4, 7]\n    return choices[rng.randrange(len(choices))]\n\ndef _pick_version(rng: random.Random) -> int:\n    # 1 is common today; 0 also valid historically; include some random bytes\n    return rng.choices([0, 1, rng.randrange(0, 256)], weights=[2, 5, 1], k=1)[0]\n\ndef _pick_preskip(rng: random.Random) -> int:\n    # Typical Opus pre-skip ~ 312..3840 samples; include 0 and larger values\n    options = [0, 80, 312, 384, 960, 2560, 3840, 8000]\n    if rng.random() < 0.3:\n        return rng.randrange(0, 10000)\n    return rng.choice(options)\n\ndef _pick_rate(rng: random.Random) -> int:\n    if rng.random() < 0.7:\n        return rng.choice(_COMMON_SAMPLE_RATES)\n    return rng.randrange(0, 200000)\n\ndef _pick_gain_q8(rng: random.Random) -> int:\n    # Include 0, small positives/negatives, extremes\n    choices = [0, 0, 0, 256, -256, 20*256, -20*256, 32767, -32768]\n    if rng.random() < 0.4:\n        return rng.randrange(-40000, 40000)\n    return rng.choice(choices)\n\ndef _pick_mapping_family(channels: int, rng: random.Random) -> int:\n    # Favor valid families 0 and 1; occasionally choose 1 for multichannel\n    if channels <= 2:\n        return 0 if rng.random() < 0.7 else 1\n    return 1 if rng.random() < 0.9 else 0\n\ndef _maybe_pad(rng: random.Random, header: bytes) -> bytes:\n    # Some callers pass larger pkt sizes; allow optional padding/trailing bytes that lib ignores\n    if rng.random() < 0.3:\n        pad_len = rng.randrange(0, 16)\n        return header + rng.randbytes(pad_len)\n    return header\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose parameters\n    channels = _pick_channels(rng)\n    version = _pick_version(rng)\n    pre_skip = _pick_preskip(rng)\n    input_rate = _pick_rate(rng)\n    gain_q8 = _pick_gain_q8(rng)\n    mapping_family = _pick_mapping_family(channels, rng)\n\n    header = _build_header(version, channels, pre_skip, input_rate, gain_q8, mapping_family, rng)\n    header = _maybe_pad(rng, header)\n\n    # Ensure upper bound for fuzzer constraints\n    if len(header) > 4096:\n        header = header[:4096]\n    return header\n"
+    },
+    {
+      "data_type": "OpusTags header packet",
+      "generator": "import random\nimport struct\nimport base64\nfrom typing import List, Tuple\n\n# This generator produces a valid OpusTags header packet as used by libopusfile.\n# Layout (little-endian):\n#  bytes 0..7   : ASCII \"OpusTags\"\n#  4 bytes LE   : vendor_length (uint32)\n#  vendor_length bytes: vendor string (UTF-8, no terminating NUL)\n#  4 bytes LE   : user_comment_list_length (uint32)\n#  For each comment:\n#    4 bytes LE : length N (uint32)\n#    N bytes    : UTF-8 text \"TAG=value\" (no terminating NUL)\n#  1 byte       : framing bit (0x01)\n# OpusTags in Opus requires the framing bit present (Vorbis-style comment framing).\n\nMAX_TOTAL_SIZE = 4096\nMAGIC = b\"OpusTags\"\n\nVENDORS = [\n    \"libopus 1.3.1\",\n    \"opus-tools 0.2\",\n    \"GStreamer\",\n    \"FFmpeg\",\n    \"foobar2000\",\n    \"Icecast\",\n]\n\nTAGS = [\n    \"TITLE\", \"ARTIST\", \"ALBUM\", \"DATE\", \"TRACKNUMBER\", \"GENRE\",\n    \"COMMENT\", \"DESCRIPTION\", \"LICENSE\", \"COPYRIGHT\", \"ALBUMARTIST\",\n    \"DISCNUMBER\", \"ORGANIZATION\", \"LOCATION\", \"LANGUAGE\",\n    # Gain-related\n    \"R128_TRACK_GAIN\", \"R128_ALBUM_GAIN\",\n    # Picture tag key (base64 payload expected by higher-level APIs)\n    \"METADATA_BLOCK_PICTURE\",\n]\n\nGENRES = [\n    \"Rock\", \"Pop\", \"Classical\", \"Jazz\", \"Electronic\", \"Hip-Hop\",\n    \"Ambient\", \"Metal\", \"Country\", \"Podcast\",\n]\n\nARTISTS = [\n    \"Alice\", \"Bob\", \"Carol\", \"Dave\", \"Eve\", \"Mallory\",\n    \"The Example Band\", \"Opus Ensemble\",\n]\n\nALBUMS = [\n    \"Test Album\", \"Greatest Hits\", \"Live at Home\", \"Podcast Season 1\",\n]\n\nTITLES = [\n    \"Track One\", \"Intro\", \"Interlude\", \"Outro\", \"Sample Track\",\n]\n\nDESCRIPTIONS = [\n    \"Recorded live\", \"Remastered\", \"Demo\", \"Instrumental\", \"Explicit\",\n]\n\n# Small valid PNG header (no full image) isn't valid image, but we only embed base64 payload for METADATA_BLOCK_PICTURE tag.\n# However, opus_picture_tag_parse expects a FLAC-style picture structure in base64. For OpusTags fuzzing, we only need valid OpusTags packet.\n# We'll embed a tiny, syntactically valid FLAC PICTURE block in base64 so downstream picture parsing can succeed when present.\n# FLAC PICTURE block layout (per spec):\n# 32-bit BE type, 32-bit BE MIME length, MIME, 32-bit BE desc length, desc,\n# 32-bit BE width, height, depth, colors, 32-bit BE data length, data\n\ndef be32(n: int) -> bytes:\n    return struct.pack(\">I\", n & 0xFFFFFFFF)\n\ndef make_flac_picture_block(seed: int) -> bytes:\n    rnd = random.Random(seed ^ 0xA5A5_5A5A)\n    # Choose a type (3 = cover front)\n    pic_type = rnd.choice([0, 3])\n    mime = rnd.choice([b\"image/png\", b\"image/jpeg\", b\"-->\"])  # \"-->\" indicates URL according to spec\n    desc = rnd.choice([b\"Cover\", b\"Front\", b\"Artwork\", b\"\"])\n    # Tiny fake image data (not necessarily decodable, but structurally fine for picture block):\n    if mime == b\"image/png\":\n        data = b\"\\x89PNG\\r\\n\\x1a\\n\" + b\"minimal\"\n    elif mime == b\"image/jpeg\":\n        data = b\"\\xFF\\xD8\\xFF\\xE0\" + b\"JFIF\\x00\" + b\"mini\"\n    else:\n        # URL case stores a URL as data\n        data = b\"http://example.com/cover.jpg\"\n    width = rnd.randrange(16, 1024)\n    height = rnd.randrange(16, 1024)\n    depth = rnd.choice([8, 24])\n    colors = 0\n    blob = b\"\".join([\n        be32(pic_type),\n        be32(len(mime)), mime,\n        be32(len(desc)), desc,\n        be32(width), be32(height), be32(depth), be32(colors),\n        be32(len(data)), data,\n    ])\n    return blob\n\ndef rand_string(rnd: random.Random, choices: List[str], fallback: str) -> str:\n    return rnd.choice(choices) if choices else fallback\n\ndef make_text_comment(tag: str, value: str) -> str:\n    return f\"{tag}={value}\"\n\ndef make_gain_value_q8(rnd: random.Random) -> str:\n    # Gains are in Q8 dB; textual tags usually store decimal in dB (e.g., +3.00 dB or -5.23 dB)\n    # Opusfile parsers accept integer Q8 via helper getters; textual tag typically like \"R128_TRACK_GAIN=-1234\" in Q8.\n    # We'll provide both styles occasionally. The getters parse numeric integer Q8 from the text part.\n    style = rnd.randrange(3)\n    if style == 0:\n        # Integer Q8 in [-32768, 32767]\n        return str(rnd.randrange(-32768, 32768))\n    elif style == 1:\n        # Decimal dB to two decimals\n        val_db = rnd.uniform(-20.0, 20.0)\n        return f\"{val_db:.2f} dB\"\n    else:\n        # Signed with no unit\n        val_db = rnd.uniform(-18.0, 18.0)\n        return f\"{val_db:.2f}\"\n\ndef build_opustags_packet(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    # Decide sizes within budget\n    target_size = rnd.randrange(64, min(1024, MAX_TOTAL_SIZE))\n\n    vendor = rand_string(rnd, VENDORS, \"libopus\").encode(\"utf-8\")\n\n    comments: List[bytes] = []\n\n    # Core descriptive tags\n    if rnd.random() < 0.9:\n        title = rand_string(rnd, TITLES, \"Track\"); comments.append(make_text_comment(\"TITLE\", title).encode(\"utf-8\"))\n    if rnd.random() < 0.9:\n        artist = rand_string(rnd, ARTISTS, \"Artist\"); comments.append(make_text_comment(\"ARTIST\", artist).encode(\"utf-8\"))\n    if rnd.random() < 0.7:\n        album = rand_string(rnd, ALBUMS, \"Album\"); comments.append(make_text_comment(\"ALBUM\", album).encode(\"utf-8\"))\n    if rnd.random() < 0.5:\n        comments.append(make_text_comment(\"GENRE\", rand_string(rnd, GENRES, \"Other\")).encode(\"utf-8\"))\n    if rnd.random() < 0.5:\n        comments.append(make_text_comment(\"DATE\", str(rnd.randrange(1990, 2026))).encode(\"utf-8\"))\n    if rnd.random() < 0.4:\n        comments.append(make_text_comment(\"TRACKNUMBER\", str(rnd.randrange(1, 25))).encode(\"utf-8\"))\n\n    # Gains\n    if rnd.random() < 0.6:\n        comments.append(make_text_comment(\"R128_TRACK_GAIN\", make_gain_value_q8(rnd)).encode(\"utf-8\"))\n    if rnd.random() < 0.6:\n        comments.append(make_text_comment(\"R128_ALBUM_GAIN\", make_gain_value_q8(rnd)).encode(\"utf-8\"))\n\n    # A free-form comment\n    if rnd.random() < 0.6:\n        comments.append(make_text_comment(\"COMMENT\", rand_string(rnd, DESCRIPTIONS, \"Sample\")).encode(\"utf-8\"))\n\n    # Optionally include a METADATA_BLOCK_PICTURE with a valid base64 FLAC picture block\n    if rnd.random() < 0.5:\n        pic_block = make_flac_picture_block(seed)\n        pic_b64 = base64.b64encode(pic_block).decode(\"ascii\")\n        comments.append(make_text_comment(\"METADATA_BLOCK_PICTURE\", pic_b64).encode(\"utf-8\"))\n\n    # Assemble packet while respecting MAX_TOTAL_SIZE\n    parts: List[bytes] = [MAGIC]\n    parts.append(struct.pack(\"<I\", len(vendor)))\n    parts.append(vendor)\n    # We'll add comments incrementally and ensure size with framing bit fits.\n\n    # Placeholder for comment count\n    comment_count = 0\n    comment_entries: List[Tuple[int, bytes]] = []\n\n    # Compute base size so far\n    size_so_far = sum(len(p) for p in parts) + 4  # include space for list length\n\n    # Add comments ensuring size <= MAX_TOTAL_SIZE - 1 (framing bit)\n    for c in comments:\n        entry = struct.pack(\"<I\", len(c)) + c\n        if size_so_far + len(entry) + 1 <= MAX_TOTAL_SIZE:\n            comment_entries.append((len(c), c))\n            size_so_far += len(entry)\n            comment_count += 1\n        else:\n            break\n\n    # Now append the count and entries\n    parts.append(struct.pack(\"<I\", comment_count))\n    for ln, c in comment_entries:\n        parts.append(struct.pack(\"<I\", ln))\n        parts.append(c)\n\n    # Framing bit (required by OpusTags)\n    parts.append(b\"\\x01\")\n\n    packet = b\"\".join(parts)\n\n    # If target_size smaller than packet and we overshot the earlier small target, that's fine; ensure <= MAX_TOTAL_SIZE\n    if len(packet) > MAX_TOTAL_SIZE:\n        # Fallback: trim comments until under limit\n        # Rebuild minimally with zero comments\n        parts = [MAGIC, struct.pack(\"<I\", len(vendor)), vendor, struct.pack(\"<I\", 0), b\"\\x01\"]\n        packet = b\"\".join(parts)\n    return packet\n\n\ndef generate(seed: int) -> bytes:\n    \"\"\"Generate a valid OpusTags header packet as bytes.\n\n    The output is suitable for feeding into fuzzers expecting FUZZ_PARAM_STR for an OpusTags packet\n    and will frequently exercise parsing of vendor, multiple comments, R128 gains, and embedded\n    METADATA_BLOCK_PICTURE base64 content.\n    \"\"\"\n    return build_opustags_packet(seed)\n"
+    },
+    {
+      "data_type": "ASCII tag name",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for valid inputs targeting OpusTags-related fuzzers that use\n# FUZZ_PARAM_STR to obtain tag names and comment/value strings.\n# We will craft a buffer that, when consumed as a byte stream by the fuzzing\n# framework, yields interesting but valid ASCII tag names (no '=') and\n# valid comment/value strings (TAG=value or just value where appropriate).\n#\n# Assumptions about FUZZ_PARAM_STR consumption:\n# - The harness pulls sequential slices from our provided bytes and interprets\n#   them as strings (often up to a delimiter or length prefix internal to the fuzzer).\n# - We therefore encode multiple strings back-to-back with simple length-prefixes\n#   to maximize the chance they are extracted intact by a variety of common\n#   FUZZ_PARAM_STR implementations (AFL custom mutator shims, LLVMFuzzer custom\n#   providers, etc.).\n#\n# Strategy:\n# - Provide a sequence of records: [len(uint16 LE) | bytes]\n# - Each record is a UTF-8/ASCII string without embedded NUL unless explicitly needed.\n# - Build a mix tailored for:\n#   * opus_tags_add: needs tag (ASCII, no '=') and value (UTF-8, may be anything but no embedded NUL via this API)\n#   * opus_tags_query/_count: tag names\n#   * opus_tagcompare/tagncompare: tag name (no '=') and comment (TAG=value)\n# - Include repeated tags and varied casings to exercise case-insensitive logic,\n#   unusual but valid tag names, and boundary sizes per stub (<=64 for add; <=32 for query).\n# - Keep total size <= 4096 bytes.\n\nASCII_TAGS_BASE = [\n    \"ALBUM\",\n    \"ARTIST\",\n    \"TITLE\",\n    \"DATE\",\n    \"GENRE\",\n    \"TRACKNUMBER\",\n    \"DISCNUMBER\",\n    \"COMMENT\",\n    \"R128_TRACK_GAIN\",\n    \"R128_ALBUM_GAIN\",\n    \"METADATA_BLOCK_PICTURE\",\n    \"LICENSE\",\n    \"COPYRIGHT\",\n]\n\nVALUES_BASE = [\n    \"Test Value\",\n    \"Café del Mar\",  # UTF-8\n    \"こんにちは\",       # UTF-8\n    \"12345\",\n    \"-5.25 dB\",\n    \"0 dB\",\n    \"https://example.com/image.jpg\",\n    \"Artist Name\",\n    \"Album Name\",\n]\n\n# Some base64-like payload for METADATA_BLOCK_PICTURE; not required to be valid here\n# because opus_picture_tag_parse is not directly fuzzed, but we can still provide a\n# plausible content in comment form for tagcompare/tagncompare.\nBASE64_PIC = (\n    \"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=\"\n)\n\n\ndef _rand_ascii_no_equal(rng: random.Random, max_len: int) -> str:\n    # Allow letters, digits, underscore, dash, and space; no '='.\n    alphabet = string.ascii_letters + string.digits + \" _-\"\n    n = rng.randint(1, max_len)\n    s = ''.join(rng.choice(alphabet) for _ in range(n)).strip()\n    if not s:\n        s = \"X\"\n    # Ensure no '='\n    s = s.replace('=', ':')\n    return s\n\n\ndef _rand_tag(rng: random.Random, max_len: int) -> str:\n    # Choose from known tags with varied casing or random new ones\n    choice = rng.random()\n    if choice < 0.6:\n        base = rng.choice(ASCII_TAGS_BASE)\n        # random case mix\n        chars = [c.upper() if rng.random() < 0.5 else c.lower() for c in base]\n        tag = ''.join(chars)\n    else:\n        tag = _rand_ascii_no_equal(rng, max_len)\n    # Enforce no '=' and length\n    tag = tag.replace('=', ':')\n    if len(tag) > max_len:\n        tag = tag[:max_len]\n    if not tag:\n        tag = \"X\"\n    return tag\n\n\ndef _rand_value(rng: random.Random, max_len: int) -> str:\n    # Generate a UTF-8 string without embedded NULs.\n    choice = rng.random()\n    if choice < 0.6:\n        val = rng.choice(VALUES_BASE)\n    elif choice < 0.8:\n        # numeric or dB\n        if rng.random() < 0.5:\n            val = str(rng.randint(-200, 200))\n        else:\n            # Q8 dB-ish textual\n            q8 = rng.randint(-32768, 32767)\n            val = f\"{q8/256.0:.2f} dB\"\n    else:\n        # random ascii/utf-8 mixed string\n        pools = [string.ascii_letters + string.digits + \" _-./:+\", \"äöüÄÖÜßµéèçñøå\"]\n        n = rng.randint(1, max_len)\n        val = ''.join(rng.choice(pools[0] if rng.random() < 0.8 else pools[1]) for _ in range(n))\n    if len(val) > max_len:\n        val = val[:max_len]\n    return val\n\n\ndef _make_comment(rng: random.Random, tag: str, value: str, max_len: int) -> str:\n    # Construct TAG=value ensuring no '=' in tag.\n    tag = tag.replace('=', ':')\n    cm = f\"{tag}={value}\"\n    if len(cm) > max_len:\n        cm = cm[:max_len]\n        # Ensure we don't end with a dangling leading tag without '='; try to preserve structure\n        if '=' not in cm:\n            # fallback minimal valid\n            cm = \"X=Y\"\n    return cm\n\n\ndef _pack_len_prefixed(strings: List[str]) -> bytes:\n    # 16-bit little endian length prefix per string, then raw bytes (UTF-8).\n    out = bytearray()\n    for s in strings:\n        b = s.encode('utf-8', errors='ignore')\n        if len(b) > 65535:\n            b = b[:65535]\n        out += len(b).to_bytes(2, 'little')\n        out += b\n    return bytes(out)\n\n\ndef _make_picture_comment() -> str:\n    return f\"METADATA_BLOCK_PICTURE={BASE64_PIC}\"\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build a pool of strings in an order that many FUZZ_PARAM_STR consumers will pull:\n    # For opus_tags_add: [tag, value] possibly repeated\n    # For opus_tags_query/_count: [tag]\n    # For opus_tagcompare: [tag, comment]\n    # For opus_tagncompare: [tag, comment]\n\n    strings: List[str] = []\n\n    # 1) Seed with a few canonical tags/values to ensure valid behavior.\n    canonical = [\n        (\"TITLE\", \"Example Track\"),\n        (\"ARTIST\", \"Example Artist\"),\n        (\"ALBUM\", \"Example Album\"),\n        (\"R128_TRACK_GAIN\", \"-5\"),   # textual values are fine for add(); parsers may interpret numeric elsewhere\n        (\"R128_ALBUM_GAIN\", \"-7\"),\n    ]\n    for t, v in canonical:\n        strings.append(t)\n        strings.append(v)\n\n    # 2) Add some randomized entries, ensuring size constraints per stub.\n    add_pairs = rng.randint(3, 8)\n    for _ in range(add_pairs):\n        tag = _rand_tag(rng, 64)\n        val = _rand_value(rng, 200)\n        strings.append(tag)\n        strings.append(val)\n\n    # 3) Query tags: include duplicates and varied casing to exercise count and lookup.\n    query_tags_count = rng.randint(5, 12)\n    for _ in range(query_tags_count):\n        tag = _rand_tag(rng, 32)\n        strings.append(tag)\n\n    # 4) tagcompare/tagncompare inputs: tag name (no '=') and comment (TAG=value).\n    cmp_cases = [\n        (\"ARTIST\", \"ARTIST=Somebody\"),\n        (\"artist\", \"ARTIST=Upper Wins\"),\n        (\"GENRE\", \"GENRE=Electronic\"),\n        (\"R128_TRACK_GAIN\", \"R128_TRACK_GAIN=-512\"),\n        (\"R128_ALBUM_GAIN\", \"R128_ALBUM_GAIN=256\"),\n        (\"TITLE\", \"TITLE=Foobar\"),\n    ]\n    # include a picture comment variant\n    cmp_cases.append((\"METADATA_BLOCK_PICTURE\", _make_picture_comment()))\n\n    for tn, cm in cmp_cases:\n        strings.append(tn.replace('=', ':'))\n        strings.append(cm)\n\n    # 5) Random compare cases to diversify lengths and casings.\n    rand_cmp = rng.randint(4, 10)\n    for _ in range(rand_cmp):\n        tn = _rand_tag(rng, 64)\n        v = _rand_value(rng, 128)\n        cm = _make_comment(rng, tn, v, 256)\n        strings.append(tn)\n        strings.append(cm)\n\n    # 6) Ensure total size <= 4096 by truncating strings list if needed.\n    blob = _pack_len_prefixed(strings)\n    if len(blob) > 4096:\n        # Trim conservatively by reducing strings until under limit.\n        # Keep at least some initial canonical entries.\n        kept: List[str] = []\n        for s in strings:\n            trial = _pack_len_prefixed(kept + [s])\n            if len(trial) > 4096:\n                break\n            kept.append(s)\n        blob = _pack_len_prefixed(kept)\n\n    return blob\n"
+    },
+    {
+      "data_type": "UTF-8 string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets inputs for FUZZ_PARAM_STR used in the opus_tags_add fuzzer stub.\n# The stub expects two NUL-terminated UTF-8 strings: tag (ASCII-ish, no '=') and value (UTF-8),\n# concatenated in a single fuzz buffer that the harness will split. We therefore construct a buffer\n# containing two C-strings back-to-back: TAG\\0VALUE\\0. The fuzzer harness will slice them as needed.\n#\n# Strategy:\n# - Tags: produce a variety of common and edge-case Vorbis/Opus tag names (ASCII, case-insensitive),\n#   length up to 64 chars, avoid '='. Include random cases, underscores, dashes, numerics.\n# - Values: produce valid UTF-8 without embedded NULs, including numeric strings, signed dB-like\n#   values, plain text, URLs, and a few multilingual snippets.\n# - Ensure total buffer <= 4096 bytes.\n# - Seeded randomness via the provided seed.\n\nCOMMON_TAGS = [\n    \"TITLE\", \"ARTIST\", \"ALBUM\", \"ALBUMARTIST\", \"TRACKNUMBER\", \"DATE\", \"GENRE\",\n    \"COMMENT\", \"DESCRIPTION\", \"LANGUAGE\", \"COMPOSER\", \"PERFORMER\", \"COPYRIGHT\",\n    \"LICENSE\", \"ORGANIZATION\", \"LOCATION\", \"CONTACT\", \"ISRC\", \"DISCNUMBER\",\n    \"R128_TRACK_GAIN\", \"R128_ALBUM_GAIN\", \"METADATA_BLOCK_PICTURE\", \"ENCODER\",\n    \"ENCODER_OPTIONS\", \"REPLAYGAIN_TRACK_GAIN\", \"REPLAYGAIN_ALBUM_GAIN\",\n]\n\nUTF8_SAMPLES = [\n    \"Hello world\",\n    \"こんにちは世界\",  # Japanese\n    \"Привет мир\",      # Russian\n    \"¡Hola, mundo!\",   # Spanish with punctuation\n    \"مرحبا بالعالم\",    # Arabic\n    \"γειά σου κόσμε\",   # Greek\n    \"Bonjour le monde\",\n    \"测试 中文 标题\",      # Chinese\n    \"한국어 테스트\",       # Korean\n    \"Café del Mar\",     # Latin-1-esque but proper UTF-8\n    \"http://example.com/stream\",\n    \"https://example.com/op.opus\",\n]\n\nURLS = [\n    \"http://example.com/\",\n    \"https://example.org/stream.opus\",\n    \"file:///C:/Music/track.opus\",\n]\n\nNUMERIC_VALUES = [\n    \"0\", \"1\", \"2\", \"10\", \"100\", \"-1\", \"-23\", \"+12\", \"32767\", \"-32768\",\n]\n\nDB_VALUES = [\n    \"-512\", \"-256\", \"0\", \"128\", \"256\", \"1024\",  # Q8 dB-like integers\n]\n\nTEXT_VALUES = UTF8_SAMPLES + URLS + NUMERIC_VALUES + DB_VALUES + [\n    \"Recorded live\",\n    \"Remastered 2020\",\n    \"Disc 1\",\n    \"Track 07\",\n]\n\nASCII_TAG_CHARS = string.ascii_letters + string.digits + \"-_ .#@+\"\n\n\ndef _rand_tag(rng: random.Random) -> str:\n    # 60% pick from common list with random casing; 40% synthesize\n    if rng.random() < 0.6:\n        base = rng.choice(COMMON_TAGS)\n        # Randomize case to cover case-insensitivity\n        tag = ''.join(c.lower() if rng.random() < 0.5 else c.upper() for c in base)\n    else:\n        length = rng.randint(1, 20)\n        tag = ''.join(rng.choice(ASCII_TAG_CHARS) for _ in range(length)).strip()\n        if not tag:\n            tag = \"T\"\n    # Ensure no '=' per API requirement\n    tag = tag.replace('=', ':')\n    # Limit to 64 as fuzzer stub truncates beyond that\n    if len(tag) > 64:\n        tag = tag[:64]\n    # Tags should be ASCII; ensure by encoding errors replace (but all chars are chosen ASCII above)\n    return tag\n\n\ndef _rand_value(rng: random.Random, tag: str) -> str:\n    # Prefer values that match tag semantics\n    upper = tag.upper()\n    if upper in (\"R128_TRACK_GAIN\", \"R128_ALBUM_GAIN\"):\n        return rng.choice(DB_VALUES)\n    if upper in (\"TRACKNUMBER\", \"DISCNUMBER\"):\n        return rng.choice([\"1\", \"2\", \"3\", \"07\", \"10\"])  # simple numerics\n    if upper in (\"DATE\",):\n        # ISO-like dates\n        year = rng.randint(1970, 2025)\n        if rng.random() < 0.5:\n            return f\"{year}\"\n        month = rng.randint(1, 12)\n        day = rng.randint(1, 28)\n        return f\"{year:04d}-{month:02d}-{day:02d}\"\n    if upper in (\"GENRE\",):\n        return rng.choice([\"Rock\", \"Electronic\", \"Classical\", \"Jazz\", \"Podcast\"]) \n    if upper in (\"METADATA_BLOCK_PICTURE\",):\n        # For opus_tags_add, arbitrary UTF-8 is fine (not base64 here). Provide a plausible description.\n        return rng.choice([\n            \"Cover (front)\", \"Artist logo\", \"Band photo\"\n        ])\n    if upper in (\"REPLAYGAIN_TRACK_GAIN\", \"REPLAYGAIN_ALBUM_GAIN\"):\n        # ReplayGain conventional decimal with dB suffix\n        return rng.choice([\"-7.50 dB\", \"0 dB\", \"+1.25 dB\", \"-18.00 dB\"]) \n    if upper in (\"TITLE\", \"ARTIST\", \"ALBUM\", \"ALBUMARTIST\", \"COMPOSER\", \"PERFORMER\"):\n        return rng.choice(UTF8_SAMPLES)\n    if upper in (\"URL\",):\n        return rng.choice(URLS)\n    # Fallback: random valid UTF-8 string from pool or constructed\n    if rng.random() < 0.7:\n        return rng.choice(TEXT_VALUES)\n    # Construct a mixed ASCII/Unicode string\n    base = rng.choice(UTF8_SAMPLES)\n    extra = ''.join(rng.choice(string.ascii_letters + ' -._/') for _ in range(rng.randint(0, 16)))\n    return (base + (\" \" + extra if extra else \"\")).strip()\n\n\ndef _make_cstrings(tag: str, value: str) -> bytes:\n    # Ensure both are UTF-8 encodable and contain no NULs\n    tag = tag.replace('\\x00', '')\n    value = value.replace('\\x00', '')\n    tb = tag.encode('utf-8') + b\"\\x00\"\n    vb = value.encode('utf-8') + b\"\\x00\"\n    return tb + vb\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Sometimes bias toward gain-related tags to exercise gain parsing in later queries\n    if rng.random() < 0.2:\n        tag = rng.choice([\"R128_TRACK_GAIN\", \"R128_ALBUM_GAIN\"]) \n    else:\n        tag = _rand_tag(rng)\n\n    value = _rand_value(rng, tag)\n\n    buf = _make_cstrings(tag, value)\n\n    # If buffer is too small to be interesting, extend value with additional info but keep valid UTF-8\n    if len(buf) < 8:\n        extra = rng.choice(TEXT_VALUES)\n        buf = _make_cstrings(tag, value + \" \" + extra)\n\n    # Enforce max size\n    if len(buf) > 4096:\n        # Truncate value portion carefully before the terminating NUL\n        # Find first NUL (end of tag), keep tag, trim value to fit\n        first_nul = buf.find(b\"\\x00\")\n        if first_nul == -1:\n            # Should not happen, but ensure at least proper termination\n            buf = buf[:4095] + b\"\\x00\"\n        else:\n            tag_part = buf[: first_nul + 1]\n            space_left = 4096 - len(tag_part) - 1  # leave 1 for final NUL\n            if space_left < 0:\n                # Fallback: keep just tag and empty value\n                buf = tag_part + b\"\\x00\"\n            else:\n                value_bytes = value.encode('utf-8')\n                value_bytes = value_bytes[:space_left]\n                buf = tag_part + value_bytes + b\"\\x00\"\n\n    return buf\n"
+    },
+    {
+      "data_type": "TAG=value string (UTF-8)",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for NUL-terminated UTF-8 strings used by fuzzer stubs that request\n# FUZZ_PARAM_STR. We will pack multiple such strings into a single bytes buffer\n# separated by NULs so the harness can split/consume them deterministically.\n# Target API expects:\n# - TAG=value (UTF-8) for opus_tags_add_comment\n# - Arbitrary tag name (no '=') and arbitrary comment for opus_tagcompare/tagncompare\n# The fuzz harness itself post-processes: replaces '=' in tag names with ':',\n# truncates lengths, and appends NUL terminators. We'll still generate valid\n# and interesting inputs to exercise logic and comparisons.\n\nMAX_TOTAL = 4096\n\nASCII_TAG_CHARS = string.ascii_uppercase + string.digits + \"-_+.\"  # typical Vorbis tag charset\n\n# Some interesting known tag names used by libopusfile helpers\nKNOWN_TAGS = [\n    \"TITLE\", \"ARTIST\", \"ALBUM\", \"DATE\", \"GENRE\", \"COMMENT\",\n    \"TRACKNUMBER\", \"DISCNUMBER\", \"ALBUMARTIST\", \"COMPOSER\",\n    \"R128_TRACK_GAIN\", \"R128_ALBUM_GAIN\", \"METADATA_BLOCK_PICTURE\",\n    \"ORGANIZATION\", \"DESCRIPTION\", \"LICENSE\", \"LOCATION\",\n]\n\n# Some interesting values to cover unicode, long/short, numbers, punctuation\nINTERESTING_VALUES = [\n    \"Test\", \"Hello World\", \"Δelta\", \"Café\", \"日本語\", \"😀😎\", \"\", \"0\",\n    \"-23.5 dB\", \"+3.0 dB\", \"2025-12-14\", \"Rock\", \"Classical\",\n    \"Line1\\nLine2\", \"Key=NotASeparator\", \"http://example.com/cover.jpg\",\n]\n\n# Build a plausible METADATA_BLOCK_PICTURE base64 payload header (not a full image)\n# This is still valid base64 text and exercises tagcompare/tagncompare paths.\nMBP_BASE64_SNIPPET = (\n    \"AAAAAAEAAAAAAFRleHQvUGxhaW4AAAAA\"  # fake fields, base64-ish\n)\n\n\ndef _rand_choice(r: random.Random, seq: List[str]) -> str:\n    return seq[r.randrange(len(seq))]\n\n\ndef _make_tag(r: random.Random) -> str:\n    kind = r.random()\n    if kind < 0.5:\n        # Choose a known tag, sometimes tweak case to exercise case-insensitive compare\n        tag = _rand_choice(r, KNOWN_TAGS)\n        # Random case mix\n        if r.random() < 0.7:\n            tag = ''.join(c.lower() if r.random() < 0.5 else c.upper() for c in tag)\n    else:\n        # Synthesize a tag of random length 1..32 using allowed chars\n        n = r.randint(1, 32)\n        tag = ''.join(r.choice(ASCII_TAG_CHARS) for _ in range(n))\n    # Avoid '=' in tag (API requirement); we never add it here.\n    # Optionally embed spaces or punctuation to test normalization behavior\n    if r.random() < 0.1:\n        tag = tag + \" \" + _rand_choice(r, [\"INFO\", \"DATA\", \"NUM\"])  # still valid ASCII\n    return tag\n\n\ndef _make_value(r: random.Random) -> str:\n    choice = r.random()\n    if choice < 0.4:\n        val = _rand_choice(r, INTERESTING_VALUES)\n    elif choice < 0.7:\n        # Random readable value\n        alpha = string.ascii_letters + string.digits + \" _-.,:/+()[]{}\"  # include spaces/punct\n        n = r.randint(0, 128)\n        val = ''.join(r.choice(alpha) for _ in range(n))\n    else:\n        # Unicode mixture\n        samples = [\n            \"Привет\", \"¡Hola!\", \"أهلاً\", \"हिन्दी\", \"한국어\", \"ไทย\", \"עברית\",\n            \"😊🔥🎵\", \"μ-law\", \"naïve\", \"résumé\",\n        ]\n        val = _rand_choice(r, samples)\n        if r.random() < 0.5:\n            # append some ASCII too\n            val += \" \" + str(r.randint(-32768, 32767))\n    # Bound length (fuzzer truncates tag to 32, but value is unconstrained; keep small)\n    if len(val) > 256:\n        val = val[:256]\n    return val\n\n\ndef _make_comment_pair(r: random.Random) -> str:\n    tag = _make_tag(r)\n    # Occasionally pick special tags that trigger deeper parsing in consumers\n    if r.random() < 0.15:\n        tag = _rand_choice(r, [\"R128_TRACK_GAIN\", \"R128_ALBUM_GAIN\"])  # numeric text\n    if r.random() < 0.10:\n        tag = \"METADATA_BLOCK_PICTURE\"\n    # Generate value tailored to tag where appropriate\n    if tag.upper() in (\"R128_TRACK_GAIN\", \"R128_ALBUM_GAIN\"):\n        # Valid range [-32768, 32767] in Q8 (1/256 dB); store as textual dB like 0 or -2304\n        # Many readers accept integer text; include sign and simple numbers\n        raw = r.randint(-32768, 32767)\n        val = str(raw)\n    elif tag == \"METADATA_BLOCK_PICTURE\":\n        # Provide base64-like string; may include prefix or not\n        prefix = \"METADATA_BLOCK_PICTURE=\" if r.random() < 0.5 else \"\"\n        val = prefix + MBP_BASE64_SNIPPET\n    else:\n        val = _make_value(r)\n    return f\"{tag}={val}\"\n\n\ndef _make_tag_name_only(r: random.Random) -> str:\n    # For opus_tagcompare/tagncompare: tag name without '='\n    return _make_tag(r)\n\n\ndef _make_comment_only(r: random.Random) -> str:\n    # Arbitrary comment string; may or may not be TAG=value, but valid UTF-8\n    if r.random() < 0.6:\n        return _make_comment_pair(r)\n    else:\n        # Free-form comment that still fits API as a comment string\n        return _make_value(r)\n\n\ndef _pack_strings(strs: List[str]) -> bytes:\n    # Join with NUL byte; ensure we don't exceed MAX_TOTAL\n    out = bytearray()\n    for s in strs:\n        b = s.encode('utf-8', errors='strict') + b\"\\x00\"\n        if len(out) + len(b) > MAX_TOTAL:\n            break\n        out += b\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # We will provide a sequence of NUL-terminated strings that the harness can\n    # feed to FUZZ_PARAM_STR in order. Include multiple entries to exercise:\n    # - Valid TAG=value comments (incl. R128_* and METADATA_BLOCK_PICTURE)\n    # - Tag names without '=' for compare functions\n    # - Free-form comments\n    strings: List[str] = []\n\n    # 1-4 valid TAG=value comments\n    for _ in range(r.randint(1, 4)):\n        strings.append(_make_comment_pair(r))\n\n    # A few extra generic comments\n    for _ in range(r.randint(1, 3)):\n        strings.append(_make_comment_pair(r))\n\n    # Tagcompare inputs: tag name only, and comment\n    for _ in range(r.randint(1, 3)):\n        strings.append(_make_tag_name_only(r))\n        strings.append(_make_comment_only(r))\n\n    # Tagncompare inputs: another tag name and comment\n    for _ in range(r.randint(1, 2)):\n        strings.append(_make_tag_name_only(r))\n        strings.append(_make_comment_only(r))\n\n    # Include edge-case tags and values\n    strings.append(\"TITLE=\")  # empty value\n    strings.append(\"GENRE=Rock/Pop\")\n    strings.append(\"R128_TRACK_GAIN=0\")\n    strings.append(\"R128_ALBUM_GAIN=-256\")  # -1 dB in Q8\n\n    # Add a long-ish value within limits\n    long_val = \"A\" * r.randint(64, 180)\n    strings.append(f\"COMMENT={long_val}\")\n\n    # Final packing\n    buf = _pack_strings(strings)\n    return buf\n"
+    },
+    {
+      "data_type": "OpusTags binary suffix blob",
+      "generator": "import random\nimport struct\nimport base64\n\n# Generator for valid OpusTags binary suffix blobs\n# Target stub uses FUZZ_PARAM_STR() for the data pointer and integers for length.\n# Constraints:\n# - When len > 0, first byte must have LSB set (bit 0 = 1).\n# - len can be 0 (remove), positive (set), or negative (error). We provide bytes that\n#   are useful when positive, while the harness chooses len itself.\n# - Provide interesting, but valid, binary payloads that exercise different paths.\n#\n# We return a bytes buffer that the harness will use for FUZZ_PARAM_STR().\n# Keep size <= 4096.\n\nMAX_SIZE = 4096\n\nKNOWN_MAGIC_PREFIXES = [\n    b\"\\x89PNG\\r\\n\\x1a\\n\",            # PNG signature\n    b\"\\xff\\xd8\\xff\\xe0JFIF\\x00\",      # JPEG JFIF\n    b\"\\xff\\xd8\\xff\\xe1Exif\\x00\\x00\", # JPEG EXIF\n    b\"GIF87a\",                            # GIF87a\n    b\"GIF89a\",                            # GIF89a\n]\n\n# Construct a variety of valid-looking binary blobs with first byte LSB=1.\n# While the binary suffix is opaque to the parser besides the first-byte LSB rule,\n# different sizes and contents may exercise allocation/copy paths.\n\ndef _ensure_lsb1(b: bytearray) -> bytearray:\n    if not b:\n        b.extend(b\"\\x01\")\n    else:\n        b[0] |= 0x01\n    return b\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytearray:\n    return bytearray(rng.getrandbits(8) for _ in range(n))\n\ndef _make_png_like(rng: random.Random, size: int) -> bytearray:\n    # Create a minimal PNG-like structure with proper signature then pad.\n    data = bytearray(KNOWN_MAGIC_PREFIXES[0])\n    # IHDR chunk (length 13 + type + CRC placeholder). We'll not compute CRC; suffix treats as opaque.\n    ihdr = bytearray()\n    ihdr.extend(struct.pack(\">I\", 13))\n    ihdr.extend(b\"IHDR\")\n    ihdr.extend(struct.pack(\">I\", rng.randrange(16, 4096)))  # width\n    ihdr.extend(struct.pack(\">I\", rng.randrange(16, 4096)))  # height\n    ihdr.extend(bytes([8]))  # bit depth\n    ihdr.extend(bytes([6]))  # color type (RGBA)\n    ihdr.extend(bytes([0, 0, 0]))  # compression, filter, interlace\n    ihdr.extend(struct.pack(\">I\", 0))  # fake CRC\n    data.extend(ihdr)\n    # Pad to requested size\n    if len(data) < size:\n        data.extend(_rand_bytes(rng, size - len(data)))\n    return data[:size]\n\ndef _make_jpeg_like(rng: random.Random, size: int) -> bytearray:\n    data = bytearray(b\"\\xff\\xd8\\xff\\xe0JFIF\\x00\\x01\\x02\\x00\\x00\\x01\\x00\\x01\\x00\\x00\")\n    # Add some entropy and a fake SOS marker\n    data.extend(_rand_bytes(rng, max(0, size - len(data) - 4)))\n    data.extend(b\"\\xff\\xda\\x00\\x08\")\n    return data[:size]\n\ndef _make_gif_like(rng: random.Random, size: int) -> bytearray:\n    hdr = rng.choice([b\"GIF87a\", b\"GIF89a\"]) + struct.pack(\"<HH\", rng.randrange(1, 512), rng.randrange(1, 512)) + b\"\\x80\\x00\\x00\"\n    data = bytearray(hdr)\n    if len(data) < size:\n        data.extend(_rand_bytes(rng, size - len(data)))\n    return data[:size]\n\ndef _make_random_blob(rng: random.Random, size: int) -> bytearray:\n    return _rand_bytes(rng, size)\n\ndef _make_repeating_pattern(rng: random.Random, size: int) -> bytearray:\n    patterns = [\n        b\"\\x01\", b\"\\xff\", b\"\\x55\", b\"\\xaa\", b\"OpusSuffix\", b\"\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\",\n    ]\n    p = rng.choice(patterns)\n    reps = (size + len(p) - 1) // len(p)\n    return bytearray((p * reps)[:size])\n\ndef _make_structured_blob(rng: random.Random, size: int) -> bytearray:\n    # Length-prefixed fields and some base64 data to simulate rich content\n    fields = []\n    def add_field(tag: bytes, payload: bytes):\n        fields.append(struct.pack(\"<H\", len(tag)) + tag)\n        fields.append(struct.pack(\"<I\", len(payload)))\n        fields.append(payload)\n    add_field(b\"type\", rng.choice([b\"opaque\", b\"image/png\", b\"image/jpeg\", b\"application/x-custom\"]))\n    add_field(b\"flags\", struct.pack(\"<I\", rng.getrandbits(16)))\n    rnd_payload = _rand_bytes(rng, rng.randrange(8, 128))\n    add_field(b\"b64\", base64.b64encode(rnd_payload))\n    blob = bytearray().join(fields)\n    if len(blob) < size:\n        blob.extend(_rand_bytes(rng, size - len(blob)))\n    return blob[:size]\n\ndef _choose_size(rng: random.Random) -> int:\n    # Bias toward small sizes but include a few larger ones to exercise allocation\n    choices = [0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 512, 1024, 2048]\n    if rng.random() < 0.2:\n        # Occasionally pick an arbitrary size up to MAX_SIZE\n        return rng.randrange(0, min(MAX_SIZE, 3000))\n    return rng.choice(choices)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide strategy for content\n    strategies = [\n        \"png\", \"jpeg\", \"gif\", \"random\", \"repeat\", \"structured\"\n    ]\n    strat = rng.choice(strategies)\n\n    size = _choose_size(rng)\n\n    if size == 0:\n        # Even if harness might select len>0, we still return something minimal; but we'll keep size 0 here\n        data = bytearray()\n    else:\n        if strat == \"png\":\n            data = _make_png_like(rng, size)\n        elif strat == \"jpeg\":\n            data = _make_jpeg_like(rng, size)\n        elif strat == \"gif\":\n            data = _make_gif_like(rng, size)\n        elif strat == \"repeat\":\n            data = _make_repeating_pattern(rng, size)\n        elif strat == \"structured\":\n            data = _make_structured_blob(rng, size)\n        else:\n            data = _make_random_blob(rng, size)\n\n    # Enforce the API rule: first byte LSB must be set when len > 0.\n    # We do this unconditionally when size>0; harmless if harness uses len==0.\n    data = _ensure_lsb1(bytearray(data))\n\n    # Ensure max size constraint\n    if len(data) > MAX_SIZE:\n        data = data[:MAX_SIZE]\n\n    return bytes(data)\n"
+    },
+    {
+      "data_type": "Opus METADATA_BLOCK_PICTURE tag (base64)",
+      "generator": "import base64\nimport random\nimport struct\nfrom typing import Tuple\n\n# This generator creates valid METADATA_BLOCK_PICTURE payloads as used in Vorbis/Opus tags,\n# optionally prefixed by \"METADATA_BLOCK_PICTURE=\". The binary structure is:\n#   0: picture type (big-endian uint32)\n#   1: MIME type length (uint32), then MIME bytes\n#   2: description length (uint32), then description bytes (UTF-8)\n#   3: width (uint32)\n#   4: height (uint32)\n#   5: depth (uint32)\n#   6: colors (uint32)\n#   7: data length (uint32), then image data bytes (or URL if mime == '-->')\n# The entire binary blob is then base64-encoded for the tag value.\n\nPNG_SIG = b\"\\x89PNG\\r\\n\\x1a\\n\"\nGIF87a = b\"GIF87a\"\nGIF89a = b\"GIF89a\"\n\n\ndef _be32(u: int) -> bytes:\n    return struct.pack(\">I\", u & 0xFFFFFFFF)\n\n\ndef _rand_choice(rng: random.Random, seq):\n    return seq[rng.randrange(len(seq))]\n\n\ndef _make_png(rng: random.Random, min_w: int, min_h: int) -> Tuple[bytes, int, int, int, int]:\n    # Create a minimal, valid PNG (IHDR + IDAT + IEND). Compute CRCs properly.\n    import zlib\n\n    width = rng.randint(min_w, max(1, min_w) + 63)\n    height = rng.randint(min_h, max(1, min_h) + 63)\n    bit_depth = _rand_choice(rng, [8, 16])\n    color_type = _rand_choice(rng, [2, 6])  # Truecolor or Truecolor+alpha\n    compression = 0\n    filter_method = 0\n    interlace = _rand_choice(rng, [0, 1])\n\n    ihdr_data = struct.pack(\n        \">IIBBBBB\",\n        width,\n        height,\n        bit_depth,\n        color_type,\n        compression,\n        filter_method,\n        interlace,\n    )\n\n    def chunk(ctype: bytes, cdata: bytes) -> bytes:\n        return _be32(len(cdata)) + ctype + cdata + _be32(zlib.crc32(ctype + cdata) & 0xFFFFFFFF)\n\n    # Minimal IDAT with a small zlib stream: one empty scanline with filter 0.\n    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color_type]\n    bpp = channels * (2 if bit_depth == 16 else 1)\n    scanline = bytes([0]) + bytes(width * bpp)\n    z = zlib.compress(scanline, 9)\n\n    png = PNG_SIG + chunk(b\"IHDR\", ihdr_data) + chunk(b\"IDAT\", z) + chunk(b\"IEND\", b\"\")\n\n    depth = bit_depth\n    colors = 0\n    return png, width, height, depth, colors\n\n\ndef _make_gif(rng: random.Random, min_w: int, min_h: int) -> Tuple[bytes, int, int, int, int]:\n    # Generate a minimal single-frame GIF89a/87a with global color table.\n    sig = _rand_choice(rng, [GIF87a, GIF89a])\n    width = rng.randint(min_w, max(1, min_w) + 63)\n    height = rng.randint(min_h, max(1, min_h) + 63)\n    gct_flag = 1\n    color_res = 7  # 8 bits per channel\n    sort_flag = 0\n    gct_size_pow = _rand_choice(rng, [0, 1, 2, 3])  # 2,4,8,16 colors\n    gct_size_val = (1 << (gct_size_pow + 1))\n    packed = (gct_flag << 7) | (color_res << 4) | (sort_flag << 3) | gct_size_pow\n    bg_index = 0\n    pixel_aspect = 0\n\n    # Global Color Table\n    gct = bytearray()\n    for _ in range(gct_size_val):\n        gct += bytes([rng.randrange(256), rng.randrange(256), rng.randrange(256)])\n\n    lsd = struct.pack(\"<HHBBB\", width, height, packed, bg_index, pixel_aspect)\n\n    # Image Descriptor\n    left = top = 0\n    lct_flags = 0\n    img_desc = b\"\\x2C\" + struct.pack(\"<HHHHB\", left, top, width, height, lct_flags)\n\n    # Minimal LZW image data: LZW min code size and one empty block then terminator\n    lzw_min = max(2, gct_size_pow + 1)\n    img_data = bytes([lzw_min, 1, 0, 0])  # one sub-block of size 1 (dummy), then terminator 0\n\n    trailer = b\"\\x3B\"\n\n    gif = sig + lsd + gct + img_desc + img_data + trailer\n\n    depth = 8\n    colors = gct_size_val\n    return gif, width, height, depth, colors\n\n\ndef _make_jpeg(rng: random.Random, min_w: int, min_h: int) -> Tuple[bytes, int, int, int, int]:\n    # Construct a tiny baseline JPEG. While not guaranteed universally valid, it's commonly accepted.\n    def be16(x):\n        return struct.pack(\">H\", x & 0xFFFF)\n\n    width = rng.randint(min_w, max(1, min_w) + 63)\n    height = rng.randint(min_h, max(1, min_h) + 63)\n\n    soi = b\"\\xFF\\xD8\"\n    app0 = b\"\\xFF\\xE0\" + be16(16) + b\"JFIF\\x00\\x01\\x02\\x00\\x00\\x01\\x00\\x01\\x00\\x00\"\n    dqt = b\"\\xFF\\xDB\" + be16(67) + b\"\\x00\" + bytes([\n        16,11,10,16,24,40,51,61,\n        12,12,14,19,26,58,60,55,\n        14,13,16,24,40,57,69,56,\n        14,17,22,29,51,87,80,62,\n        18,22,37,56,68,109,103,77,\n        24,35,55,64,81,104,113,92,\n        49,64,78,87,103,121,120,101,\n        72,92,95,98,112,100,103,99\n    ])\n    sof0 = b\"\\xFF\\xC0\" + be16(11) + b\"\\x08\" + be16(height) + be16(width) + b\"\\x01\\x01\\x11\\x00\"\n    # Simplified DHT (not a full valid table for all decoders, but acceptable for many)\n    dht = b\"\\xFF\\xC4\" + be16(0x1F + 0x1F + 2) + b\"\\x00\" + b\"\\x00\"*0x1F + b\"\\x01\\x01\" + b\"\\x10\" + b\"\\x00\"*0x1F\n    sos = b\"\\xFF\\xDA\" + be16(8) + b\"\\x01\\x01\\x00\\x00\\x3F\\x00\"\n    entropy = bytes([0x0F, 0xD2, 0x4A, 0x55, 0x00, 0xFF, 0x00])\n    eoi = b\"\\xFF\\xD9\"\n\n    jpeg = soi + app0 + dqt + sof0 + dht + sos + entropy + eoi\n    depth = 8\n    colors = 0\n    return jpeg, width, height, depth, colors\n\n\ndef _build_picture_block(rng: random.Random) -> bytes:\n    # Choose picture type\n    pic_type = _rand_choice(rng, [0, 3])  # 0: Other, 3: Front Cover\n\n    # Choose MIME and image generator\n    kind = _rand_choice(rng, [\"png\", \"gif\", \"jpeg\", \"url\"])\n\n    if kind == \"png\":\n        img, w, h, depth, colors = _make_png(rng, 1, 1)\n        mime = b\"image/png\"\n    elif kind == \"gif\":\n        img, w, h, depth, colors = _make_gif(rng, 1, 1)\n        mime = b\"image/gif\"\n    elif kind == \"jpeg\":\n        img, w, h, depth, colors = _make_jpeg(rng, 1, 1)\n        mime = b\"image/jpeg\"\n    else:\n        # URL case uses mime '-->' and data is a URL string\n        url_schemes = [b\"http://\", b\"https://\"]\n        host = b\"example.com/\"\n        path = f\"cover{rng.randrange(1,1000)}.jpg\".encode()\n        img = _rand_choice(rng, url_schemes) + host + path\n        w = h = 0\n        depth = 24\n        colors = 0\n        mime = b\"-->\"\n\n    # Optional description\n    descriptions = [b\"\", b\"Front cover\", b\"Album art\", b\"Cover\"]\n    desc = _rand_choice(rng, descriptions)\n\n    # Build the METADATA_BLOCK_PICTURE binary\n    parts = []\n    parts.append(_be32(pic_type))\n    parts.append(_be32(len(mime)))\n    parts.append(mime)\n    parts.append(_be32(len(desc)))\n    parts.append(desc)\n    parts.append(_be32(w))\n    parts.append(_be32(h))\n    parts.append(_be32(depth))\n    parts.append(_be32(colors))\n    parts.append(_be32(len(img)))\n    parts.append(img)\n\n    return b\"\".join(parts)\n\n\ndef _maybe_prefix(rng: random.Random, b64: bytes) -> bytes:\n    if rng.getrandbits(1):\n        return b\"METADATA_BLOCK_PICTURE=\" + b64\n    return b64\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Generate between 1 and 2 concatenated picture tags separated by newlines.\n    count = rng.randint(1, 2)\n    payloads = []\n    for _ in range(count):\n        blob = _build_picture_block(rng)\n        b64 = base64.b64encode(blob)\n        payloads.append(_maybe_prefix(rng, b64))\n\n    out = b\"\\n\".join(payloads)\n\n    # Ensure size <= 4096\n    if len(out) > 4096:\n        out = out[:4096]\n\n    return out\n"
+    },
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport struct\nimport string\nfrom typing import List\n\n# This generator focuses on producing valid filesystem paths suitable for fopen/freopen\n# for the target fuzzer stubs using FUZZ_PARAM_FILENAME(). The returned bytes will be the\n# path string encoded in UTF-8 and NUL-terminated to be robust when passed to C APIs.\n#\n# Strategy:\n# - Create a temporary-like directory structure under a pseudo root inside the current\n#   working directory name space (no actual file IO performed here; the fuzzer harness\n#   will materialize the provided filename with contents as it sees fit).\n# - Generate a variety of interesting path shapes: absolute/relative, with/without\n#   directories, extensions commonly used for Opus/Ogg, hidden files, long components,\n#   and edge-case characters that are generally valid on POSIX and commonly acceptable\n#   on Windows UTF-8 wrappers (excluding reserved characters that fopen() would reject\n#   like NUL or path separators within a component where inappropriate).\n# - Keep path length well under 4096 bytes.\n#\n# Note: We avoid any actual filesystem operations as required.\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_ .\"\n\nEXTS = [\n    \"opus\", \"ogg\", \"oga\", \"ogx\", \"spx\", \"flac\", \"wav\", \"txt\", \"bin\"\n]\n\nDIR_NAMES = [\n    \"tmp\", \"var\", \"data\", \"inputs\", \"samples\", \"case\", \"a\", \"b\", \"longdir\",\n    \"..hidden\", \"Music\", \"音楽\", \"测试\", \"スペース 含む\"\n]\n\nFILE_BASES = [\n    \"test\", \"sample\", \"stream\", \"opus\", \"music\", \"radio\", \"station\",\n    \"Picture\", \"cover\", \"tags\", \"idheader\", \"linkchain\", \"Σ\", \"диск\", \"archivo\"\n]\n\nWINDOWS_FORBIDDEN = set('<>:\"|?*')\n\n\ndef _rand_name(rng: random.Random, base_choices: List[str], min_len=1, max_len=16) -> str:\n    if rng.random() < 0.6 and base_choices:\n        base = rng.choice(base_choices)\n    else:\n        length = rng.randint(min_len, max_len)\n        base = ''.join(rng.choice(SAFE_CHARS) for _ in range(length)).strip()\n        if not base:\n            base = \"x\"\n    # Avoid trailing dots/spaces on Windows which can be problematic\n    base = base.rstrip(' .') or \"x\"\n    # Avoid reserved names on Windows\n    reserved = {\"CON\",\"PRN\",\"AUX\",\"NUL\",\"COM1\",\"COM2\",\"COM3\",\"COM4\",\"COM5\",\"COM6\",\"COM7\",\"COM8\",\"COM9\",\n                \"LPT1\",\"LPT2\",\"LPT3\",\"LPT4\",\"LPT5\",\"LPT6\",\"LPT7\",\"LPT8\",\"LPT9\"}\n    if base.upper() in reserved:\n        base = base + \"_\"\n    # Avoid forbidden chars\n    base = ''.join(ch for ch in base if ch not in WINDOWS_FORBIDDEN)\n    return base or \"x\"\n\n\ndef _make_components(rng: random.Random) -> List[str]:\n    comps = []\n    depth = rng.randint(0, 3)\n    for _ in range(depth):\n        name = _rand_name(rng, DIR_NAMES, 1, rng.randint(4, 18))\n        # Occasionally add a dot-prefixed hidden directory\n        if rng.random() < 0.2 and not name.startswith('.'):\n            name = '.' + name\n        comps.append(name)\n    return comps\n\n\ndef _make_filename(rng: random.Random) -> str:\n    name = _rand_name(rng, FILE_BASES, 1, rng.randint(4, 24))\n    # Optional multi-dot filenames\n    if rng.random() < 0.25:\n        name = name + \".\" + _rand_name(rng, FILE_BASES, 1, 8)\n    # Choose extension with bias towards Opus/Ogg\n    if rng.random() < 0.9:\n        ext = rng.choices(EXTS, weights=[6,6,2,1,1,1,1,1,1], k=1)[0]\n        name = f\"{name}.{ext}\"\n    return name\n\n\ndef _maybe_absolute(rng: random.Random) -> str:\n    # Produce absolute or relative paths according to platform flavors\n    style = rng.choice([\"posix\", \"win\", \"rel\"]) if rng.random() < 0.8 else \"rel\"\n    if style == \"posix\":\n        return \"/\"\n    if style == \"win\":\n        drive = rng.choice(list(\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"))\n        return f\"{drive}:/\"  # forward slash acceptable in many runtimes; avoids escaping backslashes\n    return \"\"  # relative\n\n\ndef _join(components: List[str]) -> str:\n    # Use forward slashes for portability\n    return \"/\".join(components)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide path root type and components\n    root = _maybe_absolute(rng)\n    comps = []\n\n    # Occasionally start with current dir or parent references for relative paths\n    if root == \"\":\n        if rng.random() < 0.2:\n            comps.append(\".\")\n        if rng.random() < 0.1:\n            comps.append(\"..\")\n\n    # Build directory components\n    comps += _make_components(rng)\n\n    # Optionally insert an \"interesting\" directory name hinting content-type\n    if rng.random() < 0.35:\n        comps.append(rng.choice([\"opus\", \"ogg\", \"audio\", \"streams\", \"covers\"]))\n\n    # Add filename\n    filename = _make_filename(rng)\n    comps.append(filename)\n\n    path = (root + _join([c for c in comps if c != \"\"])) if root else _join([c for c in comps if c != \"\"])\n\n    # Limit length and sanitize to avoid trailing spaces/dots\n    if len(path) > 3800:\n        path = path[:3800].rstrip(' .')\n    if not path:\n        path = \"input.opus\"\n\n    # Ensure no NULs and encode as UTF-8. The fuzzer harness expects a filename string.\n    b = path.encode('utf-8')\n\n    # Keep size within 4096 bytes and NUL-terminate to be C-friendly\n    b = b[:4095]\n    if not b:\n        b = b\"input.opus\"\n    if b[-1:] != b\"\\x00\":\n        b += b\"\\x00\"\n    return b\n"
+    },
+    {
+      "data_type": "opaque binary stream image",
+      "generator": "import random\nimport struct\nimport zlib\nimport base64\n\n# This generator produces a minimal, valid Ogg Opus stream image in memory.\n# It builds a simple Ogg bitstream with:\n#  - Page 0 (BOS): OpusHead, OpusTags (each packet segmented as needed)\n#  - Page 1: small audio packet\n#  - Page 2 (EOS): small audio packet marked EOS\n# The packets are segmented across the lacing table when >255 bytes. Output <= 4096 bytes.\n\n# Ogg page helpers\n\ndef ogg_crc(data: bytes) -> int:\n    return zlib.crc32(data) & 0xFFFFFFFF\n\n\ndef segment_packet(pkt: bytes) -> tuple[list[int], bytes]:\n    # Split a packet into lacing segments of size 255 (0xFF) followed by a final <255 segment\n    segs = []\n    body = bytearray()\n    i = 0\n    n = len(pkt)\n    while i < n:\n        chunk = min(255, n - i)\n        segs.append(chunk)\n        body += pkt[i:i + chunk]\n        i += chunk\n    if n == 0:\n        segs.append(0)\n    return segs, bytes(body)\n\n\ndef build_ogg_page(serial: int, seqno: int, granule: int, packets: list[bytes], bos: bool, eos: bool) -> bytes:\n    seg_table: list[int] = []\n    body_parts = []\n    for pkt in packets:\n        segs, body = segment_packet(pkt)\n        seg_table.extend(segs)\n        body_parts.append(body)\n    body = b\"\".join(body_parts)\n    header = bytearray()\n    header += b'OggS'            # capture pattern\n    header += b'\\x00'           # stream structure version\n    hdrtype = 0\n    if bos:\n        hdrtype |= 0x02\n    if eos:\n        hdrtype |= 0x04\n    header += bytes([hdrtype])   # header type\n    header += struct.pack('<Q', granule & 0xFFFFFFFFFFFFFFFF)  # granule position\n    header += struct.pack('<I', serial & 0xFFFFFFFF)           # bitstream serialno\n    header += struct.pack('<I', seqno & 0xFFFFFFFF)            # page sequence no\n    header += b'\\x00\\x00\\x00\\x00'                           # placeholder CRC\n    header += bytes([len(seg_table) & 0xFF])                   # page_segments\n    header += bytes(seg_table)                                 # segment table\n    crc = ogg_crc(bytes(header) + body)\n    header[22:26] = struct.pack('<I', crc)\n    return bytes(header) + body\n\n# Opus header helpers\n\ndef make_opus_head(channel_count: int, mapping_family: int, input_rate: int, pre_skip: int, gain_q8: int) -> bytes:\n    # RFC 7845 Section 5.1\n    b = bytearray()\n    b += b'OpusHead'                   # magic\n    b += b'\\x01'                       # version\n    b += bytes([channel_count & 0xFF])\n    b += struct.pack('<H', pre_skip & 0xFFFF)\n    b += struct.pack('<I', input_rate & 0xFFFFFFFF)\n    # gain_q8 must be a signed 16-bit integer in Q8 dB units\n    if gain_q8 < -32768:\n        gain_q8 = -32768\n    if gain_q8 > 32767:\n        gain_q8 = 32767\n    b += struct.pack('<h', gain_q8)    # int16 little-endian\n    b += bytes([mapping_family & 0xFF])\n    if mapping_family == 0:\n        # mono or stereo only\n        pass\n    elif mapping_family == 1:\n        stream_cnt = max(1, min(255, channel_count))\n        coupled = min(stream_cnt, channel_count // 2)\n        b += bytes([stream_cnt & 0xFF])\n        b += bytes([coupled & 0xFF])\n        b += bytes(range(channel_count))\n    else:\n        raise ValueError('Unsupported mapping family in generator')\n    return bytes(b)\n\n\ndef make_vendor_string(rnd: random.Random) -> bytes:\n    vendors = [\n        'libopus 1.3.1', 'opusenc 0.2.1', 'GStreamer opus', 'FFmpeg', 'Xiph.Org libopusfile'\n    ]\n    v = rnd.choice(vendors).encode('utf-8')\n    return struct.pack('<I', len(v)) + v\n\n\ndef make_user_comments(rnd: random.Random) -> bytes:\n    tags = [\n        ('TITLE', ['Test Tone', 'Silence', 'Opus Sample']),\n        ('ARTIST', ['Fuzz Bot', 'Opus Project']),\n        ('ALBUM', ['Fuzz Suite', 'Sample Pack']),\n        ('R128_TRACK_GAIN', ['+3.00 dB', '-5.50 dB', '+0.00 dB']),\n        ('R128_ALBUM_GAIN', ['-1.00 dB', '+2.50 dB'])\n    ]\n    n = rnd.randint(1, 5)\n    entries = []\n    for _ in range(n):\n        t, vals = rnd.choice(tags)\n        val = rnd.choice(vals)\n        s = f\"{t}={val}\".encode('utf-8')\n        entries.append(struct.pack('<I', len(s)) + s)\n    if rnd.random() < 0.3:\n        # Tiny 1x1 PNG\n        png = (b\"\\x89PNG\\r\\n\\x1a\\n\"\n               b\"\\x00\\x00\\x00\\rIHDR\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x01\\x08\\x06\\x00\\x00\\x00\\x1f\\x15\\xc4\\x89\"\n               b\"\\x00\\x00\\x00\\x0cIDATx\\x9cc\\x00\\x01\\x00\\x00\\x05\\x00\\x01\\r\\n-\\xb4\"\n               b\"\\x00\\x00\\x00\\x00IEND\\xaeB`\\x82\")\n        b64 = base64.b64encode(png)\n        pic = b\"METADATA_BLOCK_PICTURE=\" + b64\n        entries.append(struct.pack('<I', len(pic)) + pic)\n    comment_count = struct.pack('<I', len(entries))\n    return comment_count + b''.join(entries)\n\n\ndef make_opus_tags(rnd: random.Random) -> bytes:\n    b = bytearray()\n    b += b'OpusTags'\n    b += make_vendor_string(rnd)\n    b += make_user_comments(rnd)\n    return bytes(b)\n\n\ndef make_small_audio_packet(rnd: random.Random, channels: int) -> bytes:\n    # Use Opus CN packet (1 byte 0xFC) which decoders accept as valid.\n    return bytes([0xFC])\n\n\ndef build_stream(rnd: random.Random) -> bytes:\n    serial = rnd.randrange(1, 2**32 - 1)\n    if rnd.random() < 0.7:\n        channels = rnd.choice([1, 2])\n        mapping_family = 0\n    else:\n        channels = rnd.choice([3, 4, 5, 6, 7, 8])\n        mapping_family = 1\n    input_rate = rnd.choice([0, 44100, 48000, 96000])\n    pre_skip = rnd.choice([0, 80, 312, 3840, 8000])\n    gain_q8 = random.choice([0, -256, 256, -1024, 1024])  # already within int16 range\n\n    head = make_opus_head(channels, mapping_family, input_rate, pre_skip, gain_q8)\n    tags = make_opus_tags(rnd)\n\n    # Page 0: BOS with OpusHead and OpusTags\n    p0 = build_ogg_page(serial=serial, seqno=0, granule=0, packets=[head, tags], bos=True, eos=False)\n\n    # Page 1: audio packet with granulepos = pre_skip\n    audio_pkt = make_small_audio_packet(rnd, channels)\n    p1 = build_ogg_page(serial=serial, seqno=1, granule=pre_skip, packets=[audio_pkt], bos=False, eos=False)\n\n    # Page 2: EOS with a small packet and advanced granulepos\n    audio_pkt2 = make_small_audio_packet(rnd, channels)\n    gp2 = pre_skip + 960  # 20 ms advance at 48 kHz\n    p2 = build_ogg_page(serial=serial, seqno=2, granule=gp2, packets=[audio_pkt2], bos=False, eos=True)\n\n    return p0 + p1 + p2\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    # Occasionally return an empty buffer to exercise empty-stream path\n    if rnd.random() < 0.05:\n        return b''\n    data = build_stream(rnd)\n    if len(data) > 4096:\n        data = data[:4096]\n    return data"
+    },
+    {
+      "data_type": "URL string",
+      "generator": "import random\nimport string\nimport base64\nfrom typing import List\n\n# Generator for URL strings suitable for libopusurl entry points in the fuzz stubs.\n# Focus: produce valid URLs with schemes: file://, http://, https:// and realistic tails.\n# The stubs cap tail to 256 bytes and append a terminating NUL. We must return a bytes\n# buffer that FUZZ_PARAM_STR will draw from, so include multiple candidate URLs separated\n# by newlines to give the fuzzer variety in one buffer, while each is individually valid.\n\n_SCHEMES = [\n    \"file://\",\n    \"http://\",\n    \"https://\",\n]\n\n# Common hosts, paths, query params, fragments, and auth\n_HOSTS = [\n    \"localhost\",\n    \"127.0.0.1\",\n    \"[::1]\",\n    \"example.com\",\n    \"sub.example.com\",\n    \"xn--bcher-kva.example\",  # punycode-style label (non-ASCII in original form)\n]\n\n_PORTS = [\"\", \":80\", \":443\", \":8080\", \":65535\", \":1\"]\n\n_PATH_SEGS = [\n    \"\",\n    \"index.opus\",\n    \"audio.opus\",\n    \"music/track01.opus\",\n    \"stream.opus\",\n    \"dir/with%20space/file.opus\",\n    \";param\",\n    \"..\",\n    \".\",\n]\n\n_QUERY_KEYS = [\n    \"q\",\n    \"token\",\n    \"auth\",\n    \"range\",\n    \"start\",\n    \"end\",\n    \"mode\",\n]\n\n_QUERY_VALUES = [\n    \"1\",\n    \"true\",\n    \"0-\",\n    \"bytes=0-\",\n    \"preview\",\n    \"opus\",\n    \"base64:\" + base64.b64encode(b\"hello\").decode(\"ascii\"),\n]\n\n_FRAGMENTS = [\"\", \"#t=10\", \"#fragment\", \"#start=0\"]\n\n# For file:// URLs, include Windows-style and POSIX-style paths.\n_FILE_ROOTS = [\n    \"/\",\n    \"/tmp/\",\n    \"/var/data/\",\n    \"/home/user/\",\n    \"C:/\",\n    \"D:/media/\",\n]\n\n_FILE_NAMES = [\n    \"test.opus\",\n    \"sample.ogg\",  # non-Opus container but often used\n    \"stream.opus\",\n    \"音楽.opus\",  # unicode\n    \"spaces in name.opus\",\n]\n\ndef _rand_choice(rng: random.Random, items: List[str]) -> str:\n    return items[rng.randrange(len(items))]\n\ndef _rand_userinfo(rng: random.Random) -> str:\n    # Occasionally include basic auth user:pass@\n    if rng.random() < 0.25:\n        user = ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(3,8)))\n        if rng.random() < 0.5:\n            pwd = ''.join(rng.choice(string.ascii_letters + string.digits + \"-_.~\") for _ in range(rng.randint(3,10)))\n            return f\"{user}:{pwd}@\"\n        return f\"{user}@\"\n    return \"\"\n\ndef _rand_query(rng: random.Random) -> str:\n    if rng.random() < 0.6:\n        # 1-4 query params\n        n = rng.randint(1,4)\n        pairs = []\n        for _ in range(n):\n            k = _rand_choice(rng, _QUERY_KEYS)\n            v = _rand_choice(rng, _QUERY_VALUES)\n            # occasionally percent-encode or include repeated keys\n            if rng.random() < 0.3:\n                v = v.replace(\" \", \"%20\")\n            pairs.append(f\"{k}={v}\")\n        return \"?\" + \"&\".join(pairs)\n    return \"\"\n\ndef _rand_fragment(rng: random.Random) -> str:\n    return _rand_choice(rng, _FRAGMENTS)\n\ndef _build_http_https(rng: random.Random, scheme: str) -> str:\n    userinfo = _rand_userinfo(rng)\n    host = _rand_choice(rng, _HOSTS)\n    port = _rand_choice(rng, _PORTS)\n    # Build path\n    segs = []\n    # 0-3 random directory segs plus a file or empty\n    depth = rng.randint(0,3)\n    for _ in range(depth):\n        seg = ''.join(rng.choice(string.ascii_letters + string.digits + \"-_~\") for _ in range(rng.randint(1,8)))\n        segs.append(seg)\n    leaf = _rand_choice(rng, _PATH_SEGS)\n    if leaf:\n        segs.append(leaf)\n    path = \"/\" + \"/\".join(segs)\n    query = _rand_query(rng)\n    frag = _rand_fragment(rng)\n    return f\"{scheme}{userinfo}{host}{port}{path}{query}{frag}\"\n\ndef _build_file(rng: random.Random) -> str:\n    root = _rand_choice(rng, _FILE_ROOTS)\n    # 0-3 directory segments\n    segs = []\n    for _ in range(rng.randint(0,3)):\n        seg = ''.join(rng.choice(string.ascii_letters + string.digits + \"-_ \") for _ in range(rng.randint(1,10)))\n        segs.append(seg)\n    leaf = _rand_choice(rng, _FILE_NAMES)\n    path = root + \"/\".join(filter(None, segs + [leaf]))\n    # Ensure proper file:// prefix rules: file://localhost/path or file:///path\n    if path.startswith('/'):\n        url = \"file://\" + path\n    else:\n        # Windows absolute like C:/...\n        url = \"file:///\" + path\n    return url\n\ndef _make_url(rng: random.Random) -> str:\n    scheme = _rand_choice(rng, _SCHEMES)\n    if scheme == \"file://\":\n        return _build_file(rng)\n    else:\n        return _build_http_https(rng, scheme)\n\ndef _cap_len(url: str, max_tail: int = 256) -> str:\n    # The stub concatenates scheme + tail then truncates tail to 256.\n    # We supply a full URL directly, but FUZZ_PARAM_STR may read the entire bytes until NUL/newline.\n    # Keep each line <= 256 to stay within stub truncation when appended to scheme.\n    if len(url) > max_tail:\n        return url[:max_tail]\n    return url\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    urls: List[str] = []\n\n    # Include a few deterministic edge cases\n    urls.append(\"file:///tmp/test.opus\")\n    urls.append(\"http://localhost/stream.opus\")\n    urls.append(\"https://example.com/music/track01.opus?q=opus#t=10\")\n\n    # Range header style via query to influence server behavior\n    urls.append(\"http://127.0.0.1:8080/audio.opus?range=bytes=0-&mode=preview\")\n\n    # Auth info\n    urls.append(\"https://user:pass@example.com/dir/stream.opus\")\n\n    # IPv6 host\n    urls.append(\"http://[::1]/index.opus\")\n\n    # Windows file path\n    urls.append(\"file:///C:/media/sample.ogg\")\n\n    # Unicode filename\n    urls.append(\"file:///home/user/%E9%9F%B3%E6%A5%BD.opus\")\n\n    # Randomly generate additional diverse URLs\n    for _ in range(20):\n        url = _make_url(rng)\n        urls.append(url)\n\n    # Cap each to a reasonable length as the stub tail is limited\n    urls = [_cap_len(u) for u in urls]\n\n    # Join as lines so FUZZ_PARAM_STR() can pick segments; terminate each with NUL too\n    # to accommodate consumers that expect C-strings. Keep total under 4096 bytes.\n    out_parts: List[bytes] = []\n    total = 0\n    for u in urls:\n        b = u.encode('utf-8') + b\"\\0\\n\"\n        if total + len(b) > 4096:\n            break\n        out_parts.append(b)\n        total += len(b)\n\n    return b\"\".join(out_parts)\n"
+    },
+    {
+      "data_type": "opaque binary stream prefix",
+      "generator": "import random\nimport struct\nimport zlib\n\n# Generates plausible Ogg Opus stream prefixes suitable for op_test/op_*_callbacks initial bytes.\n# Focus: valid OggS pages with OpusHead and OpusTags packets, varying fields and sizes.\n# Keep under 1024 bytes as stubs truncate to that. We target <= 1000 bytes.\n\nOPUS_HEAD_MAGIC = b\"OpusHead\"\nOPUS_TAGS_MAGIC = b\"OpusTags\"\n\n# Ogg page helpers\n\ndef crc32_ogg(data: bytes) -> int:\n    # Ogg CRC32: standard IEEE CRC32 with polynomial 0x04C11DB7, initial 0.\n    return zlib.crc32(data) & 0xFFFFFFFF\n\n\ndef build_ogg_page(header_type: int, granule: int, serial: int, pageno: int, segments: list[bytes]) -> bytes:\n    # segments: list of complete laced segments concatenated to packets; each element must be <= 255 bytes\n    body = b\"\".join(segments)\n    lacing = bytes([len(s) for s in segments])\n    header = bytearray()\n    header += b\"OggS\"              # capture pattern\n    header += bytes([0])            # version\n    header += bytes([header_type & 0xFF])\n    header += struct.pack('<q', int(granule))  # granule position (signed 64)\n    header += struct.pack('<I', int(serial) & 0xFFFFFFFF)\n    header += struct.pack('<I', int(pageno) & 0xFFFFFFFF)\n    header += struct.pack('<I', 0)        # CRC placeholder\n    header += bytes([len(lacing)])\n    header += lacing\n    # Compute CRC with CRC field set to 0\n    crc_input = bytes(header) + body\n    crc = crc32_ogg(crc_input)\n    # Patch CRC\n    header[22:26] = struct.pack('<I', crc)\n    return bytes(header) + body\n\n\ndef cut_into_segments(pkt: bytes, max_seg: int = 255) -> list[bytes]:\n    # Cut packet into laced segments of size <= max_seg; for simplicity, split into chunks of up to 255.\n    return [pkt[i:i+max_seg] for i in range(0, len(pkt), max_seg)]\n\n\ndef build_opus_id_header(rng: random.Random) -> bytes:\n    version = 1\n    # Favor common channel counts but allow 1..8\n    channel_choices = [1, 2, 5, 6, 8]\n    ch = rng.choice(channel_choices) if rng.random() >= 0.2 else rng.randint(1, 8)\n    pre_skip = rng.choice([0, 312, 384, 960, 0])  # include 0 and common pre-skip values\n    rate = rng.choice([0, 48000, 44100, 24000])   # original input sample rate (0 allowed per spec)\n    gain_q8 = rng.randint(-32768, 32767)          # signed int16 range\n    # mapping family selection: mostly 0 for mono/stereo, sometimes 1 for surround\n    mapping_family = 0 if (ch <= 2 and rng.random() < 0.85) else 1\n\n    head = bytearray()\n    head += OPUS_HEAD_MAGIC\n    head += bytes([version & 0xFF])\n    head += bytes([ch & 0xFF])\n    head += struct.pack('<H', pre_skip & 0xFFFF)\n    head += struct.pack('<I', rate & 0xFFFFFFFF)\n    head += struct.pack('<h', gain_q8)  # pack as signed short directly\n    head += bytes([mapping_family & 0xFF])\n    if mapping_family != 0:\n        # For family 1 mappings (Vorbis order)\n        if ch == 1:\n            stream_count, coupled = 1, 0\n        elif ch == 2:\n            stream_count, coupled = 1, 1\n        else:\n            coupled = min(ch // 2, 2 if ch >= 6 else ch // 2)\n            stream_count = coupled + (ch - 2 * coupled)\n        head += bytes([stream_count & 0xFF])\n        head += bytes([coupled & 0xFF])\n        mapping = list(range(ch))\n        head += bytes(mapping)\n    return bytes(head)\n\n\ndef build_opus_tags(rng: random.Random) -> bytes:\n    # Build a basic OpusTags packet with vendor and a few comments.\n    vendor = rng.choice([\n        b\"libopus 1.3.1\",\n        b\"opusenc 0.2.1\",\n        b\"GStreamer opus\",\n        b\"FFmpeg\"\n    ])\n    comments = []\n    if rng.random() < 0.7:\n        gain_track = rng.randint(-15000, 15000)\n        comments.append(f\"R128_TRACK_GAIN={gain_track}\".encode('utf-8'))\n    if rng.random() < 0.5:\n        gain_album = rng.randint(-15000, 15000)\n        comments.append(f\"R128_ALBUM_GAIN={gain_album}\".encode('utf-8'))\n    if rng.random() < 0.8:\n        comments.append(b\"TITLE=Test Track\")\n    if rng.random() < 0.6:\n        comments.append(b\"ARTIST=Fuzz Band\")\n    if rng.random() < 0.4:\n        comments.append(b\"METADATA_BLOCK_PICTURE=\")\n\n    blob = bytearray()\n    blob += OPUS_TAGS_MAGIC\n    blob += struct.pack('<I', len(vendor))\n    blob += vendor\n    blob += struct.pack('<I', len(comments))\n    for c in comments:\n        blob += struct.pack('<I', len(c))\n        blob += c\n    return bytes(blob)\n\n\ndef assemble_stream_prefix(rng: random.Random) -> bytes:\n    # Construct two Ogg pages: BOS with OpusHead, then a page with OpusTags, optionally audio.\n    serial = rng.randrange(1, 0xFFFFFFFF)\n    # Page 0: BOS, granule 0, header packet\n    id_hdr = build_opus_id_header(rng)\n    id_segments = cut_into_segments(id_hdr)\n    bos_page = build_ogg_page(header_type=0x02, granule=0, serial=serial, pageno=0, segments=id_segments)\n\n    # Page 1: OpusTags packet. granule 0 for header pages.\n    tags = build_opus_tags(rng)\n    tag_segments = cut_into_segments(tags)\n    tags_page = build_ogg_page(header_type=0x00, granule=0, serial=serial, pageno=1, segments=tag_segments)\n\n    # Optional small audio data page\n    add_audio = rng.random() < 0.6\n    audio_page = b\"\"\n    if add_audio:\n        toc = bytes([rng.randrange(0, 256)])\n        # generate a few random payload bytes (1..20)\n        n = rng.randint(1, 20)\n        try:\n            payload = rng.randbytes(n)  # Python 3.9+ Random provides randbytes\n        except AttributeError:\n            payload = bytes(rng.randrange(0, 256) for _ in range(n))\n        pkt = toc + payload\n        segs = cut_into_segments(pkt)\n        audio_page = build_ogg_page(header_type=0x00, granule=960, serial=serial, pageno=2, segments=segs)\n\n    data = bos_page + tags_page + audio_page\n    if len(data) > 1000:\n        data = data[:1000]\n    return data\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    mode = rng.random()\n    if mode < 0.15:\n        return build_opus_id_header(rng)\n    elif mode < 0.25:\n        return build_opus_tags(rng)\n    else:\n        return assemble_stream_prefix(rng)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 26580,
+            "output_tokens": 770,
+            "total_tokens": 27350
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 26158,
+            "output_tokens": 294,
+            "total_tokens": 26452
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 26928,
+            "output_tokens": 8438,
+            "total_tokens": 35366
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 76219,
+            "output_tokens": 18708,
+            "total_tokens": 94927
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 23321,
+            "output_tokens": 3051,
+            "total_tokens": 26372
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 28154,
+            "output_tokens": 954,
+            "total_tokens": 29108
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 676.0088067054749,
+    "scan_objects": 17.368813514709473,
+    "validate_objects": 0.5762100219726562,
+    "scan_functions": 99.1077527999878,
+    "synthesis": 348.7680923938751,
+    "fill": 81.96474575996399,
+    "classify": 16.09209132194519,
+    "build_generators": 112.11513328552246
+  }
+}

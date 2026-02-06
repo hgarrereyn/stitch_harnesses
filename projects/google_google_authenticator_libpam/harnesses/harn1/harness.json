@@ -1,0 +1,259 @@
+{
+  "objects": [
+    {
+      "ptr_type": "SHA1_INFO *",
+      "aliases": [],
+      "definition": "typedef struct {\n  uint32_t digest[8];\n  uint32_t count_lo, count_hi;\n  uint8_t  data[SHA1_BLOCKSIZE];\n  int      local;\n} SHA1_INFO;",
+      "description": "Opaque-ish SHA-1 context structure used to compute a SHA-1 digest incrementally. Holds intermediate digest state (digest), bit/byte counters (count_lo/count_hi), the working input block buffer (data), and bookkeeping (local). Note: digest has 8 words here (nonstandard vs. classic 5), implying an implementation-specific layout. Details not fully documented in this header.",
+      "direct_api_constructors": [
+        "sha1_init"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "sha1_init",
+      "signature": "void sha1_init(SHA1_INFO *sha1_info) __attribute__((visibility(\"hidden\")));",
+      "description": "Initializes a SHA-1 hashing context. Call this before providing any data with sha1_update and before finalizing with sha1_final. Typical usage: zero/prepare the context for a new message digest.",
+      "requirements": [
+        "sha1_info must be a valid, writable pointer to an SHA1_INFO structure (inferred from pointer parameter).",
+        "Must be called before the first call to sha1_update or sha1_final on the same SHA1_INFO (inferred from standard SHA-1 API patterns).",
+        "May be called again to reinitialize the context for a new computation; other state in sha1_info will be overwritten (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "sha1_update",
+      "signature": "void sha1_update(SHA1_INFO *sha1_info, const uint8_t *buffer, int count) __attribute__((visibility(\"hidden\")));",
+      "description": "Feeds a chunk of data into an ongoing SHA-1 computation. Can be called repeatedly to process a message in multiple parts.",
+      "requirements": [
+        "sha1_info must point to a SHA1_INFO that has been initialized with sha1_init (inferred from standard SHA-1 workflow).",
+        "buffer must point to at least count bytes of readable data when count > 0 (inferred from signature).",
+        "count must be >= 0 (inferred: negative lengths are nonsensical).",
+        "Function may be called multiple times before sha1_final to process additional data (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "sha1_final",
+      "signature": "void sha1_final(SHA1_INFO *sha1_info, uint8_t digest[20]) __attribute__((visibility(\"hidden\")));",
+      "description": "Finalizes the SHA-1 computation and writes the 20-byte message digest to the provided buffer.",
+      "requirements": [
+        "sha1_info must point to a SHA1_INFO that has been initialized with sha1_init and updated as needed (inferred).",
+        "digest must point to a writable buffer of at least 20 bytes to receive the SHA-1 hash (explicit from parameter type and SHA1_DIGEST_LENGTH=20).",
+        "After finalization, the context’s internal state may no longer be valid for further updates; reinitialize with sha1_init before reuse (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hmac_sha1",
+      "signature": "void hmac_sha1(const uint8_t *key, int keyLength, const uint8_t *data, int dataLength, uint8_t *result, int resultLength) __attribute__((visibility(\"hidden\")));",
+      "description": "Computes the HMAC using SHA-1 over the input data with the given key and writes up to resultLength bytes of the MAC into result. Typical SHA-1 HMAC outputs 20 bytes.",
+      "requirements": [
+        "key must point to at least keyLength bytes of readable memory; keyLength should be >= 0 (inferred from signature).",
+        "data must point to at least dataLength bytes of readable memory; dataLength should be >= 0 (inferred).",
+        "result must point to a writable buffer of at least resultLength bytes (inferred).",
+        "For a full MAC, set resultLength to 20 bytes (inferred from SHA1_DIGEST_LENGTH = 20 and standard HMAC-SHA1).",
+        "Behavior when resultLength < 20 is not documented; likely truncates the MAC; callers should choose an appropriate length (unknown specifics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "base32_decode",
+      "signature": "int base32_decode(const uint8_t *encoded, uint8_t *result, int bufSize) __attribute__((visibility(\"hidden\")));",
+      "description": "Decodes a Base32 string using the RFC 4648 alphabet (A–Z, 2–7). Whitespace and hyphens are permitted; any other characters are invalid. Returns the number of output bytes, or -1 on error. If the output buffer is too small, the result is silently truncated.",
+      "requirements": [
+        "encoded must point to the encoded data; it is likely a NUL-terminated string since no length is provided (inferred; exact termination requirements are not explicitly stated).",
+        "result must point to a writable buffer with capacity of at least bufSize bytes (explicit from parameter name and comment about truncation).",
+        "bufSize must be >= 0 (inferred).",
+        "Input may contain whitespace and hyphens; any other non-Base32 characters cause an error (-1) (explicit from comments)."
+      ],
+      "error": null
+    },
+    {
+      "name": "base32_encode",
+      "signature": "int base32_encode(const uint8_t *data, int length, uint8_t *result, int bufSize) __attribute__((visibility(\"hidden\")));",
+      "description": "Encodes binary data into Base32 using the RFC 4648 alphabet (A–Z, 2–7). Returns the number of output bytes, or -1 on error. If the output buffer is too small, the result is silently truncated.",
+      "requirements": [
+        "data must point to at least length bytes of readable memory; length must be >= 0 (inferred from signature).",
+        "result must point to a writable buffer with capacity of at least bufSize bytes (explicit from comment about truncation).",
+        "bufSize must be >= 0 (inferred).",
+        "Output is binary bytes representing the Base32 text; NUL-termination is not guaranteed and the caller should use the returned length to interpret the result (inferred; exact termination not documented)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "sha1_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "sha1_info",
+          "type": "SHA1_INFO *"
+        }
+      ],
+      "code": "// Allocate a fresh SHA1_INFO context and initialize it for a new computation.\n// The struct is user-managed storage; we create it here and return ownership to the pool.\nSHA1_INFO *sha1_info = new SHA1_INFO();\n// Initialize the context in-place.\nsha1_init(sha1_info);\n// Record initialization state for downstream stubs (sha1_update/sha1_final must see this).\nFUZZ_SET_ATTR_INT(sha1_info, \"sha1_initialized\", 1);\nFUZZ_SET_ATTR_INT(sha1_info, \"sha1_finalized\", 0);\n// Validation: sha1_info is non-null and marked initialized; ready for updates/finalization."
+    },
+    {
+      "name": "sha1_update",
+      "inputs": [
+        {
+          "name": "sha1_info",
+          "type": "SHA1_INFO *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sha1_info",
+          "type": "SHA1_INFO *"
+        }
+      ],
+      "code": "// Enforce that the context has been initialized and not yet finalized.\nint inited = FUZZ_GET_ATTR_INT(sha1_info, \"sha1_initialized\");\nint finalized = FUZZ_GET_ATTR_INT(sha1_info, \"sha1_finalized\");\nif (!inited || finalized) { FUZZ_BAIL(); }\n\n// Generate a random data buffer. FUZZ_PARAM_STR returns [1,4096] bytes.\nstd::string payload = FUZZ_PARAM_STR();\n// Choose count in [0, payload.size()].\nunsigned int maxCount = (unsigned int)payload.size();\nint count = (int)(*FUZZ_PARAM(unsigned int) % (maxCount + 1));\n// When count > 0, buffer must point to at least count readable bytes; when 0, we can pass nullptr.\nconst uint8_t *buf = (count > 0) ? reinterpret_cast<const uint8_t *>(payload.data()) : nullptr;\n\n// Call the target function.\nsha1_update(sha1_info, buf, count);\n\n// Output the context back to the pool for further operations.\n// Validation: Count is non-negative and buffer validity is enforced by construction."
+    },
+    {
+      "name": "sha1_final",
+      "inputs": [
+        {
+          "name": "sha1_info",
+          "type": "SHA1_INFO *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce that the context has been initialized and not yet finalized.\nint inited = FUZZ_GET_ATTR_INT(sha1_info, \"sha1_initialized\");\nint finalized = FUZZ_GET_ATTR_INT(sha1_info, \"sha1_finalized\");\nif (!inited || finalized) { FUZZ_BAIL(); }\n\n// Prepare a 20-byte digest output buffer as required by SHA-1.\nuint8_t digest[20];\n\n// Finalize the hash and write the digest.\nsha1_final(sha1_info, digest);\n\n// Mark the context as finalized; do not return it to the pool to avoid further updates on a finalized state.\nFUZZ_SET_ATTR_INT(sha1_info, \"sha1_finalized\", 1);\n// Validation: digest buffer is at least 20 bytes; state tracking prevents use-after-finalization."
+    },
+    {
+      "name": "hmac_sha1",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate key and data as arbitrary byte sequences.\nstd::string keyStr = FUZZ_PARAM_STR();\nstd::string dataStr = FUZZ_PARAM_STR();\n\n// Choose lengths within the provided buffers.\nint keyLength = (int)(*FUZZ_PARAM(unsigned int) % (keyStr.size() + 1));\nint dataLength = (int)(*FUZZ_PARAM(unsigned int) % (dataStr.size() + 1));\n\n// Choose result length in [0,20]. Standard HMAC-SHA1 is 20; shorter lengths simulate truncation.\nint resultLength = (int)(*FUZZ_PARAM(unsigned int) % 21);\n\n// Allocate a writable buffer of at least resultLength bytes (use 20 as max).\nuint8_t resultBuf[20];\nuint8_t *resultPtr = resultBuf; // Non-null even if resultLength == 0\n\nconst uint8_t *keyPtr = (keyLength > 0) ? reinterpret_cast<const uint8_t *>(keyStr.data()) : nullptr;\nconst uint8_t *dataPtr = (dataLength > 0) ? reinterpret_cast<const uint8_t *>(dataStr.data()) : nullptr;\n\n// Invoke the HMAC computation. Truncation behavior for resultLength < 20 is implementation-defined but typically supported.\nhmac_sha1(keyPtr, keyLength, dataPtr, dataLength, resultPtr, resultLength);\n// Validation: All length constraints are non-negative; output buffer capacity >= resultLength."
+    },
+    {
+      "name": "base32_decode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Base32 encoded input; accept arbitrary bytes. Decoder should handle invalid characters by returning -1.\nstd::string enc = FUZZ_PARAM_STR();\nconst uint8_t *encoded = reinterpret_cast<const uint8_t *>(enc.c_str()); // NUL-terminated view\n\n// Choose an output buffer size in [0, 1024]. Decoder may truncate silently if too small.\nint bufSize = (int)(*FUZZ_PARAM(unsigned int) % 1025);\n\n// Provide a non-null writable buffer even when bufSize == 0 to satisfy pointer expectations safely.\nint storage = bufSize > 0 ? bufSize : 1;\nstd::vector<uint8_t> out((size_t)storage);\nuint8_t *result = out.data();\n\n// Call the decoder; ignore return value semantics beyond exercising paths (it may be -1 on invalid input).\n(void)base32_decode(encoded, result, bufSize);\n// Validation: encoded is NUL-terminated; result is writable for at least bufSize bytes (>=0) by construction."
+    },
+    {
+      "name": "base32_encode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Arbitrary binary input to encode.\nstd::string dataStr = FUZZ_PARAM_STR();\nint length = (int)(*FUZZ_PARAM(unsigned int) % (dataStr.size() + 1));\nconst uint8_t *data = (length > 0) ? reinterpret_cast<const uint8_t *>(dataStr.data()) : nullptr;\n\n// Choose an output buffer size in [0, 2048]. Encoder may truncate silently if too small.\nint bufSize = (int)(*FUZZ_PARAM(unsigned int) % 2049);\nint storage = bufSize > 0 ? bufSize : 1;\nstd::vector<uint8_t> out((size_t)storage);\nuint8_t *result = out.data();\n\n// Invoke the encoder; the return value may be -1 on error or the number of bytes written otherwise.\n(void)base32_encode(data, length, result, bufSize);\n// Validation: data pointer valid for 'length' bytes when length>0; result buffer writable for bufSize bytes."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "sha1_init",
+      "data_types": []
+    },
+    {
+      "name": "sha1_final",
+      "data_types": []
+    },
+    {
+      "name": "sha1_update",
+      "data_types": [
+        "binary blob"
+      ]
+    },
+    {
+      "name": "hmac_sha1",
+      "data_types": [
+        "binary blob"
+      ]
+    },
+    {
+      "name": "base32_decode",
+      "data_types": [
+        "Base32-encoded text"
+      ]
+    },
+    {
+      "name": "base32_encode",
+      "data_types": [
+        "binary blob"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "binary blob",
+      "description": "Arbitrary bytes with no required structure or encoding. May include any 0x00–0xFF values and is not required to be UTF-8 or printable. Used directly as raw input to hashing/HMAC/encoding functions."
+    },
+    {
+      "data_type": "Base32-encoded text",
+      "description": "Text representing Base32 per RFC 4648 using alphabet A–Z and digits 2–7. May include whitespace and hyphens; other characters are invalid. Typically NUL-terminated when passed as a C string."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "binary blob",
+      "generator": "import random\nimport struct\nimport zlib\nfrom typing import List\n\nMAX_TOTAL = 4096\n\nclass R(random.Random):\n    pass\n\n\ndef _randbytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.getrandbits(8) for _ in range(n))\n\n\ndef _pad_to_limit(chunks: List[bytes], limit: int) -> List[bytes]:\n    total = sum(len(c) for c in chunks)\n    if total > limit:\n        overflow = total - limit\n        # Trim from the end\n        while chunks and overflow > 0:\n            last = chunks[-1]\n            if len(last) <= overflow:\n                overflow -= len(last)\n                chunks.pop()\n            else:\n                chunks[-1] = last[:-overflow]\n                overflow = 0\n    return chunks\n\n\ndef _mk_repeated(pattern: bytes, length: int) -> bytes:\n    if not pattern or length <= 0:\n        return b\"\"\n    return (pattern * (length // len(pattern) + 1))[:length]\n\n\ndef _mk_ascii_seq(length: int) -> bytes:\n    base = (b\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\" +\n            b\"abcdefghijklmnopqrstuvwxyz\" +\n            b\"0123456789\" +\n            b\"-_ \")\n    return _mk_repeated(base, length)\n\n\ndef _mk_base32_chars(r: random.Random, length: int) -> bytes:\n    alphabet = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567\"\n    extra = b\" -\\t\\n\\r\"\n    out = bytearray()\n    for _ in range(length):\n        if r.random() < 0.1:\n            out.append(extra[r.randrange(len(extra))])\n        else:\n            out.append(alphabet[r.randrange(len(alphabet))])\n    return bytes(out)\n\n\ndef _mk_sizes_near_boundaries(r: random.Random, max_len: int, block: int = 64) -> List[int]:\n    sizes = set()\n    base = [0, 1, 2, 3, 19, 20, 31, 32, 63, 64, 65, 127, 128, 255, 256, 511, 512, 1023, 1024]\n    for b in base:\n        if b <= max_len:\n            sizes.add(b)\n    for k in range(1, 10):\n        for delta in (-2, -1, 0, 1, 2):\n            val = k * block + delta\n            if 0 <= val <= max_len:\n                sizes.add(val)\n    for _ in range(10):\n        sizes.add(r.randrange(0, max_len + 1))\n    return sorted(sizes)\n\n\ndef _compressible_blob(r: random.Random, size: int) -> bytes:\n    if size <= 0:\n        return b\"\"\n    parts: List[bytes] = []\n    produced = 0\n    while produced < size:\n        remaining = size - produced\n        # choose chunk in [1, min(256, remaining)] safely\n        hi = min(256, remaining)\n        chunk = r.randrange(1, hi + 1)\n        choice = r.randrange(5)\n        if choice == 0:\n            seg = b\"\\x00\" * chunk\n        elif choice == 1:\n            seg = _mk_repeated(b\"ABCDEF\", chunk)\n        elif choice == 2:\n            seg = _mk_ascii_seq(chunk)\n        elif choice == 3:\n            seg = _mk_repeated(bytes([r.randrange(256)]), chunk)\n        else:\n            alphabet = b\"ETAOIN SHRDLU\\n\\t\\x00\"\n            seg = bytes(alphabet[r.randrange(len(alphabet))] for _ in range(chunk))\n        parts.append(seg)\n        produced += len(seg)\n    return b\"\".join(parts)[:size]\n\n\ndef _structured_packet(r: random.Random) -> bytes:\n    pkt_count = r.randrange(1, 4)\n    out = bytearray()\n    for _ in range(pkt_count):\n        tag = r.randrange(0, 0x10000)\n        pay_len = r.randrange(0, 256)\n        choice = r.random()\n        if choice < 0.25:\n            payload = _randbytes(r, pay_len)\n        elif choice < 0.5:\n            payload = _mk_ascii_seq(pay_len)\n        elif choice < 0.75:\n            payload = _compressible_blob(r, pay_len)\n        else:\n            payload = _mk_repeated(struct.pack('>H', tag), pay_len)\n        header = struct.pack('>HH', tag, pay_len)\n        crc = zlib.crc32(payload) & 0xFFFFFFFF\n        out += header + payload + struct.pack('>I', crc)\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    r = R(seed)\n\n    chunks: List[bytes] = []\n\n    # 1) SHA-1 update payloads\n    sizes = _mk_sizes_near_boundaries(r, 512)\n    for sz in sizes[:10]:\n        sz = max(1, sz)\n        choice = r.randrange(6)\n        if choice == 0:\n            chunks.append(_randbytes(r, sz))\n        elif choice == 1:\n            chunks.append(_mk_repeated(b\"\\x00\", sz))\n        elif choice == 2:\n            chunks.append(_mk_repeated(b\"\\xff\", sz))\n        elif choice == 3:\n            chunks.append(_mk_ascii_seq(sz))\n        elif choice == 4:\n            chunks.append(_compressible_blob(r, sz))\n        else:\n            pattern = bytes([r.randrange(256), 0, r.randrange(256), 0])\n            chunks.append(_mk_repeated(pattern, sz))\n\n    # 2) HMAC key candidates\n    key_sizes = [0, 1, 19, 20, 21, 63, 64, 65, 127, 128]\n    for ks in key_sizes:\n        ks2 = max(1, ks)\n        mode = r.randrange(3)\n        if mode == 0:\n            key = _mk_repeated(b\"K\", ks2)\n        elif mode == 1:\n            key = _randbytes(r, ks2)\n        else:\n            key = _compressible_blob(r, ks2)\n        chunks.append(key)\n\n    # 3) HMAC data candidates\n    data_sizes = [0, 1, 55, 56, 57, 63, 64, 65, 127, 128, 255, 256]\n    for ds in data_sizes:\n        ds2 = max(1, ds)\n        pick = r.randrange(5)\n        if pick == 0:\n            chunks.append(_randbytes(r, ds2))\n        elif pick == 1:\n            chunks.append(_mk_ascii_seq(ds2))\n        elif pick == 2:\n            chunks.append(_compressible_blob(r, ds2))\n        elif pick == 3:\n            blob = _structured_packet(r)\n            if len(blob) > ds2:\n                blob = blob[:ds2]\n            elif len(blob) < ds2:\n                blob += _mk_repeated(b\"\\x00\", ds2 - len(blob))\n            chunks.append(blob if blob else b\"X\")\n        else:\n            chunks.append(_mk_repeated(b\"\\x00\\x01\\x02\\x03\", ds2))\n\n    # 4) Base32 encode inputs\n    b32_sizes = [0, 5, 10, 15, 20, 31, 32, 33, 63, 64, 65, 100]\n    for bs in b32_sizes:\n        bs2 = max(1, bs)\n        if r.random() < 0.5:\n            chunks.append(_randbytes(r, bs2))\n        else:\n            chunks.append(_mk_base32_chars(r, bs2))\n\n    # 5) Larger blobs to push encoder truncation paths\n    for big in (600, 1024, 1500):\n        chunks.append(_compressible_blob(r, big))\n\n    # Trim and join\n    chunks = _pad_to_limit(chunks, MAX_TOTAL)\n    data = b\"\".join(chunks)\n\n    if not data:\n        data = b\"A\"\n    elif len(data) > MAX_TOTAL:\n        data = data[:MAX_TOTAL]\n\n    return data\n"
+    },
+    {
+      "data_type": "Base32-encoded text",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for Base32-encoded text inputs\n# - RFC 4648 alphabet: A-Z and 2-7\n# - Whitespace and hyphens are permitted\n# - Other characters are invalid\n# The target stub passes a NUL-terminated C string view of our bytes, so we\n# should emit bytes that represent interesting Base32 text patterns, including\n# valid and edge-case variants, but generally valid so the decoder exercises\n# decode paths rather than immediate error.\n\nALPHA = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567\"\nWS = [b\" \", b\"\\t\", b\"\\n\", b\"\\r\"]\nSEP = [b\"-\"]\n\n# Helper: chunk sizes that align and misalign with 5-bit / 40-bit groups\n# Valid Base32 encodes groups of 5 bytes -> 8 chars.\n# Interesting lengths include multiples of 8 and remainders 1..7.\nINTERESTING_CHAR_COUNTS = [\n    0, 1, 2, 3, 4, 5, 6, 7,\n    8, 9, 10, 11, 12, 13, 14, 15,\n    16, 24, 32, 40, 64, 128, 255, 256, 511, 512, 1023\n]\n\n# Build valid base32 text without padding (RFC 4648 without '=' here, per description).\n# We construct by encoding random bytes ourselves to guarantee validity.\n# Minimal inlined Base32 encoder for RFC 4648 alphabet without padding.\n\ndef _base32_encode_raw(data: bytes) -> bytes:\n    if not data:\n        return b\"\"\n    out = bytearray()\n    acc = 0\n    bits = 0\n    for b in data:\n        acc = (acc << 8) | b\n        bits += 8\n        while bits >= 5:\n            bits -= 5\n            out.append(ALPHA[(acc >> bits) & 0x1F])\n    if bits:\n        # remaining bits, pad with zeros (no '=' padding emitted per description)\n        out.append(ALPHA[(acc << (5 - bits)) & 0x1F])\n    return bytes(out)\n\n\ndef _insert_whitespace_and_hyphens(rng: random.Random, s: bytes) -> bytes:\n    # Insert allowed separators sporadically to test tolerant decoder paths.\n    if not s:\n        return s\n    out = bytearray()\n    for i, ch in enumerate(s):\n        out.append(ch)\n        # With small probability, insert a run of allowed whitespace/hyphen\n        if rng.random() < 0.08:\n            # 1 to 4 chars of whitespace/hyphen\n            for _ in range(rng.randint(1, 4)):\n                token = rng.choice(WS + SEP)\n                out.extend(token)\n    # Possibly add leading/trailing whitespace/hyphens\n    if rng.random() < 0.5:\n        prefix = bytearray()\n        for _ in range(rng.randint(0, 4)):\n            prefix.extend(rng.choice(WS + SEP))\n        out = prefix + out\n    if rng.random() < 0.5:\n        for _ in range(rng.randint(0, 4)):\n            out.extend(rng.choice(WS + SEP))\n    return bytes(out)\n\n\ndef _random_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_valid_case_variants(rng: random.Random, s: bytes) -> bytes:\n    # Mix uppercase (canonical) and lowercase variants; decoders often accept both.\n    # The description specifies A-Z, but testing lowercase acceptance is useful if tolerated.\n    out = bytearray()\n    for b in s:\n        if 65 <= b <= 90 and rng.random() < 0.5:  # 'A'-'Z'\n            out.append(b + 32)  # lowercase\n        else:\n            out.append(b)\n    return bytes(out)\n\n\ndef _make_interesting_valid(rng: random.Random) -> bytes:\n    # Choose a data length to encode, covering small/large and boundary cases.\n    data_len_choices = [0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255]\n    if rng.random() < 0.5:\n        n = rng.choice(data_len_choices)\n    else:\n        n = rng.randint(0, 600)\n    data = _random_bytes(rng, n)\n    enc = _base32_encode_raw(data)\n    # Optionally split into lines of common widths to simulate formatted Base32\n    if rng.random() < 0.3 and enc:\n        width = rng.choice([8, 16, 32, 40, 64])\n        chunks = [enc[i:i+width] for i in range(0, len(enc), width)]\n        sep = rng.choice(WS + SEP)\n        enc = sep.join(chunks)\n    # Insert extra permitted whitespace and hyphens\n    enc = _insert_whitespace_and_hyphens(rng, enc)\n    # Random case variants\n    enc = _make_valid_case_variants(rng, enc)\n    return enc\n\n\ndef _make_edge_valid_strings(rng: random.Random) -> List[bytes]:\n    cases = []\n    # Empty\n    cases.append(b\"\")\n    # Only whitespace/hyphens\n    cases.append(b\"- -\\n\\t\\r-- \")\n    # Minimal single symbol\n    cases.append(b\"A\")\n    # Common boundaries: exact 8-char blocks and misalignments\n    for n in INTERESTING_CHAR_COUNTS:\n        if n == 0:\n            continue\n        s = bytes(rng.choice(ALPHA) for _ in range(n))\n        s = _make_valid_case_variants(rng, s)\n        s = _insert_whitespace_and_hyphens(rng, s)\n        cases.append(s)\n    return cases\n\n\ndef _maybe_add_nul_early(rng: random.Random, s: bytes) -> bytes:\n    # The C++ stub uses enc.c_str(), which stops at first NUL. Adding an early NUL\n    # can test early-termination behavior while the underlying buffer still has extra bytes.\n    # Keep overall behavior valid up to NUL.\n    if not s or rng.random() >= 0.15:\n        return s\n    pos = rng.randrange(0, len(s))\n    return s[:pos] + b\"\\x00\" + s[pos:]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose between several generation strategies focusing on valid inputs:\n    strategies = []\n    # 0: Fresh valid encode of random data, with formatting\n    strategies.append(lambda: _make_interesting_valid(rng))\n    # 1: Pre-built edge-case valid strings (length boundaries, whitespace-only, empty)\n    edge_cases = _make_edge_valid_strings(rng)\n    strategies.append(lambda: rng.choice(edge_cases))\n    # 2: Repeat a small valid token to stress run-length and separator handling\n    def rep():\n        token_len = rng.choice([1, 2, 4, 8, 16])\n        token = bytes(rng.choice(ALPHA) for _ in range(token_len))\n        token = _make_valid_case_variants(rng, token)\n        reps = rng.randint(1, 300)\n        sep = rng.choice([b\"\", b\" \", b\"-\", b\"\\n\", b\" \\n\"]) if rng.random() < 0.6 else b\"\"\n        s = sep.join([token] * reps)\n        return _insert_whitespace_and_hyphens(rng, s)\n    strategies.append(rep)\n\n    s = rng.choice(strategies)()\n\n    # Occasionally prepend/append comment-like noise consisting of allowed chars\n    if rng.random() < 0.25:\n        pre = b\"\".join(rng.choice(WS + SEP) for _ in range(rng.randint(0, 6)))\n        post = b\"\".join(rng.choice(WS + SEP) for _ in range(rng.randint(0, 6)))\n        s = pre + s + post\n\n    # Possibly insert an early NUL to exercise c_str termination logic\n    s = _maybe_add_nul_early(rng, s)\n\n    # Ensure size limit\n    if len(s) > 4096:\n        s = s[:4096]\n\n    return bytes(s)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1515,
+            "output_tokens": 174,
+            "total_tokens": 1689
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1093,
+            "output_tokens": 40,
+            "total_tokens": 1133
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1553,
+            "output_tokens": 2498,
+            "total_tokens": 4051
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5031,
+            "output_tokens": 3339,
+            "total_tokens": 8370
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3532,
+            "output_tokens": 192,
+            "total_tokens": 3724
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 275.1005120277405,
+    "scan_objects": 5.303575038909912,
+    "validate_objects": 0.17534828186035156,
+    "scan_functions": 98.05887126922607,
+    "synthesis": 87.8321328163147,
+    "fill": 0,
+    "classify": 4.133789777755737,
+    "build_generators": 79.59591317176819
+  }
+}

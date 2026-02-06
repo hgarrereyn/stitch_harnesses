@@ -1,0 +1,777 @@
+{
+  "objects": [
+    {
+      "ptr_type": "std::pair<std::string_view, std::string_view> *",
+      "aliases": [],
+      "definition": "",
+      "description": "Standard library pair used to hold a single HTTP-style header key and value as string_views. It is referenced as a parameter type for getHeaders but not defined here; included for completeness note: this is not custom to this header and should be ignored per instructions.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "uWS::ParameterParser *",
+      "aliases": [],
+      "definition": "struct ParameterParser {\n\n        /* Takes the line, commonly given as content-disposition header in the multipart */\n        ParameterParser(std::string_view line) {\n            remainingLine = line;\n        }\n\n        /* Returns next key/value where value can simply be empty.\n         * If key (first) is empty then we are at the end */\n        std::pair<std::string_view, std::string_view> getKeyValue() {\n            auto key = getToken();\n            auto op = getToken();\n\n            if (!op.length()) {\n                return {key, \"\"};\n            }\n\n            if (op[0] != ';') {\n                auto value = getToken();\n                /* Strip ; or if at end, nothing */\n                getToken();\n                return {key, value};\n            }\n\n            return {key, \"\"};\n        }\n\n    private:\n        std::string_view remainingLine;\n\n        /* Consumes a token from the line. Will \"unquote\" strings */\n        std::string_view getToken() {\n            /* Strip whitespace */\n            while (remainingLine.length() && isspace(remainingLine[0])) {\n                remainingLine.remove_prefix(1);\n            }\n\n            if (!remainingLine.length()) {\n                /* All we had was space */\n                return {};\n            } else {\n                /* Are we at an operator? */\n                if (remainingLine[0] == ';' || remainingLine[0] == '=') {\n                    auto op = remainingLine.substr(0, 1);\n                    remainingLine.remove_prefix(1);\n                    return op;\n                } else {\n                    /* Are we at a quoted string? */\n                    if (remainingLine[0] == '\"') {\n                        /* Remove first quote and start counting */\n                        remainingLine.remove_prefix(1);\n                        auto quote = remainingLine;\n                        int quoteLength = 0;\n\n                        /* Read anything until other double quote appears */\n                        while (remainingLine.length() && remainingLine[0] != '\"') {\n                            remainingLine.remove_prefix(1);\n                            quoteLength++;\n                        }\n\n                        /* We can't remove_prefix if we have nothing to remove */\n                        if (!remainingLine.length()) {\n                            return {};\n                        }\n\n                        remainingLine.remove_prefix(1);\n                        return quote.substr(0, quoteLength);\n                    } else {\n                        /* Read anything until ; = space or end */\n                        std::string_view token = remainingLine;\n\n                        int tokenLength = 0;\n                        while (remainingLine.length() && remainingLine[0] != ';' && remainingLine[0] != '=' && !isspace(remainingLine[0])) {\n                            remainingLine.remove_prefix(1);\n                            tokenLength++;\n                        }\n\n                        return token.substr(0, tokenLength);\n                    }\n                }\n            }\n\n            /* Nothing */\n            return \"\";\n        }\n    };",
+      "description": "Parses semicolon- and equals-delimited parameter strings (such as Content-Disposition header parameters) and yields successive key/value pairs. Handles optional quoting and whitespace trimming.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "uWS::MultipartParser *",
+      "aliases": [],
+      "definition": "struct MultipartParser {\n\n        /* 2 chars of hyphen + 1 - 70 chars of boundary */\n        char prependedBoundaryBuffer[72];\n        std::string_view prependedBoundary;\n        std::string_view remainingBody;\n        bool first = true;\n\n        /* I think it is more than sane to limit this to 10 per part */\n        //static const int MAX_HEADERS = 10;\n\n        /* Construct the parser based on contentType (reads boundary) */\n        MultipartParser(std::string_view contentType) {\n\n            /* We expect the form \"multipart/something;somethingboundary=something\" */\n            if (contentType.length() < 10 || contentType.substr(0, 10) != \"multipart/\") {\n                return;\n            }\n\n            /* For now we simply guess boundary will lie between = and end. This is not entirely\n            * standards compliant as boundary may be expressed with or without \" and spaces */\n            auto equalToken = contentType.find('=', 10);\n            if (equalToken != std::string_view::npos) {\n\n                /* Boundary must be less than or equal to 70 chars yet 1 char or longer */\n                std::string_view boundary = contentType.substr(equalToken + 1);\n                if (!boundary.length() || boundary.length() > 70) {\n                    /* Invalid size */\n                    return;\n                }\n\n                /* Prepend it with two hyphens */\n                prependedBoundaryBuffer[0] = prependedBoundaryBuffer[1] = '-';\n                memcpy(&prependedBoundaryBuffer[2], boundary.data(), boundary.length());\n\n                prependedBoundary = {prependedBoundaryBuffer, boundary.length() + 2};\n            }\n        }\n\n        /* Is this even a valid multipart request? */\n        bool isValid() {\n            return prependedBoundary.length() != 0;\n        }\n\n        /* Set the body once, before getting any parts */\n        void setBody(std::string_view body) {\n            remainingBody = body;\n        }\n\n        /* Parse out the next part's data, filling the headers. Returns nullopt on end or error. */\n        std::optional<std::string_view> getNextPart(std::pair<std::string_view, std::string_view> *headers) {\n\n            /* The remaining two hyphens should be shorter than the boundary */\n            if (remainingBody.length() < prependedBoundary.length()) {\n                /* We are done now */\n                return std::nullopt;\n            }\n\n            if (first) {\n                auto nextBoundary = remainingBody.find(prependedBoundary);\n                if (nextBoundary == std::string_view::npos) {\n                    /* Cannot parse */\n                    return std::nullopt;\n                }\n\n                /* Toss away boundary and anything before it */\n                remainingBody.remove_prefix(nextBoundary + prependedBoundary.length());\n                first = false;\n            }\n\n            auto nextEndBoundary = remainingBody.find(prependedBoundary);\n            if (nextEndBoundary == std::string_view::npos) {\n                /* Cannot parse (or simply done) */\n                return std::nullopt;\n            }\n\n            std::string_view part = remainingBody.substr(0, nextEndBoundary);\n            remainingBody.remove_prefix(nextEndBoundary + prependedBoundary.length());\n\n            /* Also strip rn before and rn after the part */\n            if (part.length() < 4) {\n                /* Cannot strip */\n                return std::nullopt;\n            }\n            part.remove_prefix(2);\n            part.remove_suffix(2);\n\n            /* We are allowed to post pad like this because we know the boundary is at least 2 bytes */\n            /* This makes parsing a second pass invalid, so you can only iterate over parts once */\n            memset((char *) part.data() + part.length(), '\\r', 1);\n\n            /* For this to be a valid part, we need to consume at least 4 bytes (\\r\\n\\r\\n) */\n            int consumed = getHeaders((char *) part.data(), (char *) part.data() + part.length(), headers);\n\n            if (!consumed) {\n                /* This is an invalid part */\n                return std::nullopt;\n            }\n\n            /* Strip away the headers from the part body data */\n            part.remove_prefix(consumed);\n\n            /* Now pass whatever is remaining of the part */\n            return part;\n        }\n    };",
+      "description": "Parses HTTP multipart bodies using a boundary extracted from a Content-Type value. After setBody, iterates parts with getNextPart, returning each part body and filling headers via an external getHeaders function (declared elsewhere). Not re-iterable because the parser mutates the buffer by padding a trailing CR.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "uWS::ChunkIterator *",
+      "aliases": [],
+      "definition": "struct ChunkIterator {\n\n        std::string_view *data;\n        std::optional<std::string_view> chunk;\n        uint64_t *state;\n        bool trailer;\n\n        ChunkIterator(std::string_view *data, uint64_t *state, bool trailer = false) : data(data), state(state), trailer(trailer) {\n            chunk = uWS::getNextChunk(*data, *state, trailer);\n        }\n\n        ChunkIterator() {\n\n        }\n\n        ChunkIterator begin() {\n            return *this;\n        }\n\n        ChunkIterator end() {\n            return ChunkIterator();\n        }\n\n        std::string_view operator*() {\n            if (!chunk.has_value()) {\n                std::abort();\n            }\n            return chunk.value();\n        }\n\n        bool operator!=(const ChunkIterator &other) const {\n            return other.chunk.has_value() != chunk.has_value();\n        }\n\n        ChunkIterator &operator++() {\n            chunk = uWS::getNextChunk(*data, *state, trailer);\n            return *this;\n        }\n\n    };",
+      "description": "Iterator-like helper for parsing HTTP chunked transfer-encoded payloads using getNextChunk. Holds pointers to input data (std::string_view) and parser state (uint64_t) and yields successive data chunks (excluding CRLF) as std::string_view until exhaustion. Supports optional trailer-dropping behavior via the trailer flag. Construction requires the caller to provide references to the data buffer and state storage that outlive the iterator. No ownership; non-copy-eliding begin/end pattern for range-style loops. Increment advances by parsing next chunk; dereference returns current chunk or aborts if invalid.",
+      "direct_api_constructors": [
+        "uWS::ChunkIterator::ChunkIterator(std::string_view *data, uint64_t *state, bool trailer)",
+        "uWS::ChunkIterator::ChunkIterator()"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "uWS::utils::u32toaHex",
+      "signature": "inline int uWS::utils::u32toaHex(uint32_t value, char *dst)",
+      "description": "Converts an unsigned 32-bit integer to its lowercase hexadecimal representation (without 0x prefix) and writes the digits contiguously to dst. Returns the number of characters written. The output is not null-terminated. Typical usage: provide a buffer of at least 8 bytes (plus one more byte if you intend to add a null terminator yourself), call the function, then optionally append '\\0' using the returned length.",
+      "requirements": [
+        "dst must be a valid, writable, non-null pointer.",
+        "dst must have enough capacity for the hexadecimal digits of value; in the worst case (value = 0xffffffff) this is 8 characters. Allocate at least 8 bytes, or 9 if you intend to add a null-terminator yourself.",
+        "The function does not write a null-terminator; callers must append one if a C-string is required.",
+        "value is treated as an unsigned 32-bit integer; negative values are not applicable.",
+        "Thread-safe as it uses no shared state; dst must not alias read-only memory."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::utils::u64toa",
+      "signature": "inline int uWS::utils::u64toa(uint64_t value, char *dst)",
+      "description": "Converts an unsigned 64-bit integer to its decimal representation and writes the digits contiguously to dst. Returns the number of characters written. The output is not null-terminated. Typical usage: provide a buffer of up to 20 bytes (plus one more byte if you intend to add a null terminator), call the function, then optionally append '\\0' using the returned length.",
+      "requirements": [
+        "dst must be a valid, writable, non-null pointer.",
+        "dst must have enough capacity for the decimal digits of value; in the worst case (value = 18446744073709551615) this is 20 characters. Allocate at least 20 bytes, or 21 if you intend to add a null-terminator yourself.",
+        "The function does not write a null-terminator; callers must append one if a C-string is required.",
+        "value is treated as an unsigned 64-bit integer; negative values are not applicable.",
+        "Thread-safe as it uses no shared state; dst must not alias read-only memory."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::getHeaders",
+      "signature": "static inline unsigned int uWS::getHeaders(char *postPaddedBuffer, char *end, std::pair<std::string_view, std::string_view> *headers)",
+      "description": "Parses RFC 822–style header lines from a mutable buffer and populates an array of (key, value) string_views. Keys are lowercased in-place while scanning. Stops at the empty line (CRLF) that terminates the header section and returns the number of bytes consumed from the start of the buffer up to and including that terminating CRLF. Returns 0 on parse failure (malformed header line, missing CRLFs, or exceeding the header limit). Intended for HTTP and multipart parsing where at most MAX_HEADERS (10) headers are accepted. The produced string_views alias the input buffer; the buffer must remain valid for the lifetime of those views.",
+      "requirements": [
+        "postPaddedBuffer must point to the beginning of a writable, contiguous char buffer containing only the header section to parse.",
+        "end must point to one-past-the-last byte that may be examined; end >= postPaddedBuffer.",
+        "The buffer must contain properly formatted header lines terminated by \"\\r\\n\" and a final empty line \"\\r\\n\" within [postPaddedBuffer, end).",
+        "Because the function checks postPaddedBuffer[1] after encountering a '\\r', the buffer must provide the following '\\n' byte within bounds; reading beyond end is not guarded here. Ensure CRLF pairs are fully within [postPaddedBuffer, end).",
+        "Header field names are lowercased in-place (bytes before the ':'); the input buffer must be mutable and may not be reused elsewhere expecting original casing.",
+        "headers must point to an array with capacity for at least MAX_HEADERS (10) entries; more than 10 headers will cause the function to return 0 (parse failure).",
+        "On successful parse, headers are written sequentially; after the last header, the function sets the next headers->first to an empty string_view (nullptr, length 0) to mark termination.",
+        "Returned value is the number of bytes consumed from postPaddedBuffer to just after the terminating CRLF; callers should advance their cursor by this many bytes.",
+        "The string_views in headers alias the original buffer; the buffer must outlive any use of those views.",
+        "On error, the function returns 0; callers must treat 0 as failure and not consume any bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ParameterParser::ParameterParser",
+      "signature": "uWS::ParameterParser::ParameterParser(std::string_view line)",
+      "description": "Constructs a stateful parameter parser over a header-like line (commonly a Content-Disposition header) and prepares it to iterate key/value parameters separated by ';' and '='. Values may be quoted and are unquoted during parsing. The parser does not copy the data; it stores a std::string_view into the provided line and consumes it as getKeyValue is called.",
+      "requirements": [
+        "The memory referenced by 'line' must remain valid and unchanged for the lifetime of the ParameterParser and for all subsequent calls to getKeyValue.",
+        "The input should contain parameters separated by ';' with key=value tokens; quoted-string values are supported, but malformed quoting may end parsing early.",
+        "Do not use the same ParameterParser instance concurrently from multiple threads (the parser is stateful)."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ParameterParser::getKeyValue",
+      "signature": "std::pair<std::string_view, std::string_view> uWS::ParameterParser::getKeyValue()",
+      "description": "Returns the next key/value pair parsed from the remaining line. Values may be empty, and quoted values are returned without surrounding quotes. When the returned key (first) is empty, parsing has reached the end. Repeatedly call until the key is empty to iterate all parameters.",
+      "requirements": [
+        "Must be called on a valid ParameterParser that was constructed with a still-valid backing buffer (the original line's data must outlive these calls).",
+        "This function is stateful and consumes internal input; do not expect idempotent results across calls.",
+        "Not thread-safe; avoid concurrent calls on the same instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::MultipartParser::MultipartParser",
+      "signature": "uWS::MultipartParser::MultipartParser(std::string_view contentType)",
+      "description": "Constructs a multipart/form-data parser by extracting the boundary from a Content-Type header value. It validates that the type starts with \"multipart/\" and that a boundary string (length 1..70) follows an '='. The boundary is copied into an internal buffer prefixed with \"--\" for later matching.",
+      "requirements": [
+        "'contentType' should be a full Content-Type header value beginning with \"multipart/\" and containing a boundary parameter using '=' (e.g., \"multipart/form-data; boundary=----WebKitFormBoundary...\").",
+        "Boundary length must be between 1 and 70 characters; otherwise the parser will be invalid (isValid() returns false).",
+        "Call isValid() after construction to verify that a boundary was successfully parsed."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::MultipartParser::isValid",
+      "signature": "bool uWS::MultipartParser::isValid()",
+      "description": "Returns true if a boundary was successfully parsed during construction, indicating the parser is ready to parse a multipart body.",
+      "requirements": [
+        "Must be called on an initialized MultipartParser instance.",
+        "If false, do not call setBody/getNextPart; fix the Content-Type or boundary first."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::MultipartParser::setBody",
+      "signature": "void uWS::MultipartParser::setBody(std::string_view body)",
+      "description": "Sets the complete raw multipart message body to be parsed in subsequent getNextPart calls. The body must include the boundary delimiters and CRLF framing as received on the wire.",
+      "requirements": [
+        "Must be called before the first call to getNextPart.",
+        "The memory referenced by 'body' must remain valid and unchanged for the entire parsing sequence (until parsing is finished).",
+        "The 'body' buffer must be writable (non-const memory): getNextPart will write a '\\r' byte just after each extracted part segment to aid header parsing.",
+        "Provide the full multipart payload, including the initial boundary line, part headers and bodies, CRLFs, and closing boundary markers."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::MultipartParser::getNextPart",
+      "signature": "std::optional<std::string_view> uWS::MultipartParser::getNextPart(std::pair<std::string_view, std::string_view> *headers)",
+      "description": "Parses and returns the next part's body as a string_view and fills the provided headers array with parsed header key/value pairs for that part. Returns std::nullopt when no more parts are available or on parse error. The function consumes internal state; iteration is strictly single-pass. Header parsing consumes bytes from the part up to the blank line (\"\\r\\n\\r\\n\").",
+      "requirements": [
+        "isValid() must return true prior to calling; otherwise behavior is an immediate end or parse failure.",
+        "setBody() must have been called with the full multipart payload before the first call.",
+        "'headers' must be a non-null pointer to a writable array of std::pair<std::string_view,std::string_view> with sufficient capacity to hold all headers for a part plus any terminator expected by the underlying header parser (exact required capacity is not documented here).",
+        "The underlying 'body' memory must be writable: this function writes a '\\r' byte immediately after the part slice to assist parsing.",
+        "The multipart body must contain proper CRLF framing around boundaries and between headers and body (\"\\r\\n\\r\\n\").",
+        "Do not attempt to iterate parts more than once or rewind; the parser mutates internal state and the input buffer for a single forward pass.",
+        "Treat std::nullopt as either end-of-input or parse error; callers should differentiate using external context if needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::getDecodedQueryValue",
+      "signature": "static inline std::string_view uWS::getDecodedQueryValue(std::string_view key, std::string_view rawQuery)",
+      "description": "Parses a URI query string (expected to include the leading '?'), searches for the exact key, and returns the percent-decoded value as a std::string_view that points into, and may modify, the provided buffer. Values are decoded in place: %XX sequences are converted to a single byte and '+' becomes a space. Keys are compared byte-for-byte (no decoding, case-sensitive). The returned view aliases the input storage and is only valid as long as that storage remains alive and unmodified. If the key is found with an empty value, an empty view with a non-null data() is returned; if the key is not found or certain parse errors occur, a view with data()==nullptr and size()==0 is returned. On malformed percent-encodings (e.g., '%' not followed by two hex digits), an empty default-constructed view is returned.",
+      "requirements": [
+        "key must be non-empty; otherwise the function returns an empty default-constructed std::string_view",
+        "rawQuery should include the leading '?' character; the parser starts scanning from index 1 and treats '&' as a separator",
+        "rawQuery must refer to writable, contiguous memory; the function decodes in place and may write NUL and other bytes into the underlying buffer",
+        "The underlying memory of rawQuery must remain valid and unmodified for the lifetime of the returned std::string_view; the view aliases the input buffer",
+        "Query items are expected in the form key=value separated by '&'; if a candidate item (same first character as key) lacks '=', the function returns a {nullptr,0} view indicating an invalid query string",
+        "Keys are matched exactly (case-sensitive, no percent-decoding)",
+        "Percent-encoded values must have '%' followed by two hexadecimal digits; otherwise the function returns a default-constructed empty std::string_view",
+        "A returned empty value is represented by a view of size 0 with a non-null data() pointer (i.e., present but empty). Not found and some error cases are indicated by data()==nullptr and size()==0; callers should check data()!=nullptr to distinguish an empty-but-present value from not found/error"
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::chunkSize",
+      "signature": "inline uint64_t uWS::chunkSize(uint64_t state)",
+      "description": "Extracts the current chunk size (in bytes) encoded in the parser state by masking off state flags. Intended to be used with the other helpers operating on the same state word.",
+      "requirements": [
+        "Argument state may be any 64-bit value; no preconditions.",
+        "The returned value is the raw masked size field and may be zero."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::consumeHexNumber",
+      "signature": "inline void uWS::consumeHexNumber(std::string_view &data, uint64_t &state)",
+      "description": "Parses a hexadecimal chunk-size line from the start of data, updates state with the parsed size and flags, and advances data past the terminating LF. If invalid hex digits or size overflow are encountered, sets state to an error sentinel. Note: despite the comment suggesting a return of bytes consumed, this function returns void and communicates via its out-parameters.",
+      "requirements": [
+        "data must reference a buffer whose contents remain valid during the call.",
+        "data is modified in-place via remove_prefix to skip the parsed header line and any characters up to and including the first '\\n'.",
+        "state is updated in place; on invalid input it is set to STATE_IS_ERROR (~0ull).",
+        "Input is expected to start at a chunk-size line (hex digits optionally followed by extensions), terminated by CRLF; non-compliant input may set error state.",
+        "Behavior relies on ASCII semantics for hex parsing."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::decChunkSize",
+      "signature": "inline void uWS::decChunkSize(uint64_t &state, unsigned int by)",
+      "description": "Decrements the size field embedded in state by the specified amount, preserving non-size flags. Used to track remaining bytes in the current chunk.",
+      "requirements": [
+        "by should not exceed the current chunk size (chunkSize(state)) to avoid underflowing the size field.",
+        "state should currently contain a valid size field; calling with an invalid/error state will produce meaningless results."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::hasChunkSize",
+      "signature": "inline bool uWS::hasChunkSize(uint64_t state)",
+      "description": "Returns true if the parser state indicates a chunk size has been fully parsed and is available.",
+      "requirements": [
+        "state may be any value; no preconditions."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::isParsingChunkedEncoding",
+      "signature": "inline bool uWS::isParsingChunkedEncoding(uint64_t state)",
+      "description": "Returns true if the state indicates the parser is in the middle of parsing chunked encoding (i.e., any relevant flags are set).",
+      "requirements": [
+        "state may be any value; no preconditions."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::isParsingInvalidChunkedEncoding",
+      "signature": "inline bool uWS::isParsingInvalidChunkedEncoding(uint64_t state)",
+      "description": "Returns true if the state equals the error sentinel, meaning an invalid chunked encoding was detected during parsing.",
+      "requirements": [
+        "state may be any value; no preconditions."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::getNextChunk",
+      "signature": "static std::optional<std::string_view> uWS::getNextChunk(std::string_view &data, uint64_t &state, bool trailer = false)",
+      "description": "Consumes from data and advances the parser state to produce the next available chunk payload segment according to HTTP/1.1 chunked transfer encoding. Returns a string_view to the next chunk payload (which may be empty for the terminating 0-sized chunk) or std::nullopt when no emit-ready data is available or when parsing must stop (including on error). It also handles CRLF delimiters and optionally trailer consumption when trailer is true.",
+      "requirements": [
+        "data must reference a contiguous buffer containing chunked-encoding bytes; the underlying storage must outlive any returned string_view.",
+        "data is modified in-place (remove_prefix) to reflect consumed bytes; callers must preserve state across calls to continue parsing the same message.",
+        "Initialize state to 0 before parsing a new message; pass the same state by reference across successive calls.",
+        "On invalid input, state is set to STATE_IS_ERROR and std::nullopt is returned; callers should check isParsingInvalidChunkedEncoding(state) after a nullopt to detect error.",
+        "Returned std::string_view aliases the original buffer; do not free or mutate the underlying memory while using the view.",
+        "Do not assume std::nullopt always signals end-of-message; it can also mean more input is needed. Continue feeding data and calling until the terminating empty chunk has been observed and subsequent calls drop into trailer handling (if enabled) or state resets.",
+        "If trailer is true, the function will enter a mode that drops trailer bytes after the terminating chunk until CRLF is fully consumed; callers relying on trailer parsing must keep calling until std::nullopt with state reset to 0 indicates completion."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ChunkIterator::ChunkIterator",
+      "signature": "uWS::ChunkIterator::ChunkIterator(std::string_view *data, uint64_t *state, bool trailer = false)",
+      "description": "Constructs a chunk iterator over a chunked-encoded buffer and parsing state. Immediately fetches the first available chunk by invoking uWS::getNextChunk on the provided data/state.",
+      "requirements": [
+        "data must be a non-null pointer to a valid std::string_view whose underlying storage outlives the iterator and any yielded string_view.",
+        "state must be a non-null pointer to a valid uint64_t state word, initialized appropriately (typically 0 for a new message) and preserved for the iterator’s lifetime.",
+        "If trailer parsing is desired, pass trailer = true; otherwise leave default false.",
+        "The pointed-to data and state will be mutated during iteration."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ChunkIterator::begin",
+      "signature": "uWS::ChunkIterator uWS::ChunkIterator::begin()",
+      "description": "Returns a copy of this iterator as the begin iterator for range-style iteration.",
+      "requirements": [
+        "Call on a properly constructed iterator (non-default) if you intend to iterate.",
+        "The returned iterator shares the same underlying data/state pointers and will advance them as it iterates."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ChunkIterator::end",
+      "signature": "uWS::ChunkIterator uWS::ChunkIterator::end()",
+      "description": "Returns a default-constructed sentinel iterator representing the end of the sequence.",
+      "requirements": [
+        "None beyond typical iterator usage; compare against this sentinel to detect end of iteration."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ChunkIterator::operator*",
+      "signature": "std::string_view uWS::ChunkIterator::operator*()",
+      "description": "Dereferences the iterator to access the current chunk payload view.",
+      "requirements": [
+        "Must only be called when the iterator is valid (i.e., not equal to end()).",
+        "If called when there is no current chunk (chunk.has_value() == false), the function aborts the process (std::abort).",
+        "The returned string_view references the underlying buffer; ensure it remains valid while in use."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ChunkIterator::operator!=",
+      "signature": "bool uWS::ChunkIterator::operator!=(const uWS::ChunkIterator &other) const",
+      "description": "Compares two iterators for inequality based on whether they have a current chunk value. Primarily used to compare against the end sentinel.",
+      "requirements": [
+        "At least one of the iterators should be a valid iterator from the same iteration context; comparing with a default-constructed end sentinel is supported.",
+        "No additional preconditions."
+      ],
+      "error": null
+    },
+    {
+      "name": "uWS::ChunkIterator::operator++",
+      "signature": "uWS::ChunkIterator &uWS::ChunkIterator::operator++()",
+      "description": "Advances the iterator to the next available chunk by invoking uWS::getNextChunk on the underlying data/state.",
+      "requirements": [
+        "Must not be called on an end/sentinel iterator (where chunk.has_value() == false); doing so will dereference null pointers internally and likely crash.",
+        "The underlying data and state pointers must remain valid for the duration of iteration."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "uWS::utils::u32toaHex",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random 32-bit unsigned value\nuint32_t value = *FUZZ_PARAM(uint32_t);\n\n// Allocate a writable buffer and choose a valid start offset that still guarantees capacity >= 8\nchar buffer[16];\nconst int worstCaseLen = 8; // 0xffffffff -> 8 hex chars\nunsigned int cap = sizeof(buffer);\nunsigned int maxOffset = (cap >= (unsigned int)worstCaseLen) ? (cap - worstCaseLen) : 0;\nunsigned int offset = (maxOffset > 0) ? (*FUZZ_PARAM(unsigned int) % (maxOffset + 1)) : 0;\nchar *dst = &buffer[offset];\n\n// Compute expected length in hex (no leading zeros, but value=0 -> length 1)\nuint32_t tmp = value;\nint expectedLen = 1;\nwhile (tmp >>= 4) { expectedLen++; }\n\n// Call the target function\nint wrote = uWS::utils::u32toaHex(value, dst);\n\n// Validate contract: wrote must be the exact number of hex digits and within bounds\nFUZZ_ASSERT(wrote == expectedLen, \"u32toaHex returned unexpected length\");\nFUZZ_ASSERT(wrote > 0 && wrote <= worstCaseLen, \"u32toaHex wrote out-of-range length\");\n\n// Manually add a null terminator for our own parsing convenience (API does not add it)\ndst[wrote] = '\\0';\n\n// Validate characters are lowercase hex and reconstruct the value\nuint32_t parsed = 0;\nfor (int i = 0; i < wrote; i++) {\n    char c = dst[i];\n    int v;\n    if (c >= '0' && c <= '9') { v = c - '0'; }\n    else if (c >= 'a' && c <= 'f') { v = 10 + (c - 'a'); }\n    else { FUZZ_BAIL(); }\n    parsed = (parsed << 4) | (uint32_t)v;\n}\nFUZZ_ASSERT(parsed == value, \"u32 hex parse mismatch\");\n\n// Also ensure no upper-case letters were used\nfor (int i = 0; i < wrote; i++) {\n    char c = dst[i];\n    if (c >= 'A' && c <= 'F') { FUZZ_BAIL(); }\n}\n\n// Nothing to output persistently; all memory is local and valid only for this call"
+    },
+    {
+      "name": "uWS::utils::u64toa",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random 64-bit unsigned value\nuint64_t value = *FUZZ_PARAM(uint64_t);\n\n// Allocate a writable buffer and choose a valid start offset that still guarantees capacity >= 20\nchar buffer[32];\nconst int worstCaseLen = 20; // 18446744073709551615 -> 20 decimal chars\nunsigned int cap = sizeof(buffer);\nunsigned int maxOffset = (cap >= (unsigned int)worstCaseLen) ? (cap - worstCaseLen) : 0;\nunsigned int offset = (maxOffset > 0) ? (*FUZZ_PARAM(unsigned int) % (maxOffset + 1)) : 0;\nchar *dst = &buffer[offset];\n\n// Compute expected length in base-10 (no leading zeros, but value=0 -> length 1)\nuint64_t tmp = value;\nint expectedLen = 1;\nwhile (tmp >= 10) { tmp /= 10; expectedLen++; }\n\n// Call the target function\nint wrote = uWS::utils::u64toa(value, dst);\n\n// Validate contract: wrote must be the exact number of decimal digits and within bounds\nFUZZ_ASSERT(wrote == expectedLen, \"u64toa returned unexpected length\");\nFUZZ_ASSERT(wrote > 0 && wrote <= worstCaseLen, \"u64toa wrote out-of-range length\");\n\n// Manually add a null terminator for our own parsing convenience (API does not add it)\ndst[wrote] = '\\0';\n\n// Validate characters are decimal digits and reconstruct the value\nuint64_t parsed = 0;\nfor (int i = 0; i < wrote; i++) {\n    char c = dst[i];\n    if (c < '0' || c > '9') { FUZZ_BAIL(); }\n    int v = c - '0';\n    // Accumulate: parsed = parsed * 10 + v; safe within 64-bit due to exact digit count\n    parsed = parsed * 10 + (uint64_t)v;\n}\nFUZZ_ASSERT(parsed == value, \"u64 decimal parse mismatch\");\n\n// Nothing to output persistently; all memory is local and valid only for this call"
+    },
+    {
+      "name": "uWS::getHeaders",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a well-formed, writable header section buffer and invoke uWS::getHeaders\n// Constraints enforced:\n//  - Writable contiguous buffer (std::string) with CRLF-terminated header lines and a final CRLF empty line\n//  - At most 10 headers (MAX_HEADERS)\n//  - end points to one-past-the-last valid byte; no solitary trailing '\\r'\n//  - Provide headers array with enough capacity (we use 11 to allow a terminator slot)\n{\n    // Decide number of headers in [0, 10]\n    unsigned int n = *FUZZ_PARAM(unsigned int) % 11;\n\n    // Helper to create a safe token from fuzz string (keys: RFC-like; values: printable sans CR/LF)\n    auto make_token = [](std::string src, bool for_key) {\n        // Limit size to keep total under 2048 bytes\n        if (src.size() > 64) src.resize(64);\n        std::string out;\n        out.reserve(src.size());\n        for (unsigned char c : src) {\n            if (for_key) {\n                // Keys: allow A-Z a-z 0-9 and '-'\n                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {\n                    out.push_back((char)c);\n                }\n            } else {\n                // Values: allow visible ASCII except CR/LF\n                if (c >= 32 && c <= 126 && c != '\\r' && c != '\\n') {\n                    out.push_back((char)c);\n                } else if (c == '\\t') {\n                    out.push_back('\\t');\n                }\n            }\n        }\n        // Ensure non-empty key; empty value is allowed\n        if (for_key && out.empty()) out = \"x\"; \n        return out;\n    };\n\n    // Assemble the header section\n    std::string buffer;\n    buffer.reserve(512);\n    for (unsigned int i = 0; i < n; i++) {\n        // Generate fuzzed key/value and sanitize\n        std::string k = make_token(FUZZ_PARAM_STR(), true);\n        std::string v = make_token(FUZZ_PARAM_STR(), false);\n        // Form: Key: Value\\r\\n (value may be empty)\n        // Keep total size reasonable\n        if (buffer.size() + k.size() + v.size() + 4 > 2000) { break; }\n        buffer.append(k);\n        buffer.push_back(':');\n        buffer.push_back(' ');\n        buffer.append(v);\n        buffer.append(\"\\r\\n\");\n    }\n    // Always add the terminating empty line CRLF\n    if (buffer.size() + 2 > 2046) { FUZZ_BAIL(); }\n    buffer.append(\"\\r\\n\");\n\n    // Prepare headers array with capacity for up to 10 headers + 1 terminator slot\n    std::pair<std::string_view, std::string_view> headers[11];\n\n    // Obtain writable pointers for the parser\n    char *postPaddedBuffer = buffer.data();\n    char *end = buffer.data() + buffer.size();\n\n    // Call the target function\n    unsigned int consumed = uWS::getHeaders(postPaddedBuffer, end, headers);\n\n    // Treat 0 as parse failure (bail, do not consume anything)\n    if (!consumed) { FUZZ_BAIL(); }\n\n    // Basic safety property checks\n    FUZZ_ASSERT(consumed <= buffer.size(), \"Consumed exceeds buffer size\");\n\n    // Verify that a terminator entry exists within bounds and header count <= 10\n    unsigned int count = 0;\n    for (; count < 11; count++) {\n        if (headers[count].first.data() == nullptr || headers[count].first.size() == 0) {\n            break;\n        }\n    }\n    // count is index of terminator; it must be <= 10\n    FUZZ_ASSERT(count <= 10, \"More than MAX_HEADERS parsed\");\n\n    // Note: headers[i] string_views alias buffer; buffer remains alive in this scope.\n\n    // Validation summary: buffer is writable and well-formed with CRLFs; end is one-past-last; \n    // headers array has capacity (11); 0 return bails; properties asserted on consumed and count.\n}"
+    },
+    {
+      "name": "uWS::ParameterParser::ParameterParser",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "uWS::ParameterParser *"
+        }
+      ],
+      "code": "// Build a reasonably structured header-like parameter line with a mix of tokens\n// Keep buffers small (< 2KB) for performance\nstd::string s1 = FUZZ_PARAM_STR();\nstd::string s2 = FUZZ_PARAM_STR();\nstd::string s3 = FUZZ_PARAM_STR();\nif (s1.size() > 256) { s1.resize(256); }\nif (s2.size() > 256) { s2.resize(256); }\nif (s3.size() > 256) { s3.resize(256); }\n\n// Sanitize to printable-ish tokens for keys and a quoted value to cover quoting path\nauto sanitizeKey = [](const std::string &in){\n    std::string out; out.reserve(in.size());\n    for (unsigned char c : in) { if (isalnum(c) || c=='-' || c=='_') out.push_back((char)c); }\n    if (out.empty()) out = \"k\"; return out;\n};\nstd::string k1 = sanitizeKey(s1);\nstd::string k2 = sanitizeKey(s2);\n\n// Compose a parameter line with '=', ';', and a quoted string to maximize code paths\nstd::string lineBuf = k1 + \"=\" + s2 + \"; \" + k2 + \"=\\\"\" + s3 + \"\\\"; empty=\";\nif (lineBuf.size() > 1024) { lineBuf.resize(1024); }\n\n// Allocate backing storage on heap so its lifetime outlives this stub\nstd::string *lineStorage = new std::string(std::move(lineBuf));\n\n// Construct the parser with a string_view into stable storage\nuWS::ParameterParser *parser = new uWS::ParameterParser(std::string_view(lineStorage->data(), lineStorage->size()));\n\n// Track backing storage so later stubs can verify lifetime\nFUZZ_SET_ATTR_PTR(parser, \"param_line_storage\", (void *)lineStorage);\n// Parser is stateful; mark as constructed\nFUZZ_SET_ATTR_INT(parser, \"constructed\", 1);\n"
+    },
+    {
+      "name": "uWS::ParameterParser::getKeyValue",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "uWS::ParameterParser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "uWS::ParameterParser *"
+        }
+      ],
+      "code": "// Ensure the parser was constructed with stable backing storage\nvoid *storagePtr = FUZZ_GET_ATTR_PTR(parser, \"param_line_storage\");\nif (!storagePtr) { FUZZ_BAIL(); }\n\n// Exercise the stateful consumption by calling getKeyValue a fuzzed number of times (1..4)\nunsigned int n = *FUZZ_PARAM(unsigned int) % 4 + 1;\nfor (unsigned int i = 0; i < n; i++) {\n    // We ignore the returned pair here; when key is empty, we're at end.\n    (void)parser->getKeyValue();\n}\n\n// Parser remains stateful and owned by the runtime, so return it as output"
+    },
+    {
+      "name": "uWS::MultipartParser::isValid",
+      "inputs": [
+        {
+          "name": "mp",
+          "type": "uWS::MultipartParser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mp",
+          "type": "uWS::MultipartParser *"
+        }
+      ],
+      "code": "// Call isValid and cross-check with any stored attribute\nbool nowValid = mp->isValid();\nint attrValid = FUZZ_GET_ATTR_INT(mp, \"isValid\");\nif (attrValid == 0 || attrValid == 1) {\n    // Property: stored validity from construction should match current validity\n    FUZZ_ASSERT(((attrValid != 0) == nowValid), \"MultipartParser::isValid changed unexpectedly\");\n}\n// Return mp as output for continued use"
+    },
+    {
+      "name": "uWS::MultipartParser::setBody",
+      "inputs": [
+        {
+          "name": "mp",
+          "type": "uWS::MultipartParser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mp",
+          "type": "uWS::MultipartParser *"
+        }
+      ],
+      "code": "// Prepare a writable multipart body buffer. If we know the boundary, try to craft a minimal valid body.\nconst char *b = FUZZ_GET_ATTR_STR(mp, \"boundary\");\nbool haveBoundary = (b && b[0] != '\\0');\nstd::string body;\n\nif (haveBoundary && FUZZ_GET_ATTR_INT(mp, \"isValid\")) {\n    // Build a minimal two-boundary, single-part body to cover typical parsing layout.\n    // The parser expects CRLF framing around parts; each part segment is between boundaries and\n    // begins and ends with CRLF when sliced.\n    std::string boundaryLine = std::string(\"--\") + b; // matches internal prependedBoundary\n    std::string hdr = \"Header: value\\r\\n\";\n    std::string data = FUZZ_PARAM_STR();\n    if (data.size() > 64) data.resize(64);\n\n    // Compose: initial boundary, CRLF, headers, CRLF, body, CRLF, next boundary, CRLF (allowing further parts)\n    body.reserve(boundaryLine.size()*2 + hdr.size() + data.size() + 16);\n    body.append(boundaryLine).append(\"\\r\\n\");\n    body.append(hdr).append(\"\\r\\n\");\n    body.append(data).append(\"\\r\\n\");\n    body.append(boundaryLine).append(\"\\r\\n\");\n} else {\n    // Fallback: arbitrary writable buffer; setBody accepts any view, even if getNextPart would later fail.\n    body = FUZZ_PARAM_STR();\n    if (body.size() > 512) body.resize(512);\n}\n\n// Allocate backing storage on heap so it persists beyond this stub\nstd::string *bodyStorage = new std::string(std::move(body));\n\n// Set the body view; requirement: memory must remain valid and writable\nmp->setBody(std::string_view(bodyStorage->data(), bodyStorage->size()));\n\n// Track body storage for lifetime management across stubs\nFUZZ_SET_ATTR_PTR(mp, \"body_storage\", (void *)bodyStorage);\nFUZZ_SET_ATTR_INT(mp, \"body_set\", 1);\n"
+    },
+    {
+      "name": "uWS::MultipartParser::MultipartParser",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mp",
+          "type": "uWS::MultipartParser *"
+        }
+      ],
+      "code": "// Choose a construction mode to cover both valid and invalid paths\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 3; // 0: valid, 1: invalid prefix, 2: invalid boundary size\n\n// Build a candidate boundary from fuzz data using token-safe chars and limit to 70 bytes\nstd::string raw = FUZZ_PARAM_STR();\nif (raw.size() > 256) { raw.resize(256); }\nstd::string boundary; boundary.reserve(70);\nfor (unsigned char c : raw) {\n    // Allow common token characters (RFC 2046-ish) but skip CR/LF and quotes\n    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c=='-' || c=='_' || c=='.' || c=='+' || c=='/' || c=='?') {\n        boundary.push_back((char)c);\n        if (boundary.size() >= 70) break;\n    }\n}\nif (boundary.empty()) boundary = \"B\"; // ensure length >= 1 for valid-mode\n\n// Adjust boundary to trigger invalid-size case when requested\nif (mode == 2) {\n    if ((*FUZZ_PARAM(unsigned int) & 1) == 0) {\n        boundary.clear(); // length 0 -> invalid\n    } else {\n        boundary.assign(71, 'X'); // length > 70 -> invalid\n    }\n}\n\n// Compose Content-Type string according to mode\nstd::string ctype;\nif (mode == 1) {\n    // Invalid prefix (missing multipart/)\n    ctype = std::string(\"text/plain; boundary=\") + boundary;\n} else {\n    // Valid multipart prefix; boundary may still be invalid by size when mode==2\n    ctype = std::string(\"multipart/form-data; boundary=\") + boundary;\n}\nif (ctype.size() > 512) { ctype.resize(512); }\n\n// Construct the parser from the header value; it only needs the view during construction\nuWS::MultipartParser *mp = new uWS::MultipartParser(std::string_view(ctype.data(), ctype.size()));\n\n// Track validity result for downstream checks\nint valid = mp->isValid() ? 1 : 0;\nFUZZ_SET_ATTR_INT(mp, \"isValid\", valid);\n\n// Persist the boundary string for later stubs (setBody/getNextPart) to build bodies\n// Store backing on heap and set both pointer and string attributes for lifetime safety\nstd::string *boundaryStorage = new std::string(boundary);\nFUZZ_SET_ATTR_PTR(mp, \"boundary_storage\", (void *)boundaryStorage);\nFUZZ_SET_ATTR_STR(mp, \"boundary\", boundaryStorage->c_str());\n\n// Mark constructed for clarity\nFUZZ_SET_ATTR_INT(mp, \"constructed\", 1);\n"
+    },
+    {
+      "name": "uWS::getDecodedQueryValue",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a candidate key and raw query buffer. We must provide writable, contiguous\n// memory for rawQuery since decoding happens in-place and may write NULs.\n// Keep sizes modest for fuzzer performance.\nstd::string key = FUZZ_PARAM_STR();\nif (key.size() > 64) { key.resize(64); }\n\n// Randomly choose whether to force an empty key to exercise the documented behavior.\nunsigned int mode = *FUZZ_PARAM(unsigned int);\nif (mode & 1u) {\n    key.clear();\n} else {\n    // Sanitize key to avoid separators that could break simple key parsing semantics.\n    for (char &ch : key) {\n        if (ch == '&' || ch == '=') { ch = 'x'; }\n    }\n    if (key.empty()) { key.push_back('k'); }\n}\n\n// Build a writable query buffer and ensure it includes the leading '?'.\nstd::string raw = FUZZ_PARAM_STR();\nif (raw.size() > 1024) { raw.resize(1024); }\nif (raw.empty() || raw[0] != '?') {\n    raw.insert(raw.begin(), '?');\n}\n// Ensure there is at least some content after '?', even if empty pairs are allowed.\n// This is not strictly required, but increases chance of exercising parser.\nif (raw.size() == 1) {\n    // Minimal well-formed pair with empty value: ?a=\n    raw.append(\"a=\");\n}\n\n// Construct string_views aliasing the buffers. Using &raw[0] yields a writable backing store.\nstd::string_view key_sv(key.data(), key.size());\nstd::string_view raw_sv(&raw[0], raw.size());\n\n// Invoke target function. It may mutate raw_sv's underlying buffer in-place.\nstd::string_view value_sv = uWS::getDecodedQueryValue(key_sv, raw_sv);\n\n// Property-based checks from the API contract:\n// 1) If key is empty, the function must return a default-constructed empty view\n//    (data() == nullptr and size() == 0).\nif (key.empty()) {\n    FUZZ_ASSERT(value_sv.data() == nullptr && value_sv.size() == 0, \"Empty key must return default-constructed empty view\");\n}\n\n// No outputs to return; the returned view aliases local storage and must not escape this stub.\n// This stub enforces required constraints: writable, contiguous rawQuery with leading '?',\n// and distinguishes the empty-key property with an assertion."
+    },
+    {
+      "name": "uWS::chunkSize",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate an arbitrary 64-bit state and call chunkSize to extract the size field\nuint64_t state = *FUZZ_PARAM(uint64_t);\nvolatile uint64_t size = uWS::chunkSize(state);\n(void)size; // Exercise the function; returned value may be zero per API\n"
+    },
+    {
+      "name": "uWS::consumeHexNumber",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a plausible chunk-size line: <hex>[;<ext>]*\\r\\n and feed it\nunsigned int rawSize = *FUZZ_PARAM(unsigned int) % 128; // small to keep memory bounded\nchar hexBuf[32];\nint hexLen = snprintf(hexBuf, sizeof(hexBuf), \"%x\", rawSize);\nstd::string ext = FUZZ_PARAM_STR();\n// Keep extension small and ascii-ish\nif (ext.size() > 16) ext.resize(16);\nfor (char &c : ext) { if (c == '\\r' || c == '\\n') c = 'x'; }\nstd::string line;\nline.reserve(64);\nline.append(hexBuf, (size_t)hexLen);\nif (!ext.empty()) { line.push_back(';'); line.append(ext); }\nline.append(\"\\r\\n\");\n// Backing storage for the view must outlive the call\nstd::string_view data = line;\nuint64_t state = 0; // will be updated in-place\nuWS::consumeHexNumber(data, state);\n// data was advanced in-place; state may be set to error sentinel on invalid input\n( void ) data; ( void ) state;"
+    },
+    {
+      "name": "uWS::decChunkSize",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a state and a decrement amount that does not exceed the current chunk size\nuint64_t state = *FUZZ_PARAM(uint64_t);\nuint64_t size = uWS::chunkSize(state);\nunsigned int by = 0;\nif (size) {\n    by = (unsigned int)(*FUZZ_PARAM(unsigned int) % (size + 1));\n} else {\n    by = 0; // avoid underflow per API guidance\n}\nuWS::decChunkSize(state, by);\n( void ) state; // state mutated in place"
+    },
+    {
+      "name": "uWS::hasChunkSize",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t state = *FUZZ_PARAM(uint64_t);\nvolatile bool has = uWS::hasChunkSize(state);\n( void ) has;"
+    },
+    {
+      "name": "uWS::isParsingChunkedEncoding",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t state = *FUZZ_PARAM(uint64_t);\nvolatile bool inChunked = uWS::isParsingChunkedEncoding(state);\n( void ) inChunked;"
+    },
+    {
+      "name": "uWS::isParsingInvalidChunkedEncoding",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint64_t state = *FUZZ_PARAM(uint64_t);\nvolatile bool invalid = uWS::isParsingInvalidChunkedEncoding(state);\n( void ) invalid;"
+    },
+    {
+      "name": "uWS::getNextChunk",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a minimal valid chunked message: <N>\\r\\n<payload>\\r\\n0\\r\\n\\r\\n\nunsigned int N = *FUZZ_PARAM(unsigned int) % 64;\nstd::string payload = FUZZ_PARAM_STR();\nif (payload.size() < N) {\n    // Ensure payload has at least N bytes\n    payload.append(std::string(N - payload.size(), 'A'));\n}\nif (payload.size() > N) payload.resize(N);\nchar sizeLine[32];\nint len = snprintf(sizeLine, sizeof(sizeLine), \"%x\\r\\n\", N);\nstd::string message;\nmessage.reserve((size_t)len + N + 7);\nmessage.append(sizeLine, (size_t)len);\nmessage.append(payload);\nmessage.append(\"\\r\\n0\\r\\n\\r\\n\");\n// Backing storage for views must outlive returned views\nstd::string_view data = message;\nuint64_t state = 0; // new message must start at state 0\nbool trailer = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nstd::optional<std::string_view> chunk = uWS::getNextChunk(data, state, trailer);\n// If nullopt, it may be EOM, need-more-data, or error; we just exercise the API paths\n( void ) chunk; ( void ) data; ( void ) state; ( void ) trailer;"
+    },
+    {
+      "name": "uWS::ChunkIterator::ChunkIterator",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "code": "// Build a valid small chunked message and construct an iterator over it\nunsigned int N = *FUZZ_PARAM(unsigned int) % 64;\nstd::string payload = FUZZ_PARAM_STR();\nif (payload.size() < N) payload.append(std::string(N - payload.size(), 'B'));\nif (payload.size() > N) payload.resize(N);\nchar sizeLine[32];\nint len = snprintf(sizeLine, sizeof(sizeLine), \"%x\\r\\n\", N);\nstd::string *backing = new std::string();\nbacking->reserve((size_t)len + N + 7);\nbacking->append(sizeLine, (size_t)len);\nbacking->append(payload);\nbacking->append(\"\\r\\n0\\r\\n\\r\\n\");\n// Allocate the view and state on the heap so they outlive the iterator across stubs\nstd::string_view *dataView = new std::string_view(*backing);\nuint64_t *state = new uint64_t(0);\nbool trailer = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0;\nuWS::ChunkIterator *it = new uWS::ChunkIterator(dataView, state, trailer);\n// Track auxiliary allocations for lifetime management across stubs (opaque to API)\nFUZZ_SET_ATTR_PTR(it, \"backing_str\", (void*)backing);\nFUZZ_SET_ATTR_PTR(it, \"data_view\", (void*)dataView);\nFUZZ_SET_ATTR_PTR(it, \"state_ptr\", (void*)state);\nFUZZ_SET_ATTR_INT(it, \"constructed\", 1);\n// Output: iterator object is persistent and managed by the fuzz runtime"
+    },
+    {
+      "name": "uWS::ChunkIterator::begin",
+      "inputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "code": "// Ensure this iterator was constructed by our constructor stub\nif (FUZZ_GET_ATTR_INT(it, \"constructed\") != 1) { FUZZ_BAIL(); }\n// begin returns a copy; we just call it to exercise behavior\nuWS::ChunkIterator b = it->begin();\n( void ) b; // copy shares underlying pointers; do not persist it here"
+    },
+    {
+      "name": "uWS::ChunkIterator::end",
+      "inputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "code": "// Ensure this iterator was constructed by our constructor stub\nif (FUZZ_GET_ATTR_INT(it, \"constructed\") != 1) { FUZZ_BAIL(); }\n// Obtain end sentinel and exercise inequality comparison\nuWS::ChunkIterator e = it->end();\nbool ne = (*it != e);\n( void ) ne;"
+    },
+    {
+      "name": "uWS::ChunkIterator::operator*",
+      "inputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "code": "// Must only dereference when valid (not equal to end)\nif (FUZZ_GET_ATTR_INT(it, \"constructed\") != 1) { FUZZ_BAIL(); }\nuWS::ChunkIterator endIt; // default-constructed sentinel\nif (!(*it != endIt)) { // equal to end -> invalid deref would abort\n    FUZZ_BAIL();\n}\nstd::string_view current = (*it).operator*();\n( void ) current;"
+    },
+    {
+      "name": "uWS::ChunkIterator::operator!=",
+      "inputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "code": "// Compare against a sentinel end iterator\nif (FUZZ_GET_ATTR_INT(it, \"constructed\") != 1) { FUZZ_BAIL(); }\nuWS::ChunkIterator endIt; // default sentinel\nvolatile bool ne = (*it != endIt);\n( void ) ne;"
+    },
+    {
+      "name": "uWS::ChunkIterator::operator++",
+      "inputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "it",
+          "type": "uWS::ChunkIterator *"
+        }
+      ],
+      "code": "// Advance only when not at end; advancing an end iterator is invalid\nif (FUZZ_GET_ATTR_INT(it, \"constructed\") != 1) { FUZZ_BAIL(); }\nuWS::ChunkIterator endIt;\nif (!(*it != endIt)) { FUZZ_BAIL(); }\n++(*it);"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "uWS::MultipartParser::getNextPart",
+      "reason": "Depends on an external getHeaders function not provided here, causing an unresolved symbol at link time; cannot safely harness without defining new globals."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "uWS::utils::u32toaHex",
+      "data_types": []
+    },
+    {
+      "name": "uWS::utils::u64toa",
+      "data_types": []
+    },
+    {
+      "name": "uWS::ParameterParser::getKeyValue",
+      "data_types": []
+    },
+    {
+      "name": "uWS::MultipartParser::isValid",
+      "data_types": []
+    },
+    {
+      "name": "uWS::chunkSize",
+      "data_types": []
+    },
+    {
+      "name": "uWS::decChunkSize",
+      "data_types": []
+    },
+    {
+      "name": "uWS::hasChunkSize",
+      "data_types": []
+    },
+    {
+      "name": "uWS::isParsingChunkedEncoding",
+      "data_types": []
+    },
+    {
+      "name": "uWS::isParsingInvalidChunkedEncoding",
+      "data_types": []
+    },
+    {
+      "name": "uWS::ChunkIterator::begin",
+      "data_types": []
+    },
+    {
+      "name": "uWS::ChunkIterator::end",
+      "data_types": []
+    },
+    {
+      "name": "uWS::ChunkIterator::operator*",
+      "data_types": []
+    },
+    {
+      "name": "uWS::ChunkIterator::operator!=",
+      "data_types": []
+    },
+    {
+      "name": "uWS::ChunkIterator::operator++",
+      "data_types": []
+    },
+    {
+      "name": "uWS::getHeaders",
+      "data_types": [
+        "HTTP header section"
+      ]
+    },
+    {
+      "name": "uWS::ParameterParser::ParameterParser",
+      "data_types": [
+        "HTTP parameter line"
+      ]
+    },
+    {
+      "name": "uWS::MultipartParser::setBody",
+      "data_types": [
+        "multipart body",
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "uWS::MultipartParser::MultipartParser",
+      "data_types": [
+        "HTTP Content-Type header value"
+      ]
+    },
+    {
+      "name": "uWS::getDecodedQueryValue",
+      "data_types": [
+        "URL query string"
+      ]
+    },
+    {
+      "name": "uWS::consumeHexNumber",
+      "data_types": [
+        "HTTP chunk-size line"
+      ]
+    },
+    {
+      "name": "uWS::getNextChunk",
+      "data_types": [
+        "HTTP chunked message"
+      ]
+    },
+    {
+      "name": "uWS::ChunkIterator::ChunkIterator",
+      "data_types": [
+        "HTTP chunked message"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "HTTP header section",
+      "description": "A writable buffer containing one or more RFC 822/HTTP-style header lines, each formatted as `Key: Value` terminated by CRLF, and ending with an empty line (CRLF). Keys consist of token characters; values are visible ASCII excluding CR/LF. The entire section is contiguous and mutable."
+    },
+    {
+      "data_type": "HTTP parameter line",
+      "description": "A single header-like parameter string consisting of semicolon- and equals-separated tokens, e.g., `form-data; name=\"field\"; filename=\"foo.txt\"`. Supports optional quoting with double quotes and optional whitespace around separators."
+    },
+    {
+      "data_type": "multipart body",
+      "description": "A raw HTTP multipart body containing boundary-delimited parts, including boundary lines that start with `--<boundary>`, CRLF framing, per-part headers followed by a blank line (CRLF CRLF), and part payloads. The buffer must be writable because parsers may modify or pad bytes."
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "description": "Unstructured byte buffer with no required format. May contain any bytes and is used in contexts where the function can accept or ignore arbitrary content."
+    },
+    {
+      "data_type": "HTTP Content-Type header value",
+      "description": "A Content-Type header string value, e.g., `multipart/form-data; boundary=----WebKitFormBoundary...` or other media types. For multipart parsing, it must start with `multipart/` and include a `boundary=` parameter of length 1..70."
+    },
+    {
+      "data_type": "URL query string",
+      "description": "A URI query component beginning with `?` followed by key-value pairs separated by `&` in the form `key=value`, where values may contain percent-encodings (%XX) and '+' as space. The buffer must be writable for in-place decoding."
+    },
+    {
+      "data_type": "HTTP chunk-size line",
+      "description": "A single line encoding an HTTP chunk size in hexadecimal, optionally followed by chunk extensions after a semicolon, and terminated by CRLF. Example: `1A;ext=val\\r\\n`."
+    },
+    {
+      "data_type": "HTTP chunked message",
+      "description": "A full HTTP/1.1 chunked transfer-encoded payload: one or more chunks of the form `<hex-size>\\r\\n<payload>\\r\\n`, followed by a terminating `0\\r\\n` and a final `\\r\\n` after optional trailers. Used as a contiguous buffer for incremental parsing."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "HTTP header section",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for an HTTP header section suitable for uWS::getHeaders\n# Constraints:\n# - Writable contiguous bytes\n# - 0..10 headers, each: Key \": \" Value \"\\r\\n\"\n# - Final terminating \"\\r\\n\"\n# - Keys are tokens (A-Za-z0-9-), non-empty\n# - Values are visible ASCII excluding CR/LF (HT allowed); may be empty\n# - Keep total size <= 4096 bytes\n\n# Character sets\n_KEY_CHARS = string.ascii_letters + string.digits + \"-\"\n# Visible ASCII 0x20..0x7E excluding CR/LF; allow TAB (0x09) as well\n_VALUE_CHARS = \"\\t\" + \"\".join(chr(c) for c in range(32, 127) if c not in (10, 13))\n\n# Some interesting canonical header names/values to trigger different paths\n_INTERESTING_HEADERS: List[Tuple[str, str]] = [\n    (\"Host\", \"example.com\"),\n    (\"Content-Type\", \"text/plain; charset=UTF-8\"),\n    (\"Content-Length\", \"0\"),\n    (\"X-Custom-Header\", \"value\"),\n    (\"Accept\", \"*/*\"),\n    (\"User-Agent\", \"uWS-Fuzzer/1.0\"),\n    (\"Transfer-Encoding\", \"chunked\"),\n    (\"Connection\", \"keep-alive\"),\n    (\"Content-Disposition\", \"form-data; name=\\\"field\\\"; filename=\\\"a.txt\\\"\"),\n]\n\ndef _rand_key(rng: random.Random, max_len: int = 32) -> str:\n    # Ensure non-empty and token-compliant\n    n = rng.randint(1, max_len)\n    return \"\".join(rng.choice(_KEY_CHARS) for _ in range(n))\n\ndef _rand_value(rng: random.Random, max_len: int = 96) -> str:\n    # Values may be empty\n    # Bias to include separators, quotes and parameters which downstream might parse\n    specials = [\"; charset=UTF-8\", \"; q=0.5\", \"; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW\", \", gzip\", \", deflate\", \"\" ]\n    # 40% choose from specials appended to base\n    base_len = rng.randint(0, max_len)\n    base = \"\".join(rng.choice(_VALUE_CHARS) for _ in range(base_len))\n    if rng.random() < 0.4:\n        base += rng.choice(specials)\n    # Strip any CR/LF just in case (should not be present from set)\n    return base.replace(\"\\r\", \" \").replace(\"\\n\", \" \")\n\ndef _emit_header_line(key: str, value: str) -> bytes:\n    return (key + \": \" + value + \"\\r\\n\").encode(\"ascii\", errors=\"ignore\")\n\ndef _build_headers(rng: random.Random) -> bytes:\n    # Decide number of headers 0..10, with some bias towards non-zero\n    n = rng.choices(range(0, 11), weights=[1] + [3]*10, k=1)[0]\n\n    buf = bytearray()\n\n    # Optionally inject some interesting predefined headers\n    presets = _INTERESTING_HEADERS.copy()\n    rng.shuffle(presets)\n    preset_count = min(len(presets), n, rng.randint(0, min(5, n)))\n    for i in range(preset_count):\n        k, v = presets[i]\n        line = _emit_header_line(k, v)\n        if len(buf) + len(line) + 2 > 4096:\n            break\n        buf += line\n\n    # Fill the rest with randomized but valid headers\n    remaining = max(0, n - preset_count)\n    for _ in range(remaining):\n        k = _rand_key(rng)\n        v = _rand_value(rng)\n        line = _emit_header_line(k, v)\n        if len(buf) + len(line) + 2 > 4096:\n            break\n        buf += line\n\n    # Always add terminating empty line CRLF\n    if len(buf) + 2 > 4096:\n        # If somehow at limit, trim last header line conservatively to make room\n        # Remove bytes until we can add CRLF; if buffer too small, just reset to empty\n        while len(buf) + 2 > 4096 and len(buf) > 0:\n            # remove last byte until previous CRLF or empty\n            buf = buf[:-1]\n        # Ensure it ends at a header boundary; if last line corrupted, drop all\n        if not buf.endswith(b\"\\r\\n\"):\n            buf = bytearray()\n    buf += b\"\\r\\n\"\n\n    return bytes(buf)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Occasionally craft special scenarios to exercise parser behavior:\n    mode = rng.random()\n\n    if mode < 0.15:\n        # Minimal: only terminator (no headers)\n        return b\"\\r\\n\"\n    elif mode < 0.35:\n        # Single header with empty value\n        key = _rand_key(rng, 16)\n        line = _emit_header_line(key, \"\") + b\"\\r\\n\"\n        return line\n    elif mode < 0.55:\n        # Max headers (10) with short values\n        rng2 = random.Random(rng.randint(0, 2**32 - 1))\n        buf = bytearray()\n        for _ in range(10):\n            k = _rand_key(rng2, 16)\n            v = _rand_value(rng2, 12)\n            line = _emit_header_line(k, v)\n            if len(buf) + len(line) + 2 > 4096:\n                break\n            buf += line\n        buf += b\"\\r\\n\"\n        return bytes(buf)\n    elif mode < 0.75:\n        # Include headers that commonly appear in multipart to pair with MultipartParser later\n        buf = bytearray()\n        ct_value = \"multipart/form-data; boundary=---------------------------\" + str(seed % 100000).zfill(5)\n        lines = [\n            _emit_header_line(\"Content-Type\", ct_value),\n            _emit_header_line(\"Content-Disposition\", \"form-data; name=\\\"file\\\"; filename=\\\"f.txt\\\"\"),\n            _emit_header_line(\"Content-Length\", str((seed % 997) + 1)),\n        ]\n        for line in lines:\n            if len(buf) + len(line) + 2 > 4096:\n                break\n            buf += line\n        buf += b\"\\r\\n\"\n        return bytes(buf)\n    else:\n        # General randomized header block\n        return _build_headers(rng)\n"
+    },
+    {
+      "data_type": "HTTP parameter line",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for HTTP-style parameter lines suitable for uWS::ParameterParser\n# The fuzzer stub builds a line like: k1 + \"=\" + s2 + \"; \" + k2 + \"=\\\"\" + s3 + \"\\\"; empty=\"\n# Our goal is to produce FUZZ_PARAM_STR values (s1, s2, s3) that, after the stub's sanitization,\n# create varied yet valid structures: tokens, quoted values, embedded spaces, semicolons, equals, and quotes.\n\nPRINTABLE_SAFE = string.ascii_letters + string.digits + \"-_\"\n\nPARAM_KEYS = [\n    \"name\", \"filename\", \"form-data\", \"attachment\", \"content-type\", \"charset\",\n    \"creation-date\", \"modification-date\", \"size\", \"boundary\", \"foo\", \"bar\"\n]\n\nFILENAMES = [\n    \"file.txt\", \"résumé.pdf\", \"image.png\", \"archive.tar.gz\", \"a\", \"NUL\", \"aux.bin\",\n    \"空间.dat\", \"long_filename_with-dashes_and_underscores.ext\"\n]\n\nVALUES = [\n    \"value\", \"\", \"123\", \"true\", \"false\", \"abc def\", \"with;semi\", \"eq=sign\", \"quoted\\\"inner\",\n    \"spaced value\", \"tabs\\tinside\", \"line\\r\\nbreak\", \"%20encoded\", \"+plus+space+\"\n]\n\n# Common content-disposition patterns to seed s2/s3\nDISP_PATTERNS = [\n    \"form-data\", \"attachment\", \"inline\", \"form-data; name=\\\"field\\\"\",\n]\n\nHEXCHARS = \"0123456789abcdefABCDEF\"\n\n\ndef _rand_token(r: random.Random, min_len=1, max_len=16) -> str:\n    n = r.randint(min_len, max_len)\n    # ensure at least one alnum to survive sanitizeKey; others may be dropped by stub\n    s = [r.choice(PRINTABLE_SAFE)]\n    for _ in range(n - 1):\n        s.append(r.choice(PRINTABLE_SAFE))\n    return ''.join(s)\n\n\ndef _rand_filename(r: random.Random) -> str:\n    base = r.choice(FILENAMES)\n    # sometimes add path-like hints (these will be included in s3 and quoted by stub composition)\n    if r.random() < 0.3:\n        prefix = \"C:/\" if r.random() < 0.5 else \"/tmp/\"\n        return prefix + base\n    return base\n\n\ndef _percent_encode(r: random.Random, s: str) -> str:\n    out = []\n    for ch in s:\n        if r.random() < 0.25:\n            out.append('%' + r.choice(HEXCHARS) + r.choice(HEXCHARS))\n        else:\n            out.append(ch)\n    return ''.join(out)\n\n\ndef _make_s1(r: random.Random) -> str:\n    # s1 becomes k1 via sanitizeKey; supply plausible keys or random tokens\n    if r.random() < 0.6:\n        k = r.choice(PARAM_KEYS)\n        # occasionally add junk that will be stripped by sanitizeKey\n        if r.random() < 0.3:\n            k = ''.join([k, r.choice(\" ;=\\\"\\r\\n\"), k])\n        return k\n    return _rand_token(r)\n\n\ndef _make_s2(r: random.Random) -> str:\n    # s2 is used unquoted in the stub; avoid CR/LF to keep header token sensible\n    choice = r.random()\n    if choice < 0.25:\n        return r.choice(DISP_PATTERNS)\n    elif choice < 0.5:\n        # percent-encoded style (useful for downstream decoders if connected)\n        return _percent_encode(r, r.choice(VALUES))\n    elif choice < 0.75:\n        # hex-looking token to exercise number-like parsing in other paths\n        n = r.randint(1, 8)\n        return ''.join(r.choice(HEXCHARS) for _ in range(n))\n    else:\n        # plain safe token (no spaces, semicolons, equals)\n        return _rand_token(r, 1, 24)\n\n\ndef _make_s3(r: random.Random) -> str:\n    # s3 is inserted inside quotes by the stub; we can include spaces, semicolons, equals, quotes escaped\n    mode = r.randint(0, 5)\n    if mode == 0:\n        return r.choice(VALUES)\n    if mode == 1:\n        return _rand_filename(r)\n    if mode == 2:\n        # include characters that exercise unquote and tokenization boundaries\n        chars = string.ascii_letters + string.digits + \" _-;=,.:@[](){}+\"\n        return ''.join(r.choice(chars) for _ in range(r.randint(1, 40)))\n    if mode == 3:\n        # nested quotes appear as literal \\\" in the composed string; provide some\n        core = ''.join(r.choice(string.ascii_letters) for _ in range(r.randint(3, 12)))\n        return f\"pre\\\"{core}\\\"post\"\n    if mode == 4:\n        # percent-encoded with pluses (common in query contexts)\n        return _percent_encode(r, \"+\".join([_rand_token(r,1,6) for _ in range(r.randint(1,4))]))\n    # mode 5: long but within limits\n    return (r.choice(VALUES) + \"; name=\" + _rand_token(r,1,8))[:80]\n\n\ndef _compose_line(k1: str, v1: str, k2: str, v2: str) -> str:\n    # Match stub composition pattern; also include an extra trailing segment to diversify\n    # Final stub line: k1 + \"=\" + s2 + \"; \" + k2 + \"=\\\"\" + s3 + \"\\\"; empty=\"\n    return f\"{k1}={v1}; {k2}=\\\"{v2}\\\"; empty=\"\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Create base pieces\n    s1 = _make_s1(r)\n    s2 = _make_s2(r)\n    s3 = _make_s3(r)\n\n    # The stub will sanitize s1 and a separate s2-derived key for k2; we provide another key candidate too\n    k2_source = _make_s1(r)\n\n    # Simulate sanitizeKey from the stub to ensure resulting keys are non-empty and aligned with expectations\n    def sanitize_key(in_s: str) -> str:\n        out = ''.join(ch for ch in in_s if ch.isalnum() or ch in '-_')\n        return out if out else 'k'\n\n    k1 = sanitize_key(s1)\n    k2 = sanitize_key(k2_source)\n\n    line = _compose_line(k1, s2, k2, s3)\n\n    # Ensure size constraints (the stub trims to 1024, we can stay comfortably below that)\n    if len(line) > 1000:\n        line = line[:1000]\n\n    # Return as bytes for FUZZ_PARAM_STR initial corpus\n    return line.encode('utf-8')\n"
+    },
+    {
+      "data_type": "multipart body",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for valid multipart bodies suitable for uWS::MultipartParser::setBody\n# The fuzzer stub may provide a known boundary via FUZZ_GET_ATTR_STR(mp, \"boundary\") and\n# expects CRLF framing with headers then CRLF CRLF then body then CRLF then next boundary CRLF.\n# Our buffer should be writable and self-contained.\n\nCRLF = \"\\r\\n\"\n\ndef _rand_boundary(rng: random.Random) -> str:\n    # Boundary must be 1..70 chars; avoid CRLF and spaces\n    # Commonly WebKit style strings include letters, digits, and dashes/underscores\n    length = rng.randint(10, 40)\n    alphabet = string.ascii_letters + string.digits + \"-_\"\n    return ''.join(rng.choice(alphabet) for _ in range(length))\n\ndef _header_line(name: str, value: str) -> str:\n    return f\"{name}: {value}{CRLF}\"\n\ndef _content_disposition(rng: random.Random, name: str, filename: str | None) -> str:\n    # Build Content-Disposition header with parameters; values may be quoted\n    parts = [\"form-data\"]\n    # parameter order and quoting can vary to exercise ParameterParser\n    if rng.random() < 0.7:\n        v = name\n        if rng.random() < 0.5:\n            v = f'\"{v}\"'\n        parts.append(f\"name={v}\")\n    if filename is not None:\n        v = filename\n        if rng.random() < 0.5:\n            v = f'\"{v}\"'\n        parts.append(f\"filename={v}\")\n    # Occasionally insert extra parameter\n    if rng.random() < 0.3:\n        parts.append(f\"x={rng.randint(0,999)}\")\n    return _header_line(\"Content-Disposition\", \"; \".join(parts))\n\ndef _content_type_for_part(rng: random.Random) -> str | None:\n    choices = [\n        None,\n        \"text/plain; charset=utf-8\",\n        \"application/octet-stream\",\n        \"application/json\",\n        \"image/png\"\n    ]\n    return rng.choice(choices)\n\ndef _random_part_body(rng: random.Random) -> bytes:\n    # Produce small but varied bodies; keep total under 4096\n    mode = rng.randint(0, 4)\n    if mode == 0:\n        # text\n        length = rng.randint(1, 128)\n        alphabet = string.ascii_letters + string.digits + \" .,_-\" + \"\\t\"\n        s = ''.join(rng.choice(alphabet) for _ in range(length))\n        return s.encode('utf-8')\n    elif mode == 1:\n        # json-like\n        obj = {\n            \"id\": rng.randint(0, 1_000_000),\n            \"ok\": rng.random() < 0.5,\n            \"name\": ''.join(rng.choice(string.ascii_letters) for _ in range(rng.randint(3,10)))\n        }\n        import json\n        return json.dumps(obj).encode('utf-8')\n    elif mode == 2:\n        # small binary\n        length = rng.randint(1, 128)\n        return bytes(rng.getrandbits(8) for _ in range(length))\n    elif mode == 3:\n        # repeated pattern including CRLF\n        token = rng.choice([\"DATA\", \"LINE\", \"PART\"]).encode()\n        reps = rng.randint(1, 16)\n        return (token + b\"\\r\\n\") * reps\n    else:\n        # numeric string\n        return str(rng.randrange(0, 10**18)).encode('ascii')\n\ndef _build_part(rng: random.Random, name: str, include_filename: bool) -> bytes:\n    filename = None\n    if include_filename:\n        filename = ''.join(rng.choice(string.ascii_letters + string.digits + \"-_.\") for _ in range(rng.randint(3,12)))\n    headers = []\n    headers.append(_content_disposition(rng, name, filename))\n    ctype = _content_type_for_part(rng)\n    if ctype:\n        headers.append(_header_line(\"Content-Type\", ctype))\n    # Add an extra generic header sometimes\n    if rng.random() < 0.4:\n        headers.append(_header_line(\"Header\", \"value\"))\n    # End headers with blank line\n    header_blob = (\"\".join(headers) + CRLF).encode('utf-8')\n    body = _random_part_body(rng)\n    return header_blob + body + CRLF.encode('ascii')\n\ndef _closing_boundary(boundary: str) -> bytes:\n    # Closing boundary is --<boundary>-- CRLF\n    return (\"--\" + boundary + \"--\" + CRLF).encode('ascii')\n\ndef _opening_boundary(boundary: str) -> bytes:\n    # Opening/non-final boundary lines: --<boundary> CRLF\n    return (\"--\" + boundary + CRLF).encode('ascii')\n\ndef _assemble_multipart(rng: random.Random, boundary: str, part_count: int, final_close: bool) -> bytes:\n    # Layout expected by uWS::MultipartParser: initial boundary line, then for each part:\n    # headers CRLF CRLF body CRLF, then next boundary line. A trailing CRLF around boundaries is required.\n    out = bytearray()\n    out += _opening_boundary(boundary)\n    for i in range(part_count):\n        # Create part\n        name = f\"field{i}\"\n        include_filename = rng.random() < 0.5\n        out += _build_part(rng, name, include_filename)\n        # Append boundary line between parts\n        if i != part_count - 1:\n            out += _opening_boundary(boundary)\n    # After last part, append either next boundary CRLF (open for more) or the closing boundary\n    if final_close:\n        out += _closing_boundary(boundary)\n    else:\n        out += _opening_boundary(boundary)\n    return bytes(out)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a boundary length within 1..70; favor typical lengths\n    boundary = _rand_boundary(rng)\n\n    # Number of parts: 1-3 to keep total size well under 4096\n    part_count = rng.randint(1, 3)\n\n    # Sometimes generate a not-closed final boundary to exercise parser returning nullopt early\n    final_close = rng.random() < 0.85\n\n    buf = _assemble_multipart(rng, boundary, part_count, final_close)\n\n    # Ensure size cap; if too large, reduce by trimming body content conservatively from the end\n    if len(buf) > 4096:\n        buf = buf[:4096]\n        # Ensure buffer still ends with CRLF to keep parser sane\n        if not buf.endswith(b\"\\r\\n\"):\n            buf = buf[:-2] + b\"\\r\\n\"\n\n    return buf\n"
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# We want to generate interesting but valid multipart bodies that the stub can use when it knows the boundary\n# The stub constructs a body itself when it already knows the boundary; however FUZZ_PARAM_STR is used for data\n# within the part body, or as the whole body when no boundary/isValid are set. Our generator returns a bytes blob\n# that is useful in both cases:\n# - Often: a standalone multipart body with common boundary patterns and CRLF framing\n# - Sometimes: short ASCII or binary payloads for the fallback path\n# The stub may cap sizes (64 for data, 512 for arbitrary). Keep overall size <= 4096.\n\nCRLF = b\"\\r\\n\"\n\nASCII_PRINTABLE = bytes([c for c in range(32, 127)])\nBINARY_BYTES = bytes(range(256))\n\n\ndef _rand_boundary(rng: random.Random) -> str:\n    # Common boundary styles (similar to browsers) with allowed length 1..70\n    choices = [\n        \"----WebKitFormBoundary\" + ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(8, 24))),\n        \"---------------------------\" + ''.join(rng.choice(string.digits) for _ in range(rng.randint(12, 24))),\n        ''.join(rng.choice(string.ascii_letters + string.digits + \"_'()+,-./:=?\") for _ in range(rng.randint(6, 32))).strip(),\n        \"boundary\" + ''.join(rng.choice(string.digits) for _ in range(rng.randint(1, 10)))\n    ]\n    # Ensure 1..70\n    b = rng.choice(choices)\n    if len(b) == 0:\n        b = \"b\"\n    if len(b) > 70:\n        b = b[:70]\n    return b\n\n\ndef _header_lines(rng: random.Random) -> List[Tuple[str, str]]:\n    # Some typical multipart headers\n    headers: List[Tuple[str, str]] = []\n    # Always include a Content-Disposition with parameters to exercise ParameterParser elsewhere\n    name = ''.join(rng.choice(string.ascii_letters + string.digits + \"_-\") for _ in range(rng.randint(3, 10)))\n    disp = \"form-data\"\n    # Sometimes quoted filename\n    parts = [f\"name=\\\"{name}\\\"\"]\n    if rng.random() < 0.6:\n        fname = ''.join(rng.choice(string.ascii_letters + string.digits + \"._-\") for _ in range(rng.randint(3, 12)))\n        parts.append(f\"filename=\\\"{fname}\\\"\")\n    headers.append((\"Content-Disposition\", f\"{disp}; \" + \"; \".join(parts)))\n\n    # Optionally a content-type\n    if rng.random() < 0.7:\n        ct = rng.choice([\"text/plain\", \"application/octet-stream\", \"application/json\", \"image/png\"])\n        headers.append((\"Content-Type\", ct))\n\n    # Add one arbitrary header to trigger getHeaders parsing with multiple lines\n    if rng.random() < 0.8:\n        headers.append((\"X-Custom\", ''.join(rng.choice(string.ascii_letters + string.digits + \" -_/:.\") for _ in range(rng.randint(0, 20)))))\n\n    return headers\n\n\ndef _encode_headers(headers: List[Tuple[str, str]]) -> bytes:\n    out = bytearray()\n    for k, v in headers:\n        out.extend(k.encode('ascii', 'ignore'))\n        out.extend(b\": \")\n        out.extend(v.encode('ascii', 'ignore'))\n        out.extend(CRLF)\n    out.extend(CRLF)  # end of headers\n    return bytes(out)\n\n\ndef _random_part_body(rng: random.Random, target_len: int) -> bytes:\n    # Build an interesting small payload (<= target_len)\n    modes = [\"ascii\", \"binary\", \"json\", \"repeated\", \"hex\"]\n    mode = rng.choice(modes)\n    if mode == \"ascii\":\n        s = ''.join(rng.choice(string.printable[:-6]) for _ in range(rng.randint(0, target_len)))\n        return s.encode()\n    if mode == \"binary\":\n        # Slice of 0..255 pattern\n        rep = rng.randint(1, max(1, target_len // 256 + 1))\n        data = (BINARY_BYTES * rep)[:target_len]\n        return data\n    if mode == \"json\":\n        # Small JSON text\n        keys = [\"a\", \"msg\", \"id\", \"ok\", \"n\"]\n        obj = {rng.choice(keys): rng.choice([True, False, rng.randint(0, 9999), ''.join(rng.choice(string.ascii_letters) for _ in range(rng.randint(0, 12)))]) for _ in range(rng.randint(1, 4))}\n        s = str(obj).replace(\"'\", '\"')\n        return s[:target_len].encode()\n    if mode == \"repeated\":\n        token = ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(1, 8))).encode()\n        return (token * (target_len // max(1, len(token)) + 1))[:target_len]\n    if mode == \"hex\":\n        # hex string to pair with u32/u64 conversion testing contexts\n        val = rng.getrandbits(rng.randint(4, 64))\n        s = format(val, 'x')\n        return s[:target_len].encode()\n    return b\"\"\n\n\ndef _build_multipart(rng: random.Random, parts: int) -> bytes:\n    boundary = _rand_boundary(rng)\n    boundary_line = (\"--\" + boundary).encode()\n    buf = bytearray()\n\n    # Initial boundary line\n    buf.extend(boundary_line)\n    buf.extend(CRLF)\n\n    for i in range(parts):\n        hdrs = _header_lines(rng)\n        buf.extend(_encode_headers(hdrs))\n        body_len = rng.randint(0, 64)\n        body = _random_part_body(rng, body_len)\n        buf.extend(body)\n        buf.extend(CRLF)\n        # Next boundary (non-closing) after each part to match stub expectations\n        buf.extend(boundary_line)\n        buf.extend(CRLF)\n\n    # Keep under size; this structure already has the trailing boundary line as the stub expects\n    return bytes(buf)\n\n\ndef _build_fallback_payload(rng: random.Random) -> bytes:\n    # Arbitrary but interesting data <= 512 bytes; include CRLFs to look header-like sometimes\n    length = rng.randint(0, 512)\n    chunks: List[bytes] = []\n    while sum(len(c) for c in chunks) < length:\n        kind = rng.choice([\"ascii\", \"crlf\", \"binary\", \"digits\", \"url\"])\n        remain = length - sum(len(c) for c in chunks)\n        if remain <= 0:\n            break\n        take = rng.randint(1, min(64, remain))\n        if kind == \"ascii\":\n            s = ''.join(rng.choice(string.ascii_letters + string.digits + \" -_:./\") for _ in range(take))\n            chunks.append(s.encode())\n        elif kind == \"crlf\":\n            line = ''.join(rng.choice(string.ascii_letters) for _ in range(max(0, take - 2)))\n            chunks.append(line.encode() + CRLF)\n        elif kind == \"binary\":\n            chunks.append(bytes(rng.getrandbits(8) for _ in range(take)))\n        elif kind == \"digits\":\n            chunks.append(''.join(rng.choice(string.digits) for _ in range(take)).encode())\n        else:  # url\n            base = ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(max(1, take // 2)))\n            q = ''.join(rng.choice(string.ascii_letters + string.digits + \"&=%+\") for _ in range(take - len(base)))\n            chunks.append((base + \"?\" + q)[:take].encode())\n    return b\"\".join(chunks)[:512]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a strategy: multipart vs arbitrary buffer\n    strategy = rng.choices([\"multipart\", \"fallback\"], weights=[0.7, 0.3], k=1)[0]\n\n    if strategy == \"multipart\":\n        parts = rng.randint(1, 3)  # small number of parts to stay tiny\n        data = _build_multipart(rng, parts)\n        # Safety cap\n        return data[:4096]\n    else:\n        return _build_fallback_payload(rng)[:4096]\n"
+    },
+    {
+      "data_type": "HTTP Content-Type header value",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Target data type: HTTP Content-Type header value for multipart parsing.\n# The fuzzer stub constructs a MultipartParser from a provided Content-Type string.\n# It explores three modes: valid, invalid prefix, invalid boundary size.\n# Our generator should provide interesting, valid Content-Type header values that\n# often exercise the valid path, but can also occasionally hit edge cases like\n# 1-char boundary, 70-char boundary, unusual token characters, and common real-world\n# boundaries. The stub itself may also mutate to invalid modes, but our input should\n# be valid and well-formed on its own.\n\n# We generate a single bytes buffer intended to be used by FUZZ_PARAM_STR.\n# Design:\n# - With weighted probability, emit:\n#   - Typical browser-style long boundary (WebKit-style)\n#   - Minimal boundary length 1\n#   - Max boundary length 70\n#   - Random boundary of mixed token-safe chars used by stub\n#   - Alternative multipart subtype (e.g., multipart/mixed) still valid\n#   - Include extra parameters before/after boundary to exercise parser's naive '=' search\n# - Avoid CR/LF or quotes in boundary; only token chars.\n# - Overall length under 4096 bytes.\n\nTOKEN_CHARS = string.ascii_letters + string.digits + \"-_.+/ ?\"  # matches stub allowance (space optional but safe in params around '=')\n# However boundary itself should avoid spaces per stub building; we will not include space in boundary token itself.\nBOUNDARY_CHARS = string.ascii_letters + string.digits + \"-_.+/?\"\n\nREALISTIC_PREFIXES = [\n    \"multipart/form-data\",\n    \"multipart/mixed\",\n    \"multipart/related\",\n    \"multipart/alternative\",\n    \"multipart/report\",\n]\n\nWEBKIT_PREFIX = \"----WebKitFormBoundary\"\n\n\ndef _rand_boundary(rng: random.Random, length: int) -> str:\n    return ''.join(rng.choice(BOUNDARY_CHARS) for _ in range(length))\n\n\ndef _webkit_boundary(rng: random.Random, min_tail: int = 12, max_tail: int = 24) -> str:\n    tail_len = rng.randint(min_tail, max_tail)\n    tail = ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(tail_len))\n    return WEBKIT_PREFIX + tail\n\n\ndef _build_params(rng: random.Random, boundary: str) -> str:\n    # Compose parameters with optional extras placed before/after boundary\n    params: List[str] = []\n    # Optional charset parameter\n    if rng.random() < 0.4:\n        params.append('charset=' + rng.choice(['utf-8', 'iso-8859-1', 'us-ascii']))\n    # Optional name/filename parameters (typical in Content-Disposition, but harmless here)\n    if rng.random() < 0.3:\n        params.append('format=' + rng.choice(['flowed', 'fixed']))\n    if rng.random() < 0.3:\n        params.append('type=' + rng.choice(['text/plain', 'application/json']))\n    # Insert boundary parameter; avoid quotes, keep simple per parser assumptions\n    # Parser looks for '=' after index 10, so ensure boundary= appears plainly.\n    # We may place other params before to test '=' scanning still finds the last/first '='.\n    # But since the implementation takes substring from the first '=' after 10 to end,\n    # we place boundary= last most of the time to ensure it is picked up correctly.\n    if rng.random() < 0.7:\n        # Place extras before boundary\n        pass\n    else:\n        # Place some extras after boundary (still fine as parser takes from first '=')\n        pass\n    params.append('boundary=' + boundary)\n    # Maybe add a trailing harmless parameter after boundary; parser ignores but still okay\n    if rng.random() < 0.2:\n        params.append('delsp=' + rng.choice(['yes', 'no']))\n    return '; '.join(params)\n\n\ndef _build_content_type(rng: random.Random) -> str:\n    p = rng.random()\n    prefix = rng.choice(REALISTIC_PREFIXES)\n\n    # Choose boundary scenario\n    if p < 0.20:\n        # Minimal length 1\n        boundary = _rand_boundary(rng, 1)\n    elif p < 0.40:\n        # Max length 70\n        boundary = _rand_boundary(rng, 70)\n    elif p < 0.65:\n        # WebKit-like\n        # Ensure total length <= 70 per parser; WEBKIT_PREFIX is 22 chars, tail chosen accordingly\n        max_tail = max(1, 70 - len(WEBKIT_PREFIX))\n        min_tail = min(24, max_tail)\n        # pick tail within [min_tail, max_tail]\n        tail_len = rng.randint(min_tail, max_tail)\n        boundary = WEBKIT_PREFIX + ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(tail_len))\n    else:\n        # Random medium length\n        boundary = _rand_boundary(rng, rng.randint(5, 40))\n\n    params = _build_params(rng, boundary)\n    return f\"{prefix}; {params}\"\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # With small probability, generate an alternative valid header format variants\n    # like extra whitespace or uppercase/lowercase mixing (prefix must still start with 'multipart/')\n    header = _build_content_type(rng)\n\n    # Randomly vary casing of 'multipart' sub-type prefix after the slash is okay; must keep 'multipart/' exact\n    # The constructor checks contentType.substr(0,10) == \"multipart/\"\n    # So we must NOT alter the first 10 characters.\n    # We can vary case in subtype name (after 10th char) and parameters.\n    if rng.random() < 0.3:\n        # randomize subtype casing beyond the fixed 'multipart/'\n        fixed = 'multipart/'\n        rest = header[len(fixed):]\n        rest = ''.join(ch.upper() if rng.random() < 0.3 else ch.lower() if ch.isalpha() else ch for ch in rest)\n        header = fixed + rest\n\n    # Ensure total size <= 4096\n    if len(header) > 4000:\n        header = header[:4000]\n\n    return header.encode('ascii', errors='ignore')\n"
+    },
+    {
+      "data_type": "URL query string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for URL query strings suitable for uWS::getDecodedQueryValue fuzz stub\n# - Must begin with '?'\n# - Contain key=value pairs separated by '&'\n# - Values may include percent-encodings (%XX) and '+' which decodes to space\n# - Buffer should be valid UTF-8 bytes but only requirement is writable bytes; we'll return bytes\n# - Keep size <= 4096\n\n_HEX = '0123456789ABCDEF'\n_SAFE_KCHARS = string.ascii_letters + string.digits + \"_-.~\"\n_SAFE_VCHARS = _SAFE_KCHARS + \":/@$!*'(),\"  # allow some extra safe-ish characters\n\ndef _rand_percent_encoded(r: random.Random) -> str:\n    # Return %XX with random byte encoded uppercase hex (common)\n    b = r.randrange(0, 256)\n    return '%' + _HEX[(b >> 4) & 0xF] + _HEX[b & 0xF]\n\ndef _rand_key(r: random.Random, min_len=1, max_len=16) -> str:\n    # Keys should not include '&' or '=' per stub sanitization\n    # Mix of safe chars; occasionally include percent-encoded in key to ensure non-decoding of key path\n    length = r.randint(min_len, max_len)\n    parts = []\n    for _ in range(length):\n        choice = r.random()\n        if choice < 0.85:\n            parts.append(r.choice(_SAFE_KCHARS))\n        elif choice < 0.90:\n            # Include doted segments\n            parts.append('.')\n        else:\n            # Rare percent in key (note: keys are not decoded by target; but '%' should be fine)\n            parts.append('%')\n    # Ensure non-empty and not starting with separators\n    k = ''.join(parts)\n    if not k:\n        k = 'k'\n    # Avoid stray '=' and '&' entirely\n    k = k.replace('=', 'x').replace('&', 'x')\n    return k\n\ndef _rand_value(r: random.Random, min_len=0, max_len=64) -> str:\n    length = r.randint(min_len, max_len)\n    parts: List[str] = []\n    i = 0\n    while i < length:\n        choice = r.random()\n        if choice < 0.60:\n            parts.append(r.choice(_SAFE_VCHARS))\n            i += 1\n        elif choice < 0.75:\n            parts.append('+')  # decodes to space\n            i += 1\n        else:\n            enc = _rand_percent_encoded(r)\n            parts.append(enc)\n            i += len(enc)\n    return ''.join(parts)\n\ndef _make_pair(r: random.Random) -> Tuple[str, str]:\n    # Sometimes produce empty value or empty key scenarios\n    mode = r.randrange(0, 8)\n    if mode == 0:\n        # empty value\n        k = _rand_key(r)\n        v = ''\n    elif mode == 1:\n        # short key/value\n        k = _rand_key(r, 1, 6)\n        v = _rand_value(r, 0, 12)\n    elif mode == 2:\n        # value-heavy with many encodings\n        k = _rand_key(r, 1, 10)\n        v = ''.join(_rand_percent_encoded(r) if r.random() < 0.6 else r.choice(_SAFE_VCHARS) for _ in range(r.randint(5, 20)))\n    elif mode == 3:\n        # plus-heavy\n        k = _rand_key(r)\n        v = '++'.join(_rand_value(r, 0, 5) for _ in range(r.randint(1, 5)))\n    elif mode == 4:\n        # numeric value\n        k = _rand_key(r)\n        v = str(r.randrange(0, 1 << 32))\n    elif mode == 5:\n        # unicode-like percent encodings for common UTF-8 bytes\n        k = _rand_key(r)\n        raw = 'こんにちは世界'  # will percent-encode bytes\n        v = ''.join('%%%02X' % b for b in raw.encode('utf-8'))\n    elif mode == 6:\n        # path-ish value\n        k = _rand_key(r)\n        segs = [ ''.join(r.choice(_SAFE_VCHARS) for _ in range(r.randint(1, 6))) for _ in range(r.randint(1, 4)) ]\n        v = '/'.join(segs)\n    else:\n        k = _rand_key(r)\n        v = _rand_value(r)\n    return k, v\n\ndef _build_query(r: random.Random, target_key: str) -> str:\n    # Construct a query beginning with '?', ensuring at least one pair, and include a pair for target_key\n    pairs: List[Tuple[str, str]] = []\n    # Chance to include multiple occurrences of target_key; parser returns first exact match\n    occurrences = 1 + (1 if r.random() < 0.3 else 0)\n    for _ in range(occurrences):\n        # Ensure target key uses exact key string\n        val = _rand_value(r, 0, 32)\n        pairs.append((target_key, val))\n    # Add random other pairs\n    extra = r.randint(0, 6)\n    for _ in range(extra):\n        k, v = _make_pair(r)\n        # Avoid accidental duplicate keys overshadowing variety; allow sometimes\n        pairs.append((k, v))\n    # Randomize order\n    r.shuffle(pairs)\n    # Assemble\n    buf_parts: List[str] = ['?']\n    for i, (k, v) in enumerate(pairs):\n        if i:\n            buf_parts.append('&')\n        buf_parts.append(k)\n        buf_parts.append('=')\n        buf_parts.append(v)\n    return ''.join(buf_parts)\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Decide on strategy relative to fuzzer stub behavior\n    # The stub may clear key to empty depending on its own FUZZ_PARAM; we provide a buffer that remains valid\n    # We'll sometimes produce queries crafted to exercise decoding and boundary cases.\n\n    # Choose a key likely to be accepted by stub (no '&' or '=') and non-empty\n    key = _rand_key(r, 1, 16)\n\n    # Construct a plausible query\n    query = _build_query(r, key)\n\n    # Size guard: if too large, trim by removing pairs from the end while keeping at least the first\n    if len(query) > 4000:\n        # naive trim: keep prefix until below limit, ensure it ends not in middle of percent-encoding\n        query = query[:4000]\n        # Avoid trailing lone '%' which could be malformed; drop it\n        if query.endswith('%'):\n            query = query[:-1]\n        # Also avoid ending with '%' followed by one hex\n        if len(query) >= 2 and query[-2] == '%':\n            query = query[:-2]\n\n    # Ensure query has at least one pair after '?'\n    if len(query) <= 1:\n        query = '?a='\n\n    # Return bytes; buffer is ASCII-compatible\n    return query.encode('utf-8')\n"
+    },
+    {
+      "data_type": "HTTP chunk-size line",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for an HTTP chunk-size line suitable for uWS::consumeHexNumber\n# Format: <hex-digits>[;<extension>[;<extension>...]]\\r\\n\n_HEX_DIGITS = '0123456789abcdef'\n_ASCII_TOKEN_CHARS = string.ascii_letters + string.digits + \"!#$%&'*+-.^_`|~\"\n\n\ndef _rand_hex_size(rng: random.Random) -> int:\n    # Choose sizes that exercise boundaries and typical cases\n    corpus = [0, 1, 2, 15, 16, 31, 32, 63, 64, 65, 126, 127]\n    if rng.random() < 0.6:\n        return rng.choice(corpus)\n    # Occasionally any 0..128\n    return rng.randrange(0, 128)\n\n\ndef _hex_no_leading_0x(value: int) -> str:\n    # Lowercase hex without 0x, at least one digit\n    return format(value, 'x')\n\n\ndef _rand_token(rng: random.Random, min_len: int = 1, max_len: int = 12) -> str:\n    L = rng.randrange(min_len, max_len + 1)\n    return ''.join(rng.choice(_ASCII_TOKEN_CHARS) for _ in range(L))\n\n\ndef _rand_quoted_string(rng: random.Random, max_len: int = 16) -> str:\n    # Generate a quoted-string without CR/LF or quote characters unescaped.\n    # RFC allows quoted-pair, but here we keep it simple and valid ASCII visible chars.\n    L = rng.randrange(0, max_len + 1)\n    # Avoid backslash and quote to keep simple\n    chars = ''.join(ch for ch in (string.printable) if ch not in '\\r\\n\"\\\\')\n    s = ''.join(rng.choice(chars) for _ in range(L))\n    return '\"' + s + '\"'\n\n\ndef _rand_ext_param(rng: random.Random) -> str:\n    # chunk-ext = \";\" chunk-ext-name [\"=\" chunk-ext-val]\n    # Use token or quoted-string for value\n    name = _rand_token(rng, 1, 8)\n    if rng.random() < 0.7:\n        # With value\n        if rng.random() < 0.5:\n            val = _rand_token(rng, 0, 12)\n        else:\n            val = _rand_quoted_string(rng)\n        return name + '=' + val\n    else:\n        # Flag-style extension without value\n        return name\n\n\ndef _maybe_ows(rng: random.Random) -> str:\n    # Optional whitespace (SP or TAB) around separators; consumeHexNumber tolerates extras before LF.\n    # We will keep within typical tolerance: minimal or none to stay valid for hex parsing.\n    if rng.random() < 0.2:\n        return ''\n    return ' ' * rng.randrange(0, 3)\n\n\ndef _build_chunk_size_line(rng: random.Random) -> str:\n    size = _rand_hex_size(rng)\n    hex_part = _hex_no_leading_0x(size)\n\n    # Optionally uppercase hex to vary case (should still be valid per typical parsers using ASCII hex)\n    if rng.random() < 0.3:\n        hex_part = hex_part.upper()\n\n    # Add 0-3 extensions\n    ext_parts: List[str] = []\n    if rng.random() < 0.8:\n        for _ in range(rng.randrange(0, 4)):\n            ext_parts.append(_rand_ext_param(rng))\n\n    # Join with semicolons, optionally with OWS after semicolons\n    if ext_parts:\n        # ensure first semicolon present\n        ext = ''\n        for p in ext_parts:\n            # Insert exactly one semicolon, optional OWS afterwards before token\n            ext += ';' + _maybe_ows(rng) + p\n        line = hex_part + ext + '\\r\\n'\n    else:\n        line = hex_part + '\\r\\n'\n\n    return line\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build a valid chunk-size line; keep length under 4096\n    line = _build_chunk_size_line(rng)\n\n    # Ensure final CRLF and reasonable size\n    if not line.endswith('\\r\\n'):\n        line = line.rstrip('\\n')\n        line += '\\r\\n'\n\n    if len(line) > 4096:\n        line = line[:4094] + '\\r\\n'\n\n    return line.encode('ascii', 'strict')\n"
+    },
+    {
+      "data_type": "HTTP chunked message",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for valid HTTP/1.1 chunked transfer-encoded payloads.\n# This targets uWS::getNextChunk and uWS::ChunkIterator fuzzers which\n# build a chunked message as: \"<hex>\\r\\n<payload>\\r\\n0\\r\\n\\r\\n\".\n# We generate similar but richer valid messages to exercise code paths:\n# - various chunk sizes (including 0-sized mid-stream chunk is not allowed by RFC, so avoid until final)\n# - multiple chunks\n# - optional chunk extensions (allowed by spec; parsers should skip)\n# - optional trailers before the final CRLF\n# - payload character variety\n# - optional inclusion of LF-only within payload (legal as data)\n# - keep total size <= 4096\n\n_HEX = '0123456789abcdef'\n\ndef _rand_ascii_bytes(rng: random.Random, n: int) -> bytes:\n    # Mix of visible ASCII plus some spaces and punctuation, excluding CR to avoid accidental framing\n    alphabet = (\n        string.ascii_letters + string.digits + \" \\t\" + \"_-.:/?&=+*@#,$!()[]{}|\" + \"\\n\\t\"\n    )\n    return ''.join(rng.choice(alphabet) for _ in range(n)).encode('utf-8')\n\ndef _make_chunk(rng: random.Random, size: int, with_ext: bool) -> bytes:\n    # Build a single chunk with optional extensions\n    assert size >= 0\n    payload = _rand_ascii_bytes(rng, size)\n    ext = b''\n    if with_ext and rng.random() < 0.7:\n        # RFC allows \";name=value\" extensions; keep ASCII tokens\n        parts: List[bytes] = []\n        for _ in range(rng.randint(1, 3)):\n            klen = rng.randint(1, 6)\n            vlen = rng.randint(0, 8)\n            key = ''.join(rng.choice(string.ascii_lowercase+string.digits) for _ in range(klen)).encode()\n            if rng.random() < 0.6:\n                if rng.random() < 0.5:\n                    val = ''.join(rng.choice(string.ascii_lowercase+string.digits) for _ in range(vlen)).encode()\n                else:\n                    # quoted-string value; ensure no quotes inside\n                    qv = ''.join(rng.choice(string.ascii_lowercase+string.digits+\" -_./\") for _ in range(vlen)).encode()\n                    val = b'\"' + qv + b'\"'\n                parts.append(b';' + key + b'=' + val)\n            else:\n                parts.append(b';' + key)\n        ext = b''.join(parts)\n    size_hex = format(size, 'x').encode('ascii')\n    return size_hex + ext + b\"\\r\\n\" + payload + b\"\\r\\n\"\n\ndef _make_trailers(rng: random.Random) -> bytes:\n    # Generate 0-3 simple RFC 822 style header lines as trailers\n    n = rng.randint(0, 3)\n    if n == 0:\n        return b\"\\r\\n\"\n    lines: List[bytes] = []\n    for _ in range(n):\n        klen = rng.randint(2, 8)\n        vlen = rng.randint(0, 16)\n        key = ''.join(rng.choice(string.ascii_letters) for _ in range(klen)).lower().encode('ascii')\n        # Values may be empty\n        if vlen == 0:\n            val = b''\n        else:\n            val = _rand_ascii_bytes(rng, vlen)\n            # Avoid CR and ensure no stray CRLF sequences other than the terminator\n            val = val.replace(b'\\r', b' ').replace(b'\\n', b' ')\n        lines.append(key + b': ' + val + b\"\\r\\n\")\n    return b''.join(lines) + b\"\\r\\n\"\n\ndef _plan_chunks(rng: random.Random, budget: int) -> List[Tuple[int, bool]]:\n    # Return list of (size, with_ext) for chunks such that total fits within budget\n    # Keep sizes modest to improve chances of multiple chunks\n    chunks: List[Tuple[int, bool]] = []\n    # Reserve space for final \\r\\n0\\r\\n and potential trailers; approximate 64 bytes\n    remain = max(0, budget - 64)\n    # Choose 1..5 chunks\n    cnt = rng.randint(1, 5)\n    for i in range(cnt):\n        if remain <= 0:\n            break\n        # Choose size 0..128 but non-zero for all non-final chunks\n        max_size = min(128, remain // 2 + 1)\n        if max_size <= 0:\n            break\n        size = rng.randint(1, max(1, max_size))\n        with_ext = rng.random() < 0.8\n        # Estimate overhead: hex (up to 3 bytes typical), CRLF x2 and extensions (~10)\n        est = len(format(size, 'x')) + 2 + size + 2 + (10 if with_ext else 0)\n        if est > remain and size > 1:\n            size = max(1, remain - 16)\n            est = len(format(size, 'x')) + 14 + size\n        if est > remain:\n            break\n        chunks.append((size, with_ext))\n        remain -= est\n    if not chunks:\n        # Ensure at least one tiny chunk\n        chunks.append((1, False))\n    return chunks\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    budget = 4096\n\n    chunks_plan = _plan_chunks(rng, budget)\n    parts: List[bytes] = []\n    for size, with_ext in chunks_plan:\n        parts.append(_make_chunk(rng, size, with_ext))\n\n    # Final zero-size chunk with optional extensions (valid: extensions allowed on last chunk)\n    last_ext = b''\n    if rng.random() < 0.6:\n        # include an extension on the terminating chunk\n        k = ''.join(rng.choice(string.ascii_lowercase+string.digits) for _ in range(rng.randint(1,5))).encode()\n        v = ''.join(rng.choice(string.ascii_lowercase+string.digits) for _ in range(rng.randint(0,6))).encode()\n        if rng.random() < 0.5:\n            last_ext = b';' + k + (b'=' + v if len(v)>0 else b'')\n        else:\n            last_ext = b';' + k + b'=\"' + v + b'\"'\n\n    message = b''.join(parts) + b\"0\" + last_ext + b\"\\r\\n\"\n\n    # Optional trailers then final CRLF\n    trailers = _make_trailers(rng)\n    message += trailers\n\n    # Safety: ensure within 4096\n    if len(message) > 4096:\n        # Drop trailers if needed\n        # Find the blank line before trailers (we have already built it), replace trailers with CRLF\n        message = b''.join(parts) + b\"0\" + last_ext + b\"\\r\\n\\r\\n\"\n        if len(message) > 4096:\n            # As a fallback, regenerate with a single small chunk and no trailers\n            payload = _rand_ascii_bytes(rng, 8)\n            message = b\"8\\r\\n\" + payload + b\"\\r\\n0\\r\\n\\r\\n\"\n\n    return message\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8723,
+            "output_tokens": 3088,
+            "total_tokens": 11811
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6613,
+            "output_tokens": 269,
+            "total_tokens": 6882
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8975,
+            "output_tokens": 9785,
+            "total_tokens": 18760
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 44431,
+            "output_tokens": 19486,
+            "total_tokens": 63917
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12821,
+            "output_tokens": 674,
+            "total_tokens": 13495
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 326.89982986450195,
+    "scan_objects": 19.58182144165039,
+    "validate_objects": 1.0852713584899902,
+    "scan_functions": 0,
+    "synthesis": 234.5788688659668,
+    "fill": 0,
+    "classify": 10.74414610862732,
+    "build_generators": 60.908528089523315
+  }
+}

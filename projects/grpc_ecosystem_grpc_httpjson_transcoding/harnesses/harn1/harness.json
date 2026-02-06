@@ -1,0 +1,818 @@
+{
+  "objects": [
+    {
+      "ptr_type": "google::grpc::transcoding::HttpTemplate *",
+      "aliases": [],
+      "definition": "namespace google {\nnamespace grpc {\nnamespace transcoding {\n\nclass HttpTemplate {\n public:\n  static std::unique_ptr<HttpTemplate> Parse(const std::string &ht);\n  const std::vector<std::string> &segments() const { return segments_; }\n  const std::string &verb() const { return verb_; }\n\n  // The info about a variable binding {variable=subpath} in the template.\n  struct Variable {\n    // Specifies the range of segments [start_segment, end_segment) the\n    // variable binds to. Both start_segment and end_segment are 0 based.\n    // end_segment can also be negative, which means that the position is\n    // specified relative to the end such that -1 corresponds to the end\n    // of the path.\n    int start_segment;\n    int end_segment;\n\n    // The path of the protobuf field the variable binds to.\n    std::vector<std::string> field_path;\n\n    // Do we have a ** in the variable template?\n    bool has_wildcard_path;\n  };\n\n  std::vector<Variable> &Variables() { return variables_; }\n\n  // '/.': match any single path segment.\n  static const char kSingleParameterKey[];\n  // '*': Wildcard match for one path segment.\n  static const char kWildCardPathPartKey[];\n  // '**': Wildcard match the remaining path.\n  static const char kWildCardPathKey[];\n\n private:\n  HttpTemplate(std::vector<std::string> &&segments, std::string &&verb,\n               std::vector<Variable> &&variables)\n      : segments_(std::move(segments)),\n        verb_(std::move(verb)),\n        variables_(std::move(variables)) {}\n  const std::vector<std::string> segments_;\n  std::string verb_;\n  std::vector<Variable> variables_;\n};\n\n}  // namespace transcoding\n}  // namespace grpc\n}  // namespace google",
+      "description": "HTTP template parser/holder used for transcoding HTTP paths to gRPC. Provides access to parsed path segments, HTTP verb, variable bindings, and well-known wildcard keys. Instances are constructed via the static Parse() factory. Ownership is via std::unique_ptr; copy/move semantics are not shown here. Constants for wildcard tokens are declared but defined elsewhere.",
+      "direct_api_constructors": [
+        "google::grpc::transcoding::HttpTemplate::Parse(const std::string &ht)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::HttpTemplate::Variable *",
+      "aliases": [],
+      "definition": "struct Variable {\n    // Specifies the range of segments [start_segment, end_segment) the\n    // variable binds to. Both start_segment and end_segment are 0 based.\n    // end_segment can also be negative, which means that the position is\n    // specified relative to the end such that -1 corresponds to the end\n    // of the path.\n    int start_segment;\n    int end_segment;\n\n    // The path of the protobuf field the variable binds to.\n    std::vector<std::string> field_path;\n\n    // Do we have a ** in the variable template?\n    bool has_wildcard_path;\n  };",
+      "description": "Nested type describing a {variable=...} binding within an HttpTemplate. It records the bound segment range in the path, the target protobuf field path, and whether a double-wildcard was used.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "google::grpc::transcoding::HttpTemplate *"
+      ]
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::VariableBinding *",
+      "aliases": [],
+      "definition": "struct VariableBinding {\n  // The location of the field in the protobuf message, where the value\n  // needs to be inserted, e.g. \"shelf.theme\" would mean the \"theme\" field\n  // of the nested \"shelf\" message of the request protobuf message.\n  std::vector<std::string> field_path;\n  // The value to be inserted.\n  std::string value;\n};",
+      "description": "Represents one bound value for a single request message field during HTTP/REST to gRPC transcoding. Contains the protobuf field path components and the string value to insert.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::HttpMethod *",
+      "aliases": [],
+      "definition": "typedef std::string HttpMethod;",
+      "description": "Alias for std::string representing an HTTP method key (e.g., \"GET\", \"POST\") used in the PathMatcherNode result map and APIs.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::PathMatcherLookupResult *",
+      "aliases": [],
+      "definition": "struct PathMatcherLookupResult {\n  PathMatcherLookupResult() : data(nullptr), is_multiple(false) {}\n\n  PathMatcherLookupResult(void* data, bool is_multiple)\n      : data(data), is_multiple(is_multiple) {}\n\n  // The WrapperGraph that is registered to a method (or HTTP path).\n  void* data;\n  // Whether the method (or path) has been registered for more than once.\n  bool is_multiple;\n};",
+      "description": "Simple POD result container returned by path lookups. Holds an opaque pointer to method-specific data and a flag indicating whether the path/method was registered multiple times. Construction is trivial; no ownership semantics are defined for data (caller-managed).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::PathMatcherNode *",
+      "aliases": [],
+      "definition": "class PathMatcherNode {\n public:\n  // Provides information for inserting templates into the trie. Clients can\n  // instantiate PathInfo with the provided Builder.\n  class PathInfo {\n   public:\n    class Builder {\n     public:\n      friend class PathInfo;\n      Builder() : path_() {}\n      ~Builder() {}\n\n      PathMatcherNode::PathInfo Build() const;\n\n      // Appends a node that must match the string value of a request part. The\n      // strings \"/.\" and \"/..\" are disallowed.\n      //\n      // Example:\n      //\n      // builder.AppendLiteralNode(\"a\")\n      //        .AppendLiteralNode(\"b\")\n      //        .AppendLiteralNode(\"c\");\n      //\n      // Matches the request path: a/b/c\n      Builder& AppendLiteralNode(std::string name);\n\n      // Appends a node that ignores the string value and matches any single\n      // request part.\n      //\n      // Example:\n      //\n      // builder.AppendLiteralNode(\"a\")\n      //        .AppendSingleParameterNode()\n      //        .AppendLiteralNode(\"c\");\n      //\n      // Matching request paths: a/foo/c, a/bar/c, a/1/c\n      Builder& AppendSingleParameterNode();\n\n      // TODO: Appends a node that ignores string values and matches any\n      // number of consecutive request parts.\n      //\n      // Example:\n      //\n      // builder.AppendLiteralNode(\"a\")\n      //        .AppendLiteralNode(\"b\")\n      //        .AppendRepeatedParameterNode();\n      //\n      // Matching request paths: a/b/1/2/3/4/5, a/b/c\n      // Builder& AppendRepeatedParameterNode();\n\n     private:\n      std::vector<std::string> path_;\n    };  // class Builder\n\n    ~PathInfo() {}\n\n    // Returns path information used to insert a new path into a PathMatcherNode\n    // trie.\n    const std::vector<std::string>& path_info() const { return path_; }\n\n   private:\n    explicit PathInfo(const Builder& builder) : path_(builder.path_) {}\n    std::vector<std::string> path_;\n  };  // class PathInfo\n\n  typedef std::vector<std::string> RequestPathParts;\n\n  // Creates a Root node with an empty WrapperGraph map.\n  PathMatcherNode() : result_map_(), children_(), wildcard_(false) {}\n\n  ~PathMatcherNode();\n\n  // Creates a clone of this node and its subtrie\n  std::unique_ptr<PathMatcherNode> Clone() const;\n\n  // Searches subtrie by finding a matching child for the current path part. If\n  // a matching child exists, this function recurses on current + 1 with that\n  // child as the receiver. If a matching descendant is found for the last part\n  // in then this method copies the matching descendant's WrapperGraph,\n  // VariableBindingInfoMap to the result pointers.\n  void LookupPath(const RequestPathParts::const_iterator current,\n                  const RequestPathParts::const_iterator end,\n                  HttpMethod http_method,\n                  PathMatcherLookupResult* result) const;\n\n  // This method inserts a path of nodes into this subtrie. The WrapperGraph,\n  // VariableBindingInfoMap are inserted at the terminal descendant node.\n  // Returns true if the template didn't previously exist. Returns false\n  // otherwise and depends on if mark_duplicates is true, the template will be\n  // marked as having been registered for more than once and the lookup of the\n  // template will yield a special error reporting WrapperGraph.\n  bool InsertPath(const PathInfo& node_path_info, std::string http_method,\n                  void* method_data, bool mark_duplicates);\n\n  void set_wildcard(bool wildcard) { wildcard_ = wildcard; }\n\n private:\n  // This method inserts a path of nodes into this subtrie (described by the\n  // vector<Info>, starting from the |current| position in the iterator of path\n  // parts, and if necessary, creating intermediate nodes along the way. The\n  // WrapperGraph, VariableBindingInfoMap are inserted at the terminal\n  // descendant node (which corresponds to the string part in the iterator).\n  // Returns true if the template didn't previously exist. Returns false\n  // otherwise and depends on if mark_duplicates is true, the template will be\n  // marked as having been registered for more than once and the lookup of the\n  // template will yield a special error reporting WrapperGraph.\n  bool InsertTemplate(const std::vector<std::string>::const_iterator current,\n                      const std::vector<std::string>::const_iterator end,\n                      HttpMethod http_method, void* method_data,\n                      bool mark_duplicates);\n\n  // Helper method for LookupPath. If the given child key exists, search\n  // continues on the child node pointed by the child key with the next part\n  // in the path. Returns true if found a match for the path eventually.\n  bool LookupPathFromChild(const std::string child_key,\n                           const RequestPathParts::const_iterator current,\n                           const RequestPathParts::const_iterator end,\n                           HttpMethod http_method,\n                           PathMatcherLookupResult* result) const;\n\n  // If a WrapperGraph is found for the provided key, then this method returns\n  // true and copies the WrapperGraph to the provided result pointer. If no\n  // match is found, this method returns false and leaves the result unmodified.\n  //\n  // NB: If result == nullptr, method will return bool value without modifying\n  // result.\n  bool GetResultForHttpMethod(HttpMethod key,\n                              PathMatcherLookupResult* result) const;\n\n  std::map<HttpMethod, PathMatcherLookupResult> result_map_;\n\n  // Lookup must be FAST\n  //\n  // n: the number of paths registered per client varies, but we can expect the\n  // size of |children_| to range from ~5 to ~100 entries.\n  //\n  // To ensure fast lookups when n grows large, it is prudent to consider an\n  // alternative to binary search on a sorted vector.\n  std::unordered_map<std::string, std::unique_ptr<PathMatcherNode>> children_;\n\n  // True if this node represents a wildcard path '**'.\n  bool wildcard_;\n};",
+      "description": "Trie node used to match HTTP request paths to registered method data. Each node maintains children keyed by path parts, a mapping from HTTP method to lookup results, and a wildcard flag. Provides insertion and lookup APIs and supports cloning. Ownership: manages child nodes via unique_ptr; does not own the opaque method_data stored in results.",
+      "direct_api_constructors": [
+        "google::grpc::transcoding::PathMatcherNode::PathMatcherNode"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::PathMatcherNode::PathInfo *",
+      "aliases": [],
+      "definition": "class PathMatcherNode::PathInfo {\n   public:\n    class Builder {\n     public:\n      friend class PathInfo;\n      Builder() : path_() {}\n      ~Builder() {}\n\n      PathMatcherNode::PathInfo Build() const;\n      Builder& AppendLiteralNode(std::string name);\n      Builder& AppendSingleParameterNode();\n     private:\n      std::vector<std::string> path_;\n    };  // class Builder\n\n    ~PathInfo() {}\n    const std::vector<std::string>& path_info() const { return path_; }\n\n   private:\n    explicit PathInfo(const Builder& builder) : path_(builder.path_) {}\n    std::vector<std::string> path_;\n  };",
+      "description": "Value class encapsulating a sequence of path segments used when inserting paths into a PathMatcherNode. Constructed via its nested Builder; immutable after construction.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "google::grpc::transcoding::PathMatcherNode *"
+      ]
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder *",
+      "aliases": [],
+      "definition": "class PathMatcherNode::PathInfo::Builder {\n     public:\n      friend class PathInfo;\n      Builder() : path_() {}\n      ~Builder() {}\n\n      PathMatcherNode::PathInfo Build() const;\n      Builder& AppendLiteralNode(std::string name);\n      Builder& AppendSingleParameterNode();\n\n     private:\n      std::vector<std::string> path_;\n    };",
+      "description": "Fluent builder for PathMatcherNode::PathInfo. Accumulates path segments via AppendLiteralNode and AppendSingleParameterNode; Build() materializes a PathInfo. No ownership of external resources.",
+      "direct_api_constructors": [
+        "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::Builder"
+      ],
+      "owned_by": [
+        "google::grpc::transcoding::PathMatcherNode::PathInfo *"
+      ]
+    },
+    {
+      "ptr_type": "google::grpc::transcoding::PathMatcherNode::RequestPathParts *",
+      "aliases": [],
+      "definition": "typedef std::vector<std::string> RequestPathParts;",
+      "description": "Alias for a vector of path segments used during lookup operations on the trie.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "google::grpc::transcoding::PathMatcherNode *"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::Parse",
+      "signature": "static std::unique_ptr<google::grpc::transcoding::HttpTemplate> google::grpc::transcoding::HttpTemplate::Parse(const std::string &ht)",
+      "description": "Parses an HTTP template string into an HttpTemplate instance. Use this to convert a template (with path segments, optional verb, and variable bindings) into a structured form for further processing (e.g., extracting segments, verb, and variables). Details of the accepted syntax follow google/api/http.proto conventions; specifics are not documented here and may need to be inferred from that specification.",
+      "requirements": [
+        "ht: the HTTP template string to parse; expected to follow google/api/http.proto-style HTTP template syntax (details not provided in this header).",
+        "Return value semantics (success/failure) are not documented; callers should be prepared for parse failures (e.g., null return), though exact behavior is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::segments",
+      "signature": "const std::vector<std::string> &google::grpc::transcoding::HttpTemplate::segments() const",
+      "description": "Returns the parsed path segments of the HTTP template. Intended for read-only access to the immutable list of path components extracted by Parse.",
+      "requirements": [
+        "Must be called on a valid HttpTemplate instance produced by Parse or otherwise constructed.",
+        "Returned reference remains valid for the lifetime of the HttpTemplate object; do not store beyond that."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::verb",
+      "signature": "const std::string &google::grpc::transcoding::HttpTemplate::verb() const",
+      "description": "Returns the HTTP verb suffix parsed from the template (if any). This is a read-only accessor to the verb portion captured during parsing.",
+      "requirements": [
+        "Must be called on a valid HttpTemplate instance produced by Parse or otherwise constructed.",
+        "Returned reference remains valid for the lifetime of the HttpTemplate object; do not store beyond that.",
+        "Exact format/values of the verb are not specified in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::Variables",
+      "signature": "std::vector<google::grpc::transcoding::HttpTemplate::Variable> &google::grpc::transcoding::HttpTemplate::Variables()",
+      "description": "Returns a mutable reference to the collection of variable bindings extracted from the template. Each Variable describes a binding of a field path to a range of path segments, with metadata such as wildcard usage.",
+      "requirements": [
+        "Must be called on a valid HttpTemplate instance produced by Parse or otherwise constructed.",
+        "Modifying the returned vector or its elements affects the owning HttpTemplate; callers must maintain internal consistency if they mutate it (e.g., segment index ranges should remain meaningful relative to segments()).",
+        "The Variable fields have the following meanings per this header: start_segment and end_segment define a half-open range over segments (end_segment may be negative to index from the end), field_path is the protobuf field path, and has_wildcard_path indicates presence of \"**\" in the template."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::IsReservedChar",
+      "signature": "inline bool google::grpc::transcoding::IsReservedChar(char c)",
+      "description": "Returns true if c is one of the RFC 6570 reserved characters used in URI templates; false otherwise. Intended for use when deciding whether to unescape percent-encoded bytes during URL/path processing.",
+      "requirements": [
+        "Input c is any 8-bit character; function assumes ASCII semantics.",
+        "No preconditions beyond providing a valid char value."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::ascii_isxdigit",
+      "signature": "inline bool google::grpc::transcoding::ascii_isxdigit(char c)",
+      "description": "ASCII-only check for whether c is a hexadecimal digit (0-9, a-f, A-F). Not affected by locale, unlike std::isxdigit.",
+      "requirements": [
+        "Input c is interpreted as ASCII; locale is intentionally ignored.",
+        "No additional preconditions; any char value is accepted."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::hex_digit_to_int",
+      "signature": "inline int google::grpc::transcoding::hex_digit_to_int(char c)",
+      "description": "Converts a single ASCII hex digit character to its integer value in the range [0, 15]. Assumes ASCII. If c is not a hex digit, the result is the low nibble of c’s ASCII code (unspecified for non-hex input).",
+      "requirements": [
+        "Caller should ensure c is an ASCII hex digit (0-9, a-f, A-F) prior to calling (e.g., by using ascii_isxdigit).",
+        "Function assumes ASCII encoding for c."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::GetEscapedChar",
+      "signature": "inline int google::grpc::transcoding::GetEscapedChar(absl::string_view src, size_t i, UrlUnescapeSpec unescape_spec, bool unescape_plus, char* out)",
+      "description": "Helper for URL unescaping. If, at position i in src, there is a percent-encoded triplet (\"%XX\") that should be unescaped under unescape_spec, writes the decoded byte to *out and returns 3 (characters consumed). If unescape_plus is true and src[i] is '+', writes a space to *out and returns 1. Otherwise returns 0 and does not modify *out. Reserved characters may be left encoded depending on unescape_spec.",
+      "requirements": [
+        "i must be a valid index into src (0 <= i < src.size()); the function reads src[i] unconditionally.",
+        "out must be a non-null pointer to writable memory when the function may produce an output; if return value > 0, *out is written.",
+        "Behavior depends on unescape_spec: kAllCharactersExceptReserved leaves RFC 6570 reserved characters encoded; kAllCharactersExceptSlash leaves '/' encoded; kAllCharacters decodes all percent-encoded bytes.",
+        "Assumes ASCII percent-encoding for hex digits.",
+        "Return value semantics: 0 = no unescape performed; 1 = '+' decoded to space; 3 = \"%XX\" decoded."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::IsUrlEscapedString",
+      "signature": "inline bool google::grpc::transcoding::IsUrlEscapedString(absl::string_view part, UrlUnescapeSpec unescape_spec, bool unescape_plus)",
+      "description": "Returns true if part contains any character sequence that would be unescaped under the given policy: either a decodable \"%XX\" triplet permitted by unescape_spec or (if unescape_plus is true) a '+'. Otherwise returns false.",
+      "requirements": [
+        "part may be any byte sequence; interpreted as ASCII for escape detection.",
+        "No additional preconditions for parameters beyond providing valid values."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::UrlUnescapeString",
+      "signature": "inline std::string google::grpc::transcoding::UrlUnescapeString(absl::string_view part, UrlUnescapeSpec unescape_spec, bool unescape_plus)",
+      "description": "Returns a new string with part unescaped according to unescape_spec. Decodes \"%XX\" sequences into the corresponding byte unless restricted by the policy (e.g., reserved characters or '/'), and optionally decodes '+' to space if unescape_plus is true. Leaves other characters unchanged.",
+      "requirements": [
+        "part may be any byte sequence; function assumes ASCII for hex decoding.",
+        "unescape_spec controls which decoded bytes are permitted: reserved characters (RFC 6570) or '/' may remain percent-encoded depending on the selection.",
+        "No error is thrown for malformed sequences; bytes that are not recognized as decodable under the policy are copied through unchanged."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::Build",
+      "signature": "google::grpc::transcoding::PathMatcherNode::PathInfo google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::Build() const",
+      "description": "Constructs and returns a PathInfo from the current Builder state. Intended to be called after appending the desired sequence of path nodes with AppendLiteralNode and/or AppendSingleParameterNode. The resulting PathInfo encapsulates the sequence of path parts to be inserted into or used with a PathMatcherNode trie.",
+      "requirements": [
+        "Builder must have been initialized; it can be empty or contain previously appended nodes.",
+        "The returned PathInfo contains internal storage; it is a value and can outlive the Builder."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::AppendLiteralNode",
+      "signature": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder& google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::AppendLiteralNode(std::string name)",
+      "description": "Appends a literal path-part node to the builder. The part must match the exact string value of a request path segment. The documentation explicitly disallows the strings \"/.\" and \"/..\".",
+      "requirements": [
+        "Argument name must not be the string \"/.\".",
+        "Argument name must not be the string \"/..\".",
+        "Call can be chained; it returns the same Builder by reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::AppendSingleParameterNode",
+      "signature": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder& google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::AppendSingleParameterNode()",
+      "description": "Appends a single-parameter node (wildcard for exactly one path segment) to the builder. This node matches any single request path part regardless of its string value.",
+      "requirements": [
+        "Call can be chained; it returns the same Builder by reference.",
+        "No arguments; there are no documented constraints beyond using it to represent a single path segment."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::path_info",
+      "signature": "const std::vector<std::string>& google::grpc::transcoding::PathMatcherNode::PathInfo::path_info() const",
+      "description": "Returns the internal vector of path-part strings that describes the path to be inserted or matched in a PathMatcherNode trie. Provided as a const reference for read-only access.",
+      "requirements": [
+        "The returned reference remains valid only while the PathInfo object remains alive; do not store the reference beyond the PathInfo lifetime.",
+        "Caller must not modify the returned container (it is const)."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathMatcherNode",
+      "signature": "google::grpc::transcoding::PathMatcherNode::PathMatcherNode()",
+      "description": "Constructs a root PathMatcherNode with an empty method-to-result map, no children, and wildcard flag set to false.",
+      "requirements": [
+        "No arguments; can be default-constructed."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::~PathMatcherNode",
+      "signature": "google::grpc::transcoding::PathMatcherNode::~PathMatcherNode()",
+      "description": "Destroys the PathMatcherNode and its owned resources (e.g., child nodes).",
+      "requirements": [
+        "No special requirements for callers beyond ensuring no concurrent use after destruction (class is documented as Thread Compatible, not thread-safe)."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::Clone",
+      "signature": "std::unique_ptr<google::grpc::transcoding::PathMatcherNode> google::grpc::transcoding::PathMatcherNode::Clone() const",
+      "description": "Creates and returns a deep copy of this node and its subtrie. Useful for duplicating a matcher structure.",
+      "requirements": [
+        "Callable on a valid PathMatcherNode instance.",
+        "Returned unique_ptr owns the cloned tree; caller assumes ownership."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::LookupPath",
+      "signature": "void google::grpc::transcoding::PathMatcherNode::LookupPath(google::grpc::transcoding::PathMatcherNode::RequestPathParts::const_iterator current, google::grpc::transcoding::PathMatcherNode::RequestPathParts::const_iterator end, google::grpc::transcoding::HttpMethod http_method, google::grpc::transcoding::PathMatcherLookupResult* result) const",
+      "description": "Searches the trie starting at this node to find a match for the path parts in [current, end). It descends via matching children and, upon finding a terminal match for the last part, writes the associated method data and multiplicity flag into result for the specified HTTP method.",
+      "requirements": [
+        "Iterators current and end must form a valid range into the same RequestPathParts container; they must be dereferenceable as the function advances.",
+        "http_method is used to select the registered method mapping; typical values are HTTP verbs (e.g., \"GET\", \"POST\"), but no specific set is enforced by the signature.",
+        "result must be a non-null pointer to a PathMatcherLookupResult to receive output."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::InsertPath",
+      "signature": "bool google::grpc::transcoding::PathMatcherNode::InsertPath(const google::grpc::transcoding::PathMatcherNode::PathInfo& node_path_info, std::string http_method, void* method_data, bool mark_duplicates)",
+      "description": "Inserts a path (described by node_path_info) into this node’s subtrie. At the terminal node, associates the given http_method with method_data. Returns true if the path did not previously exist; otherwise returns false and, if mark_duplicates is true, marks the entry as having multiple registrations so lookups report multiplicity.",
+      "requirements": [
+        "node_path_info must be constructed (e.g., via PathInfo::Builder) and describe the intended sequence of path parts.",
+        "http_method is the key used for method dispatch; no explicit constraints are documented.",
+        "method_data is an opaque pointer associated with the method; may be null if the caller intends to store a null payload (no constraint documented).",
+        "mark_duplicates controls duplicate handling; set to true if duplicate registrations should be flagged."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::set_wildcard",
+      "signature": "void google::grpc::transcoding::PathMatcherNode::set_wildcard(bool wildcard)",
+      "description": "Sets whether this node represents a wildcard path \"**\" (matches multiple segments) in the trie.",
+      "requirements": [
+        "Provide a boolean indicating the desired wildcard state. No other constraints are documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcher<Method>::Lookup",
+      "signature": "template <class Method>\nMethod google::grpc::transcoding::PathMatcher<Method>::Lookup(const std::string& http_method,\n                                                              const std::string& path,\n                                                              const std::string& query_params,\n                                                              std::vector<google::grpc::transcoding::VariableBinding>* variable_bindings,\n                                                              std::string* body_field_path) const",
+      "description": "Looks up a previously registered method by HTTP method and request path, optionally extracting variable bindings from the URL path and query string and returning the matched request body field path. Intended for request routing in an HTTP-to-RPC transcoding layer. Returns the registered Method associated with the match; returns nullptr when there is no match or on ambiguous matches. Notes: query_params should be the raw query string without the leading '?'. variable_bindings and body_field_path are optional and may be null. The implementation returns nullptr on failure, implying Method is expected to be a nullable pointer type.",
+      "requirements": [
+        "http_method must exactly match the method string used during registration (including case and any appended custom verb handling).",
+        "path may include a custom verb suffix of the form \":verb\" (e.g. \"/v1/books:batchGet\"); matching is controlled by builder configuration.",
+        "query_params should be the raw query string portion (e.g. \"a=1&b=2\") without the leading '?' if bindings are desired.",
+        "variable_bindings may be nullptr; if non-null, the vector will be cleared and filled with extracted bindings from both path variables and non-system query parameters.",
+        "body_field_path may be nullptr; if non-null, it will be set to the registered body field path for the matched method.",
+        "If no routes were registered (internal root_ptr_ is null) or if the lookup is ambiguous, the function returns nullptr.",
+        "Thread safety: PathMatcher is immutable and thread-safe once built; this method may be called concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::PathMatcherBuilder",
+      "signature": "template <class Method>\ngoogle::grpc::transcoding::PathMatcherBuilder<Method>::PathMatcherBuilder()",
+      "description": "Constructs a new PathMatcherBuilder used to register HTTP templates and associated methods before building a thread-safe PathMatcher. The builder is not thread-safe.",
+      "requirements": [
+        "Do not use the builder concurrently from multiple threads.",
+        "No arguments; creates an empty trie ready for registrations."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::Register",
+      "signature": "template <class Method>\nbool google::grpc::transcoding::PathMatcherBuilder<Method>::Register(const std::string& http_method,\n                                                                     const std::string& http_template,\n                                                                     const std::string& body_field_path,\n                                                                     const std::unordered_set<std::string>& system_query_parameter_names,\n                                                                     Method method)",
+      "description": "Registers a mapping from an HTTP method plus HTTP path template to the provided Method. Supports variables in the path template and records the request body field path and a set of system query parameter names to ignore when extracting bindings. Returns true on success; returns false if the path template is invalid or if duplicate insertion is disallowed by configuration.",
+      "requirements": [
+        "http_template must be a valid HTTP template parsable by HttpTemplate::Parse; otherwise this returns false.",
+        "If SetFailRegistrationOnDuplicate(true) was set, attempting to register a duplicate path/method combination causes this to return false; otherwise the last registered method replaces earlier ones.",
+        "body_field_path is stored verbatim and may be empty to indicate that the entire request body maps to the request message.",
+        "system_query_parameter_names lists query parameters (e.g., \"api_key\") to ignore when extracting variable bindings from query parameters.",
+        "Must be called before Build().",
+        "Builder is not thread-safe; do not call concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetUrlUnescapeSpec",
+      "signature": "template <class Method>\nvoid google::grpc::transcoding::PathMatcherBuilder<Method>::SetUrlUnescapeSpec(google::grpc::transcoding::UrlUnescapeSpec path_unescape_spec)",
+      "description": "Configures how percent-decoding is applied to matched path variables. This setting affects only path variable extraction (not query parameters). Call before Build() to affect the resulting PathMatcher.",
+      "requirements": [
+        "Call before Build() to ensure the setting is applied to the constructed PathMatcher.",
+        "This only affects path variable unescaping; it does not change query parameter unescaping.",
+        "Builder is not thread-safe; do not call concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetQueryParamUnescapePlus",
+      "signature": "template <class Method>\nvoid google::grpc::transcoding::PathMatcherBuilder<Method>::SetQueryParamUnescapePlus(bool query_param_unescape_plus)",
+      "description": "When set to true, '+' in query parameter values will be unescaped to space during binding extraction (HTML 2.0/RFC1866 compatibility). Default is false.",
+      "requirements": [
+        "Call before Build() to ensure the setting is applied to the constructed PathMatcher.",
+        "Affects only query parameter value decoding.",
+        "Builder is not thread-safe; do not call concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetMatchUnregisteredCustomVerb",
+      "signature": "template <class Method>\nvoid google::grpc::transcoding::PathMatcherBuilder<Method>::SetMatchUnregisteredCustomVerb(bool match_unregistered_custom_verb)",
+      "description": "Controls matching behavior for custom verbs in request paths (suffix after ':'). If true, attempts to match custom verbs even if they were not explicitly registered; otherwise, only registered verbs are treated as verbs.",
+      "requirements": [
+        "Call before Build() to ensure the setting is applied to the constructed PathMatcher.",
+        "Builder is not thread-safe; do not call concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetFailRegistrationOnDuplicate",
+      "signature": "template <class Method>\nvoid google::grpc::transcoding::PathMatcherBuilder<Method>::SetFailRegistrationOnDuplicate(bool fail_registration_on_duplicate)",
+      "description": "If set to true, subsequent Register calls will fail (return false) on duplicate path/method registrations instead of replacing the previous registration. Default is false.",
+      "requirements": [
+        "Takes effect for registrations performed after this call.",
+        "Builder is not thread-safe; do not call concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::Build",
+      "signature": "template <class Method>\ngoogle::grpc::transcoding::PathMatcherPtr<Method> google::grpc::transcoding::PathMatcherBuilder<Method>::Build()",
+      "description": "Finalizes registrations and returns a unique_ptr to an immutable, thread-safe PathMatcher. The builder is moved-from and should not be used after this call.",
+      "requirements": [
+        "Do not use the PathMatcherBuilder instance after calling Build(); it is moved into the PathMatcher.",
+        "The returned PathMatcher may be used concurrently across threads.",
+        "Call after completing all desired configuration and Register calls."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::Parse",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "tmpl",
+          "type": "google::grpc::transcoding::HttpTemplate *"
+        }
+      ],
+      "code": "// Generate a candidate HTTP template string. We do not assume any specific\n// grammar beyond what Parse() understands; failures are handled by bailing.\nstd::string tpl = FUZZ_PARAM_STR();\n\n// Attempt to parse. If parsing fails (empty unique_ptr), bail to avoid\n// returning an invalid object to the pool.\nstd::unique_ptr<google::grpc::transcoding::HttpTemplate> up =\n    google::grpc::transcoding::HttpTemplate::Parse(tpl);\nif (!up) { FUZZ_BAIL(); }\n\n// Release ownership to the fuzzer runtime (pool manages lifetime thereafter).\ngoogle::grpc::transcoding::HttpTemplate *tmpl = up.release();\n\n// Touch accessors to encourage coverage and to record useful attributes for\n// downstream stubs.\nconst std::vector<std::string> &segs = tmpl->segments();\nconst std::string &v = tmpl->verb();\nstd::vector<google::grpc::transcoding::HttpTemplate::Variable> &vars = tmpl->Variables();\n\n// Persist lightweight metadata for validation/introspection in other stubs.\nFUZZ_SET_ATTR_INT(tmpl, \"constructed\", 1);\nFUZZ_SET_ATTR_INT(tmpl, \"segments_size\", static_cast<int>(segs.size()));\nFUZZ_SET_ATTR_INT(tmpl, \"variables_size\", static_cast<int>(vars.size()));\nFUZZ_SET_ATTR_INT(tmpl, \"verb_len\", static_cast<int>(v.size()));\n// Note: we intentionally avoid mutating vars to preserve internal consistency.\n"
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::segments",
+      "inputs": [
+        {
+          "name": "tmpl",
+          "type": "google::grpc::transcoding::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tmpl",
+          "type": "google::grpc::transcoding::HttpTemplate *"
+        }
+      ],
+      "code": "// Ensure this object originated from Parse() in our harness context.\nint constructed = FUZZ_GET_ATTR_INT(tmpl, \"constructed\");\nif (!constructed) { FUZZ_BAIL(); }\n\n// Access the segments; read through them to exercise the API and ensure the\n// returned reference remains valid for the life of the object (no storing).\nconst std::vector<std::string> &segs = tmpl->segments();\nsize_t total_len = 0;\nfor (const auto &s : segs) {\n  total_len += s.size();\n}\n\n// Update attributes for downstream stubs; do not assert equality since the\n// template could allow empty or changed states across versions.\nFUZZ_SET_ATTR_INT(tmpl, \"segments_size\", static_cast<int>(segs.size()));\n// Record a checksum-ish value for potential later diagnostics.\nFUZZ_SET_ATTR_INT(tmpl, \"segments_total_len\", static_cast<int>(total_len % 2048));\n"
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::verb",
+      "inputs": [
+        {
+          "name": "tmpl",
+          "type": "google::grpc::transcoding::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tmpl",
+          "type": "google::grpc::transcoding::HttpTemplate *"
+        }
+      ],
+      "code": "// Ensure valid instance from Parse().\nint constructed = FUZZ_GET_ATTR_INT(tmpl, \"constructed\");\nif (!constructed) { FUZZ_BAIL(); }\n\n// Access the verb; we only read it and record metadata.\nconst std::string &verb = tmpl->verb();\nFUZZ_SET_ATTR_INT(tmpl, \"verb_len\", static_cast<int>(verb.size()));\n// Optionally record whether verb is empty or not as a boolean flag.\nFUZZ_SET_ATTR_INT(tmpl, \"has_verb\", verb.empty() ? 0 : 1);\n"
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::Variables",
+      "inputs": [
+        {
+          "name": "tmpl",
+          "type": "google::grpc::transcoding::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "tmpl",
+          "type": "google::grpc::transcoding::HttpTemplate *"
+        }
+      ],
+      "code": "// Ensure valid instance from Parse().\nint constructed = FUZZ_GET_ATTR_INT(tmpl, \"constructed\");\nif (!constructed) { FUZZ_BAIL(); }\n\n// Access the mutable variables vector but do not mutate it to avoid violating\n// internal invariants that depend on segments() ranges.\nstd::vector<google::grpc::transcoding::HttpTemplate::Variable> &vars = tmpl->Variables();\n\n// Walk the variables to exercise field access. We avoid any assertions about\n// index ranges since negative end_segment values are allowed by design.\nint wildcard_count = 0;\nfor (const auto &var : vars) {\n  if (var.has_wildcard_path) { ++wildcard_count; }\n  // Read field_path components to exercise container access.\n  size_t fp_total = 0;\n  for (const auto &p : var.field_path) { fp_total += p.size(); }\n  (void)fp_total; // suppress unused warning while still touching the data\n}\n\n// Persist counts for potential downstream checks.\nFUZZ_SET_ATTR_INT(tmpl, \"variables_size\", static_cast<int>(vars.size()));\nFUZZ_SET_ATTR_INT(tmpl, \"variables_wildcards\", wildcard_count);\n"
+    },
+    {
+      "name": "google::grpc::transcoding::IsReservedChar",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate an arbitrary 8-bit char (ASCII assumed by API semantics)\nchar c = static_cast<char>(*FUZZ_PARAM(unsigned int) & 0xFF);\n\n// Call the target function (no preconditions beyond valid char value)\nbool reserved = google::grpc::transcoding::IsReservedChar(c);\n\n// No strict properties to assert here since the exact reserved set is library-defined.\n// This call exercises both true/false paths depending on input.\n\n// Validation summary: Supplies any 8-bit char and invokes IsReservedChar; no constraints violated."
+    },
+    {
+      "name": "google::grpc::transcoding::ascii_isxdigit",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate an arbitrary 8-bit char (ASCII semantics expected)\nchar c = static_cast<char>(*FUZZ_PARAM(unsigned int) & 0xFF);\n\n// Invoke the ASCII-only hex digit check\nbool lib_is_hex = google::grpc::transcoding::ascii_isxdigit(c);\n\n// Cross-check with a local ASCII implementation to assert equivalence\nbool local_is_hex = ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));\nFUZZ_ASSERT(lib_is_hex == local_is_hex, \"ascii_isxdigit must match ASCII hex classification\");\n\n// Validation summary: Provides any char and asserts result matches explicit ASCII range checks."
+    },
+    {
+      "name": "google::grpc::transcoding::hex_digit_to_int",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Precondition: caller should ensure c is an ASCII hex digit.\n// Construct a guaranteed-hex character.\nstatic const char kHexSet[] = \"0123456789abcdefABCDEF\";\nunsigned pick = *FUZZ_PARAM(unsigned int) % (sizeof(kHexSet) - 1);\nchar c = kHexSet[pick];\n\n// Enforce precondition using the companion predicate\nFUZZ_ASSERT(google::grpc::transcoding::ascii_isxdigit(c), \"Input to hex_digit_to_int must be a hex digit\");\n\n// Call the function under test\nint v = google::grpc::transcoding::hex_digit_to_int(c);\n\n// Compute expected value and assert correctness\nint expected = 0;\nif (c >= '0' && c <= '9') expected = c - '0';\nelse if (c >= 'a' && c <= 'f') expected = 10 + (c - 'a');\nelse /* 'A'..'F' */ expected = 10 + (c - 'A');\nFUZZ_ASSERT(v == expected, \"hex_digit_to_int must return 0..15 matching ASCII hex value\");\n\n// Validation summary: Always feeds a valid hex digit and asserts correct numeric conversion."
+    },
+    {
+      "name": "google::grpc::transcoding::GetEscapedChar",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a source string; ensure it's non-empty and modest in size. Potentially inject escape patterns\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 512) src.resize(512);\nif (src.empty()) src = \"%41\"; // ensure at least one character\n\n// With some randomness, insert patterns to exercise various branches\nunsigned mode = *FUZZ_PARAM(unsigned int) % 6;\nsize_t pos = (*FUZZ_PARAM(unsigned int)) % (src.size());\nswitch (mode) {\n  case 0: src.insert(pos, \"+\"); break;                    // plus handling\n  case 1: src.insert(pos, \"%41\"); break;                  // valid hex 'A'\n  case 2: src.insert(pos, \"%2f\"); break;                  // slash (policy-dependent)\n  case 3: src.insert(pos, \"%7E\"); break;                  // tilde\n  case 4: src.insert(pos, \"%%\"); break;                    // malformed percent\n  default: /* leave as-is */ break;\n}\n\n// Choose a valid index i into src\nsize_t i = (*FUZZ_PARAM(unsigned int)) % src.size();\n\n// Random unescape policy and plus flag\nint spec_pick = (int)(*FUZZ_PARAM(unsigned int) % 3);\ngoogle::grpc::transcoding::UrlUnescapeSpec spec =\n    spec_pick == 0 ? google::grpc::transcoding::UrlUnescapeSpec::kAllCharactersExceptReserved\n  : spec_pick == 1 ? google::grpc::transcoding::UrlUnescapeSpec::kAllCharactersExceptSlash\n                   : google::grpc::transcoding::UrlUnescapeSpec::kAllCharacters;\nbool unescape_plus = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n\n// Output storage must be non-null when consumed>0\nchar out_ch = 0;\nint consumed = google::grpc::transcoding::GetEscapedChar(src, i, spec, unescape_plus, &out_ch);\n\n// Property checks required by API semantics\nif (consumed == 1) {\n  FUZZ_ASSERT(unescape_plus, \"Return of 1 implies '+' to space and unescape_plus=true\");\n  FUZZ_ASSERT(src[i] == '+', \"Return of 1 implies current char is '+'\");\n}\nif (consumed == 3) {\n  FUZZ_ASSERT(src[i] == '%', \"Return of 3 implies a percent triplet starting at i\");\n  FUZZ_ASSERT(i + 2 < src.size(), \"Return of 3 implies i+2 is within bounds\");\n}\n\n// Validation summary: Ensures valid index and non-null out; asserts invariant relations for returns 1 and 3."
+    },
+    {
+      "name": "google::grpc::transcoding::IsUrlEscapedString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare input; keep size modest for scanning\nstd::string part = FUZZ_PARAM_STR();\nif (part.size() > 512) part.resize(512);\n\n// Random unescape policy and plus flag\nint spec_pick = (int)(*FUZZ_PARAM(unsigned int) % 3);\ngoogle::grpc::transcoding::UrlUnescapeSpec spec =\n    spec_pick == 0 ? google::grpc::transcoding::UrlUnescapeSpec::kAllCharactersExceptReserved\n  : spec_pick == 1 ? google::grpc::transcoding::UrlUnescapeSpec::kAllCharactersExceptSlash\n                   : google::grpc::transcoding::UrlUnescapeSpec::kAllCharacters;\nbool unescape_plus = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n\n// Invoke the function under test\nbool has_unescapable = google::grpc::transcoding::IsUrlEscapedString(part, spec, unescape_plus);\n\n// Cross-check by scanning with GetEscapedChar; if any position would unescape, result must be true\nchar tmp = 0;\nbool found = false;\nfor (size_t j = 0; j < part.size(); ++j) {\n  int c = google::grpc::transcoding::GetEscapedChar(part, j, spec, unescape_plus, &tmp);\n  if (c > 0) { found = true; break; }\n}\nif (found) {\n  FUZZ_ASSERT(has_unescapable, \"IsUrlEscapedString must be true if any position would unescape\");\n}\n\n// Validation summary: Random policy/flag; verifies a necessary condition using GetEscapedChar scanning."
+    },
+    {
+      "name": "google::grpc::transcoding::UrlUnescapeString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare input and parameters\nstd::string part = FUZZ_PARAM_STR();\nif (part.size() > 512) part.resize(512);\n\nint spec_pick = (int)(*FUZZ_PARAM(unsigned int) % 3);\ngoogle::grpc::transcoding::UrlUnescapeSpec spec =\n    spec_pick == 0 ? google::grpc::transcoding::UrlUnescapeSpec::kAllCharactersExceptReserved\n  : spec_pick == 1 ? google::grpc::transcoding::UrlUnescapeSpec::kAllCharactersExceptSlash\n                   : google::grpc::transcoding::UrlUnescapeSpec::kAllCharacters;\nbool unescape_plus = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n\n// Precompute whether any unescape would occur\nbool has_unescapable = google::grpc::transcoding::IsUrlEscapedString(part, spec, unescape_plus);\n\n// Invoke the function under test\nstd::string out = google::grpc::transcoding::UrlUnescapeString(part, spec, unescape_plus);\n\n// Property: if no unescape is applicable under the policy, output equals input\nif (!has_unescapable) {\n  FUZZ_ASSERT(out == part, \"UrlUnescapeString must return input unchanged when nothing is unescaped\");\n}\n\n// Validation summary: Calls with random policy/flag; asserts identity when no escape sequences apply."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::path_info",
+      "inputs": [
+        {
+          "name": "path_info",
+          "type": "google::grpc::transcoding::PathMatcherNode::PathInfo *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path_info",
+          "type": "google::grpc::transcoding::PathMatcherNode::PathInfo *"
+        }
+      ],
+      "code": "// Access the const reference to the internal vector; do not store beyond lifetime.\n{\n  const std::vector<std::string> &parts = path_info->path_info();\n  // Exercise read-only access by iterating a bounded number of elements.\n  size_t to_check = parts.size();\n  if (to_check > 8) { to_check = 8; }\n  for (size_t i = 0; i < to_check; ++i) {\n    // Touch data to drive code paths; avoid heavy processing.\n    volatile size_t len = parts[i].size();\n    (void)len;\n  }\n  // Property: The attribute we stored (if any) should be consistent with the current size when present.\n  int seg_attr = FUZZ_GET_ATTR_INT(path_info, \"segments\");\n  if (seg_attr != 0) {\n    FUZZ_ASSERT((size_t)seg_attr == parts.size(), \"segments attribute mismatch with path_info size\");\n  }\n}\n// Validation summary: The stub uses the returned const reference only transiently and asserts any\n// previously-recorded segment count matches the container size."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::set_wildcard",
+      "inputs": [
+        {
+          "name": "node",
+          "type": "google::grpc::transcoding::PathMatcherNode *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "google::grpc::transcoding::PathMatcherNode *"
+        }
+      ],
+      "code": "// Set the node's wildcard flag using a fuzzed boolean.\n{\n  bool wildcard = (*FUZZ_PARAM(unsigned int) % 2) != 0;\n  node->set_wildcard(wildcard);\n  FUZZ_SET_ATTR_INT(node, \"wildcard\", wildcard ? 1 : 0);\n}\n// Validation summary: The stub toggles the wildcard state with a bounded boolean and records it for later stubs."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathMatcherNode",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "google::grpc::transcoding::PathMatcherNode *"
+        }
+      ],
+      "code": "google::grpc::transcoding::PathMatcherNode *node = new google::grpc::transcoding::PathMatcherNode();\n// Track attributes for later stubs (e.g., InsertPath duplicate tracking, wildcard default=false)\nFUZZ_SET_ATTR_INT(node, \"dup_inserts\", 0);\nFUZZ_SET_ATTR_INT(node, \"wildcard\", 0);\nFUZZ_ASSERT(node != nullptr, \"PathMatcherNode allocation failed\");\n// Validation summary: Creates a root node via inline constructor, sets initial attributes, and exposes it as an output."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::PathMatcherBuilder",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "code": "// Create a PathMatcherBuilder with Method = void*. The actual builder object is\n// stored behind a void* and annotated via attributes for safe downstream use.\n// Builder is not thread-safe; runtime ensures single-threaded stub execution.\nusing BuilderT = google::grpc::transcoding::PathMatcherBuilder<void*>;\nBuilderT* b = new BuilderT();\n// Expose as output and annotate\nvoid* builder = static_cast<void*>(b);\nFUZZ_SET_ATTR_STR(builder, \"type\", \"PathMatcherBuilder<void*>\");\nFUZZ_SET_ATTR_INT(builder, \"moved\", 0); // 0 => valid for Register/Set*; 1 => Build() already called\n// Return builder to the pool as a persistent object"
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetUrlUnescapeSpec",
+      "inputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "code": "// Enforce builder validity (must not be used after Build())\nif (FUZZ_GET_ATTR_INT(builder, \"moved\") != 0) { FUZZ_BAIL(); }\nusing BuilderT = google::grpc::transcoding::PathMatcherBuilder<void*>;\nBuilderT* b = static_cast<BuilderT*>(builder);\n// Generate an enum value for UrlUnescapeSpec from a small range\nunsigned int r = *FUZZ_PARAM(unsigned int) % 4; // assume a small enum cardinality\ngoogle::grpc::transcoding::UrlUnescapeSpec spec = static_cast<google::grpc::transcoding::UrlUnescapeSpec>(r);\nb->SetUrlUnescapeSpec(spec);\n// Keep builder for subsequent configuration/registration"
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetQueryParamUnescapePlus",
+      "inputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "code": "// Enforce builder validity (must not be used after Build())\nif (FUZZ_GET_ATTR_INT(builder, \"moved\") != 0) { FUZZ_BAIL(); }\nusing BuilderT = google::grpc::transcoding::PathMatcherBuilder<void*>;\nBuilderT* b = static_cast<BuilderT*>(builder);\nbool unescape_plus = (*FUZZ_PARAM(unsigned int) & 1u) != 0u;\nb->SetQueryParamUnescapePlus(unescape_plus);\n// Keep builder for further operations"
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetMatchUnregisteredCustomVerb",
+      "inputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "code": "// Enforce builder validity (must not be used after Build())\nif (FUZZ_GET_ATTR_INT(builder, \"moved\") != 0) { FUZZ_BAIL(); }\nusing BuilderT = google::grpc::transcoding::PathMatcherBuilder<void*>;\nBuilderT* b = static_cast<BuilderT*>(builder);\nbool match_unregistered = (*FUZZ_PARAM(unsigned int) & 1u) != 0u;\nb->SetMatchUnregisteredCustomVerb(match_unregistered);\n// Keep builder alive"
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetFailRegistrationOnDuplicate",
+      "inputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "void *"
+        }
+      ],
+      "code": "// Enforce builder validity (must not be used after Build())\nif (FUZZ_GET_ATTR_INT(builder, \"moved\") != 0) { FUZZ_BAIL(); }\nusing BuilderT = google::grpc::transcoding::PathMatcherBuilder<void*>;\nBuilderT* b = static_cast<BuilderT*>(builder);\nbool fail_on_dup = (*FUZZ_PARAM(unsigned int) & 1u) != 0u;\nb->SetFailRegistrationOnDuplicate(fail_on_dup);\n// Keep builder for future Register/Build calls"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::Build",
+      "reason": "The method is declared but its definition is unavailable in the build environment, causing undefined references at link time."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::AppendLiteralNode",
+      "reason": "The method is declared but its definition is unavailable in the build environment, causing undefined references at link time."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::Builder::AppendSingleParameterNode",
+      "reason": "The method is declared but its definition is unavailable in the build environment, causing undefined references at link time."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::~PathMatcherNode",
+      "reason": "The destructor is not defined in the linked environment, so any invocation (e.g., delete) yields an undefined reference."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::Clone",
+      "reason": "The method’s definition is missing from the linked environment, producing undefined references at link time."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::LookupPath",
+      "reason": "The method’s definition is missing from the linked environment, producing undefined references at link time."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::InsertPath",
+      "reason": "The method’s definition is missing from the linked environment, producing undefined references at link time."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcher<Method>::Lookup",
+      "reason": "Linking fails due to undefined references to PathMatcherNode::LookupPath and Abseil split utilities, indicating required library/impl is not available in this environment."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::Register",
+      "reason": "Linking fails with undefined references to PathMatcherNode::PathInfo::Builder and InsertPath, so the necessary implementation is not linked here."
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::Build",
+      "reason": "Build/PathMatcher destruction references PathMatcherNode::~PathMatcherNode which is undefined, so required symbols are missing in this toolchain."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::segments",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::verb",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::Variables",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::IsReservedChar",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::ascii_isxdigit",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::hex_digit_to_int",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathInfo::path_info",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::set_wildcard",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherNode::PathMatcherNode",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::PathMatcherBuilder",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetUrlUnescapeSpec",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetQueryParamUnescapePlus",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetMatchUnregisteredCustomVerb",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::PathMatcherBuilder<Method>::SetFailRegistrationOnDuplicate",
+      "data_types": []
+    },
+    {
+      "name": "google::grpc::transcoding::HttpTemplate::Parse",
+      "data_types": [
+        "HTTP template string"
+      ]
+    },
+    {
+      "name": "google::grpc::transcoding::GetEscapedChar",
+      "data_types": [
+        "URL-escaped string"
+      ]
+    },
+    {
+      "name": "google::grpc::transcoding::IsUrlEscapedString",
+      "data_types": [
+        "URL-escaped string"
+      ]
+    },
+    {
+      "name": "google::grpc::transcoding::UrlUnescapeString",
+      "data_types": [
+        "URL-escaped string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "HTTP template string",
+      "description": "A string following google/api/http.proto-style HTTP path template syntax used for HTTP-to-gRPC transcoding. Examples include literals and variables like \"/v1/{name=projects/*}/topics\" or paths with custom verbs like \"/v1/books:batchGet\". May include variable bindings {field=path} with wildcards * and **, and optional verb suffix after a colon."
+    },
+    {
+      "data_type": "URL-escaped string",
+      "description": "A string that may contain URL percent-encoded sequences (\"%XX\") and optionally '+' to represent a space (HTML form-style). Used for URL path parts or query parameter values. Hex digits are ASCII; reserved characters and '/' may or may not be decoded depending on a specified unescape policy."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "HTTP template string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for google/api/http.proto-style HTTP path templates\n# Examples we try to cover:\n# - Literal only: /v1/books\n# - Variables: /v1/{name}\n# - Variables with binding and wildcards: /v1/{name=projects/*}/topics\n# - Double wildcard: /v1/{name=**}\n# - Mix of literals and single-parameter wildcards: /a/*/b\n# - Custom verb suffix: /v1/books:batchGet\n# - Dotted field paths in variables: {book.name=shelves/*/books/*}\n# - Negative end segments are internal; template syntax uses * / ** patterns.\n# - Avoid malformed inputs; keep under 4096 bytes.\n\nLITERALS = [\n    \"v1\", \"v2\", \"beta\", \"projects\", \"locations\", \"instances\", \"books\",\n    \"shelves\", \"topics\", \"subscriptions\", \"users\", \"profiles\", \"photos\",\n    \"media\", \"files\", \"datasets\", \"tables\", \"jobs\", \"operations\",\n]\n\nCUSTOM_VERBS = [\n    \"get\", \"list\", \"create\", \"delete\", \"update\", \"patch\", \"batchGet\",\n    \"search\", \"stream\", \"upload\", \"download\"\n]\n\nFIELD_NAMES = [\n    \"name\", \"parent\", \"book\", \"shelf\", \"topic\", \"subscription\",\n    \"project\", \"location\", \"instance\", \"user\", \"photo\", \"dataset\",\n    \"table\", \"job\", \"operation\"\n]\n\n# Path piece generators\n\ndef literal_seg(rng: random.Random) -> str:\n    # Use URL-safe literal without slashes or forbidden strings\n    base = rng.choice(LITERALS)\n    # Occasionally append an ID-like suffix\n    if rng.random() < 0.3:\n        suffix = ''.join(rng.choices(string.ascii_lowercase + string.digits, k=rng.randint(1, 6)))\n        return f\"{base}-{suffix}\"\n    return base\n\n\ndef single_wildcard() -> str:\n    return \"*\"\n\n\ndef double_wildcard() -> str:\n    return \"**\"\n\n\ndef field_path(rng: random.Random) -> str:\n    # Create dotted field path like book.name or project.location.instance\n    parts = [rng.choice(FIELD_NAMES)]\n    if rng.random() < 0.7:\n        # 1-2 more components\n        for _ in range(rng.randint(0, 2)):\n            parts.append(rng.choice(FIELD_NAMES))\n    return \".\".join(parts)\n\n\ndef binding_pattern(rng: random.Random) -> str:\n    # Right side of {field=pattern}; pattern is a path pattern composed of literals and wildcards\n    segs: List[str] = []\n    n = rng.randint(1, 4)\n    for i in range(n):\n        r = rng.random()\n        if r < 0.55:\n            segs.append(literal_seg(rng))\n        elif r < 0.85:\n            segs.append(single_wildcard())\n        else:\n            # Put ** only at end to keep validity high\n            segs.append(double_wildcard() if i == n - 1 else single_wildcard())\n    # Avoid producing consecutive ** or internal ** by normalizing\n    cleaned: List[str] = []\n    for i, s in enumerate(segs):\n        if s == \"**\" and i != len(segs) - 1:\n            cleaned.append(\"*\")\n        else:\n            cleaned.append(s)\n    return \"/\".join(cleaned)\n\n\ndef variable_seg(rng: random.Random) -> str:\n    # Either simple {name} or binding {name=pattern}\n    if rng.random() < 0.4:\n        return \"{\" + rng.choice(FIELD_NAMES) + \"}\"\n    else:\n        fp = field_path(rng)\n        pat = binding_pattern(rng)\n        return \"{\" + fp + \"=\" + pat + \"}\"\n\n\ndef mixed_segment(rng: random.Random) -> str:\n    r = rng.random()\n    if r < 0.5:\n        return literal_seg(rng)\n    elif r < 0.7:\n        return variable_seg(rng)\n    elif r < 0.9:\n        return single_wildcard()\n    else:\n        # Double wildcard is best at end; the caller may place at end.\n        return double_wildcard()\n\n\ndef maybe_custom_verb(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return \":\" + rng.choice(CUSTOM_VERBS)\n    return \"\"\n\n\ndef build_template(rng: random.Random) -> str:\n    # Construct a path with 1-8 segments\n    n = rng.randint(1, 8)\n    segs: List[str] = []\n    for i in range(n):\n        s = mixed_segment(rng)\n        # Keep ** only at final position to maximize parse success\n        if s == \"**\" and i != n - 1:\n            s = \"*\"\n        segs.append(s)\n    # Avoid empty or forbidden segments; ensure first segment is literal-like often\n    if segs and segs[0] in (\"*\", \"**\") and rng.random() < 0.8:\n        segs[0] = literal_seg(rng)\n    # Ensure we don't produce \"/.\" or \"/..\" literals\n    segs = [\".\" if s == \"/.\" else (\"..\" if s == \"/..\" else s) for s in segs]\n    path = \"/\" + \"/\".join(segs)\n\n    # Occasionally append custom verb\n    if rng.random() < 0.35:\n        path += maybe_custom_verb(rng)\n    return path\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a strategy\n    strategy = rng.random()\n\n    if strategy < 0.15:\n        # Simple literal path\n        count = rng.randint(1, 5)\n        segs = [literal_seg(rng) for _ in range(count)]\n        s = \"/\" + \"/\".join(segs)\n    elif strategy < 0.30:\n        # Single variable\n        s = \"/v1/\" + variable_seg(rng)\n    elif strategy < 0.45:\n        # Variable with binding and additional literals\n        s = \"/v1/\" + variable_seg(rng) + \"/\" + literal_seg(rng)\n        if rng.random() < 0.5:\n            s += \"/\" + literal_seg(rng)\n        if rng.random() < 0.3:\n            s += maybe_custom_verb(rng)\n    elif strategy < 0.60:\n        # Double wildcard at end via binding\n        fp = field_path(rng)\n        s = f\"/v1/{{{fp}=**}}/\" + literal_seg(rng)\n        if rng.random() < 0.4:\n            s += \"/\" + literal_seg(rng)\n    elif strategy < 0.75:\n        # Mix of literals and single wildcards\n        parts = []\n        for _ in range(rng.randint(2, 6)):\n            parts.append(rng.choice([literal_seg(rng), single_wildcard()]))\n        s = \"/\" + \"/\".join(parts)\n        if rng.random() < 0.4:\n            s += maybe_custom_verb(rng)\n    else:\n        # General builder with diverse segments\n        s = build_template(rng)\n\n    # Trim to size limit\n    bs = s.encode('utf-8')[:4096]\n    return bs\n"
+    },
+    {
+      "data_type": "URL-escaped string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces URL-escaped strings tailored to exercise\n# google::grpc::transcoding URL unescape helpers. It focuses on valid inputs\n# across different policies: reserved chars, slash handling, plus-to-space, and\n# mixtures of already-plain text with percent triplets.\n\n# Building blocks\n_HEX = \"0123456789ABCDEF\"\n_LOWER_HEX = \"0123456789abcdef\"\n_ASCII_PRINTABLE = ''.join(chr(c) for c in range(0x20, 0x7f))\n# RFC 6570 reserved characters often referenced in URI template specs\n_RESERVED = \":/?#[]@!$&'()*+,;=\\\"\"  # includes slash and other reserved\n_UNRESERVED = string.ascii_letters + string.digits + \"-._~\"\n\n# Helper to percent-encode a single byte with chosen hex case\ndef _pct(b: int, upper: bool = True) -> str:\n    hi = (b >> 4) & 0xF\n    lo = b & 0xF\n    hexdigits = _HEX if upper else _LOWER_HEX\n    return '%' + hexdigits[hi] + hexdigits[lo]\n\n# Construct segments that are interesting under different unescape policies\ndef _segment_plain(rng: random.Random) -> str:\n    # Plain unreserved text\n    length = rng.randint(1, 12)\n    return ''.join(rng.choice(_UNRESERVED) for _ in range(length))\n\ndef _segment_with_plus(rng: random.Random) -> str:\n    # Mix of text and plus signs which may decode to spaces depending on flag\n    parts: List[str] = []\n    n = rng.randint(1, 6)\n    for i in range(n):\n        parts.append(_segment_plain(rng))\n        parts.append('+' * rng.randint(1, 3))\n    parts.append(_segment_plain(rng))\n    return ''.join(parts)\n\ndef _segment_with_pct_reserved(rng: random.Random) -> str:\n    # Percent-encode reserved characters; policy may keep them encoded\n    parts: List[str] = []\n    for _ in range(rng.randint(1, 6)):\n        ch = rng.choice(_RESERVED)\n        upper = rng.choice([True, False])\n        parts.append(_pct(ord(ch), upper))\n        # sprinkle plain\n        if rng.random() < 0.5:\n            parts.append(_segment_plain(rng))\n    return ''.join(parts) or _pct(ord('~'))\n\ndef _segment_with_pct_unreserved(rng: random.Random) -> str:\n    # Percent-encoded unreserved characters should always decode\n    parts: List[str] = []\n    for _ in range(rng.randint(2, 8)):\n        ch = rng.choice(_UNRESERVED)\n        upper = rng.choice([True, False])\n        parts.append(_pct(ord(ch), upper))\n        if rng.random() < 0.4:\n            parts.append(rng.choice(['', _segment_plain(rng)]))\n    return ''.join(parts)\n\ndef _segment_with_slash_encoded(rng: random.Random) -> str:\n    # Encode '/' specifically to exercise kAllCharactersExceptSlash vs others\n    reps = rng.randint(1, 5)\n    parts: List[str] = []\n    for _ in range(reps):\n        parts.append(_segment_plain(rng))\n        parts.append(rng.choice(['%2F', '%2f']))\n    parts.append(_segment_plain(rng))\n    return ''.join(parts)\n\ndef _mixed_segment(rng: random.Random) -> str:\n    # Combine multiple behaviors in one part\n    builders = [\n        _segment_plain,\n        _segment_with_plus,\n        _segment_with_pct_reserved,\n        _segment_with_pct_unreserved,\n        _segment_with_slash_encoded,\n    ]\n    parts: List[str] = []\n    for _ in range(rng.randint(2, 4)):\n        parts.append(rng.choice(builders)(rng))\n    # Keep part modest\n    s = ''.join(parts)\n    if len(s) > 256:\n        s = s[:256]\n    return s\n\ndef _make_query_string(rng: random.Random) -> str:\n    # Create realistic query string with a variety of encodings and plus usage\n    kv_count = rng.randint(1, 6)\n    keys = ['key', 'q', 'page', 'filter', 'api_key', 'token', 'x']\n    seg_fns = [\n        _segment_plain,\n        _segment_with_plus,\n        _segment_with_pct_unreserved,\n        _segment_with_pct_reserved,\n        _segment_with_slash_encoded,\n        _mixed_segment,\n    ]\n    pairs = []\n    for _ in range(kv_count):\n        k = rng.choice(keys) + (str(rng.randint(0, 9)) if rng.random() < 0.4 else '')\n        v = rng.choice(seg_fns)(rng)\n        pairs.append(f\"{k}={v}\")\n    return '&'.join(pairs)\n\ndef _make_path_like(rng: random.Random) -> str:\n    # Create a path-like string composed of segments; the fuzz stubs may use it\n    seg_count = rng.randint(1, 8)\n    seg_fns = [\n        _segment_plain,\n        _segment_with_pct_unreserved,\n        _segment_with_pct_reserved,\n        _segment_with_slash_encoded,  # will stay within a single segment since '/' is encoded\n        _segment_with_plus,\n        _mixed_segment,\n    ]\n    segments = [rng.choice(seg_fns)(rng) for _ in range(seg_count)]\n    s = '/'.join(segments)\n    # Optionally append a custom verb suffix to simulate paths that include ':'\n    if rng.random() < 0.3:\n        verb = rng.choice(['batchGet', 'search', 'upload'])\n        s += ':' + verb\n    return s\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose one of several composition modes to align with various stub needs\n    mode = rng.randint(0, 5)\n    if mode == 0:\n        # Single part focusing on unreserved percent triplets\n        part = _segment_with_pct_unreserved(rng)\n    elif mode == 1:\n        # Single part focusing on reserved encodings\n        part = _segment_with_pct_reserved(rng)\n    elif mode == 2:\n        # Plus handling emphasis\n        part = _segment_with_plus(rng)\n    elif mode == 3:\n        # Slash encoded emphasis\n        part = _segment_with_slash_encoded(rng)\n    elif mode == 4:\n        # Path-like string with multiple segments and optional custom verb\n        part = _make_path_like(rng)\n    else:\n        # Query-string like payload to feed into IsUrlEscapedString/UrlUnescapeString\n        part = _make_query_string(rng)\n\n    # Ensure non-empty and within size limits\n    if not part:\n        part = '%41'  # 'A'\n\n    b = part.encode('utf-8', errors='strict')\n    if len(b) > 4096:\n        b = b[:4096]\n    return b\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10654,
+            "output_tokens": 5107,
+            "total_tokens": 15761
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8966,
+            "output_tokens": 482,
+            "total_tokens": 9448
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11132,
+            "output_tokens": 8912,
+            "total_tokens": 20044
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 59964,
+            "output_tokens": 17879,
+            "total_tokens": 77843
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 80475,
+            "output_tokens": 8435,
+            "total_tokens": 88910
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11220,
+            "output_tokens": 274,
+            "total_tokens": 11494
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 506.14559268951416,
+    "scan_objects": 31.27424454689026,
+    "validate_objects": 3.0302162170410156,
+    "scan_functions": 0,
+    "synthesis": 226.9734218120575,
+    "fill": 210.11238861083984,
+    "classify": 3.3722617626190186,
+    "build_generators": 31.38200068473816
+  }
+}

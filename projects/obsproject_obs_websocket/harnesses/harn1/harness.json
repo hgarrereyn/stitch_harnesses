@@ -1,0 +1,363 @@
+{
+  "objects": [
+    {
+      "ptr_type": "obs_websocket_vendor *",
+      "aliases": [],
+      "definition": "typedef void *obs_websocket_vendor;",
+      "description": "Opaque handle identifying a registered obs-websocket vendor. It is returned by obs_websocket_register_vendor and must be passed back to vendor API functions. Actual structure is hidden; treat as an opaque pointer.",
+      "direct_api_constructors": [
+        "obs_websocket_register_vendor"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "obs_websocket_request_callback_function *",
+      "aliases": [],
+      "definition": "typedef void (*obs_websocket_request_callback_function)(obs_data_t *, obs_data_t *, void *);",
+      "description": "Function pointer type for handling vendor requests. Signature: (obs_data_t *request_data, obs_data_t *response_data, void *priv_data). Implementations should read the request and populate the response object.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "obs_websocket_event_callback_function *",
+      "aliases": [],
+      "definition": "typedef void (*obs_websocket_event_callback_function)(uint64_t, const char *, const char *, void *);",
+      "description": "Function pointer type for receiving obs-websocket events. Parameters are typically: timestamp (uint64_t), event vendor/name strings, and user priv_data. Exact semantics are not documented here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "obs_websocket_request_response *",
+      "aliases": [],
+      "definition": "struct obs_websocket_request_response {\n\tunsigned int status_code;\n\tchar *comment;\n\tchar *response_data; // JSON string, because obs_data_t* only supports array<object>, so conversions would break API.\n};",
+      "description": "Heap-allocated response container returned by obs_websocket_call_request. Contains HTTP-like status_code, optional human-readable comment, and response_data as a JSON string. Must be freed with obs_websocket_request_response_free.",
+      "direct_api_constructors": [
+        "obs_websocket_call_request"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "obs_websocket_request_callback *",
+      "aliases": [],
+      "definition": "struct obs_websocket_request_callback {\n\tobs_websocket_request_callback_function callback;\n\tvoid *priv_data;\n};",
+      "description": "Internal helper struct bundling a request callback function with its user data. Used when registering vendor requests. Not intended for long-term ownership by callers; stack-constructed and passed to the proc handler.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "obs_websocket_event_callback *",
+      "aliases": [],
+      "definition": "struct obs_websocket_event_callback {\n\tobs_websocket_event_callback_function callback;\n\tvoid *priv_data;\n};",
+      "description": "Internal helper struct bundling an event callback function with its user data for registration/unregistration. Not meant for persistent storage by callers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "obs_websocket_get_api_version",
+      "signature": "static inline unsigned int obs_websocket_get_api_version(void);",
+      "description": "Return the obs-websocket API version provided by the loaded obs-websocket plugin. Intended for feature-gating and compatibility checks. If the obs-websocket proc handler is unavailable, returns 0. If the proc exists but the specific get_api_version call is missing (older plugin), returns 1.",
+      "requirements": [
+        "obs-websocket plugin should be loaded; otherwise the function may return 0 (no handler) or 1 (very old API)",
+        "Caller should treat return values 0 or 1 as indicators that only legacy functionality may be available and gate usage accordingly",
+        "No arguments; safe to call repeatedly"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_call_request",
+      "signature": "static inline struct obs_websocket_request_response *obs_websocket_call_request(const char *request_type, obs_data_t *request_data);",
+      "description": "Invoke an obs-websocket request by name and return a heap-allocated response object that must be freed with obs_websocket_request_response_free(). request_data is serialized to JSON (via obs_data_get_json) and sent as the request payload. In C++ builds, request_data defaults to NULL.",
+      "requirements": [
+        "request_type must be a non-null, NUL-terminated C string naming a valid obs-websocket request (e.g., \"GetVersion\")",
+        "request_data may be NULL; if non-NULL it must be a valid obs_data_t* suitable for JSON serialization",
+        "The returned pointer may be NULL if the obs-websocket proc handler is unavailable; caller must check for NULL before use",
+        "Caller must free the returned struct using obs_websocket_request_response_free() to avoid memory leaks",
+        "The response struct fields are: status_code (unsigned int), comment (char*, optional, freed by response_free), response_data (char*, JSON string, freed by response_free)"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_request_response_free",
+      "signature": "static inline void obs_websocket_request_response_free(struct obs_websocket_request_response *response);",
+      "description": "Release all resources associated with a response returned by obs_websocket_call_request(), including the comment and response_data strings. Safe to call with NULL.",
+      "requirements": [
+        "response must either be NULL or a pointer previously returned by obs_websocket_call_request()",
+        "Do not double-free a response; call exactly once per successful obs_websocket_call_request() result",
+        "After this call, the response pointer and any of its fields must not be dereferenced"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_register_event_callback",
+      "signature": "static inline bool obs_websocket_register_event_callback(obs_websocket_event_callback_function event_callback, void *priv_data);",
+      "description": "Register a callback to receive obs-websocket events. The callback will be invoked by obs-websocket with event metadata and the provided priv_data.",
+      "requirements": [
+        "event_callback must be a valid function pointer of type void (*)(uint64_t, const char *, const char *, void *)",
+        "priv_data may be NULL; it is passed back unmodified on each callback invocation",
+        "Caller must check the boolean return; false indicates registration failed (e.g., obs-websocket not available)",
+        "The exact semantics of the callback parameters are not documented in this header; treat them as opaque event metadata"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_unregister_event_callback",
+      "signature": "static inline bool obs_websocket_unregister_event_callback(obs_websocket_event_callback_function event_callback, void *priv_data);",
+      "description": "Unregister a previously registered obs-websocket event callback.",
+      "requirements": [
+        "event_callback must be the same function pointer previously registered",
+        "priv_data should match the priv_data used at registration to unambiguously identify the callback to remove",
+        "Caller must check the boolean return; false indicates unregistration failed (e.g., callback not found or obs-websocket not available)"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_register_vendor",
+      "signature": "static inline obs_websocket_vendor obs_websocket_register_vendor(const char *vendor_name);",
+      "description": "Register a new vendor namespace with obs-websocket and obtain a handle used for vendor-specific requests and events.",
+      "requirements": [
+        "Must be called only from the obs_module_post_load() callback (explicit requirement in the header)",
+        "vendor_name must be a non-null, NUL-terminated C string naming the vendor",
+        "Caller must check the returned handle; NULL indicates failure (e.g., obs-websocket not available)",
+        "The returned obs_websocket_vendor handle is required for subsequent vendor operations"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_vendor_register_request",
+      "signature": "static inline bool obs_websocket_vendor_register_request(obs_websocket_vendor vendor, const char *request_type, obs_websocket_request_callback_function request_callback, void *priv_data);",
+      "description": "Register a new vendor-scoped request type and its handler callback. When clients call this request via obs-websocket, the provided callback will be invoked.",
+      "requirements": [
+        "vendor must be a valid handle returned by obs_websocket_register_vendor()",
+        "request_type must be a non-null, non-empty, NUL-terminated C string",
+        "request_callback must be a valid function pointer of type void (*)(obs_data_t *, obs_data_t *, void *)",
+        "priv_data may be NULL; it will be provided to the callback",
+        "Caller must check the boolean return value; false indicates registration failed"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_vendor_unregister_request",
+      "signature": "static inline bool obs_websocket_vendor_unregister_request(obs_websocket_vendor vendor, const char *request_type);",
+      "description": "Unregister a previously registered vendor-scoped request type.",
+      "requirements": [
+        "vendor must be a valid handle returned by obs_websocket_register_vendor()",
+        "request_type must be a non-null, non-empty, NUL-terminated C string naming a previously registered vendor request",
+        "Caller must check the boolean return; false indicates unregistration failed"
+      ],
+      "error": null
+    },
+    {
+      "name": "obs_websocket_vendor_emit_event",
+      "signature": "static inline bool obs_websocket_vendor_emit_event(obs_websocket_vendor vendor, const char *event_name, obs_data_t *event_data);",
+      "description": "Emit a vendor-scoped event to obs-websocket listeners. The event_data pointer is passed through without altering its reference count.",
+      "requirements": [
+        "vendor must be a valid handle returned by obs_websocket_register_vendor()",
+        "event_name must be a non-null, non-empty, NUL-terminated C string",
+        "event_data may be NULL; if non-NULL it must be a valid obs_data_t*; the function does not modify its refcount, so the caller retains ownership and must ensure it remains valid for the duration of the call",
+        "Caller must check the boolean return; false indicates emission failed"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "obs_websocket_get_api_version",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call is side-effect free and safe to call repeatedly.\nunsigned int v = obs_websocket_get_api_version();\n// Record observed version for potential gating in later stubs (diagnostic only).\nFUZZ_SET_ATTR_INT_GLOBAL(\"obsws_api_version\", (int)v);\n// No outputs; nothing else to enforce here."
+    },
+    {
+      "name": "obs_websocket_call_request",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "response",
+          "type": "obs_websocket_request_response *"
+        }
+      ],
+      "code": "// request_type must be non-null, non-empty C string. Prefer a known valid name when fuzz string is empty.\nstd::string req = FUZZ_PARAM_STR();\nif (req.empty()) { req = \"GetVersion\"; }\nconst char *request_type = req.c_str();\n\n// request_data may be NULL; we pass NULL to avoid constructing obs_data_t here.\nobs_data_t *request_data = nullptr;\n\n// Perform the call; may return NULL if handler unavailable.\nobs_websocket_request_response *response = obs_websocket_call_request(request_type, request_data);\n\n// For the harness, we require a non-null response before handing it to the pool.\nif (!response) { FUZZ_BAIL(); }\n\n// Provide response as an output so another stub (response_free) can release it.\n// Note: The response owns its internal strings; do not dereference after free."
+    },
+    {
+      "name": "obs_websocket_request_response_free",
+      "inputs": [
+        {
+          "name": "response",
+          "type": "obs_websocket_request_response *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Release resources associated with a response previously returned by obs_websocket_call_request.\n// API is safe with NULL, but the harness guarantees non-null inputs; call directly.\nobs_websocket_request_response_free(response);\n// Do not return the response; it is no longer valid."
+    },
+    {
+      "name": "obs_websocket_register_event_callback",
+      "inputs": [
+        {
+          "name": "evt_cb",
+          "type": "obs_websocket_event_callback *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "evt_cb",
+          "type": "obs_websocket_event_callback *"
+        }
+      ],
+      "code": "// Build a non-capturing lambda convertible to the required C function pointer type.\nobs_websocket_event_callback_function cb = +[](uint64_t ts, const char *vendor, const char *name, void *priv) {\n    // Minimal, fast callback body; do not block or allocate.\n    (void)ts; (void)vendor; (void)name; (void)priv;\n};\n\n// Use the evt_cb helper object address as stable priv_data to ensure we can later unregister.\nvoid *priv = (void *)evt_cb;\n\n// Attempt to register; false indicates registration failed (e.g., plugin unavailable).\nbool ok = obs_websocket_register_event_callback(cb, priv);\n\n// Track registration state and the exact identity needed for unregistration.\nFUZZ_SET_ATTR_PTR(evt_cb, \"cb_ptr\", (void *)cb);\nFUZZ_SET_ATTR_PTR(evt_cb, \"priv_ptr\", priv);\nFUZZ_SET_ATTR_INT(evt_cb, \"registered\", ok ? 1 : 0);\n\n// Return the helper object so it can be reused by the unregister stub."
+    },
+    {
+      "name": "obs_websocket_unregister_event_callback",
+      "inputs": [
+        {
+          "name": "evt_cb",
+          "type": "obs_websocket_event_callback *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "evt_cb",
+          "type": "obs_websocket_event_callback *"
+        }
+      ],
+      "code": "// Enforce that we only attempt unregistration for a callback we previously registered.\nint registered = FUZZ_GET_ATTR_INT(evt_cb, \"registered\");\nvoid *cb_ptr = FUZZ_GET_ATTR_PTR(evt_cb, \"cb_ptr\");\nvoid *priv_ptr = FUZZ_GET_ATTR_PTR(evt_cb, \"priv_ptr\");\nif (!registered || !cb_ptr || !priv_ptr) { FUZZ_BAIL(); }\n\n// Reconstruct the function pointer and priv_data and attempt unregistration.\nobs_websocket_event_callback_function cb = (obs_websocket_event_callback_function)cb_ptr;\nvoid *priv = priv_ptr;\n\nbool ok = obs_websocket_unregister_event_callback(cb, priv);\n// If unregistration failed, bail to avoid drifting state.\nif (!ok) { FUZZ_BAIL(); }\n\n// Mark as unregistered so repeated attempts bail fast.\nFUZZ_SET_ATTR_INT(evt_cb, \"registered\", 0);\n// Keep the helper object in the pool for potential re-registration later."
+    },
+    {
+      "name": "obs_websocket_event_callback *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "evt_cb",
+          "type": "obs_websocket_event_callback *"
+        }
+      ],
+      "code": "// Construct a helper object to manage registration/unregistration of an event callback.\n// Although this struct is described as a transient helper, we heap-allocate it for the fuzzing pool.\nobs_websocket_event_callback *evt_cb = new (std::nothrow) obs_websocket_event_callback();\nif (!evt_cb) { FUZZ_BAIL(); }\n\n// Provide a minimal, non-blocking callback function that matches the required signature.\nobs_websocket_event_callback_function cb = +[](uint64_t ts, const char *vendor, const char *name, void *priv) {\n    // Keep callback work trivial and fast; do not allocate or block.\n    (void)ts; (void)vendor; (void)name; (void)priv;\n};\n\n// Initialize fields. Use the object pointer as a stable priv_data default.\nevt_cb->callback = cb;\nevt_cb->priv_data = (void *)evt_cb;\n\n// Initialize tracking attributes for later register/unregister endpoints.\nFUZZ_SET_ATTR_INT(evt_cb, \"registered\", 0);\nFUZZ_SET_ATTR_PTR(evt_cb, \"cb_ptr\", (void *)cb);      // identity used by register/unregister stubs\nFUZZ_SET_ATTR_PTR(evt_cb, \"priv_ptr\", nullptr);       // will be set on successful registration\n\n// Output the constructed helper object to the pool.\n// Validation: Allocation is checked, fields initialized, and attributes set to ensure correct lifecycle handling by other stubs."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "obs_websocket_register_vendor",
+      "reason": "This function must be called only from obs_module_post_load(), a lifecycle context the fuzzer cannot safely emulate."
+    },
+    {
+      "name": "obs_websocket_vendor_register_request",
+      "reason": "Requires a valid obs_websocket_vendor handle from obs_websocket_register_vendor(), which cannot be safely created under the fuzzer lifecycle constraints."
+    },
+    {
+      "name": "obs_websocket_vendor_unregister_request",
+      "reason": "Requires a valid obs_websocket_vendor handle corresponding to a previously registered request, which the fuzzer cannot guarantee to create."
+    },
+    {
+      "name": "obs_websocket_vendor_emit_event",
+      "reason": "Requires a valid obs_websocket_vendor handle from obs_websocket_register_vendor(), which cannot be safely obtained in the fuzzer context."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "obs_websocket_get_api_version",
+      "data_types": []
+    },
+    {
+      "name": "obs_websocket_request_response_free",
+      "data_types": []
+    },
+    {
+      "name": "obs_websocket_register_event_callback",
+      "data_types": []
+    },
+    {
+      "name": "obs_websocket_unregister_event_callback",
+      "data_types": []
+    },
+    {
+      "name": "obs_websocket_event_callback *",
+      "data_types": []
+    },
+    {
+      "name": "obs_websocket_call_request",
+      "data_types": [
+        "C identifier-like string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "C identifier-like string",
+      "description": "A non-null, NUL-terminated ASCII/UTF-8 string used to name an RPC/request type or command. Typically consists of printable characters without embedded NULs; often alphanumeric with optional punctuation like dash or underscore (e.g., \"GetVersion\"). Empty strings are invalid for this use case."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "C identifier-like string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets a C identifier-like string used as request_type for\n# obs_websocket_call_request. The fuzzer stub uses FUZZ_PARAM_STR() to obtain\n# this request string, defaulting to \"GetVersion\" when empty. Our goal is to\n# provide valid, interesting request names that exercise different code paths.\n#\n# Constraints for request_type (from description):\n# - Non-null, NUL-terminated C string\n# - Non-empty\n# - Printable ASCII/UTF-8, typically identifier-like\n# Examples of known valid or likely-valid obs-websocket requests (v5 API):\n#   GetVersion, GetStats, GetSceneList, GetCurrentScene, GetSourceTypesList,\n#   GetInputKindList, GetInputList, GetStudioModeEnabled, GetRecordStatus,\n#   GetStreamStatus, GetSceneCollectionList, GetProfileList, GetHotkeyList,\n#   TriggerHotkeyByName, SetCurrentProgramScene, GetObsWebSocketVersion\n# Include vendor-like names and edge-case names to expand coverage.\n\nKNOWN_REQUESTS: List[str] = [\n    \"GetVersion\",\n    \"GetObsWebSocketVersion\",\n    \"GetStats\",\n    \"GetStreamStatus\",\n    \"GetRecordStatus\",\n    \"GetInputKindList\",\n    \"GetInputList\",\n    \"GetSceneList\",\n    \"GetSceneCollectionList\",\n    \"GetProfileList\",\n    \"GetStudioModeEnabled\",\n    \"GetSourceTypesList\",\n    \"GetHotkeyList\",\n    \"TriggerHotkeyByName\",\n    \"SetCurrentProgramScene\",\n    # Older API compatibility names (in case target maps them):\n    \"GetStreamingStatus\",\n    \"GetRecordingStatus\",\n    # Vendor-style prefixes that some setups might register:\n    \"com.example.Ping\",\n    \"plugin.vendor.CustomRequest\",\n]\n\n# Character sets for composing identifier-like but varied names\nALNUM = string.ascii_letters + string.digits\nIDENT_START = string.ascii_letters + \"_\"\nIDENT_CONT = IDENT_START + string.digits\nSEP = [\"_\", \"-\", \".\"]\n\n\ndef _rand_ident(rng: random.Random, min_len: int = 3, max_len: int = 24) -> str:\n    n = rng.randint(min_len, max_len)\n    s = [rng.choice(IDENT_START)]\n    for _ in range(n - 1):\n        s.append(rng.choice(IDENT_CONT))\n    return \"\".join(s)\n\n\ndef _rand_camel(rng: random.Random, words_min: int = 1, words_max: int = 4, prefix: str = \"\") -> str:\n    words = []\n    k = rng.randint(words_min, words_max)\n    for i in range(k):\n        wlen = rng.randint(2, 10)\n        w = rng.choice(string.ascii_uppercase)\n        for _ in range(wlen - 1):\n            w += rng.choice(string.ascii_lowercase)\n        words.append(w)\n    base = \"\".join(words)\n    return prefix + base\n\n\ndef _rand_namespaced(rng: random.Random) -> str:\n    # Produce names like vendor.request or vendor.Sub.Request\n    parts = []\n    n = rng.randint(2, 4)\n    for i in range(n):\n        if rng.random() < 0.5:\n            parts.append(_rand_ident(rng, 2, 10))\n        else:\n            parts.append(_rand_camel(rng, 1, 2))\n    return \".\".join(parts)\n\n\ndef _edge_cases(rng: random.Random) -> List[str]:\n    # Edge but valid: max-length-ish, mixed separators, numeric tails, unicode ascii-range\n    cases = []\n    # Long but <= 255 bytes typical limit for names, keep modest to 128\n    long_part = _rand_ident(rng, 32, 64)\n    cases.append(long_part)\n    cases.append(_rand_camel(rng, 1, 1, prefix=\"Get\"))  # e.g., GetXxx\n    cases.append(_rand_camel(rng, 2, 3, prefix=\"Set\"))\n    cases.append(_rand_ident(rng, 3, 8) + rng.choice(SEP) + _rand_ident(rng, 3, 8))\n    cases.append(_rand_namespaced(rng))\n    # Include dotted vendor with underscores\n    cases.append(_rand_ident(rng, 3, 8) + \".\" + _rand_ident(rng, 3, 8) + \"_\" + _rand_ident(rng, 2, 6))\n    # Include dash-separated\n    cases.append(_rand_ident(rng, 3, 8) + \"-\" + _rand_ident(rng, 2, 6))\n    # Include numeric suffix\n    cases.append(_rand_camel(rng, 2, 3) + str(rng.randint(1, 9999)))\n    return cases\n\n\ndef _choose_request(rng: random.Random) -> str:\n    # Weighted selection between known-good and synthesized names\n    roll = rng.random()\n    if roll < 0.55:\n        return rng.choice(KNOWN_REQUESTS)\n    elif roll < 0.85:\n        # Construct common-style OBS request names\n        prefixes = [\"Get\", \"Set\", \"Create\", \"Remove\", \"Toggle\", \"Trigger\", \"Save\", \"Load\", \"Start\", \"Stop\"]\n        prefix = rng.choice(prefixes)\n        return _rand_camel(rng, 1, 3, prefix=prefix)\n    else:\n        return rng.choice(_edge_cases(rng))\n\n\ndef _to_bytes_c_string(s: str) -> bytes:\n    # Ensure ASCII/UTF-8 encodable and no embedded NULs. Replace disallowed chars conservatively.\n    s = s.replace(\"\\x00\", \"_\")\n    b = s.encode(\"utf-8\", errors=\"strict\")\n    # Append a terminating NUL as many fuzz harnesses pack raw buffers; FUZZ_PARAM_STR\n    # will typically read until NUL. Including NUL ensures clean C-string semantics.\n    if not b or b[-1] != 0:\n        b += b\"\\x00\"\n    return b\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    request = _choose_request(rng)\n    # Keep under 4096 bytes; our strings are far shorter\n    return _to_bytes_c_string(request)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2464,
+            "output_tokens": 576,
+            "total_tokens": 3040
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2042,
+            "output_tokens": 76,
+            "total_tokens": 2118
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2541,
+            "output_tokens": 2975,
+            "total_tokens": 5516
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5758,
+            "output_tokens": 4518,
+            "total_tokens": 10276
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5383,
+            "output_tokens": 1329,
+            "total_tokens": 6712
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3248,
+            "output_tokens": 113,
+            "total_tokens": 3361
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 294.2457666397095,
+    "scan_objects": 10.888314247131348,
+    "validate_objects": 1.082040786743164,
+    "scan_functions": 75.74565076828003,
+    "synthesis": 135.23894619941711,
+    "fill": 31.87333083152771,
+    "classify": 2.9014973640441895,
+    "build_generators": 36.51531004905701
+  }
+}

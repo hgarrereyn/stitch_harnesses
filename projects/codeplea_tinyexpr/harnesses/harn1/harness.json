@@ -1,0 +1,255 @@
+{
+  "objects": [
+    {
+      "ptr_type": "te_expr *",
+      "aliases": [],
+      "definition": "typedef struct te_expr {\n    int type;\n    union {double value; const double *bound; const void *function;};\n    void *parameters[1];\n} te_expr;",
+      "description": "Expression node used by TinyExpr to represent parsed expressions. The type field encodes kind and flags (variable, function arity, closures, purity). The union stores either a literal value, a pointer to a bound variable value, or a function pointer (opaque here). The parameters array holds child expression pointers; it is a flexible-like one-element tail used for variable-sized allocations. Constructed by te_compile and evaluated by te_eval; must be freed with te_free. Details of allocation layout are internal to the library.",
+      "direct_api_constructors": [
+        "te_compile"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "te_variable *",
+      "aliases": [],
+      "definition": "typedef struct te_variable {\n    const char *name;\n    const void *address;\n    int type;\n    void *context;\n} te_variable;",
+      "description": "Descriptor used to bind variables and functions when compiling an expression. name is the symbol name. address points to either a double variable (for TE_VARIABLE) or a function pointer matching the encoded arity/type; type encodes TE_VARIABLE/TE_FUNCTIONn/TE_CLOSUREn and flags like TE_FLAG_PURE. context provides user data for closures. Instances are provided by the user to te_compile; they are not owned by the library.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "int *",
+      "aliases": [],
+      "definition": "enum {\n    TE_VARIABLE = 0,\n\n    TE_FUNCTION0 = 8, TE_FUNCTION1, TE_FUNCTION2, TE_FUNCTION3,\n    TE_FUNCTION4, TE_FUNCTION5, TE_FUNCTION6, TE_FUNCTION7,\n\n    TE_CLOSURE0 = 16, TE_CLOSURE1, TE_CLOSURE2, TE_CLOSURE3,\n    TE_CLOSURE4, TE_CLOSURE5, TE_CLOSURE6, TE_CLOSURE7,\n\n    TE_FLAG_PURE = 32\n};",
+      "description": "Anonymous enumeration of type codes and flags used in te_expr.type and te_variable.type. Values define variable, function arities (0–7) for plain functions and closures, and a purity flag for optimization. Used as bit-coded markers; full semantics are determined by TinyExpr implementation. As an anonymous enum it has no named type; its constants are available at global scope.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "te_interp",
+      "signature": "double te_interp(const char *expression, int *error);",
+      "description": "Parses and evaluates a mathematical expression given as a C string, then discards any intermediate structures. Returns the computed value, or NaN on error. Useful for one-shot evaluation without managing a compiled expression object. Error-reporting semantics beyond returning NaN are not specified in this header.",
+      "requirements": [
+        "expression must be a valid, null-terminated C string.",
+        "If error is non-NULL, it must point to writable storage for an int; exact contents/meaning are unspecified here.",
+        "Caller should check the return value for NaN to detect errors."
+      ],
+      "error": null
+    },
+    {
+      "name": "te_compile",
+      "signature": "te_expr *te_compile(const char *expression, const te_variable *variables, int var_count, int *error);",
+      "description": "Parses the input expression and binds variables into a compiled expression tree that can be evaluated multiple times. Returns a pointer to a te_expr on success, or NULL on error. Use te_free to release the result when done.",
+      "requirements": [
+        "expression must be a valid, null-terminated C string.",
+        "variables must reference an array of te_variable entries of length var_count; if var_count is 0, variables may be NULL.",
+        "var_count must be non-negative.",
+        "If error is non-NULL, it must point to writable storage for an int; exact contents/meaning are unspecified here.",
+        "On success, the returned te_expr must be freed with te_free by the caller."
+      ],
+      "error": null
+    },
+    {
+      "name": "te_eval",
+      "signature": "double te_eval(const te_expr *n);",
+      "description": "Evaluates a previously compiled expression and returns its numeric value.",
+      "requirements": [
+        "n must be a non-NULL pointer to a valid te_expr previously returned by te_compile and not yet freed.",
+        "The compiled expression and any bound variable addresses it references must remain valid for the duration of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "te_print",
+      "signature": "void te_print(const te_expr *n);",
+      "description": "Prints debugging information for the given expression’s syntax tree. Intended for diagnostics and development; output destination/format is not specified in this header.",
+      "requirements": [
+        "n must be a non-NULL pointer to a valid te_expr previously returned by te_compile and not yet freed."
+      ],
+      "error": null
+    },
+    {
+      "name": "te_free",
+      "signature": "void te_free(te_expr *n);",
+      "description": "Frees a compiled expression object and any associated resources. Safe to call with NULL.",
+      "requirements": [
+        "If n is non-NULL, it must be a te_expr previously returned by te_compile.",
+        "Do not use the te_expr after it has been freed.",
+        "This function is explicitly safe to call with n == NULL."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "te_interp",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random expression string (null-terminated via c_str()).\nstd::string expr = FUZZ_PARAM_STR();\nconst char *c_expr = expr.c_str();\n// Randomly decide whether to request error details or not.\nbool want_err = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\nint err_storage = 0;\nint *err_ptr = want_err ? &err_storage : nullptr;\n// Evaluate one-shot. The function may return NaN on error; that is acceptable for fuzzing.\nvolatile double result = te_interp(c_expr, err_ptr);\n(void)result;\n// Validation: Inputs are valid pointers, error storage is writable when provided. No persistent objects to output.\n// Validation summary: te_interp exercised with/without error pointer; expression is a valid C string pointer."
+    },
+    {
+      "name": "te_compile",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "n",
+          "type": "te_expr *"
+        }
+      ],
+      "code": "// Prepare an expression string.\nstd::string expr = FUZZ_PARAM_STR();\nconst char *c_expr = expr.c_str();\n// Choose a small variable count to keep allocations bounded.\nunsigned int raw = *FUZZ_PARAM(unsigned int);\nint var_count = (int)(raw % 5); // 0..4\n// Randomly decide whether to pass an error pointer.\nbool want_err = ((raw >> 3) & 1u) != 0u;\nint err_storage = 0;\nint *err_ptr = want_err ? &err_storage : nullptr;\n// Build a variable table if var_count > 0. For TE_VARIABLE bindings, address must outlive te_eval.\n// We allocate a persistent heap buffer for the variable values and attach it to the te_expr via attributes.\nstd::vector<std::string> names; // keep name storage alive during te_compile\nnames.reserve((size_t)var_count);\n// Allocate values buffer on heap so it can outlive this stub; freed in te_free stub.\ndouble *vals = nullptr;\nte_variable *vars = nullptr;\nif (var_count > 0) {\n    vals = new double[(size_t)var_count];\n    // Fill values with random doubles.\n    for (int i = 0; i < var_count; ++i) {\n        // Compose a double from two random 32-bit parts; scale to keep finite.\n        unsigned long long hi = (unsigned long long)(*FUZZ_PARAM(unsigned int));\n        unsigned long long lo = (unsigned long long)(*FUZZ_PARAM(unsigned int));\n        unsigned long long bits = (hi << 32) ^ lo;\n        double v = (double)((long long)(bits % 1000003) - 500000); // keep magnitude moderate\n        vals[i] = v;\n    }\n    // Build te_variable array (stack allocated small vector then pointer stable during call)\n    // We'll allocate it on a small heap block to simplify lifetime if needed elsewhere, but it is only needed for compile.\n    vars = (te_variable*)::operator new[](sizeof(te_variable) * (size_t)var_count);\n    for (int i = 0; i < var_count; ++i) {\n        names.emplace_back(FUZZ_PARAM_STR());\n        te_variable tv{};\n        tv.name = names.back().c_str();\n        tv.address = (const void*)&vals[i]; // address of a double for TE_VARIABLE\n        tv.type = TE_VARIABLE; // plain variable binding\n        tv.context = nullptr;\n        vars[i] = tv;\n    }\n}\n// Compile the expression.\nte_expr *n = te_compile(c_expr, vars, var_count, err_ptr);\n// Release temporary te_variable storage; the library does not retain this array.\nif (vars) { ::operator delete[](vars); }\n// If compilation failed, bail without returning an output.\nif (!n) {\n    // Clean up persistent vals if we allocated them; they won't be needed without a compiled expression.\n    if (vals) { delete[] vals; }\n    FUZZ_BAIL();\n}\n// Attach attributes so downstream stubs (eval/print/free) can manage lifetime of bound variable addresses.\nFUZZ_SET_ATTR_PTR(n, \"vars_buf\", (void*)vals);\nFUZZ_SET_ATTR_INT(n, \"var_count\", var_count);\n// Note: vals may be null when var_count == 0; that's acceptable and tracked.\n// Output: return the compiled expression to the pool.\n// Validation summary: Ensures var_count >= 0, passes either NULL or a writable error pointer, and guarantees bound variable storage persists by attaching it to the te_expr for later cleanup."
+    },
+    {
+      "name": "te_eval",
+      "inputs": [
+        {
+          "name": "n",
+          "type": "te_expr *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "n",
+          "type": "te_expr *"
+        }
+      ],
+      "code": "// Ensure this te_expr came from our te_compile stub by checking attached attributes.\nint var_count = FUZZ_GET_ATTR_INT(n, \"var_count\");\nvoid *vars_buf = FUZZ_GET_ATTR_PTR(n, \"vars_buf\");\nif (var_count < 0) { FUZZ_BAIL(); }\nif (var_count == 0 && vars_buf != nullptr) { FUZZ_BAIL(); }\nif (var_count > 0 && vars_buf == nullptr) { FUZZ_BAIL(); }\n// Evaluate the expression; result may be NaN and that's acceptable for fuzzing.\nvolatile double result = te_eval(n);\n(void)result;\n// Return the expression to the pool for further operations (e.g., print or free).\n// Validation summary: Accepts only valid compiled te_expr with persistent bound variables; does not consume ownership."
+    },
+    {
+      "name": "te_print",
+      "inputs": [
+        {
+          "name": "n",
+          "type": "te_expr *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "n",
+          "type": "te_expr *"
+        }
+      ],
+      "code": "// Validate attributes to ensure 'n' is a live compiled expression created by te_compile stub.\nint var_count = FUZZ_GET_ATTR_INT(n, \"var_count\");\nvoid *vars_buf = FUZZ_GET_ATTR_PTR(n, \"vars_buf\");\nif (var_count < 0) { FUZZ_BAIL(); }\nif (var_count == 0 && vars_buf != nullptr) { FUZZ_BAIL(); }\nif (var_count > 0 && vars_buf == nullptr) { FUZZ_BAIL(); }\n// Print the syntax tree for diagnostic coverage.\nte_print(n);\n// Keep the expression alive for subsequent stubs.\n// Validation summary: Only prints expressions confirmed to be valid and unfrozen; does not alter ownership."
+    },
+    {
+      "name": "te_free",
+      "inputs": [
+        {
+          "name": "n",
+          "type": "te_expr *"
+        }
+      ],
+      "outputs": [],
+      "code": "// te_free is safe with NULL.\nif (n) {\n    // If this te_expr was created by our te_compile stub, free the attached variable buffer.\n    int var_count = FUZZ_GET_ATTR_INT(n, \"var_count\");\n    void *vars_buf = FUZZ_GET_ATTR_PTR(n, \"vars_buf\");\n    if (var_count > 0 && vars_buf) {\n        delete[] (double*)vars_buf;\n        // Clear attributes (optional in this harness; object will be freed next).\n        FUZZ_SET_ATTR_INT(n, \"var_count\", 0);\n        FUZZ_SET_ATTR_PTR(n, \"vars_buf\", nullptr);\n    }\n}\n// Free the compiled expression itself.\nte_free(n);\n// Do not return any outputs; ownership is released.\n// Validation summary: Safely handles NULL, cleans up any heap-allocated bound variable storage, and avoids use-after-free by not returning the object."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "te_eval",
+      "data_types": []
+    },
+    {
+      "name": "te_print",
+      "data_types": []
+    },
+    {
+      "name": "te_free",
+      "data_types": []
+    },
+    {
+      "name": "te_interp",
+      "data_types": [
+        "mathematical expression string"
+      ]
+    },
+    {
+      "name": "te_compile",
+      "data_types": [
+        "mathematical expression string",
+        "identifier string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "mathematical expression string",
+      "description": "A null-terminated ASCII/UTF-8 string representing a mathematical expression to be parsed by an expression evaluator like TinyExpr. May include numbers, variables, arithmetic operators (+ - * / %), parentheses, unary operators, functions (e.g., sin, cos, sqrt), commas for function arguments, and whitespace."
+    },
+    {
+      "data_type": "identifier string",
+      "description": "A null-terminated string intended to be used as a symbol/variable name in an expression language. Typically begins with a letter or underscore and may contain letters, digits, and underscores; case-sensitive. Used to bind variables/functions by name during expression compilation."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "mathematical expression string",
+      "generator": "import random\nfrom typing import List\n\nMAX_LEN = 1024\n\nUNARY_FUNCS = [\n    \"abs\", \"acos\", \"asin\", \"atan\", \"ceil\", \"cos\", \"cosh\", \"deg\",\n    \"exp\", \"floor\", \"log\", \"log10\", \"rad\", \"sin\", \"sinh\", \"sqrt\",\n    \"tan\", \"tanh\", \"not\"\n]\nBINARY_FUNCS = [\n    \"atan2\", \"min\", \"max\", \"pow\"\n]\nTERNARY_FUNCS = [\n    \"if\"\n]\nUNARY_OPS = [\"+\", \"-\", \"!\"]\nBINARY_OPS = [\"+\", \"-\", \"*\", \"/\", \"%\", \"^\"]\nDEFAULT_VARS = [\"x\", \"y\", \"z\", \"a\", \"b\", \"c\", \"t\", \"u\", \"v\"]\nWHITES = [\" \", \"\\t\", \"\\n\", \"\"]\n\nMAX_DEPTH = 6\n\n\ndef rnd(rng: random.Random, seq):\n    # Safe random chooser without recursion\n    return seq[rng.randrange(len(seq))]\n\n\ndef maybe_ws(rng: random.Random) -> str:\n    # Bounded, tiny whitespace\n    n = rng.randrange(0, 3)\n    out = []\n    for _ in range(n):\n        out.append(rnd(rng, WHITES))\n    return \"\".join(out)\n\n\ndef gen_number(rng: random.Random) -> str:\n    kind = rng.randrange(6)\n    if kind == 0:\n        return str(rng.randrange(0, 10 ** rng.randrange(1, 7)))\n    if kind == 1:\n        intp = str(rng.randrange(0, 10 ** rng.randrange(1, 5)))\n        frac_len = rng.randrange(1, 6)\n        frac_val = rng.randrange(0, 10 ** frac_len)\n        frac = str(frac_val).rjust(frac_len, \"0\")\n        return intp + \".\" + frac\n    if kind == 2:\n        frac_len = rng.randrange(1, 6)\n        frac_val = rng.randrange(0, 10 ** frac_len)\n        frac = str(frac_val).rjust(frac_len, \"0\")\n        return \".\" + frac\n    if kind == 3:\n        # scientific notation\n        base = str(rng.uniform(-1e3, 1e3))\n        sign = rnd(rng, [\"+\", \"-\", \"\"])  # optional sign\n        exp = rng.randrange(0, 13)\n        return f\"{base}e{sign}{exp}\"\n    if kind == 4:\n        return rnd(rng, [\"pi\", \"e\"])  # constants supported by TinyExpr\n    return str(rng.uniform(-1e6, 1e6))\n\n\ndef gen_var(rng: random.Random) -> str:\n    if rng.random() < 0.8:\n        return rnd(rng, DEFAULT_VARS)\n    first = rnd(rng, list(\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_\"))\n    rest = \"\".join(rnd(rng, list(\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789\"))\n                    for _ in range(rng.randrange(0, 4)))\n    return first + rest\n\n\ndef gen_atom(rng: random.Random, depth: int) -> str:\n    # Base atom that doesn't recurse further at max depth\n    if depth >= MAX_DEPTH:\n        return rnd(rng, [gen_number(rng), gen_var(rng)])\n    choice = rng.random()\n    if choice < 0.5:\n        return gen_number(rng)\n    if choice < 0.8:\n        return gen_var(rng)\n    # Parenthesized simple non-recursive or shallow expression to avoid deep chains\n    inner = gen_simple(rng, depth + 1)\n    return \"(\" + maybe_ws(rng) + inner + maybe_ws(rng) + \")\"\n\n\ndef gen_unary(rng: random.Random, depth: int) -> str:\n    if depth >= MAX_DEPTH:\n        # stop chaining, return atom\n        return gen_atom(rng, depth)\n    if rng.random() < 0.5:\n        # limit chain length explicitly\n        times = 1 + rng.randrange(2)\n        ops = \"\".join(rnd(rng, UNARY_OPS) for _ in range(times))\n        return ops + maybe_ws(rng) + gen_atom(rng, depth + 1)\n    # unary function\n    fname = rnd(rng, UNARY_FUNCS)\n    arg = gen_simple(rng, depth + 1)\n    return f\"{fname}{maybe_ws(rng)}(\" + maybe_ws(rng) + arg + maybe_ws(rng) + \")\"\n\n\ndef gen_term(rng: random.Random, depth: int) -> str:\n    if rng.random() < 0.5:\n        return gen_atom(rng, depth)\n    return gen_unary(rng, depth)\n\n\ndef gen_bin_chain(rng: random.Random, depth: int, min_terms=2, max_terms=4) -> str:\n    # Avoid building chains at excessive depth\n    if depth >= MAX_DEPTH:\n        return gen_term(rng, depth)\n    count = rng.randrange(min_terms, max_terms + 1)\n    terms = [gen_term(rng, depth + 1) for _ in range(count)]\n    s = terms[0]\n    for t in terms[1:]:\n        op = rnd(rng, BINARY_OPS)\n        s = s + maybe_ws(rng) + op + maybe_ws(rng) + t\n    return s\n\n\ndef gen_call_with_args(rng: random.Random, depth: int) -> str:\n    if depth >= MAX_DEPTH:\n        # degrade to unary to avoid further recursion\n        return gen_unary(rng, depth)\n    roll = rng.random()\n    if roll < 0.6:\n        fname = rnd(rng, UNARY_FUNCS)\n        args = [gen_simple(rng, depth + 1)]\n    elif roll < 0.9:\n        fname = rnd(rng, BINARY_FUNCS)\n        args = [gen_simple(rng, depth + 1), gen_simple(rng, depth + 1)]\n    else:\n        fname = rnd(rng, TERNARY_FUNCS)\n        cond = gen_simple(rng, depth + 1)\n        args = [cond, gen_simple(rng, depth + 1), gen_simple(rng, depth + 1)]\n    return f\"{fname}{maybe_ws(rng)}(\" + \",\".join(maybe_ws(rng) + a + maybe_ws(rng) for a in args) + \")\"\n\n\ndef gen_simple(rng: random.Random, depth: int) -> str:\n    # Simpler expression builder that keeps recursion shallow\n    if depth >= MAX_DEPTH:\n        return gen_atom(rng, depth)\n    p = rng.random()\n    if p < 0.4:\n        return gen_term(rng, depth)\n    if p < 0.7:\n        return gen_bin_chain(rng, depth, 2, 3)\n    return gen_call_with_args(rng, depth)\n\n\ndef gen_expr(rng: random.Random, depth: int = 0) -> str:\n    if depth >= MAX_DEPTH:\n        return gen_atom(rng, depth)\n    p = rng.random()\n    if p < 0.3:\n        return gen_term(rng, depth)\n    if p < 0.6:\n        return gen_bin_chain(rng, depth, 2, 4)\n    if p < 0.85:\n        return gen_call_with_args(rng, depth)\n    left = gen_call_with_args(rng, depth + 1)\n    right = gen_term(rng, depth + 1)\n    op = rnd(rng, BINARY_OPS)\n    return left + maybe_ws(rng) + op + maybe_ws(rng) + right\n\n\ndef ensure_vars_presence(rng: random.Random, expr: str) -> str:\n    if rng.random() < 0.6:\n        k = rng.randrange(1, 3)\n        parts = []\n        for _ in range(k):\n            coef = gen_number(rng)\n            v = gen_var(rng)\n            parts.append(f\"{coef}{maybe_ws(rng)}*{maybe_ws(rng)}{v}\")\n        combined = (f\" {rnd(rng, ['+', '-'])} \").join(parts)\n        expr = combined + f\" {rnd(rng, ['+', '-', '*'])} \" + expr\n    return expr\n\n\ndef clamp_len(s: str) -> str:\n    return s[:MAX_LEN] if len(s) > MAX_LEN else s\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    strat = rng.randrange(5)\n    if strat == 0:\n        expr = gen_expr(rng, 0)\n    elif strat == 1:\n        terms = [gen_call_with_args(rng, 0) for _ in range(1 + rng.randrange(4))]\n        expr = (\" + \").join(terms)\n    elif strat == 2:\n        inner = gen_bin_chain(rng, 0, 3, 5)\n        wraps = rng.randrange(1, 4)\n        expr = inner\n        for _ in range(wraps):\n            # short unary prefix only, avoid recursive unary chaining\n            uops = \"\".join(rnd(rng, UNARY_OPS) for _ in range(1))\n            expr = uops + \"(\" + maybe_ws(rng) + expr + maybe_ws(rng) + \")\"\n    elif strat == 3:\n        chain_len = 2 + rng.randrange(3)\n        arg = gen_var(rng)\n        for _ in range(chain_len):\n            if rng.random() < 0.7:\n                fname = rnd(rng, UNARY_FUNCS)\n                arg = f\"{fname}({arg})\"\n            else:\n                fname = rnd(rng, BINARY_FUNCS)\n                arg = f\"{fname}({arg},{gen_number(rng)})\"\n        tail = gen_bin_chain(rng, 0, 2, 3)\n        expr = arg + \" + \" + tail\n    else:\n        parts = []\n        n_terms = 3 + rng.randrange(4)\n        for _ in range(n_terms):\n            term = gen_term(rng, 0)\n            if rng.random() < 0.4:\n                term = term + maybe_ws(rng) + \"^\" + maybe_ws(rng) + gen_term(rng, 1)\n            if rng.random() < 0.3:\n                term = \"(\" + term + \")\"\n            parts.append(term)\n        expr = (\" % \").join(parts) if rng.random() < 0.5 else (\" * \").join(parts)\n\n    expr = ensure_vars_presence(rng, expr)\n    expr = clamp_len(expr)\n    return expr.encode(\"utf-8\")\n"
+    },
+    {
+      "data_type": "identifier string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Robust TinyExpr input generator with strict recursion/depth limits to avoid stack overflows.\n# Produces a blob of NUL-terminated C strings: expr\\0name0\\0...\\0\n\nIDENT_START = string.ascii_letters + \"_\"\nIDENT_BODY = string.ascii_letters + string.digits + \"_\"\n\nFUNCTIONS_UNARY = [\n    \"sin\", \"cos\", \"tan\", \"sqrt\", \"log\", \"log10\", \"abs\", \"floor\", \"ceil\"\n]\nFUNCTIONS_BINARY = [\n    \"min\", \"max\", \"pow\"\n]\n\nBIN_OPS = [\"+\", \"-\", \"*\", \"/\", \"^\"]\n\nMAX_TOTAL_BYTES = 4096\nMAX_EXPR_DEPTH = 4  # hard cap for recursion\n\n\ndef rand_ident(rng: random.Random, used: set) -> str:\n    for _ in range(100):\n        n = rng.randint(1, 10)\n        s = rng.choice(IDENT_START) + \"\".join(rng.choice(IDENT_BODY) for _ in range(n - 1))\n        if s not in used:\n            used.add(s)\n            return s\n    base = rng.choice(IDENT_START)\n    suffix = str(rng.randrange(1_000_000))\n    s = base + suffix\n    used.add(s)\n    return s\n\n\ndef rand_number(rng: random.Random) -> str:\n    choice = rng.randrange(6)\n    if choice == 0:\n        return str(rng.randint(-1000, 1000))\n    if choice == 1:\n        return f\"{rng.uniform(-1000, 1000):.6f}\"\n    if choice == 2:\n        return f\"{rng.uniform(-10, 10):.6g}\"\n    if choice == 3:\n        base = rng.uniform(-10, 10)\n        exp = rng.randint(-5, 5)\n        return f\"{base:.6g}e{exp:+d}\"\n    if choice == 4:\n        return f\"{rng.choice([0.5, 1.0, 2.0, 3.0, 10.0])}\"\n    return str(rng.randint(-8, 8))\n\n\ndef maybe_unary(rng: random.Random, expr: str) -> str:\n    if rng.random() < 0.3:\n        return rng.choice([\"+\", \"-\"]) + expr\n    return expr\n\n\ndef gen_atom(rng: random.Random, vars_pool: List[str], depth: int) -> str:\n    # Base termination: if depth limit reached, avoid recursion via functions\n    if depth >= MAX_EXPR_DEPTH:\n        if vars_pool and rng.random() < 0.5:\n            return rng.choice(vars_pool)\n        return maybe_unary(rng, rand_number(rng))\n\n    t = rng.random()\n    if t < 0.35 and vars_pool:\n        return rng.choice(vars_pool)\n    if t < 0.7:\n        return maybe_unary(rng, rand_number(rng))\n    # Unary function (bounded by depth)\n    f = rng.choice(FUNCTIONS_UNARY)\n    inner = gen_expr(rng, vars_pool, depth + 1)\n    return f\"{f}({inner})\"\n\n\ndef gen_binary_func(rng: random.Random, vars_pool: List[str], depth: int) -> str:\n    # If depth cap reached, fallback to atoms to terminate\n    if depth >= MAX_EXPR_DEPTH:\n        return gen_atom(rng, vars_pool, depth)\n    f = rng.choice(FUNCTIONS_BINARY)\n    a = gen_expr(rng, vars_pool, depth + 1)\n    if f == \"pow\":\n        if rng.random() < 0.7:\n            b = str(rng.randint(-5, 5))\n        else:\n            b = gen_expr(rng, vars_pool, depth + 1)\n    else:\n        b = gen_expr(rng, vars_pool, depth + 1)\n    return f\"{f}({a},{b})\"\n\n\ndef gen_term(rng: random.Random, vars_pool: List[str], depth: int) -> str:\n    if depth >= MAX_EXPR_DEPTH:\n        return gen_atom(rng, vars_pool, depth)\n    x = rng.random()\n    if x < 0.2:\n        inner = gen_expr(rng, vars_pool, depth + 1)\n        return f\"({inner})\"\n    if x < 0.35:\n        return gen_binary_func(rng, vars_pool, depth + 1)\n    return gen_atom(rng, vars_pool, depth)\n\n\ndef gen_expr(rng: random.Random, vars_pool: List[str], depth: int = 0) -> str:\n    if depth >= MAX_EXPR_DEPTH:\n        return gen_atom(rng, vars_pool, depth)\n    parts = [gen_term(rng, vars_pool, depth)]\n    max_ops = 3 if depth == 0 else 2\n    ops = rng.randint(0, max_ops)\n    for _ in range(ops):\n        op = rng.choice(BIN_OPS)\n        if op == \"/\" and rng.random() < 0.5:\n            denom = gen_term(rng, vars_pool, depth + 1)\n            eps = rng.choice([\"0.1\", \"1\", \"1e-3\"]) if rng.random() < 0.7 else rand_number(rng)\n            right = f\"(abs({denom})+{eps})\"\n        else:\n            right = gen_term(rng, vars_pool, depth + 1)\n        parts.append(op)\n        parts.append(right)\n    s = \" \".join(parts)\n    if depth == 0:\n        s = maybe_unary(rng, s)\n    return s\n\n\ndef build_expression_with_vars(rng: random.Random, var_names: List[str]) -> str:\n    pool = list(var_names)\n    terms: List[str] = []\n    # Ensure each variable appears at least once with bounded constructs\n    for v in pool:\n        choice = rng.random()\n        if choice < 0.4:\n            terms.append(v)\n        elif choice < 0.7:\n            terms.append(f\"sin({v})\")\n        else:\n            terms.append(f\"pow({v},{rng.randint(2,4)})\")\n    # Add a few random bounded subexpressions\n    extra = rng.randint(1, 2)\n    for _ in range(extra):\n        terms.append(gen_expr(rng, pool, depth=0))\n    rng.shuffle(terms)\n    # Combine with binary ops in a left-fold to limit nesting\n    expr = terms[0]\n    for t in terms[1:]:\n        op = rng.choice(BIN_OPS)\n        expr = f\"({expr}) {op} ({t})\"\n    if rng.random() < 0.4:\n        expr = f\"abs({expr})\" if rng.random() < 0.6 else f\"sqrt(({expr})*({expr})+1)\"\n    return expr\n\n\ndef assemble_strings(strings: List[str]) -> bytes:\n    data = b\"\".join((s.encode(\"utf-8\") + b\"\\x00\") for s in strings)\n    return data[:MAX_TOTAL_BYTES]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    used = set()\n\n    var_count = rng.randint(0, 4)\n    var_names = [rand_ident(rng, used) for _ in range(var_count)]\n\n    if var_count == 0:\n        expr = gen_expr(rng, [], depth=0)\n    else:\n        expr = build_expression_with_vars(rng, var_names)\n\n    if not expr or len(expr) > 3500:\n        expr = \"0\"\n\n    strings = [expr] + var_names\n    blob = assemble_strings(strings)\n    if not blob.endswith(b\"\\x00\"):\n        blob += b\"\\x00\"\n    return blob\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1268,
+            "output_tokens": 556,
+            "total_tokens": 1824
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 846,
+            "output_tokens": 30,
+            "total_tokens": 876
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1295,
+            "output_tokens": 1337,
+            "total_tokens": 2632
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4820,
+            "output_tokens": 3169,
+            "total_tokens": 7989
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3242,
+            "output_tokens": 190,
+            "total_tokens": 3432
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 182.30368518829346,
+    "scan_objects": 9.229392051696777,
+    "validate_objects": 0.29042553901672363,
+    "scan_functions": 19.95054316520691,
+    "synthesis": 72.70781755447388,
+    "fill": 0,
+    "classify": 5.677774429321289,
+    "build_generators": 74.44677782058716
+  }
+}

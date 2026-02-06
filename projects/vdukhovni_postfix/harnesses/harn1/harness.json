@@ -1,0 +1,944 @@
+{
+  "objects": [
+    {
+      "ptr_type": "VBUF *",
+      "aliases": [],
+      "definition": "typedef struct VBUF VBUF;\ntypedef int (*VBUF_GET_READY_FN) (VBUF *);\ntypedef int (*VBUF_PUT_READY_FN) (VBUF *);\ntypedef int (*VBUF_SPACE_FN) (VBUF *, ssize_t);\n\nstruct VBUF {\n    int     flags;\n    unsigned char *data;\n    ssize_t len;\n    ssize_t cnt;\n    unsigned char *ptr;\n    VBUF_GET_READY_FN get_ready;\n    VBUF_PUT_READY_FN put_ready;\n    VBUF_SPACE_FN space;\n};",
+      "description": "Generic byte buffer object with pluggable callbacks for fetching more input, flushing output, and reserving space. Fields track buffer memory, counters, and status flags. Memory management policy is external to this struct; the embedding application provides get/put/space handlers. cnt is negative while reading and positive while writing, enabling direction changes. Constructed/initialized by embedding code; no dedicated constructor in this header.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "VSTRING *"
+      ]
+    },
+    {
+      "ptr_type": "VBUF_GET_READY_FN *",
+      "aliases": [],
+      "definition": "typedef int (*VBUF_GET_READY_FN) (VBUF *);",
+      "description": "Function pointer type for a callback invoked when a read buffer is empty; should prepare more readable data and update the VBUF. Returns int status (implementation-defined).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "VBUF *"
+      ]
+    },
+    {
+      "ptr_type": "VBUF_PUT_READY_FN *",
+      "aliases": [],
+      "definition": "typedef int (*VBUF_PUT_READY_FN) (VBUF *);",
+      "description": "Function pointer type for a callback invoked when a write buffer is full; should make space (e.g., flush) and update the VBUF. Returns int status (implementation-defined).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "VBUF *"
+      ]
+    },
+    {
+      "ptr_type": "VBUF_SPACE_FN *",
+      "aliases": [],
+      "definition": "typedef int (*VBUF_SPACE_FN) (VBUF *, ssize_t);",
+      "description": "Function pointer type for a callback that ensures at least the requested number of bytes of writable space are available in the VBUF. Returns int status (implementation-defined).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "VBUF *"
+      ]
+    },
+    {
+      "ptr_type": "VSTRING *",
+      "aliases": [],
+      "definition": "typedef struct VSTRING {\n    VBUF    vbuf;\n} VSTRING;",
+      "description": "Arbitrary-length string manager that embeds a VBUF and enforces specific initialization/destruction via its API. Provides dynamic growth and string operations; memory address may change on resize. Initialize with vstring_alloc and free with vstring_free.",
+      "direct_api_constructors": [
+        "vstring_alloc",
+        "vstring_truncate",
+        "vstring_set_payload_size",
+        "vstring_free",
+        "vstring_strcpy",
+        "vstring_strncpy",
+        "vstring_strcat",
+        "vstring_strncat",
+        "vstring_memcpy",
+        "vstring_memcat",
+        "vstring_insert",
+        "vstring_prepend",
+        "vstring_sprintf",
+        "vstring_sprintf_append",
+        "vstring_sprintf_prepend",
+        "vstring_export",
+        "vstring_import",
+        "vstring_vsprintf",
+        "vstring_vsprintf_append",
+        "vstring_ctl"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "vbuf_get",
+      "signature": "int vbuf_get(VBUF *);",
+      "description": "Low-level buffered byte input for a VBUF. Retrieves the next byte from the buffer, invoking the buffer’s get_ready callback as needed when the read buffer is empty. Returns a byte value or an end/err indication depending on the implementation. Intended to be used via the VBUF_GET(v) macro, which fast-paths when data is available.",
+      "requirements": [
+        "The VBUF* argument must be a valid, initialized buffer with its members (data, len, cnt, ptr) consistent.",
+        "The VBUF.get_ready callback should be set if the buffer may become empty; it is used to refill on demand.",
+        "Caller must be prepared for special return values indicating EOF or error (e.g., VBUF_EOF == -1), although exact error/EOF conventions are not specified in this header.",
+        "Thread-safety is not guaranteed; callers must synchronize externally if shared."
+      ],
+      "error": null
+    },
+    {
+      "name": "vbuf_put",
+      "signature": "int vbuf_put(VBUF *, int);",
+      "description": "Low-level buffered byte output for a VBUF. Stores a single byte into the buffer, invoking the buffer’s put_ready callback as needed when the write buffer is full. Intended to be used via the VBUF_PUT(v,c) macro, which fast-paths when space is available.",
+      "requirements": [
+        "The VBUF* argument must be a valid, initialized buffer with its members (data, len, cnt, ptr) consistent.",
+        "The value argument is treated as a byte; only the low 8 bits are stored.",
+        "The VBUF.put_ready callback should be set if the buffer can fill; it is used to make space on demand.",
+        "Caller must be prepared for special return values indicating no space/EOF or error (e.g., VBUF_EOF == -1), although exact return conventions are not fully specified here.",
+        "Thread-safety is not guaranteed; callers must synchronize externally if shared."
+      ],
+      "error": null
+    },
+    {
+      "name": "vbuf_unget",
+      "signature": "int vbuf_unget(VBUF *, int);",
+      "description": "Pushes a byte back into the VBUF as if it had not been read, adjusting internal counters/pointer accordingly. Useful to undo a previous get operation. Exact edge behaviors (e.g., at buffer start) are not documented here.",
+      "requirements": [
+        "The VBUF* must be valid and initialized; the buffer must support unget semantics (implementation-dependent).",
+        "The byte value is treated as a single unsigned char; higher bits are ignored.",
+        "If the buffer has no space to unget (e.g., no room before current position), behavior depends on the implementation; callers must be prepared for failure (return value not documented here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "vbuf_read",
+      "signature": "ssize_t vbuf_read(VBUF *, void *, ssize_t);",
+      "description": "Reads up to the specified number of bytes from a VBUF into a caller-provided memory region, using get_ready as needed. Acts like a buffered read operation over the VBUF abstraction. Return semantics (bytes read vs. EOF/error codes) are not defined in this header.",
+      "requirements": [
+        "The VBUF* must be valid and initialized, with appropriate get_ready callback set if data may need refilling.",
+        "The destination pointer must reference a writable memory region at least 'ssize_t n' bytes long.",
+        "The byte count must be non-negative.",
+        "Caller must handle partial reads and detect EOF or error via the return value and/or VBUF flags (exact conventions unspecified)."
+      ],
+      "error": null
+    },
+    {
+      "name": "vbuf_write",
+      "signature": "ssize_t vbuf_write(VBUF *, const void *, ssize_t);",
+      "description": "Writes up to the specified number of bytes from a caller-provided buffer into a VBUF, using put_ready as needed when full. Acts like a buffered write operation over the VBUF abstraction. Return semantics (bytes written vs. EOF/error codes) are not defined in this header.",
+      "requirements": [
+        "The VBUF* must be valid and initialized, with appropriate put_ready callback set if space must be made available.",
+        "The source pointer must reference a readable memory region of at least 'ssize_t n' bytes.",
+        "The byte count must be non-negative.",
+        "Caller must handle partial writes and detect error/full conditions via the return value and/or VBUF flags (exact conventions unspecified)."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_alloc",
+      "signature": "VSTRING *vstring_alloc(ssize_t);",
+      "description": "Allocates and initializes a new VSTRING with an initial capacity (payload size). The buffer auto-resizes as needed unless constrained by flags. Intended constructor for VSTRING objects.",
+      "requirements": [
+        "The size argument should be non-negative; exact minimum/maximum or rounding behavior is not specified.",
+        "Returns a newly allocated VSTRING* or NULL on failure (not specified; caller must be prepared for allocation failure).",
+        "Caller is responsible for eventually releasing the object with vstring_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_ctl",
+      "signature": "void vstring_ctl(VSTRING *, ...);",
+      "description": "Controls VSTRING behavior via a variadic control API. The header exposes flags/constants (VSTRING_CTL_EXACT, VSTRING_CTL_END) and safer type-checked wrappers (CA_VSTRING_* with CHECK_VAL infrastructure). Likely used to set VSTRING flags such as exact allocation for tests. Exact control codes and argument forms beyond those constants are not documented here.",
+      "requirements": [
+        "The VSTRING* must be a valid, initialized object.",
+        "The argument list must be properly terminated with VSTRING_CTL_END (or CA_VSTRING_CTL_END).",
+        "If using CA_VSTRING_CTL_* constants, pass arguments with the CHECK_VAL helper macros to enable compile-time checking; otherwise, argument types must match implementation expectations.",
+        "Only documented constant is VSTRING_CTL_EXACT; its effect is indicated as \"exact allocation for tests\"; other codes are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_truncate",
+      "signature": "VSTRING *vstring_truncate(VSTRING *, ssize_t);",
+      "description": "Truncates the VSTRING to the specified length, adjusting its internal write position and ensuring termination. Returns the same VSTRING for chaining. Behavior for length > current length is not specified.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The new length must be non-negative; must be within the current content length (assumed; behavior if larger is unspecified).",
+        "Truncation may invalidate previously obtained char* pointers to the internal buffer if resizing occurs (general vstring caveat)."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_set_payload_size",
+      "signature": "VSTRING *vstring_set_payload_size(VSTRING *, ssize_t);",
+      "description": "Sets or hints the payload size (capacity) of the VSTRING. Useful to pre-size the buffer. Returns the VSTRING for chaining. Exact semantics (reserve vs. hard set) are not fully documented here.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The size argument should be non-negative.",
+        "Changing capacity may reallocate and thus change the address of internal data; callers must avoid holding stale pointers."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_free",
+      "signature": "VSTRING *vstring_free(VSTRING *);",
+      "description": "Releases resources associated with a VSTRING. Returns NULL or another sentinel per implementation; used as a destructor. The exact return convention is not documented here.",
+      "requirements": [
+        "The VSTRING* must be either a valid allocated object or NULL (behavior on NULL is not specified).",
+        "After calling, the VSTRING pointer must not be used unless the function documents otherwise. Any exported/internal char* pointers become invalid."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_strcpy",
+      "signature": "VSTRING *vstring_strcpy(VSTRING *, const char *);",
+      "description": "Replaces the VSTRING contents with a NUL-terminated C string (like strcpy into a resizable destination). Auto-resizes as needed and returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The source pointer must reference a valid NUL-terminated string.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_strncpy",
+      "signature": "VSTRING *vstring_strncpy(VSTRING *, const char *, ssize_t);",
+      "description": "Copies up to n bytes from a C string into the VSTRING. Unlike standard strncpy, exact NUL-termination behavior is not documented; typically, vstring implementations maintain termination.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The source pointer must reference a readable memory region; if fewer than n bytes precede the first NUL, only those bytes are copied.",
+        "The length n must be non-negative.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_strcat",
+      "signature": "VSTRING *vstring_strcat(VSTRING *, const char *);",
+      "description": "Appends a NUL-terminated C string to the current VSTRING contents. Resizes as needed and returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The source pointer must reference a valid NUL-terminated string.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_strncat",
+      "signature": "VSTRING *vstring_strncat(VSTRING *, const char *, ssize_t);",
+      "description": "Appends up to n bytes from a C string to the VSTRING. Exact NUL-termination handling after appending n bytes is not specified here but vstrings generally maintain termination.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The source pointer must reference a readable memory region; if a NUL occurs before n, only bytes up to the NUL are appended.",
+        "The length n must be non-negative.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_memcpy",
+      "signature": "VSTRING *vstring_memcpy(VSTRING *, const char *, ssize_t);",
+      "description": "Replaces the VSTRING contents with n bytes from the source memory (binary-safe, no requirement for NUL). Returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The source pointer must reference a readable memory region of at least n bytes.",
+        "The length n must be non-negative.",
+        "This is a copy operation; overlapping source with the VSTRING’s internal storage has unspecified behavior.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_memcat",
+      "signature": "VSTRING *vstring_memcat(VSTRING *, const char *, ssize_t);",
+      "description": "Appends n bytes from the source memory to the VSTRING (binary-safe). Returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The source pointer must reference a readable memory region of at least n bytes.",
+        "The length n must be non-negative.",
+        "Overlapping source with the VSTRING’s destination region has unspecified behavior.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_memchr",
+      "signature": "char *vstring_memchr(VSTRING *, int);",
+      "description": "Searches the VSTRING’s buffer for a byte value (character) and returns a pointer into the VSTRING data if found. The exact search range (entire content vs. from current position) is not specified in this header.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The search value is interpreted as an unsigned char (0..255).",
+        "Returned pointer, if non-NULL, points into the VSTRING’s internal buffer and may be invalidated by subsequent mutations/resizes."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_insert",
+      "signature": "VSTRING *vstring_insert(VSTRING *, ssize_t, const char *, ssize_t);",
+      "description": "Inserts n bytes from the source into the VSTRING at the given offset, shifting existing content as needed. Returns the VSTRING for chaining. Exact bounds behavior and performance characteristics are not specified here.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The offset should be within [0, current_length]; behavior for out-of-range offsets is unspecified.",
+        "The source pointer must reference a readable memory region of at least n bytes.",
+        "The length n must be non-negative.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_prepend",
+      "signature": "VSTRING *vstring_prepend(VSTRING *, const char *, ssize_t);",
+      "description": "Prepends n bytes from the source to the beginning of the VSTRING. Equivalent to vstring_insert(v, 0, src, n).",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The source pointer must reference a readable memory region of at least n bytes.",
+        "The length n must be non-negative.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_sprintf",
+      "signature": "VSTRING *vstring_sprintf(VSTRING *, const char *, ...);",
+      "description": "Formats text per printf-style format into the VSTRING, replacing its current contents. Returns the VSTRING for chaining. Marked PRINTFLIKE for compile-time format checking when supported.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The format string must be a valid printf-style format for the provided arguments.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_sprintf_append",
+      "signature": "VSTRING *vstring_sprintf_append(VSTRING *, const char *, ...);",
+      "description": "Appends formatted text per printf-style format to the VSTRING’s current contents. Returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The format string must be a valid printf-style format for the provided arguments.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_sprintf_prepend",
+      "signature": "VSTRING *vstring_sprintf_prepend(VSTRING *, const char *, ...);",
+      "description": "Prepends formatted text per printf-style format to the VSTRING’s current contents. Returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The format string must be a valid printf-style format for the provided arguments.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_export",
+      "signature": "char *vstring_export(VSTRING *);",
+      "description": "Exports the VSTRING contents as a char*. Exact ownership and lifetime semantics of the returned pointer are not specified in this header (e.g., whether it transfers ownership or remains tied to the VSTRING).",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "Caller must consult implementation to determine whether the returned pointer must be freed by the caller, and whether the VSTRING remains valid or changes state after export.",
+        "Subsequent VSTRING modifications may invalidate the returned pointer if it aliases internal storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_import",
+      "signature": "VSTRING *vstring_import(char *);",
+      "description": "Creates or initializes a VSTRING from an existing char* buffer. Exact semantics (ownership transfer, copy vs. wrap) are not documented in this header.",
+      "requirements": [
+        "The input char* must be a valid NUL-terminated C string unless the implementation supports binary import (not indicated here).",
+        "Caller must consult implementation for ownership transfer rules (whether the function assumes ownership of the provided buffer)."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_vsprintf",
+      "signature": "VSTRING *vstring_vsprintf(VSTRING *, const char *, va_list);",
+      "description": "vprintf-style variant that formats into the VSTRING using a va_list, replacing current contents. Returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The format string must be a valid printf-style format for the provided va_list.",
+        "The va_list must be properly initialized and in a usable state for a single pass unless the implementation documents otherwise.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    },
+    {
+      "name": "vstring_vsprintf_append",
+      "signature": "VSTRING *vstring_vsprintf_append(VSTRING *, const char *, va_list);",
+      "description": "vprintf-style variant that appends formatted text to the VSTRING using a va_list. Returns the VSTRING for chaining.",
+      "requirements": [
+        "The VSTRING* must be valid and initialized.",
+        "The format string must be a valid printf-style format for the provided va_list.",
+        "The va_list must be properly initialized and in a usable state for a single pass unless the implementation documents otherwise.",
+        "Auto-resizing may reallocate; previously held data pointers may be invalidated."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "vbuf_get",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Use the embedded VBUF inside a valid VSTRING object.\n// Enforce object validity tracked via attribute set by vstring_alloc.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nVBUF *vb = &vstr->vbuf;\n\n// Invoke low-level get; callers must tolerate EOF/error per implementation.\nint ch = vbuf_get(vb);\n(void)ch; // value may be -1/EOF or a byte; we don't assert semantics here.\n\n// vstr remains live; return it as an output for continued fuzzing."
+    },
+    {
+      "name": "vbuf_put",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Use the embedded VBUF inside a valid VSTRING object for buffered output.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nVBUF *vb = &vstr->vbuf;\n\n// Only the low 8 bits are stored.\nint byte_val = (int)(*FUZZ_PARAM(unsigned int) & 0xFFu);\nint rc = vbuf_put(vb, byte_val);\n(void)rc; // may indicate error/full; accepted as part of fuzz behavior.\n\n// vstr remains live; return as output."
+    },
+    {
+      "name": "vbuf_unget",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Push a byte back into the buffer of a valid VSTRING.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nVBUF *vb = &vstr->vbuf;\n\nint byte_val = (int)(*FUZZ_PARAM(unsigned int) & 0xFFu);\nint rc = vbuf_unget(vb, byte_val);\n(void)rc; // implementation-dependent success/failure; tolerate both.\n\n// Keep vstr alive for subsequent operations."
+    },
+    {
+      "name": "vbuf_read",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Buffered read from a valid VSTRING's VBUF into a writable region.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nVBUF *vb = &vstr->vbuf;\n\n// Choose a non-negative read size bounded for performance.\nssize_t n = (ssize_t)(*FUZZ_PARAM(unsigned int) % 1024u);\n\n// Prepare writable buffer of size n.\nstd::string buf;\nbuf.resize((size_t)n);\n\nssize_t r = vbuf_read(vb, (void*)buf.data(), n);\n(void)r; // may be partial/EOF/error per implementation; no assertion here.\n\n// vstr remains valid; return it."
+    },
+    {
+      "name": "vbuf_write",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Buffered write from a caller buffer into a valid VSTRING's VBUF.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nVBUF *vb = &vstr->vbuf;\n\nstd::string src = FUZZ_PARAM_STR();\n// Bound write length for speed.\nssize_t n = (ssize_t)((src.size() <= 1024u) ? src.size() : 1024u);\n\nssize_t w = vbuf_write(vb, (const void*)src.data(), n);\n(void)w; // may be partial/error; tolerated.\n\n// Keep vstr in the pool."
+    },
+    {
+      "name": "vstring_alloc",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Allocate a new VSTRING with a reasonable initial payload size.\nssize_t init_cap = (ssize_t)(*FUZZ_PARAM(unsigned int) % 1024u);\nVSTRING *vstr = vstring_alloc(init_cap);\nif (!vstr) { FUZZ_BAIL(); }\n// Track liveness so downstream stubs can verify validity.\nFUZZ_SET_ATTR_INT(vstr, \"alive\", 1);\n// The embedded VBUF is considered initialized by this constructor."
+    },
+    {
+      "name": "vstring_truncate",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Truncate to a non-negative length. Use a small bound to avoid excessive realloc.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nssize_t new_len = (ssize_t)(*FUZZ_PARAM(unsigned int) % 64u);\nVSTRING *ret = vstring_truncate(vstr, new_len);\nFUZZ_ASSERT(ret == vstr, \"vstring_truncate should return its input object\");\n// vstr remains valid."
+    },
+    {
+      "name": "vstring_set_payload_size",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Hint/adjust capacity with non-negative size.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nssize_t cap = (ssize_t)(*FUZZ_PARAM(unsigned int) % 1024u);\nVSTRING *ret = vstring_set_payload_size(vstr, cap);\nFUZZ_ASSERT(ret == vstr, \"vstring_set_payload_size should return its input object\");\n// vstr remains valid; address of internal storage may change."
+    },
+    {
+      "name": "vstring_free",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Release a live VSTRING and drop it from the pool.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\n(void)vstring_free(vstr);\n// Do not return vstr; it is no longer valid."
+    },
+    {
+      "name": "vstring_strcpy",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Replace contents with a NUL-terminated string.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nstd::string s = FUZZ_PARAM_STR();\nVSTRING *ret = vstring_strcpy(vstr, s.c_str());\nFUZZ_ASSERT(ret == vstr, \"vstring_strcpy should return its input object\");\n// vstr stays alive."
+    },
+    {
+      "name": "vstring_strncpy",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Copy up to n bytes from a source C string.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nstd::string s = FUZZ_PARAM_STR();\nssize_t n = (ssize_t)((s.size() <= 1024u) ? s.size() : 1024u);\nVSTRING *ret = vstring_strncpy(vstr, s.c_str(), n);\nFUZZ_ASSERT(ret == vstr, \"vstring_strncpy should return its input object\");\n// vstr remains valid."
+    },
+    {
+      "name": "vstring_strcat",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Append a NUL-terminated string.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nstd::string s = FUZZ_PARAM_STR();\nVSTRING *ret = vstring_strcat(vstr, s.c_str());\nFUZZ_ASSERT(ret == vstr, \"vstring_strcat should return its input object\");\n// vstr stays alive."
+    },
+    {
+      "name": "vstring_strncat",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Append up to n bytes from a source C string (may stop at NUL sooner).\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nstd::string s = FUZZ_PARAM_STR();\nssize_t n = (ssize_t)((s.size() <= 1024u) ? s.size() : 1024u);\nVSTRING *ret = vstring_strncat(vstr, s.c_str(), n);\nFUZZ_ASSERT(ret == vstr, \"vstring_strncat should return its input object\");\n// vstr remains valid."
+    },
+    {
+      "name": "vstring_memcpy",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Replace with binary data (no NUL requirement).\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nstd::string bin = FUZZ_PARAM_STR();\nssize_t n = (ssize_t)((bin.size() <= 1024u) ? bin.size() : 1024u);\nVSTRING *ret = vstring_memcpy(vstr, bin.data(), n);\nFUZZ_ASSERT(ret == vstr, \"vstring_memcpy should return its input object\");\n// vstr remains valid."
+    },
+    {
+      "name": "vstring_memcat",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Append binary data (no NUL requirement).\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nstd::string bin = FUZZ_PARAM_STR();\nssize_t n = (ssize_t)((bin.size() <= 1024u) ? bin.size() : 1024u);\nVSTRING *ret = vstring_memcat(vstr, bin.data(), n);\nFUZZ_ASSERT(ret == vstr, \"vstring_memcat should return its input object\");\n// vstr remains valid."
+    },
+    {
+      "name": "vstring_memchr",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Search for a byte value in the VSTRING's data.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nint needle = (int)(*FUZZ_PARAM(unsigned int) & 0xFFu);\nchar *p = vstring_memchr(vstr, needle);\n(void)p; // May be NULL or pointer into internal storage; do not retain.\n// vstr remains valid; return it."
+    },
+    {
+      "name": "vstring_insert",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Insert n bytes at a chosen in-range offset. Use 0 to satisfy bounds safely.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nssize_t off = 0; // guaranteed in range [0, current_length]\nstd::string src = FUZZ_PARAM_STR();\nssize_t n = (ssize_t)((src.size() <= 64u) ? src.size() : 64u);\nVSTRING *ret = vstring_insert(vstr, off, src.data(), n);\nFUZZ_ASSERT(ret == vstr, \"vstring_insert should return its input object\");\n// vstr stays alive."
+    },
+    {
+      "name": "vstring_prepend",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Prepend n bytes (equivalent to insert at offset 0).\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nstd::string src = FUZZ_PARAM_STR();\nssize_t n = (ssize_t)((src.size() <= 64u) ? src.size() : 64u);\nVSTRING *ret = vstring_prepend(vstr, src.data(), n);\nFUZZ_ASSERT(ret == vstr, \"vstring_prepend should return its input object\");\n// vstr remains valid."
+    },
+    {
+      "name": "vstring_sprintf",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Format into the VSTRING using a small set of known-safe printf formats.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nunsigned int sel = *FUZZ_PARAM(unsigned int) % 3u;\nif (sel == 0u) {\n    // %s with a fuzzed string\n    std::string s = FUZZ_PARAM_STR();\n    VSTRING *ret = vstring_sprintf(vstr, \"%s\", s.c_str());\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf should return its input object\");\n} else if (sel == 1u) {\n    // %d with a fuzzed integer\n    int x = (int)*FUZZ_PARAM(unsigned int);\n    VSTRING *ret = vstring_sprintf(vstr, \"%d\", x);\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf should return its input object\");\n} else {\n    // Literal no-arg format (no specifiers)\n    VSTRING *ret = vstring_sprintf(vstr, \"literal\");\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf should return its input object\");\n}\n// vstr remains valid for further operations."
+    },
+    {
+      "name": "vstring_sprintf_append",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Append formatted text to a live VSTRING using a small set of safe formats.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nunsigned int sel = *FUZZ_PARAM(unsigned int) % 3u;\nif (sel == 0u) {\n    // %s with a fuzzed string argument\n    std::string s = FUZZ_PARAM_STR();\n    VSTRING *ret = vstring_sprintf_append(vstr, \"%s\", s.c_str());\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf_append should return its input object\");\n} else if (sel == 1u) {\n    // %d with a fuzzed integer\n    int x = (int)*FUZZ_PARAM(unsigned int);\n    VSTRING *ret = vstring_sprintf_append(vstr, \"%d\", x);\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf_append should return its input object\");\n} else {\n    // Literal format (no variadic arguments)\n    VSTRING *ret = vstring_sprintf_append(vstr, \"literal\");\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf_append should return its input object\");\n}\n// Validation: ensures input is live, formats are well-formed, and output is the same object."
+    },
+    {
+      "name": "vstring_sprintf_prepend",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Prepend formatted text to a live VSTRING using a small set of safe formats.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nunsigned int sel = *FUZZ_PARAM(unsigned int) % 3u;\nif (sel == 0u) {\n    // %s with a fuzzed string argument\n    std::string s = FUZZ_PARAM_STR();\n    VSTRING *ret = vstring_sprintf_prepend(vstr, \"%s\", s.c_str());\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf_prepend should return its input object\");\n} else if (sel == 1u) {\n    // %d with a fuzzed integer\n    int x = (int)*FUZZ_PARAM(unsigned int);\n    VSTRING *ret = vstring_sprintf_prepend(vstr, \"%d\", x);\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf_prepend should return its input object\");\n} else {\n    // Literal format (no variadic arguments)\n    VSTRING *ret = vstring_sprintf_prepend(vstr, \"literal\");\n    FUZZ_ASSERT(ret == vstr, \"vstring_sprintf_prepend should return its input object\");\n}\n// Validation: enforces liveness and uses consistent, valid formats; returns input object."
+    },
+    {
+      "name": "vstring_export",
+      "inputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Export the contents of a live VSTRING. Ownership/lifetime of returned char* is unspecified,\n// so we do not retain or free it; just exercise the API.\nif (FUZZ_GET_ATTR_INT(vstr, \"alive\") != 1) { FUZZ_BAIL(); }\nchar *out = vstring_export(vstr);\n(void)out; // May be NULL or a pointer to internal/allocated memory; do not use further.\n// Validation: input liveness checked; vstr remains valid and is returned for continued fuzzing."
+    },
+    {
+      "name": "vstring_import",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vstr",
+          "type": "VSTRING *"
+        }
+      ],
+      "code": "// Import from a mutable NUL-terminated buffer. Since ownership semantics are unknown,\n// allocate a dedicated buffer and do not free it after the call.\nstd::string s = FUZZ_PARAM_STR();\n// Bound size for performance and to keep allocations < 2048 bytes.\nsize_t n = s.size();\nif (n > 1024u) n = 1024u;\nchar *buf = new char[n + 1];\nif (!buf) { FUZZ_BAIL(); }\nif (n) { memcpy(buf, s.data(), n); }\nbuf[n] = '\\0';\nVSTRING *vstr = vstring_import(buf);\nif (!vstr) { FUZZ_BAIL(); }\n// Track liveness for downstream validation.\nFUZZ_SET_ATTR_INT(vstr, \"alive\", 1);\n// Validation: constructs a proper mutable C string, handles potential NULL return, and records liveness."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "vstring_ctl",
+      "reason": "Variadic control codes and required terminating constant are undocumented here, making safe, meaningful invocation under fuzzing infeasible."
+    },
+    {
+      "name": "vstring_vsprintf",
+      "reason": "Requires a properly initialized va_list which cannot be constructed without a variadic helper function, disallowed by the harness constraints."
+    },
+    {
+      "name": "vstring_vsprintf_append",
+      "reason": "Requires a properly initialized va_list which cannot be constructed without a variadic helper function, disallowed by the harness constraints."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "vbuf_get",
+      "data_types": []
+    },
+    {
+      "name": "vbuf_put",
+      "data_types": []
+    },
+    {
+      "name": "vbuf_unget",
+      "data_types": []
+    },
+    {
+      "name": "vbuf_read",
+      "data_types": []
+    },
+    {
+      "name": "vstring_alloc",
+      "data_types": []
+    },
+    {
+      "name": "vstring_truncate",
+      "data_types": []
+    },
+    {
+      "name": "vstring_set_payload_size",
+      "data_types": []
+    },
+    {
+      "name": "vstring_free",
+      "data_types": []
+    },
+    {
+      "name": "vstring_memchr",
+      "data_types": []
+    },
+    {
+      "name": "vstring_export",
+      "data_types": []
+    },
+    {
+      "name": "vbuf_write",
+      "data_types": [
+        "binary blob"
+      ]
+    },
+    {
+      "name": "vstring_strcpy",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "vstring_strncpy",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "vstring_strcat",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "vstring_strncat",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "vstring_memcpy",
+      "data_types": [
+        "binary blob"
+      ]
+    },
+    {
+      "name": "vstring_memcat",
+      "data_types": [
+        "binary blob"
+      ]
+    },
+    {
+      "name": "vstring_insert",
+      "data_types": [
+        "binary blob"
+      ]
+    },
+    {
+      "name": "vstring_prepend",
+      "data_types": [
+        "binary blob"
+      ]
+    },
+    {
+      "name": "vstring_sprintf",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "vstring_sprintf_append",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "vstring_sprintf_prepend",
+      "data_types": [
+        "C string"
+      ]
+    },
+    {
+      "name": "vstring_import",
+      "data_types": [
+        "C string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "binary blob",
+      "description": "Arbitrary byte sequence with no encoding or termination requirements. May contain any 8-bit values including NULs and non-text bytes; length is explicitly provided by the caller."
+    },
+    {
+      "data_type": "C string",
+      "description": "NUL-terminated string suitable for C APIs expecting const char* or char*. The content may be arbitrary bytes except it must contain a terminating '\\0'; consumers typically treat it as text but no specific character set is required."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "binary blob",
+      "generator": "import random\n\n# Generator for binary blob inputs targeting VSTRING/VBUF operations.\n# Produces valid arbitrary byte sequences with varied patterns and sizes.\n\n\ndef _rand_ascii(r: random.Random, n: int) -> bytes:\n    # Printable ASCII plus space\n    alphabet = [ord(' ')] + list(range(33, 127))\n    return bytes(r.choice(alphabet) for _ in range(n))\n\n\ndef _rand_utf8ish(r: random.Random, n: int) -> bytes:\n    # Generate mostly-valid UTF-8 sequences mixed with ASCII\n    # Avoid surrogate range 0xD800..0xDFFF which is invalid for UTF-8 encoding\n    out = bytearray()\n    while len(out) < n:\n        choice = r.random()\n        rem = n - len(out)\n        if choice < 0.6:\n            out.append(r.randrange(0x20, 0x7F))\n        elif choice < 0.75 and rem >= 2:\n            cp = r.randrange(0x80, 0x800)\n            out += chr(cp).encode('utf-8')\n        elif choice < 0.9 and rem >= 3:\n            # pick from BMP excluding surrogates\n            while True:\n                cp = r.randrange(0x800, 0x10000)\n                if not (0xD800 <= cp <= 0xDFFF):\n                    break\n            out += chr(cp).encode('utf-8')\n        elif rem >= 4:\n            cp = r.randrange(0x10000, 0x110000)\n            out += chr(cp).encode('utf-8')\n        else:\n            out.append(r.randrange(0x00, 0x100))\n    if len(out) > n:\n        del out[n:]\n    return bytes(out)\n\n\ndef _rand_binary(r: random.Random, n: int) -> bytes:\n    return r.randbytes(n) if hasattr(r, 'randbytes') else bytes(r.getrandbits(8) for _ in range(n))\n\n\ndef _pattern_repeats(r: random.Random, n: int) -> bytes:\n    pat_len = r.choice([1, 2, 3, 4, 8, 16, 32])\n    pat_types = [\n        lambda m: bytes([r.randrange(256) for _ in range(m)]),\n        lambda m: bytes((i % 256 for i in range(m))),\n        lambda m: bytes((255 - (i % 256) for i in range(m))),\n        lambda m: b\"\\x00\" * m,\n        lambda m: b\"\\xFF\" * m,\n        lambda m: _rand_ascii(r, m),\n    ]\n    pat = r.choice(pat_types)(pat_len)\n    reps = (n + pat_len - 1) // pat_len\n    return (pat * reps)[:n]\n\n\ndef _mixed_blocks(r: random.Random, n: int) -> bytes:\n    blocks = []\n    remaining = n\n    gens = [_rand_ascii, _rand_utf8ish, _rand_binary, _pattern_repeats]\n    while remaining > 0:\n        block_size = r.randint(1, max(1, min(256, remaining)))\n        g = r.choice(gens)\n        if g is _pattern_repeats:\n            blocks.append(_pattern_repeats(r, block_size))\n        else:\n            blocks.append(g(r, block_size))\n        remaining -= block_size\n    return b\"\".join(blocks)\n\n\ndef _inject_nuls_and_edges(r: random.Random, data: bytes) -> bytes:\n    if not data:\n        return data\n    b = bytearray(data)\n    L = len(b)\n    positions = set()\n    for pos in [0, L // 2, L - 1]:\n        if 0 <= pos < L:\n            positions.add(pos)\n    for _ in range(min(8, L)):\n        positions.add(r.randrange(0, L))\n    for pos in positions:\n        choice = r.random()\n        if choice < 0.4:\n            b[pos] = 0x00\n        elif choice < 0.7:\n            b[pos] = 0xFF\n        elif choice < 0.85:\n            b[pos] = 0x7F\n        else:\n            b[pos] = (pos & 0xFF)\n    return bytes(b)\n\n\ndef _choose_length(r: random.Random) -> int:\n    lens = [0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 65, 100, 128, 255, 256, 512, 768, 1000, 1023, 1024]\n    if r.random() < 0.7:\n        return r.choice(lens)\n    else:\n        return r.randint(0, 1024)\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    mode = r.choice(['ascii', 'utf8', 'binary', 'repeat', 'mixed'])\n    n = _choose_length(r)\n\n    if mode == 'ascii':\n        data = _rand_ascii(r, n)\n    elif mode == 'utf8':\n        data = _rand_utf8ish(r, n)\n    elif mode == 'binary':\n        data = _rand_binary(r, n)\n    elif mode == 'repeat':\n        data = _pattern_repeats(r, n)\n    else:\n        data = _mixed_blocks(r, n)\n\n    if r.random() < 0.8:\n        data = _inject_nuls_and_edges(r, data)\n\n    if data and r.random() < 0.3:\n        data = data[:-1] + b\"\\x00\"\n\n    if len(data) > 1024:\n        data = data[:1024]\n\n    return data"
+    },
+    {
+      "data_type": "C string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# Note: Do not embed literal NUL bytes (\"\\x00\") directly in the source as Python\n# rejects source files containing NUL characters. Build them at runtime instead.\n\n_MAX_STR = 1024\n_NUL = bytes([0])\n\ndef _rand_bytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.randrange(0, 256) for _ in range(n))\n\ndef _make_interesting_strings(r: random.Random) -> List[bytes]:\n    out: List[bytes] = []\n\n    # Basics\n    out.append(_NUL)  # empty string (just NUL)\n    out.append(b\"a\" + _NUL)\n    out.append(b\"Hello, world!\" + _NUL)\n\n    # Boundary sizes\n    for n in [1,2,3,4,7,8,15,16,31,32,63,64,255,256,511,512,1023,1024]:\n        n = min(n, _MAX_STR)\n        s = (b\"A\" * n) + _NUL\n        out.append(s)\n\n    # Repeated characters and patterns\n    out.append(b\"0\" * 100 + _NUL)\n    out.append(b\"9\" * 100 + _NUL)\n    out.append(b\"-\" * 100 + _NUL)\n    out.append(b\"%\" * 50 + _NUL)  # percent signs in data (argument to %s)\n\n    # Embedded early NUL (useful for strncpy/strncat stopping early). Ensure final NUL termination.\n    early = b\"abc\" + _NUL + b\"def\"\n    out.append(early + _NUL)\n\n    # High-bit bytes and control characters\n    out.append((bytes([0xC3, 0xA9]) * 100)[:_MAX_STR] + _NUL)  # UTF-8 for 'é'\n    out.append(bytes([1,2,3,4,5,10,13,9,127]) + b\"X\" * 50 + _NUL)\n\n    # Numeric text for %d-related appends\n    out.append(b\"0\" + _NUL)\n    out.append(b\"12345\" + _NUL)\n    out.append(b\"-2147483648\" + _NUL)\n    out.append(b\"2147483647\" + _NUL)\n\n    # Random ASCII of random length\n    for _ in range(6):\n        n = r.randrange(0, _MAX_STR + 1)\n        alphabet = b\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.,:/\\\\\\n\\t%$#@!^&*()[]{}<>?\"\n        s = bytes(alphabet[r.randrange(0, len(alphabet))] for _ in range(n)) + _NUL\n        out.append(s)\n\n    # Random binary bytes (still NUL-terminated at end)\n    for _ in range(4):\n        n = r.randrange(0, _MAX_STR + 1)\n        s = _rand_bytes(r, n) + _NUL\n        out.append(s)\n\n    # Ensure uniqueness and cap size\n    uniq = []\n    seen = set()\n    for s in out:\n        if s not in seen and len(s) <= (_MAX_STR + 1):\n            uniq.append(s)\n            seen.add(s)\n    return uniq\n\ndef _choose_selector(r: random.Random) -> int:\n    # 0 -> %s path, 1 -> %d path, 2 -> literal path\n    choices = [0, 0, 0, 1, 1, 2]\n    return choices[r.randrange(0, len(choices))]\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Build interesting C strings list\n    candidates = _make_interesting_strings(r)\n    s = candidates[r.randrange(0, len(candidates))]\n\n    # Selector for printf variants\n    sel = _choose_selector(r)\n    sel_bytes = struct.pack('<I', sel)\n\n    # Provide an unsigned int for %d case; any value is fine\n    intval = r.getrandbits(32)\n    int_bytes = struct.pack('<I', intval)\n\n    # Assemble: [selector][int][C-string]\n    buf = sel_bytes + int_bytes + s\n\n    # Guarantee overall cap <= 4096; trim if necessary while keeping NUL\n    if len(buf) > 4096:\n        max_str = 4096 - 8\n        if max_str <= 0:\n            buf = sel_bytes + int_bytes\n        else:\n            trimmed = s[:max(0, max_str - 1)] + _NUL\n            buf = sel_bytes + int_bytes + trimmed\n\n    return buf"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4584,
+            "output_tokens": 684,
+            "total_tokens": 5268
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4162,
+            "output_tokens": 141,
+            "total_tokens": 4303
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4743,
+            "output_tokens": 4119,
+            "total_tokens": 8862
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 20076,
+            "output_tokens": 8499,
+            "total_tokens": 28575
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8408,
+            "output_tokens": 303,
+            "total_tokens": 8711
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 336.4364860057831,
+    "scan_objects": 8.900521278381348,
+    "validate_objects": 0.5417439937591553,
+    "scan_functions": 66.35918354988098,
+    "synthesis": 173.6862301826477,
+    "fill": 0,
+    "classify": 6.679214239120483,
+    "build_generators": 80.26860475540161
+  }
+}

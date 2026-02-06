@@ -1,0 +1,126 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom types (structs, enums, typedefs, or classes) are defined in this header. The file only declares UTF-8 validation functions inside namespace solidity::util.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "solidity::util::validateUTF8",
+      "signature": "bool solidity::util::validateUTF8(std::string const& _input, size_t& _invalidPosition);",
+      "description": "Validates whether the given byte sequence in _input is well-formed UTF-8. Returns true if the string is valid UTF-8; returns false if invalid and writes the index of the first invalid byte to _invalidPosition. Use this overload when you need the exact position of the first error. Specific validation rules (e.g., handling of overlong sequences, invalid code points) are not documented in this header and are therefore unknown.",
+      "requirements": [
+        "_invalidPosition must be a valid lvalue reference; the caller must provide storage for the position output.",
+        "If the function returns false, _invalidPosition contains the index (0-based) of the first invalid byte.",
+        "If the function returns true, the value of _invalidPosition is unspecified; the caller must not rely on it.",
+        "_input may be empty; an empty string should be considered valid UTF-8 unless implementation specifies otherwise (details not stated here).",
+        "No exception or error reporting mechanism is specified beyond the return value and _invalidPosition; callers must check the boolean result."
+      ],
+      "error": null
+    },
+    {
+      "name": "solidity::util::validateUTF8",
+      "signature": "inline bool solidity::util::validateUTF8(std::string const& _input);",
+      "description": "Convenience overload that validates whether _input is well-formed UTF-8 and returns only a boolean status. Internally calls the position-reporting overload and discards the invalid position. Use when you need a simple validity check without error location. Specific validation rules are not documented here and are unknown.",
+      "requirements": [
+        "Callers must check the boolean return value to determine validity.",
+        "Provides no position information; if the result is false and you need the failing index, call the overload with the size_t& parameter.",
+        "_input may be empty; behavior is expected to treat empty as valid UTF-8 unless implementation specifies otherwise (not stated here)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "solidity::util::validateUTF8",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random byte sequence for validation\nstd::string input = FUZZ_PARAM_STR();\n\n// Provide storage for the position output; must be a valid lvalue reference\nsize_t invalidPos = 0;\n\n// Call the detailed overload that returns the first invalid byte position\nbool ok_with_pos = solidity::util::validateUTF8(input, invalidPos);\n\n// Call the convenience overload and ensure it is consistent with the detailed one\nbool ok_simple = solidity::util::validateUTF8(input);\nFUZZ_ASSERT(ok_simple == ok_with_pos, \"validateUTF8 overloads returned inconsistent results\");\n\n// If invalid, position must be within [0, input.size()-1] when input is non-empty\nif (!ok_with_pos) {\n    if (!input.empty()) {\n        FUZZ_ASSERT(invalidPos < input.size(), \"Invalid position must be within input bounds for non-empty input\");\n    }\n}\n\n// No persistent objects to output; all parameters are ephemeral for this API"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "solidity::util::validateUTF8",
+      "data_types": [
+        "arbitrary byte string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary byte string",
+      "description": "A sequence of bytes with no encoding guarantees. May contain any 8-bit values (0x00–0xFF), including embedded NULs and non-printable bytes. Suitable for testing functions that accept raw binary data or strings that may or may not be validly encoded (e.g., UTF-8 validators)."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary byte string",
+      "generator": "import random\nfrom typing import List\n\n# This generator produces byte sequences targeting UTF-8 validation logic.\n# It aims to create mostly valid UTF-8 strings of different structures as well as\n# controlled invalid cases. The output is a bytes object suitable for feeding\n# FUZZ_PARAM_STR / FUZZ_PARAM_FILENAME data files.\n\nMAX_LEN = 4096\n\n# Helpers to build valid UTF-8\n\ndef _enc_scalar(v: int) -> bytes:\n    \"\"\"Encode a Unicode scalar value (0..0x10FFFF excluding surrogates) into UTF-8 bytes.\"\"\"\n    assert 0 <= v <= 0x10FFFF and not (0xD800 <= v <= 0xDFFF)\n    if v <= 0x7F:\n        return bytes([v])\n    if v <= 0x7FF:\n        return bytes([0xC0 | (v >> 6), 0x80 | (v & 0x3F)])\n    if v <= 0xFFFF:\n        return bytes([0xE0 | (v >> 12), 0x80 | ((v >> 6) & 0x3F), 0x80 | (v & 0x3F)])\n    return bytes([\n        0xF0 | (v >> 18),\n        0x80 | ((v >> 12) & 0x3F),\n        0x80 | ((v >> 6) & 0x3F),\n        0x80 | (v & 0x3F),\n    ])\n\n# Invalid constructors\n\ndef _overlong_ascii(rng: random.Random) -> bytes:\n    # Overlong encodings for ASCII 0..127 using 2-4 bytes\n    v = rng.randrange(0, 0x80)\n    mode = rng.choice([2, 3, 4])\n    if mode == 2:\n        b2 = 0x80 | (v & 0x3F)\n        b1 = 0xC0 | ((v >> 6) & 0x01)  # yields 0xC0 or 0xC1\n        return bytes([b1, b2])\n    if mode == 3:\n        b1 = 0xE0\n        b2 = 0x80\n        b3 = 0x80 | v\n        return bytes([b1, b2, b3])\n    b1 = 0xF0\n    return bytes([b1, 0x80, 0x80, 0x80 | v])\n\ndef _bad_continuation(rng: random.Random) -> bytes:\n    # Start byte requiring continuations but provide wrong continuation patterns\n    lead = rng.choice([\n        0xC2, 0xDF,  # valid 2-byte leads\n        0xE0, 0xEF,  # valid 3-byte leads\n        0xF0, 0xF4   # valid 4-byte leads within Unicode range\n    ])\n    need = 1 if lead <= 0xDF else (2 if lead <= 0xEF else 3)\n    out = [lead]\n    for _ in range(need):\n        # mix invalid continuation bytes\n        if rng.random() < 0.5:\n            out.append(rng.randrange(0x00, 0x80))  # not 10xxxxxx\n        else:\n            out.append(rng.randrange(0xC0, 0xFF))  # also not 10xxxxxx\n    return bytes(out)\n\ndef _truncated(rng: random.Random) -> bytes:\n    # Start a multi-byte sequence and then cut it short\n    lead = rng.choice([0xC2, 0xE0, 0xF0])\n    need = 1 if lead == 0xC2 else (2 if lead == 0xE0 else 3)\n    have = rng.randrange(0, need)  # strictly less than need\n    out = [lead]\n    for _ in range(have):\n        out.append(0x80 | rng.randrange(0, 0x40))\n    return bytes(out)\n\ndef _surrogate_code_point(rng: random.Random) -> bytes:\n    # Encode UTF-16 surrogate halves (invalid in UTF-8)\n    cp = rng.randrange(0xD800, 0xE000)\n    b1 = 0xE0 | (cp >> 12)\n    b2 = 0x80 | ((cp >> 6) & 0x3F)\n    b3 = 0x80 | (cp & 0x3F)\n    return bytes([b1, b2, b3])\n\ndef _out_of_range_code_point(rng: random.Random) -> bytes:\n    # 4-byte sequence claiming a value > U+10FFFF\n    if rng.random() < 0.5:\n        b1 = 0xF4\n        b2 = 0x90 | rng.randrange(0x10, 0x20)\n        b3 = 0x80 | rng.randrange(0, 0x40)\n        b4 = 0x80 | rng.randrange(0, 0x40)\n        return bytes([b1, b2 & 0xBF, b3, b4])\n    else:\n        b1 = rng.randrange(0xF5, 0xF8)\n        return bytes([b1, 0x80 | rng.randrange(0, 0x40), 0x80 | rng.randrange(0, 0x40), 0x80 | rng.randrange(0, 0x40)])\n\n# Random valid scalar generation\n\ndef _rand_scalar(rng: random.Random) -> int:\n    choices = [\n        (0x0000, 0x007F, 4),   # ASCII\n        (0x0080, 0x07FF, 3),   # 2-byte\n        (0x0800, 0xD7FF, 5),   # 3-byte before surrogates\n        (0xE000, 0xFFFF, 4),   # 3-byte after surrogates\n        (0x10000, 0x10FFFF, 2) # 4-byte\n    ]\n    total_w = sum(w for _, _, w in choices)\n    pick = rng.randrange(total_w)\n    acc = 0\n    for lo, hi, w in choices:\n        if pick < acc + w:\n            return rng.randrange(lo, hi + 1)\n        acc += w\n    return rng.randrange(0, 0x10FFFF + 1)\n\n\ndef _valid_string(rng: random.Random, target_len: int) -> bytes:\n    # Ensure non-negative\n    if target_len <= 0:\n        return b\"\"\n    out = bytearray()\n    while len(out) < target_len:\n        roll = rng.random()\n        if roll < 0.15:\n            cp = rng.choice([0x0000, 0x0009, 0x000A, 0x000D, 0x0020, 0x007F])\n        elif roll < 0.25:\n            cp = rng.choice([0x00A9, 0x03A9, 0x20AC, 0x2028, 0x2029])\n        elif roll < 0.35:\n            cp = rng.randrange(0x80, 0x7FF)\n        elif roll < 0.6:\n            cp = rng.randrange(0x0800, 0xD7FF)\n        elif roll < 0.85:\n            cp = rng.randrange(0xE000, 0xFFFF)\n        else:\n            cp = rng.randrange(0x10000, 0x10FFFF)\n        # Skip surrogate range guard (shouldn't be selected but be safe)\n        if 0xD800 <= cp <= 0xDFFF:\n            continue\n        enc = _enc_scalar(cp)\n        if len(out) + len(enc) > target_len:\n            break\n        out.extend(enc)\n        # Avoid infinite loop if a single codepoint exceeds remaining space\n        if target_len - len(out) < 1:\n            break\n    # If still empty, add a single ASCII to ensure progress up to target_len\n    if not out and target_len > 0:\n        out.extend(_enc_scalar(0x41))  # 'A'\n    return bytes(out[:target_len])\n\n\ndef _invalid_fragment(rng: random.Random) -> bytes:\n    maker = rng.choice([\n        _overlong_ascii,\n        _bad_continuation,\n        _truncated,\n        _surrogate_code_point,\n        _out_of_range_code_point,\n    ])\n    return maker(rng)\n\n\ndef _mix_cases(rng: random.Random, max_total: int) -> bytes:\n    max_total = max(1, max_total)\n    parts: List[bytes] = []\n    if rng.random() < 0.8:\n        prefix_len = rng.randrange(0, max(1, max_total // 2))\n        parts.append(_valid_string(rng, prefix_len))\n    parts.append(_invalid_fragment(rng))\n    if rng.random() < 0.7:\n        remain = max_total - sum(len(p) for p in parts)\n        if remain > 0:\n            parts.append(_valid_string(rng, rng.randrange(0, remain + 1)))\n    data = b\"\".join(parts)\n    return data[:max_total]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    scenario = rng.choices(\n        population=[\n            \"empty\",\n            \"ascii\",\n            \"valid_mixed\",\n            \"valid_long\",\n            \"invalid_first_byte\",\n            \"invalid_mixed\",\n            \"truncated_tail\",\n            \"overlong_only\",\n            \"boundary_values\",\n        ],\n        weights=[2, 6, 10, 4, 5, 10, 5, 4, 4],\n        k=1,\n    )[0]\n\n    # Pick a maximum payload length; ensure at least 1 to avoid empty range errors\n    max_len = max(1, rng.randrange(1, min(1024, MAX_LEN) + 1))\n\n    if scenario == \"empty\":\n        return b\"\"\n\n    if scenario == \"ascii\":\n        length = rng.randrange(1, max_len + 1)\n        buf = bytearray()\n        for _ in range(length):\n            if rng.random() < 0.1:\n                buf.append(rng.choice([0x00, 0x09, 0x0A, 0x0D]))\n            else:\n                buf.append(rng.randrange(0x20, 0x7F))\n        return bytes(buf)\n\n    if scenario == \"valid_mixed\":\n        length = rng.randrange(1, max_len + 1)\n        return _valid_string(rng, length)\n\n    if scenario == \"valid_long\":\n        lo = max(1, max_len // 2)\n        hi = max(lo, max_len)\n        length = rng.randrange(lo, hi + 1)\n        return _valid_string(rng, length)\n\n    if scenario == \"invalid_first_byte\":\n        if max_len == 1:\n            # Only room for the invalid byte\n            return bytes([rng.randrange(0x80, 0xC0)])\n        first = rng.randrange(0x80, 0xC0)  # stray continuation\n        tail = _valid_string(rng, rng.randrange(0, max_len))\n        return bytes([first]) + tail[: max_len - 1]\n\n    if scenario == \"invalid_mixed\":\n        return _mix_cases(rng, max_len)\n\n    if scenario == \"truncated_tail\":\n        prefix_len = rng.randrange(0, max(1, max_len // 2))\n        prefix = _valid_string(rng, prefix_len)\n        trunc = _truncated(rng)\n        remain = max(0, max_len - len(prefix) - len(trunc))\n        suffix = b\"\"\n        if remain > 0 and rng.random() < 0.3:\n            suffix = _valid_string(rng, rng.randrange(1, remain + 1))\n        return (prefix + trunc + suffix)[:max_len]\n\n    if scenario == \"overlong_only\":\n        data = bytearray()\n        while len(data) < max_len:\n            frag = _overlong_ascii(rng)\n            if len(data) + len(frag) > max_len:\n                break\n            data.extend(frag)\n            if rng.random() < 0.3:\n                pad_len = rng.randrange(0, min(8, max_len - len(data)) + 1)\n                data.extend(_valid_string(rng, pad_len))\n        if not data:\n            # Ensure non-empty when scenario expects data\n            data.extend(_overlong_ascii(rng))\n        return bytes(data[:max_len])\n\n    if scenario == \"boundary_values\":\n        cps = [\n            0x0000, 0x007F, 0x0080, 0x07FF, 0x0800, 0xFFFF, 0x10000, 0x10FFFF,\n            0xD7FF, 0xE000\n        ]\n        out = bytearray()\n        for cp in cps:\n            if 0xD800 <= cp <= 0xDFFF:\n                continue\n            out.extend(_enc_scalar(cp))\n        out.extend(_surrogate_code_point(rng))\n        out.extend(_out_of_range_code_point(rng))\n        if len(out) < max_len:\n            out.extend(_valid_string(rng, max_len - len(out)))\n        return bytes(out[:max_len])\n\n    # Fallback\n    return _valid_string(rng, rng.randrange(1, max_len + 1))\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 963,
+            "output_tokens": 74,
+            "total_tokens": 1037
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 541,
+            "output_tokens": 33,
+            "total_tokens": 574
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 990,
+            "output_tokens": 881,
+            "total_tokens": 1871
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4137,
+            "output_tokens": 1091,
+            "total_tokens": 5228
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1732,
+            "output_tokens": 118,
+            "total_tokens": 1850
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 102.97195148468018,
+    "scan_objects": 2.262258529663086,
+    "validate_objects": 0.44549036026000977,
+    "scan_functions": 24.567230463027954,
+    "synthesis": 18.65039086341858,
+    "fill": 0,
+    "classify": 3.253072500228882,
+    "build_generators": 53.79267978668213
+  }
+}

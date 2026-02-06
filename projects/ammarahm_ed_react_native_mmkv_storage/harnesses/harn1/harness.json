@@ -1,0 +1,2007 @@
+{
+  "objects": [
+    {
+      "ptr_type": "MMKVLogLevel *",
+      "aliases": [],
+      "definition": "enum MMKVLogLevel : int {\n    MMKVLogDebug = 0, // not available for release/product build\n    MMKVLogInfo = 1,  // default level\n    MMKVLogWarning,\n    MMKVLogError,\n    MMKVLogNone, // special level used to disable all log messages\n};",
+      "description": "Logging severity levels used by MMKV for controlling output verbosity. Values increase from debug to none (disable all logs).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "MMKVRecoverStrategic *",
+      "aliases": [],
+      "definition": "enum MMKVRecoverStrategic : int {\n    OnErrorDiscard = 0,\n    OnErrorRecover,\n};",
+      "description": "Strategy returned by error handlers to decide how to react on file/data errors: discard all data or try to recover what can be read.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "MMKVErrorType *",
+      "aliases": [],
+      "definition": "enum MMKVErrorType : int {\n    MMKVCRCCheckFail = 0,\n    MMKVFileLength,\n};",
+      "description": "Kinds of persistence errors MMKV can report to the ErrorHandler: CRC mismatch or unexpected file length.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "SyncFlag *",
+      "aliases": [],
+      "definition": "enum SyncFlag : bool { MMKV_SYNC = true, MMKV_ASYNC = false };",
+      "description": "Synchronous versus asynchronous sync option used by MMKV::sync().",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "MMKVFileHandle_t *",
+      "aliases": [],
+      "definition": "using MMKVFileHandle_t = HANDLE;",
+      "description": "Platform-specific file handle type used internally by MMKV on Windows builds (HANDLE). On non-Windows this header defines it as int, but that branch is excluded here due to preprocessor; this alias appears only once at compile time.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "MMKVPath_t *",
+      "aliases": [],
+      "definition": "using MMKVPath_t = std::wstring;",
+      "description": "Platform-specific path string type for file system paths (std::wstring on Windows, std::string elsewhere). Only one definition is active per platform at compile time.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "MMKVMode *",
+      "aliases": [],
+      "definition": "enum MMKVMode : uint32_t {\n    MMKV_SINGLE_PROCESS = 1 << 0,\n    MMKV_MULTI_PROCESS = 1 << 1,\n#ifdef MMKV_ANDROID\n    CONTEXT_MODE_MULTI_PROCESS = 1 << 2, // in case someone mistakenly pass Context.MODE_MULTI_PROCESS\n    MMKV_ASHMEM = 1 << 3,\n    MMKV_BACKUP = 1 << 4,\n#endif\n};",
+      "description": "Bitmask flags controlling how an MMKV instance operates (single- vs multi-process, Android-specific ashmem/backup options).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "MMKV *",
+      "aliases": [],
+      "definition": "class MMKV {\n#ifndef MMKV_ANDROID\n    MMKV(const std::string &mmapID, MMKVMode mode, std::string *cryptKey, MMKVPath_t *rootPath, size_t expectedCapacity = 0);\n#else // defined(MMKV_ANDROID)\n    mmkv::FileLock *m_fileModeLock;\n    mmkv::InterProcessLock *m_sharedProcessModeLock;\n    mmkv::InterProcessLock *m_exclusiveProcessModeLock;\n\n    MMKV(const std::string &mmapID, int size, MMKVMode mode, const std::string *cryptKey, const MMKVPath_t *rootPath, size_t expectedCapacity = 0);\n\n    MMKV(const std::string &mmapID, int ashmemFD, int ashmemMetaFd, const std::string *cryptKey = nullptr);\n#endif\n\n    ~MMKV();\n\n    std::string m_mmapKey;\n    std::string m_mmapID;\n    MMKVPath_t m_path;\n    MMKVPath_t m_crcPath;\n    mmkv::MMKVMap *m_dic;\n    mmkv::MMKVMapCrypt *m_dicCrypt;\n\n    size_t m_expectedCapacity;\n\n    mmkv::MemoryFile *m_file;\n    size_t m_actualSize;\n    mmkv::CodedOutputData *m_output;\n\n    bool m_needLoadFromFile;\n    bool m_hasFullWriteback;\n\n    uint32_t m_crcDigest;\n    mmkv::MemoryFile *m_metaFile;\n    mmkv::MMKVMetaInfo *m_metaInfo;\n\n    mmkv::AESCrypt *m_crypter;\n\n    mmkv::ThreadLock *m_lock;\n    mmkv::FileLock *m_fileLock;\n    mmkv::InterProcessLock *m_sharedProcessLock;\n    mmkv::InterProcessLock *m_exclusiveProcessLock;\n\n    bool m_enableKeyExpire = false;\n    uint32_t m_expiredInSeconds = ExpireNever;\n\n    bool m_enableCompareBeforeSet = false;\n\n#ifdef MMKV_APPLE\n    using MMKVKey_t = NSString *__unsafe_unretained;\n    static bool isKeyEmpty(MMKVKey_t key) { return key.length <= 0; }\n#  define mmkv_key_length(key) key.length\n#  define mmkv_retain_key(key) [key retain]\n#  define mmkv_release_key(key) [key release]\n#else\n    using MMKVKey_t = std::string_view;\n    static bool isKeyEmpty(MMKVKey_t key) { return key.empty(); }\n#  define mmkv_key_length(key) key.length()\n#  define mmkv_retain_key(key) ((void) 0)\n#  define mmkv_release_key(key) ((void) 0)\n#endif // !MMKV_APPLE\n\n    void loadFromFile();\n\n    void partialLoadFromFile();\n\n    void loadMetaInfoAndCheck();\n\n    void checkDataValid(bool &loadFromFile, bool &needFullWriteback);\n\n    void checkLoadData();\n\n    bool isFileValid();\n\n    bool checkFileCRCValid(size_t actualSize, uint32_t crcDigest);\n\n    void recalculateCRCDigestWithIV(const void *iv);\n    void recalculateCRCDigestOnly();\n\n    void updateCRCDigest(const uint8_t *ptr, size_t length);\n\n    size_t readActualSize();\n\n    void oldStyleWriteActualSize(size_t actualSize);\n\n    bool writeActualSize(size_t size, uint32_t crcDigest, const void *iv, bool increaseSequence);\n\n    bool ensureMemorySize(size_t newSize);\n\n    bool expandAndWriteBack(size_t newSize, std::pair<mmkv::MMBuffer, size_t> preparedData, bool needSync = true);\n\n    bool fullWriteback(mmkv::AESCrypt *newCrypter = nullptr, bool onlyWhileExpire = false);\n\n    bool doFullWriteBack(std::pair<mmkv::MMBuffer, size_t> preparedData, mmkv::AESCrypt *newCrypter, bool needSync = true);\n\n    bool doFullWriteBack(mmkv::MMKVVector &&vec);\n\n    mmkv::MMBuffer getRawDataForKey(MMKVKey_t key);\n\n    mmkv::MMBuffer getDataForKey(MMKVKey_t key);\n\n    // isDataHolder: avoid memory copying\n    bool setDataForKey(mmkv::MMBuffer &&data, MMKVKey_t key, bool isDataHolder = false);\n#ifndef MMKV_APPLE\n    bool setDataForKey(mmkv::MMBuffer &&data, MMKVKey_t key, uint32_t expireDuration);\n#endif\n\n    bool removeDataForKey(MMKVKey_t key);\n\n    using KVHolderRet_t = std::pair<bool, mmkv::KeyValueHolder>;\n    // isDataHolder: avoid memory copying\n    KVHolderRet_t doAppendDataWithKey(const mmkv::MMBuffer &data, const mmkv::MMBuffer &key, bool isDataHolder, uint32_t keyLength);\n    KVHolderRet_t appendDataWithKey(const mmkv::MMBuffer &data, MMKVKey_t key, bool isDataHolder = false);\n    KVHolderRet_t appendDataWithKey(const mmkv::MMBuffer &data, const mmkv::KeyValueHolder &kvHolder, bool isDataHolder = false);\n\n    KVHolderRet_t doOverrideDataWithKey(const mmkv::MMBuffer &data, const mmkv::MMBuffer &key, bool isDataHolder, uint32_t keyLength);\n    KVHolderRet_t overrideDataWithKey(const mmkv::MMBuffer &data, const mmkv::KeyValueHolder &kvHolder, bool isDataHolder = false);\n    KVHolderRet_t overrideDataWithKey(const mmkv::MMBuffer &data, MMKVKey_t key, bool isDataHolder = false);\n    bool checkSizeForOverride(size_t size);\n#ifdef MMKV_APPLE\n    KVHolderRet_t appendDataWithKey(const mmkv::MMBuffer &data,\n                                    MMKVKey_t key,\n                                    const mmkv::KeyValueHolderCrypt &kvHolder,\n                                    bool isDataHolder = false);\n    KVHolderRet_t overrideDataWithKey(const mmkv::MMBuffer &data,\n                                      MMKVKey_t key,\n                                      const mmkv::KeyValueHolderCrypt &kvHolder,\n                                      bool isDataHolder = false);\n#endif\n\n    void notifyContentChanged();\n\n#if defined(MMKV_ANDROID) && !defined(MMKV_DISABLE_CRYPT)\n    void checkReSetCryptKey(int fd, int metaFD, const std::string *cryptKey);\n#endif\n    static bool backupOneToDirectory(const std::string &mmapKey, const MMKVPath_t &dstPath, const MMKVPath_t &srcPath, bool compareFullPath);\n    static size_t backupAllToDirectory(const MMKVPath_t &dstDir, const MMKVPath_t &srcDir, bool isInSpecialDir);\n    static bool restoreOneFromDirectory(const std::string &mmapKey, const MMKVPath_t &srcPath, const MMKVPath_t &dstPath, bool compareFullPath);\n    static size_t restoreAllFromDirectory(const MMKVPath_t &srcDir, const MMKVPath_t &dstDir, bool isInSpecialDir);\n\n    static uint32_t getCurrentTimeInSecond();\n    uint32_t getExpireTimeForKey(MMKVKey_t key);\n    mmkv::MMBuffer getDataWithoutMTimeForKey(MMKVKey_t key);\n    size_t filterExpiredKeys();\n\n#ifndef MMKV_APPLE\n    static constexpr uint32_t ConstFixed32Size = 4;\n    void shared_lock();\n    void shared_unlock();\n#endif\n\npublic:\n    // call this before getting any MMKV instance\n    static void initializeMMKV(const MMKVPath_t &rootDir, MMKVLogLevel logLevel = MMKVLogInfo, mmkv::LogHandler handler = nullptr);\n\n    // a generic purpose instance\n    static MMKV *defaultMMKV(MMKVMode mode = MMKV_SINGLE_PROCESS, std::string *cryptKey = nullptr);\n\n#ifndef MMKV_ANDROID\n\n    // mmapID: any unique ID (com.tencent.xin.pay, etc.)\n    // if you want a per-user mmkv, you could merge user-id within mmapID\n    // cryptKey: 16 bytes at most\n    static MMKV *mmkvWithID(const std::string &mmapID,\n                            MMKVMode mode = MMKV_SINGLE_PROCESS,\n                            std::string *cryptKey = nullptr,\n                            MMKVPath_t *rootPath = nullptr,\n                            size_t expectedCapacity = 0);\n\n#else // defined(MMKV_ANDROID)\n\n    // mmapID: any unique ID (com.tencent.xin.pay, etc.)\n    // if you want a per-user mmkv, you could merge user-id within mmapID\n    // cryptKey: 16 bytes at most\n    static MMKV *mmkvWithID(const std::string &mmapID,\n                            int size = mmkv::DEFAULT_MMAP_SIZE,\n                            MMKVMode mode = MMKV_SINGLE_PROCESS,\n                            const std::string *cryptKey = nullptr,\n                            const MMKVPath_t *rootPath = nullptr,\n                            size_t expectedCapacity = 0);\n\n    static MMKV *mmkvWithAshmemFD(const std::string &mmapID, int fd, int metaFD, const std::string *cryptKey = nullptr);\n\n    int ashmemFD();\n\n    int ashmemMetaFD();\n\n    bool checkProcessMode();\n#endif // MMKV_ANDROID\n\n    // you can call this on application termination, it's totally fine if you don't call\n    static void onExit();\n\n    const std::string &mmapID() const;\n\n    const bool m_isInterProcess;\n\n#ifndef MMKV_DISABLE_CRYPT\n    std::string cryptKey() const;\n\n    // transform plain text into encrypted text, or vice versa with empty cryptKey\n    // you can change existing crypt key with different cryptKey\n    bool reKey(const std::string &cryptKey);\n\n    // just reset cryptKey (will not encrypt or decrypt anything)\n    // usually you should call this method after other process reKey() the multi-process mmkv\n    void checkReSetCryptKey(const std::string *cryptKey);\n#endif\n\n    bool set(bool value, MMKVKey_t key);\n    bool set(bool value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(int32_t value, MMKVKey_t key);\n    bool set(int32_t value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(uint32_t value, MMKVKey_t key);\n    bool set(uint32_t value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(int64_t value, MMKVKey_t key);\n    bool set(int64_t value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(uint64_t value, MMKVKey_t key);\n    bool set(uint64_t value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(float value, MMKVKey_t key);\n    bool set(float value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(double value, MMKVKey_t key);\n    bool set(double value, MMKVKey_t key, uint32_t expireDuration);\n\n#ifdef MMKV_HAS_CPP20\n    // avoid unexpected type conversion (pointer to bool, etc.)\n    template <typename T>\n    requires(!MMKV_SUPPORTED_VALUE_TYPE<T>)\n    bool set(T value, MMKVKey_t key) = delete;\n\n    // avoid unexpected type conversion (pointer to bool, etc.)\n    template <typename T>\n    requires(!MMKV_SUPPORTED_VALUE_TYPE<T>)\n    bool set(T value, MMKVKey_t key, uint32_t expireDuration) = delete;\n#else\n    // avoid unexpected type conversion (pointer to bool, etc.)\n    template <typename T>\n    bool set(T value, MMKVKey_t key, uint32_t expireDuration) = delete;\n#endif\n\n#ifdef MMKV_APPLE\n    bool set(NSObject<NSCoding> *__unsafe_unretained obj, MMKVKey_t key);\n    bool set(NSObject<NSCoding> *__unsafe_unretained obj, MMKVKey_t key, uint32_t expireDuration);\n\n    NSObject *getObject(MMKVKey_t key, Class cls);\n#else  // !defined(MMKV_APPLE)\n    bool set(const char *value, MMKVKey_t key);\n    bool set(const char *value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(const std::string &value, MMKVKey_t key);\n    bool set(const std::string &value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(std::string_view value, MMKVKey_t key);\n    bool set(std::string_view value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(const mmkv::MMBuffer &value, MMKVKey_t key);\n    bool set(const mmkv::MMBuffer &value, MMKVKey_t key, uint32_t expireDuration);\n\n    bool set(const std::vector<std::string> &vector, MMKVKey_t key);\n    bool set(const std::vector<std::string> &vector, MMKVKey_t key, uint32_t expireDuration);\n\n#ifdef MMKV_HAS_CPP20\n    template<MMKV_SUPPORTED_VECTOR_VALUE_TYPE T>\n    bool set(const T& value, MMKVKey_t key) {\n        return set<T>(value, key, m_expiredInSeconds);\n    }\n\n    template<MMKV_SUPPORTED_VECTOR_VALUE_TYPE T>\n    bool set(const T& value, MMKVKey_t key, uint32_t expireDuration);\n\n    template<MMKV_SUPPORTED_VECTOR_VALUE_TYPE T>\n    bool getVector(MMKVKey_t key, T &result);\n#endif\n\n    // inplaceModification is recommended for faster speed\n    bool getString(MMKVKey_t key, std::string &result, bool inplaceModification = true);\n\n    mmkv::MMBuffer getBytes(MMKVKey_t key);\n\n    bool getBytes(MMKVKey_t key, mmkv::MMBuffer &result);\n\n    bool getVector(MMKVKey_t key, std::vector<std::string> &result);\n#endif // MMKV_APPLE\n\n    bool getBool(MMKVKey_t key, bool defaultValue = false, MMKV_OUT bool *hasValue = nullptr);\n\n    int32_t getInt32(MMKVKey_t key, int32_t defaultValue = 0, MMKV_OUT bool *hasValue = nullptr);\n\n    uint32_t getUInt32(MMKVKey_t key, uint32_t defaultValue = 0, MMKV_OUT bool *hasValue = nullptr);\n\n    int64_t getInt64(MMKVKey_t key, int64_t defaultValue = 0, MMKV_OUT bool *hasValue = nullptr);\n\n    uint64_t getUInt64(MMKVKey_t key, uint64_t defaultValue = 0, MMKV_OUT bool *hasValue = nullptr);\n\n    float getFloat(MMKVKey_t key, float defaultValue = 0, MMKV_OUT bool *hasValue = nullptr);\n\n    double getDouble(MMKVKey_t key, double defaultValue = 0, MMKV_OUT bool *hasValue = nullptr);\n\n    // return the actual size consumption of the key's value\n    // pass actualSize = true to get value's length\n    size_t getValueSize(MMKVKey_t key, bool actualSize);\n\n    // return size written into buffer\n    // return -1 on any error\n    int32_t writeValueToBuffer(MMKVKey_t key, void *ptr, int32_t size);\n\n    bool containsKey(MMKVKey_t key);\n\n    // filterExpire: return count of all non-expired keys, keep in mind it comes with cost\n    size_t count(bool filterExpire = false);\n\n    size_t totalSize();\n\n    size_t actualSize();\n\n    static constexpr uint32_t ExpireNever = 0;\n\n    // all keys created (or last modified) longer than expiredInSeconds will be deleted on next full-write-back\n    // expiredInSeconds = MMKV::ExpireNever (0) means no common expiration duration for all keys, aka each key will have it's own expiration duration\n    bool enableAutoKeyExpire(uint32_t expiredInSeconds = 0);\n\n    bool disableAutoKeyExpire();\n\n    // compare value for key before set, to reduce the possibility of file expanding\n    bool enableCompareBeforeSet();\n    bool disableCompareBeforeSet();\n\n    bool isExpirationEnabled() const { return m_enableKeyExpire; }\n    bool isEncryptionEnabled() const { return m_dicCrypt; }\n    bool isCompareBeforeSetEnabled() const { return m_enableCompareBeforeSet && !m_enableKeyExpire && !m_dicCrypt; }\n\n#ifdef MMKV_APPLE\n    // filterExpire: return all non-expired keys, keep in mind it comes with cost\n    NSArray *allKeys(bool filterExpire = false);\n\n    void removeValuesForKeys(NSArray *arrKeys);\n\n    typedef void (^EnumerateBlock)(NSString *key, BOOL *stop);\n    void enumerateKeys(EnumerateBlock block);\n\n#    ifdef MMKV_IOS\n    static void setIsInBackground(bool isInBackground);\n    static bool isInBackground();\n#    endif\n#else  // !defined(MMKV_APPLE)\n    // filterExpire: return all non-expired keys, keep in mind it comes with cost\n    std::vector<std::string> allKeys(bool filterExpire = false);\n\n    void removeValuesForKeys(const std::vector<std::string> &arrKeys);\n#endif // MMKV_APPLE\n\n    void removeValueForKey(MMKVKey_t key);\n\n    // keepSpace: remove all keys but keep the file size not changed, running faster\n    void clearAll(bool keepSpace = false);\n\n    // MMKV's size won't reduce after deleting key-values\n    // call this method after lots of deleting if you care about disk usage\n    // note that `clearAll` has the similar effect of `trim`\n    void trim();\n\n    // call this method if the instance is no longer needed in the near future\n    // any subsequent call to the instance is undefined behavior\n    void close();\n\n    // call this method if you are facing memory-warning\n    // any subsequent call to the instance will load all key-values from file again\n    // keepSpace: remove all keys but keep the file size not changed, running faster\n    void clearMemoryCache(bool keepSpace = false);\n\n    // you don't need to call this, really, I mean it\n    // unless you worry about running out of battery\n    void sync(SyncFlag flag = MMKV_SYNC);\n\n    // get exclusive access\n    void lock();\n    void unlock();\n    bool try_lock();\n\n    // get thread lock\n#ifndef MMKV_WIN32\n    void lock_thread();\n    void unlock_thread();\n    bool try_lock_thread();\n#endif\n\n    static const MMKVPath_t &getRootDir();\n\n    // backup one MMKV instance from srcDir to dstDir\n    // if srcDir is null, then backup from the root dir of MMKV\n    static bool backupOneToDirectory(const std::string &mmapID, const MMKVPath_t &dstDir, const MMKVPath_t *srcDir = nullptr);\n\n    // restore one MMKV instance from srcDir to dstDir\n    // if dstDir is null, then restore to the root dir of MMKV\n    static bool restoreOneFromDirectory(const std::string &mmapID, const MMKVPath_t &srcDir, const MMKVPath_t *dstDir = nullptr);\n\n    // backup all MMKV instance from srcDir to dstDir\n    // if srcDir is null, then backup from the root dir of MMKV\n    // return count of MMKV successfully backuped\n    static size_t backupAllToDirectory(const MMKVPath_t &dstDir, const MMKVPath_t *srcDir = nullptr);\n\n    // restore all MMKV instance from srcDir to dstDir\n    // if dstDir is null, then restore to the root dir of MMKV\n    // return count of MMKV successfully restored\n    static size_t restoreAllFromDirectory(const MMKVPath_t &srcDir, const MMKVPath_t *dstDir = nullptr);\n\n    // check if content been changed by other process\n    void checkContentChanged();\n\n    // called when content is changed by other process\n    // doesn't guarantee real-time notification\n    static void registerContentChangeHandler(mmkv::ContentChangeHandler handler);\n    static void unRegisterContentChangeHandler();\n\n    // by default MMKV will discard all datas on failure\n    // return `OnErrorRecover` to recover any data from file\n    static void registerErrorHandler(mmkv::ErrorHandler handler);\n    static void unRegisterErrorHandler();\n\n    // MMKVLogInfo by default\n    // pass MMKVLogNone to disable all logging\n    static void setLogLevel(MMKVLogLevel level);\n\n    // by default MMKV will print log to the console\n    // implement this method to redirect MMKV's log\n    static void registerLogHandler(mmkv::LogHandler handler);\n    static void unRegisterLogHandler();\n\n    // detect if the MMKV file is valid or not\n    // Note: Don't use this to check the existence of the instance, the return value is undefined if the file was never created.\n    static bool isFileValid(const std::string &mmapID, MMKVPath_t *relatePath = nullptr);\n\n    // remove the storage of the MMKV, including the data file & meta file (.crc)\n    // Note: the existing instance (if any) will be closed & destroyed\n    static bool removeStorage(const std::string &mmapID, MMKVPath_t *relatePath = nullptr);\n\n    // just forbid it for possibly misuse\n    explicit MMKV(const MMKV &other) = delete;\n    MMKV &operator=(const MMKV &other) = delete;\n};",
+      "description": "Main key-value storage class providing mmap-backed persistence with optional encryption, multi-process support, expiration, and backup/restore utilities. Constructed via static factory methods; constructors are private and platform-specific. Not copyable, movable not explicitly provided. Managed via raw pointers in API.",
+      "direct_api_constructors": [
+        "MMKV::initializeMMKV(const MMKVPath_t &rootDir, MMKVLogLevel logLevel, mmkv::LogHandler handler)",
+        "MMKV::defaultMMKV(MMKVMode mode, std::string *cryptKey)",
+        "MMKV::mmkvWithID(const std::string &mmapID, MMKVMode mode, std::string *cryptKey, MMKVPath_t *rootPath, size_t expectedCapacity)",
+        "MMKV::mmkvWithID(const std::string &mmapID, int size, MMKVMode mode, const std::string *cryptKey, const MMKVPath_t *rootPath, size_t expectedCapacity)",
+        "MMKV::mmkvWithAshmemFD(const std::string &mmapID, int fd, int metaFD, const std::string *cryptKey)"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "string2MMKVPath_t",
+      "signature": "MMKVPath_t string2MMKVPath_t(const std::string &str);",
+      "description": "Converts a narrow std::string filesystem path to the platform MMKVPath_t (wide UTF-16 on Windows, narrow on POSIX). On non-Windows builds this name is a macro that returns the input unchanged.",
+      "requirements": [
+        "Available as a real function only when MMKV_WIN32 is defined (Windows). On non-Windows platforms it is a macro and not a linkable function.",
+        "Input str may contain a path; no explicit validation is performed in the header.",
+        "Callers should not assume allocation failure handling details; treat return as a value conversion."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKVPath_t2String",
+      "signature": "std::string MMKVPath_t2String(const MMKVPath_t &str);",
+      "description": "Converts a platform MMKVPath_t path to a narrow std::string. On non-Windows builds this name is a macro that returns the input unchanged (already narrow).",
+      "requirements": [
+        "Available as a real function only when MMKV_WIN32 is defined (Windows). On non-Windows platforms it is a macro and not a linkable function.",
+        "Input must be a valid MMKVPath_t.",
+        "Encoding semantics/platform-specific conversion details are not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::unused",
+      "signature": "template <typename T> void mmkv::unused(const T &);",
+      "description": "Utility to suppress unused variable warnings by taking a const reference to a value and doing nothing.",
+      "requirements": [
+        "Header-only template; no special requirements.",
+        "Accepts any type T by const reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::MMBuffer::MMBuffer",
+      "signature": "explicit mmkv::MMBuffer::MMBuffer(size_t length = 0);",
+      "description": "Constructs an MMBuffer with the specified length. Small buffers may be stored inline; larger buffers allocate heap memory.",
+      "requirements": [
+        "length must be the desired byte size; 0 creates an empty buffer.",
+        "Ownership and lifetime are managed by MMBuffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::MMBuffer::~MMBuffer",
+      "signature": "mmkv::MMBuffer::~MMBuffer();",
+      "description": "Destructor releasing any owned memory or references held by the buffer.",
+      "requirements": [
+        "Do not use the buffer after destruction.",
+        "If constructed with MMBufferNoCopy, destructor does not free external memory."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::MMBuffer::isStoredOnStack",
+      "signature": "bool mmkv::MMBuffer::isStoredOnStack() const;",
+      "description": "Returns true if the buffer uses the small-buffer optimization and stores data inline inside the object.",
+      "requirements": [
+        "None. Result depends on size and constructor used."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::MMBuffer::getPtr",
+      "signature": "void *mmkv::MMBuffer::getPtr() const;",
+      "description": "Returns a pointer to the buffer’s data. For small buffers it points into internal inline storage; otherwise to heap or external memory.",
+      "requirements": [
+        "Returned pointer is valid as long as the MMBuffer remains alive and not detached/reassigned.",
+        "Pointer may be null for zero-length buffers."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::MMBuffer::length",
+      "signature": "size_t mmkv::MMBuffer::length() const;",
+      "description": "Returns the number of bytes in the buffer.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::MMBuffer::detach",
+      "signature": "void mmkv::MMBuffer::detach();",
+      "description": "Transfers ownership of the underlying data out of the buffer (semantics: after detaching, the buffer no longer manages the memory). Used to avoid copying when passing data to MMKV internals.",
+      "requirements": [
+        "After detach, the buffer should not be relied upon to free or retain the previous memory; treat internal state as non-owning.",
+        "Exact postconditions are not fully documented; usage is internal-leaning."
+      ],
+      "error": null
+    },
+    {
+      "name": "mmkv::MMBuffer::operator==",
+      "signature": "bool mmkv::MMBuffer::operator==(const mmkv::MMBuffer &other) const;",
+      "description": "Compares two MMBuffer instances for equality by content and size.",
+      "requirements": [
+        "Both buffers must be valid objects. No additional requirements."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::initializeMMKV",
+      "signature": "static void MMKV::initializeMMKV(const MMKVPath_t &rootDir, MMKVLogLevel logLevel = MMKVLogInfo, mmkv::LogHandler handler = nullptr);",
+      "description": "Initializes the MMKV library. Must be called before obtaining any MMKV instance. Sets the root storage directory, initial log level, and optional log handler.",
+      "requirements": [
+        "Should be called before any calls that obtain/use an MMKV instance.",
+        "rootDir must refer to a valid writable directory for storing MMKV files.",
+        "handler, if provided, must be a valid function pointer for the lifetime it’s registered."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::defaultMMKV",
+      "signature": "static MMKV *MMKV::defaultMMKV(MMKVMode mode = MMKV_SINGLE_PROCESS, std::string *cryptKey = nullptr);",
+      "description": "Returns a pointer to a generic/default MMKV instance, creating it if necessary, with optional crypt key and process mode.",
+      "requirements": [
+        "initializeMMKV should be called first.",
+        "cryptKey, if provided, points to a key of at most 16 bytes (per comments elsewhere) and must remain valid through the call.",
+        "mode controls single/multi-process behavior."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::mmkvWithID",
+      "signature": "static MMKV *MMKV::mmkvWithID(const std::string &mmapID, MMKVMode mode = MMKV_SINGLE_PROCESS, std::string *cryptKey = nullptr, MMKVPath_t *rootPath = nullptr, size_t expectedCapacity = 0);",
+      "description": "Creates/opens an MMKV instance identified by mmapID with optional mode, crypt key, alternative root path, and expected capacity (non-Android signature).",
+      "requirements": [
+        "Available on non-Android builds (when MMKV_ANDROID is not defined).",
+        "mmapID must be a unique, non-empty identifier.",
+        "cryptKey, if provided, must be at most 16 bytes.",
+        "rootPath, if provided, should refer to a valid writable directory.",
+        "expectedCapacity is a sizing hint; no constraints documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::onExit",
+      "signature": "static void MMKV::onExit();",
+      "description": "Optional cleanup for MMKV on application termination. Safe to omit; MMKV can function without explicit shutdown.",
+      "requirements": [
+        "Should be called when the app is terminating if explicit cleanup is desired.",
+        "After onExit, previously obtained instances may be invalidated; avoid further use."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::mmapID",
+      "signature": "const std::string &MMKV::mmapID() const;",
+      "description": "Returns the identifier (mmapID) of this MMKV instance.",
+      "requirements": [
+        "The MMKV instance must be valid and not closed."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::cryptKey",
+      "signature": "std::string MMKV::cryptKey() const;",
+      "description": "Returns the current encryption key for this MMKV instance as a string. Only available when encryption is enabled (not compiled with MMKV_DISABLE_CRYPT).",
+      "requirements": [
+        "Available only when MMKV is built without MMKV_DISABLE_CRYPT.",
+        "Instance must have been created; returned key may be empty if not set."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::reKey",
+      "signature": "bool MMKV::reKey(const std::string &cryptKey);",
+      "description": "Sets or changes the encryption key. Passing a non-empty key enables encryption; an empty key disables it.",
+      "requirements": [
+        "Available only when MMKV is built without MMKV_DISABLE_CRYPT.",
+        "cryptKey length must be at most 16 bytes (per library comments).",
+        "May involve re-encrypting data; callers should handle the boolean return for success/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::checkReSetCryptKey",
+      "signature": "void MMKV::checkReSetCryptKey(const std::string *cryptKey);",
+      "description": "Resets the in-memory crypt key without encrypting/decrypting data, typically after another process reKey()’d a multi-process MMKV.",
+      "requirements": [
+        "Available only when MMKV is built without MMKV_DISABLE_CRYPT.",
+        "cryptKey may be null (meaning no key) or point to a string of at most 16 bytes.",
+        "Intended for multi-process synchronization of keys."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::set",
+      "signature": "bool MMKV::set(bool value, MMKVKey_t key);",
+      "description": "Stores a boolean value under the given key.",
+      "requirements": [
+        "key must be non-empty.",
+        "Instance must be valid and not closed."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getObject",
+      "signature": "NSObject *MMKV::getObject(MMKVKey_t key, Class cls);",
+      "description": "Apple-only: retrieves an Objective‑C object for key, deserializing to the specified class.",
+      "requirements": [
+        "Available only when MMKV_APPLE is defined.",
+        "key must be non-empty.",
+        "cls must be a valid Objective‑C class compatible with the stored object."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getString",
+      "signature": "bool MMKV::getString(MMKVKey_t key, std::string &result, bool inplaceModification = true);",
+      "description": "Non-Apple: retrieves a string value for key into result. Returns true if found. inplaceModification may allow faster retrieval by modifying result in place.",
+      "requirements": [
+        "Available only when MMKV_APPLE is not defined.",
+        "key must be non-empty.",
+        "result is output; its previous contents may be overwritten."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getBytes",
+      "signature": "mmkv::MMBuffer MMKV::getBytes(MMKVKey_t key);",
+      "description": "Returns a binary blob (MMBuffer) stored for the key. Empty buffer if not found.",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getVector",
+      "signature": "bool MMKV::getVector(MMKVKey_t key, std::vector<std::string> &result);",
+      "description": "Non-Apple: retrieves a vector of strings stored for key. Returns true if found/decoded.",
+      "requirements": [
+        "Available only when MMKV_APPLE is not defined.",
+        "key must be non-empty.",
+        "result is output; previous contents may be overwritten."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getBool",
+      "signature": "bool MMKV::getBool(MMKVKey_t key, bool defaultValue = false, bool *hasValue = nullptr);",
+      "description": "Retrieves a boolean value for key. Returns the value or defaultValue if absent. Optionally sets hasValue to indicate presence.",
+      "requirements": [
+        "key must be non-empty.",
+        "If hasValue is not null, it will be set to true if a value exists, else false."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getInt32",
+      "signature": "int32_t MMKV::getInt32(MMKVKey_t key, int32_t defaultValue = 0, bool *hasValue = nullptr);",
+      "description": "Retrieves a 32-bit signed integer for key, or defaultValue if not present.",
+      "requirements": [
+        "key must be non-empty.",
+        "hasValue, if provided, is set to indicate presence."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getUInt32",
+      "signature": "uint32_t MMKV::getUInt32(MMKVKey_t key, uint32_t defaultValue = 0, bool *hasValue = nullptr);",
+      "description": "Retrieves a 32-bit unsigned integer for key, or defaultValue if not present.",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getInt64",
+      "signature": "int64_t MMKV::getInt64(MMKVKey_t key, int64_t defaultValue = 0, bool *hasValue = nullptr);",
+      "description": "Retrieves a 64-bit signed integer for key, or defaultValue if not present.",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getUInt64",
+      "signature": "uint64_t MMKV::getUInt64(MMKVKey_t key, uint64_t defaultValue = 0, bool *hasValue = nullptr);",
+      "description": "Retrieves a 64-bit unsigned integer for key, or defaultValue if not present.",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getFloat",
+      "signature": "float MMKV::getFloat(MMKVKey_t key, float defaultValue = 0, bool *hasValue = nullptr);",
+      "description": "Retrieves a 32-bit float for key, or defaultValue if not present.",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getDouble",
+      "signature": "double MMKV::getDouble(MMKVKey_t key, double defaultValue = 0, bool *hasValue = nullptr);",
+      "description": "Retrieves a 64-bit double for key, or defaultValue if not present.",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getValueSize",
+      "signature": "size_t MMKV::getValueSize(MMKVKey_t key, bool actualSize);",
+      "description": "Returns the storage size of the value for key. If actualSize is true, returns the value’s data length.",
+      "requirements": [
+        "key must be non-empty.",
+        "Interpretation of returned size depends on actualSize flag."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::writeValueToBuffer",
+      "signature": "int32_t MMKV::writeValueToBuffer(MMKVKey_t key, void *ptr, int32_t size);",
+      "description": "Writes the raw value for key into the provided buffer and returns the number of bytes written. Returns -1 on error.",
+      "requirements": [
+        "key must be non-empty.",
+        "ptr must be non-null if size > 0 and must point to at least size bytes of writable memory.",
+        "size must be non-negative and large enough for the value to avoid truncation."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::containsKey",
+      "signature": "bool MMKV::containsKey(MMKVKey_t key);",
+      "description": "Returns true if a value exists for key (may consider expiration settings).",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::count",
+      "signature": "size_t MMKV::count(bool filterExpire = false);",
+      "description": "Returns the number of keys stored. If filterExpire is true, counts only non-expired keys (may be slower).",
+      "requirements": [
+        "No arguments restrictions; note that enabling filterExpire has performance costs (per comment)."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::totalSize",
+      "signature": "size_t MMKV::totalSize();",
+      "description": "Returns the total file size of the MMKV storage.",
+      "requirements": [
+        "Instance must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::actualSize",
+      "signature": "size_t MMKV::actualSize();",
+      "description": "Returns the actual used size in the MMKV file.",
+      "requirements": [
+        "Instance must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::enableAutoKeyExpire",
+      "signature": "bool MMKV::enableAutoKeyExpire(uint32_t expiredInSeconds = 0);",
+      "description": "Enables automatic key expiration. Keys older than expiredInSeconds are deleted on next full write-back. Passing 0 means no common expiration duration (per-key expiry).",
+      "requirements": [
+        "expiredInSeconds is seconds; 0 is MMKV::ExpireNever semantics for auto-expire.",
+        "May change behavior of set operations and write-back."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::disableAutoKeyExpire",
+      "signature": "bool MMKV::disableAutoKeyExpire();",
+      "description": "Disables automatic key expiration for this instance.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::enableCompareBeforeSet",
+      "signature": "bool MMKV::enableCompareBeforeSet();",
+      "description": "Enables comparing existing value before setting a new one to reduce file expansion. Disabled if expiration or encryption is enabled.",
+      "requirements": [
+        "Effective only when key expiration is disabled and encryption is disabled (see isCompareBeforeSetEnabled)."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::disableCompareBeforeSet",
+      "signature": "bool MMKV::disableCompareBeforeSet();",
+      "description": "Disables compare-before-set behavior.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::isExpirationEnabled",
+      "signature": "bool MMKV::isExpirationEnabled() const;",
+      "description": "Returns whether automatic key expiration is enabled for this instance.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::isEncryptionEnabled",
+      "signature": "bool MMKV::isEncryptionEnabled() const;",
+      "description": "Returns whether encryption is enabled for this instance (based on internal dictionary selection).",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::isCompareBeforeSetEnabled",
+      "signature": "bool MMKV::isCompareBeforeSetEnabled() const;",
+      "description": "Returns true if compare-before-set is enabled and neither expiration nor encryption is enabled.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::allKeys",
+      "signature": "NSArray *MMKV::allKeys(bool filterExpire = false);",
+      "description": "Apple-only: returns an NSArray of all keys. If filterExpire is true, returns only non-expired keys (slower).",
+      "requirements": [
+        "Available only when MMKV_APPLE is defined."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::removeValuesForKeys",
+      "signature": "void MMKV::removeValuesForKeys(NSArray *arrKeys);",
+      "description": "Apple-only: removes values for the specified array of NSString keys.",
+      "requirements": [
+        "Available only when MMKV_APPLE is defined.",
+        "arrKeys must be a valid NSArray of NSString*."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::removeValueForKey",
+      "signature": "void MMKV::removeValueForKey(MMKVKey_t key);",
+      "description": "Removes the value associated with key.",
+      "requirements": [
+        "key must be non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::clearAll",
+      "signature": "void MMKV::clearAll(bool keepSpace = false);",
+      "description": "Removes all keys/values. If keepSpace is true, keeps the file size to run faster on subsequent writes.",
+      "requirements": [
+        "Instance must be valid. Using keepSpace may retain disk usage."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::trim",
+      "signature": "void MMKV::trim();",
+      "description": "Trims the file to reduce disk space after many deletions. Similar effect to clearAll in terms of disk usage.",
+      "requirements": [
+        "Instance must be valid. Operation may be costly."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::close",
+      "signature": "void MMKV::close();",
+      "description": "Closes the MMKV instance. Any subsequent use of the instance is undefined behavior.",
+      "requirements": [
+        "After calling close, do not call other methods on the instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::clearMemoryCache",
+      "signature": "void MMKV::clearMemoryCache(bool keepSpace = false);",
+      "description": "Clears in-memory cache to reduce memory. Subsequent calls will reload all key-values from file. If keepSpace is true, removes all keys but keeps file size.",
+      "requirements": [
+        "Instance must be valid.",
+        "Any subsequent access causes reload from file."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::sync",
+      "signature": "void MMKV::sync(SyncFlag flag = MMKV_SYNC);",
+      "description": "Synchronizes memory changes to disk. MMKV_SYNC forces synchronous flush; MMKV_ASYNC may defer.",
+      "requirements": [
+        "Instance must be valid.",
+        "Choose flag based on performance/durability needs."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::lock",
+      "signature": "void MMKV::lock();",
+      "description": "Acquires an exclusive access lock for this instance.",
+      "requirements": [
+        "Must be paired with unlock() to avoid deadlocks.",
+        "Not re-entrant; behavior on recursive locking is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::unlock",
+      "signature": "void MMKV::unlock();",
+      "description": "Releases the exclusive access lock acquired by lock().",
+      "requirements": [
+        "Must be called after a successful lock()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::try_lock",
+      "signature": "bool MMKV::try_lock();",
+      "description": "Attempts to acquire the exclusive access lock without blocking. Returns true on success.",
+      "requirements": [
+        "If returns true, must be followed by unlock()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::lock_thread",
+      "signature": "void MMKV::lock_thread();",
+      "description": "Non-Windows: acquires the thread lock for this instance.",
+      "requirements": [
+        "Available only when MMKV_WIN32 is not defined.",
+        "Must be paired with unlock_thread()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::unlock_thread",
+      "signature": "void MMKV::unlock_thread();",
+      "description": "Non-Windows: releases the thread lock acquired by lock_thread().",
+      "requirements": [
+        "Available only when MMKV_WIN32 is not defined.",
+        "Call only after a successful lock_thread()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::try_lock_thread",
+      "signature": "bool MMKV::try_lock_thread();",
+      "description": "Non-Windows: attempts to acquire the thread lock without blocking. Returns true on success.",
+      "requirements": [
+        "Available only when MMKV_WIN32 is not defined.",
+        "If returns true, must be followed by unlock_thread()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::getRootDir",
+      "signature": "static const MMKVPath_t &MMKV::getRootDir();",
+      "description": "Returns the root directory configured for MMKV files.",
+      "requirements": [
+        "initializeMMKV should have been called prior to use.",
+        "Returned reference remains valid as long as MMKV is initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::backupOneToDirectory",
+      "signature": "static bool MMKV::backupOneToDirectory(const std::string &mmapID, const MMKVPath_t &dstDir, const MMKVPath_t *srcDir = nullptr);",
+      "description": "Backs up one MMKV instance identified by mmapID from srcDir (or root if null) to dstDir.",
+      "requirements": [
+        "mmapID must identify an existing or previously created instance to have files to back up.",
+        "dstDir must be a valid writable directory.",
+        "srcDir may be null to indicate MMKV root."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::restoreOneFromDirectory",
+      "signature": "static bool MMKV::restoreOneFromDirectory(const std::string &mmapID, const MMKVPath_t &srcDir, const MMKVPath_t *dstDir = nullptr);",
+      "description": "Restores one MMKV instance identified by mmapID from srcDir to dstDir (or MMKV root if null).",
+      "requirements": [
+        "srcDir must be a valid readable directory containing the instance files.",
+        "dstDir may be null to indicate MMKV root.",
+        "Overwriting existing instances is implied by description; handle return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::backupAllToDirectory",
+      "signature": "static size_t MMKV::backupAllToDirectory(const MMKVPath_t &dstDir, const MMKVPath_t *srcDir = nullptr);",
+      "description": "Backs up all MMKV instances from srcDir (or MMKV root if null) to dstDir. Returns the count of successfully backed-up instances.",
+      "requirements": [
+        "dstDir must be a valid writable directory.",
+        "srcDir may be null to indicate MMKV root."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::restoreAllFromDirectory",
+      "signature": "static size_t MMKV::restoreAllFromDirectory(const MMKVPath_t &srcDir, const MMKVPath_t *dstDir = nullptr);",
+      "description": "Restores all MMKV instances from srcDir to dstDir (or MMKV root if null). Returns the count of successfully restored instances.",
+      "requirements": [
+        "srcDir must be a valid readable directory.",
+        "dstDir may be null to indicate MMKV root."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::checkContentChanged",
+      "signature": "void MMKV::checkContentChanged();",
+      "description": "Checks whether the content has been modified by another process and updates internal state accordingly. May trigger a content change handler.",
+      "requirements": [
+        "Intended for multi-process scenarios.",
+        "Handler must have been registered to receive notifications."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::registerContentChangeHandler",
+      "signature": "static void MMKV::registerContentChangeHandler(mmkv::ContentChangeHandler handler);",
+      "description": "Registers a callback invoked when content is changed by another process. Not real-time guaranteed.",
+      "requirements": [
+        "handler must be a valid function pointer and remain valid until unregistered.",
+        "Only one global handler is supported (implied by static registration)."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::unRegisterContentChangeHandler",
+      "signature": "static void MMKV::unRegisterContentChangeHandler();",
+      "description": "Unregisters the content change handler.",
+      "requirements": [
+        "Call after a previous registerContentChangeHandler()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::registerErrorHandler",
+      "signature": "static void MMKV::registerErrorHandler(mmkv::ErrorHandler handler);",
+      "description": "Registers a global error handler that can direct MMKV to recover or discard data on failures.",
+      "requirements": [
+        "handler must be a valid function pointer and remain valid until unregistered.",
+        "Return OnErrorRecover to attempt data recovery; otherwise data may be discarded."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::unRegisterErrorHandler",
+      "signature": "static void MMKV::unRegisterErrorHandler();",
+      "description": "Unregisters the global error handler.",
+      "requirements": [
+        "Call after a previous registerErrorHandler()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::setLogLevel",
+      "signature": "static void MMKV::setLogLevel(MMKVLogLevel level);",
+      "description": "Sets the global log level. Pass MMKVLogNone to disable all logging.",
+      "requirements": [
+        "level must be a valid MMKVLogLevel enum value."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::registerLogHandler",
+      "signature": "static void MMKV::registerLogHandler(mmkv::LogHandler handler);",
+      "description": "Registers a global log handler to redirect MMKV logs.",
+      "requirements": [
+        "handler must be a valid function pointer and remain valid until unregistered."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::unRegisterLogHandler",
+      "signature": "static void MMKV::unRegisterLogHandler();",
+      "description": "Unregisters the global log handler.",
+      "requirements": [
+        "Call after a previous registerLogHandler()."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::isFileValid",
+      "signature": "static bool MMKV::isFileValid(const std::string &mmapID, MMKVPath_t *relatePath = nullptr);",
+      "description": "Detects whether the MMKV file for mmapID is valid. Not intended to check mere existence; behavior is undefined if the file was never created.",
+      "requirements": [
+        "mmapID must specify the instance to check.",
+        "relatePath may be null; when provided, used to locate the file relative to a path."
+      ],
+      "error": null
+    },
+    {
+      "name": "MMKV::removeStorage",
+      "signature": "static bool MMKV::removeStorage(const std::string &mmapID, MMKVPath_t *relatePath = nullptr);",
+      "description": "Removes the storage (data file and meta .crc) of the MMKV identified by mmapID. Existing instance, if any, will be closed and destroyed.",
+      "requirements": [
+        "mmapID must specify the instance to remove.",
+        "relatePath may be null or a valid path relative to which the instance is located.",
+        "Callers should not use any existing pointer to that instance after removal."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "mmkv::unused",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise the header-only template mmkv::unused with several types\nint vi = (int)(*FUZZ_PARAM(unsigned int) % 1000);\nmmkv::unused<int>(vi);\n\ndouble vd = (double)(*FUZZ_PARAM(unsigned int) % 1000) / 3.14159;\nmmkv::unused<double>(vd);\n\nstd::string vs = FUZZ_PARAM_STR();\nmmkv::unused<const std::string &>(vs);\n\n// Also try a pointer type\nvoid *vp = nullptr;\nmmkv::unused<void *>(vp);\n\n// Validation: Template accepts any type by const-ref; no runtime effects expected."
+    },
+    {
+      "name": "mmkv::MMBuffer::MMBuffer",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create buffers of varying sizes within performance limits\nsize_t len_small = (size_t)(*FUZZ_PARAM(unsigned int) % 64);\nmmkv::MMBuffer buf_small(len_small);\n\nsize_t len_mid = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\nmmkv::MMBuffer buf_mid(len_mid);\n\nsize_t len_zero = 0;\nmmkv::MMBuffer buf_zero(len_zero);\n\n// Basic property checks: length matches constructor argument\nFUZZ_ASSERT(buf_small.length() == len_small, \"MMBuffer length mismatch (small)\");\nFUZZ_ASSERT(buf_mid.length() == len_mid, \"MMBuffer length mismatch (mid)\");\nFUZZ_ASSERT(buf_zero.length() == 0, \"MMBuffer length mismatch (zero)\");\n\n// Validation: Constructs MMBuffer with several lengths and asserts length invariants."
+    },
+    {
+      "name": "mmkv::MMBuffer::~MMBuffer",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Explicitly allocate and then manually invoke destructor safely\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\nvoid *raw = ::operator new(sizeof(mmkv::MMBuffer));\nmmkv::MMBuffer *p = new(raw) mmkv::MMBuffer(len);\n// After construction, call the destructor explicitly to target ~MMBuffer\np->~MMBuffer();\n// Release only the raw storage (no double-destroy)\n::operator delete(raw);\n\n// Validation: Destructor is directly invoked; no use-after-destroy and no double free."
+    },
+    {
+      "name": "mmkv::MMBuffer::isStoredOnStack",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create buffers around small-buffer optimization thresholds (unknown exact threshold)\nsize_t len1 = (size_t)(*FUZZ_PARAM(unsigned int) % 64);\nmmkv::MMBuffer b1(len1);\nbool s1 = b1.isStoredOnStack();\nmmkv::unused<bool>(s1);\n\nsize_t len2 = (size_t)((*FUZZ_PARAM(unsigned int) % 2048) + 64);\nmmkv::MMBuffer b2(len2);\nbool s2 = b2.isStoredOnStack();\nmmkv::unused<bool>(s2);\n\n// Zero-length buffer behavior\nmmkv::MMBuffer bz(0);\nbool sz = bz.isStoredOnStack();\nmmkv::unused<bool>(sz);\n\n// Validation: Calls isStoredOnStack() on multiple sizes; no strict expectations enforced."
+    },
+    {
+      "name": "mmkv::MMBuffer::getPtr",
+      "inputs": [],
+      "outputs": [],
+      "code": "size_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\nmmkv::MMBuffer b(len);\nvoid *ptr = b.getPtr();\n// Pointer may be null for zero-length buffers; if non-null and len>0, touch within bounds\nif (ptr && len > 0) {\n    // Write a single byte to validate writability when owned by buffer\n    static_cast<unsigned char*>(ptr)[0] ^= (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n}\n\n// Also test zero-length case explicitly\nmmkv::MMBuffer bz(0);\nvoid *p0 = bz.getPtr();\nmmkv::unused<void *>(p0);\n\n// Validation: Respects getPtr() lifetime; only touches memory when length > 0."
+    },
+    {
+      "name": "mmkv::MMBuffer::length",
+      "inputs": [],
+      "outputs": [],
+      "code": "size_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\nmmkv::MMBuffer b(len);\nFUZZ_ASSERT(b.length() == len, \"length() must equal constructor size\");\n\n// Check after a no-op detach/reattach pattern does not alter length\nmmkv::MMBuffer c((size_t)0);\nFUZZ_ASSERT(c.length() == 0, \"zero buffer length invariant\");\n\n// Validation: Verifies length() equals the constructed size and zero-length invariant."
+    },
+    {
+      "name": "mmkv::MMBuffer::detach",
+      "inputs": [],
+      "outputs": [],
+      "code": "size_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024);\nif (len == 0) { len = 1; }\nmmkv::MMBuffer b(len);\nvoid *before = b.getPtr();\n// Detach transfers ownership of underlying memory out of the buffer\nb.detach();\n// Postcondition specifics are internal; ensure we don't use 'before' through b as owner anymore\n// We can still query length; it should remain the same per typical semantics\nsize_t l2 = b.length();\nmmkv::unused<size_t>(l2);\n\n// Validation: Exercises detach(); avoids relying on ownership, only inspects non-owning state."
+    },
+    {
+      "name": "mmkv::MMBuffer::operator==",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct two buffers and compare for equality\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 128);\nmmkv::MMBuffer a(len);\nmmkv::MMBuffer b(len);\n\nbool eq1 = (a == b);\nmmkv::unused<bool>(eq1);\n\n// If possible, mutate one to make contents differ and compare again\nvoid *pa = a.getPtr();\nif (pa && len > 0) {\n    static_cast<unsigned char*>(pa)[len - 1] ^= 0x5A;\n}\nbool eq2 = (a == b);\nmmkv::unused<bool>(eq2);\n\n// Also compare different sizes\nmmkv::MMBuffer c(len + 1);\nbool eq3 = (a == c);\nmmkv::unused<bool>(eq3);\n\n// Validation: Covers equal-size equal/unequal content and unequal-size comparisons."
+    },
+    {
+      "name": "MMKV::initializeMMKV",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure one-time global initialization before any MMKV instance creation\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    // Build a platform MMKVPath_t from a fuzz string (works for string or wstring)\n    std::string raw = FUZZ_PARAM_STR();\n    if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir;\n    rootDir.assign(raw.begin(), raw.end());\n\n    // Constrain log level to valid enum range [0,4]\n    MMKVLogLevel lvl = (MMKVLogLevel)((*FUZZ_PARAM(unsigned int)) % 5);\n\n    MMKV::initializeMMKV(rootDir, lvl, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Validation: Initializes root directory and log level once; handler set to nullptr."
+    },
+    {
+      "name": "MMKV::defaultMMKV",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Ensure library initialized\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR();\n    if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir;\n    rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Randomly decide to pass a cryptKey (<=16 bytes) or nullptr\nstd::string maybeKey = FUZZ_PARAM_STR();\nif (maybeKey.size() > 16) { maybeKey.resize(16); }\nbool useKey = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nstd::string *ck = useKey ? &maybeKey : nullptr;\n\nMMKVMode mode = (MMKVMode)(1u << ((*FUZZ_PARAM(unsigned int)) % 2));\nMMKV *mmkv = MMKV::defaultMMKV(mode, ck);\nif (!mmkv) { FUZZ_BAIL(); }\n\n// Validation: Calls defaultMMKV after initialize; returns non-null instance as output."
+    },
+    {
+      "name": "MMKV::mmkvWithID",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Ensure library initialized\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR();\n    if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir0;\n    rootDir0.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir0, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// mmapID must be non-empty; keep it reasonably small\nstd::string mmapID = FUZZ_PARAM_STR();\nif (mmapID.empty()) { mmapID = \"id\"; }\nif (mmapID.size() > 64) { mmapID.resize(64); }\n\n// Optional cryptKey (<=16 bytes)\nstd::string crypt = FUZZ_PARAM_STR();\nif (crypt.size() > 16) { crypt.resize(16); }\nbool passKey = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nstd::string *ck = passKey ? &crypt : nullptr;\n\n// Optional alternative root path\nMMKVPath_t altRoot;\n{\n    std::string rp = FUZZ_PARAM_STR();\n    if (rp.empty()) { rp = \".\"; }\n    altRoot.assign(rp.begin(), rp.end());\n}\nbool passRoot = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nMMKVPath_t *rpPtr = passRoot ? &altRoot : nullptr;\n\nMMKVMode mode = (MMKVMode)(1u << ((*FUZZ_PARAM(unsigned int)) % 2));\nsize_t expectedCapacity = (size_t)((*FUZZ_PARAM(unsigned int)) % 2048);\n\nMMKV *mmkv = MMKV::mmkvWithID(mmapID, mode, ck, rpPtr, expectedCapacity);\nif (!mmkv) { FUZZ_BAIL(); }\n\n// Validation: Creates/open instance with valid id, optional key/path; outputs the instance."
+    },
+    {
+      "name": "MMKV::onExit",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call optional cleanup; after this, previously obtained instances may be invalid\nMMKV::onExit();\nFUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 0);\n\n// Validation: Invokes global cleanup and resets initialization flag."
+    },
+    {
+      "name": "MMKV::mmapID",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Retrieve the identifier; instance must be valid\nconst std::string &id = mmkv->mmapID();\nmmkv::unused<const std::string &>(id);\n\n// Keep mmkv alive by returning it as output\n// Validation: Non-mutating getter; object returned unchanged."
+    },
+    {
+      "name": "MMKV::cryptKey",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Get current crypt key (may be empty)\nstd::string key = mmkv->cryptKey();\nmmkv::unused<const std::string &>(key);\n\n// Validation: Non-mutating getter; object returned unchanged."
+    },
+    {
+      "name": "MMKV::reKey",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Provide a crypt key within 0..16 bytes; empty string disables encryption\nstd::string key = FUZZ_PARAM_STR();\nif (key.size() > 16) { key.resize(16); }\n// Randomly choose to clear encryption\nif (((*FUZZ_PARAM(unsigned int)) & 1) != 0) { key.clear(); }\n\nbool ok = mmkv->reKey(key);\nmmkv::unused<bool>(ok);\n\n// Validation: Passes a constrained key size; handles boolean result without asserting success."
+    },
+    {
+      "name": "MMKV::checkReSetCryptKey",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Optionally pass a new crypt key pointer (<=16 bytes) or null\nstd::string key = FUZZ_PARAM_STR();\nif (key.size() > 16) { key.resize(16); }\nbool passPtr = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nconst std::string *pKey = passPtr ? &key : nullptr;\n\nmmkv->checkReSetCryptKey(pKey);\n\n// Validation: Resets crypt key in-memory with valid pointer or nullptr."
+    },
+    {
+      "name": "MMKV::set",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Store a boolean under a non-empty key using std::string_view (avoid private typedef)\nstd::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"k\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\nbool value = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool ok = mmkv->set(value, keyView);\nmmkv::unused<bool>(ok);\n\n// Validation: Enforces non-empty key and calls set(bool, keyView); returns instance unchanged."
+    },
+    {
+      "name": "MMKV::getString",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Prepare a key and value, ensure non-empty key\nstd::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"ks\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\n// Store a string value under the key\nstd::string val = FUZZ_PARAM_STR();\nif (val.size() > 512) { val.resize(512); }\nmmkv->set(val, keyView);\n\n// Retrieve via getString; verify property after set\nstd::string out;\nbool inplace = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool found = mmkv->getString(keyView, out, inplace);\nFUZZ_ASSERT(found, \"getString after set must succeed\");\nFUZZ_ASSERT(out == val, \"getString returned value must match set value\");\n\n// Validation: Sets string then fetches it, asserting presence and equality."
+    },
+    {
+      "name": "MMKV::getBytes",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Prepare key\nstd::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"kb\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\n// Create a small buffer value and store it\nsize_t len = (size_t)((*FUZZ_PARAM(unsigned int)) % 256 + 1);\nmmkv::MMBuffer buf(len);\n// Touch the first/last byte if possible\nvoid *p = buf.getPtr();\nif (p && len > 0) {\n    unsigned char *uc = static_cast<unsigned char*>(p);\n    uc[0] ^= (unsigned char)((*FUZZ_PARAM(unsigned int)) & 0xFF);\n    uc[len - 1] ^= (unsigned char)((*FUZZ_PARAM(unsigned int)) & 0x7F);\n}\nmmkv->set(buf, keyView);\n\n// Retrieve and validate length\nmmkv::MMBuffer got = mmkv->getBytes(keyView);\nFUZZ_ASSERT(got.length() == buf.length(), \"getBytes length must match set buffer length\");\n\n// Validation: Stores MMBuffer and ensures retrieved buffer length matches."
+    },
+    {
+      "name": "MMKV::getVector",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Prepare key\nstd::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"kv\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\n// Build a small vector of strings and store it\nstd::vector<std::string> vin;\n{\n    std::string a = FUZZ_PARAM_STR(); if (a.size() > 64) a.resize(64);\n    std::string b = FUZZ_PARAM_STR(); if (b.size() > 64) b.resize(64);\n    // Ensure at least one element\n    vin.push_back(a.empty() ? std::string(\"a\") : a);\n    if (((*FUZZ_PARAM(unsigned int)) & 1) != 0) vin.push_back(b);\n}\nmmkv->set(vin, keyView);\n\n// Retrieve and validate\nstd::vector<std::string> vout;\nbool ok = mmkv->getVector(keyView, vout);\nFUZZ_ASSERT(ok, \"getVector after set must succeed\");\nFUZZ_ASSERT(vout.size() == vin.size(), \"vector size must match\");\nif (vout.size() == vin.size()) {\n    for (size_t i = 0; i < vout.size(); ++i) {\n        FUZZ_ASSERT(vout[i] == vin[i], \"vector element mismatch\");\n    }\n}\n\n// Validation: Stores a vector<string> and asserts round-trip success."
+    },
+    {
+      "name": "MMKV::getBool",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Prepare key and set a bool value\nstd::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"kbool\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\nbool v = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nmmkv->set(v, keyView);\n\nbool has = false;\nbool got = mmkv->getBool(keyView, false, &has);\nFUZZ_ASSERT(has, \"getBool should report presence after set\");\nFUZZ_ASSERT(got == v, \"getBool value must match set value\");\n\n// Validation: Ensures presence flag and value equality after set."
+    },
+    {
+      "name": "MMKV::getInt32",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "std::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"ki32\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\nint32_t v = (int32_t)(*FUZZ_PARAM(unsigned int));\nmmkv->set(v, keyView);\n\nbool has = false;\nint32_t got = mmkv->getInt32(keyView, 0, &has);\nFUZZ_ASSERT(has, \"getInt32 should report presence after set\");\nFUZZ_ASSERT(got == v, \"getInt32 value must match set value\");\n\n// Validation: Round-trip for int32."
+    },
+    {
+      "name": "MMKV::getUInt32",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "std::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"ku32\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\nuint32_t v = (uint32_t)(*FUZZ_PARAM(unsigned int));\nmmkv->set(v, keyView);\n\nbool has = false;\nuint32_t got = mmkv->getUInt32(keyView, 0u, &has);\nFUZZ_ASSERT(has, \"getUInt32 should report presence after set\");\nFUZZ_ASSERT(got == v, \"getUInt32 value must match set value\");\n\n// Validation: Round-trip for uint32."
+    },
+    {
+      "name": "MMKV::getInt64",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "std::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"ki64\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\nint64_t v = ((int64_t)(*FUZZ_PARAM(unsigned int)) << 32) ^ (int64_t)(*FUZZ_PARAM(unsigned int));\nmmkv->set(v, keyView);\n\nbool has = false;\nint64_t got = mmkv->getInt64(keyView, 0, &has);\nFUZZ_ASSERT(has, \"getInt64 should report presence after set\");\nFUZZ_ASSERT(got == v, \"getInt64 value must match set value\");\n\n// Validation: Round-trip for int64."
+    },
+    {
+      "name": "MMKV::getUInt64",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "std::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"ku64\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\nuint64_t v = ((uint64_t)(*FUZZ_PARAM(unsigned int)) << 32) | (uint64_t)(*FUZZ_PARAM(unsigned int));\nmmkv->set(v, keyView);\n\nbool has = false;\nuint64_t got = mmkv->getUInt64(keyView, 0, &has);\nFUZZ_ASSERT(has, \"getUInt64 should report presence after set\");\nFUZZ_ASSERT(got == v, \"getUInt64 value must match set value\");\n\n// Validation: Round-trip for uint64."
+    },
+    {
+      "name": "MMKV::getFloat",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "std::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"kf\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\nfloat v = (float)((int)(*FUZZ_PARAM(unsigned int)) % 100000) / 123.45f;\nmmkv->set(v, keyView);\n\nbool has = false;\nfloat got = mmkv->getFloat(keyView, 0.0f, &has);\nFUZZ_ASSERT(has, \"getFloat should report presence after set\");\nFUZZ_ASSERT(got == v, \"getFloat value must match set value\");\n\n// Validation: Round-trip for float."
+    },
+    {
+      "name": "MMKV::getDouble",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "std::string keyBuf = FUZZ_PARAM_STR();\nif (keyBuf.empty()) { keyBuf = \"kd\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\n\ndouble v = (double)((int)(*FUZZ_PARAM(unsigned int)) % 100000) / 123.45;\nmmkv->set(v, keyView);\n\nbool has = false;\ndouble got = mmkv->getDouble(keyView, 0.0, &has);\nFUZZ_ASSERT(has, \"getDouble should report presence after set\");\nFUZZ_ASSERT(got == v, \"getDouble value must match set value\");\n\n// Validation: Round-trip for double."
+    },
+    {
+      "name": "MMKV::getValueSize",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Set a string under a non-empty key, then query value size\nstd::string keyBuf = FUZZ_PARAM_STR(); if (keyBuf.empty()) { keyBuf = \"kvs\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\nstd::string val = FUZZ_PARAM_STR(); if (val.empty()) { val = \"x\"; } if (val.size() > 512) { val.resize(512); }\nmmkv->set(val, keyView);\n\nsize_t logical = mmkv->getValueSize(keyView, true);\nFUZZ_ASSERT(logical == val.size(), \"getValueSize(actualSize=true) must equal stored length\");\nsize_t storage = mmkv->getValueSize(keyView, false);\nmmkv::unused<size_t>(storage);\n\n// Validation: Confirms actualSize path equals stored string size."
+    },
+    {
+      "name": "MMKV::writeValueToBuffer",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Set a string and then export it into a caller-provided buffer\nstd::string keyBuf = FUZZ_PARAM_STR(); if (keyBuf.empty()) { keyBuf = \"kwb\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\nstd::string val = FUZZ_PARAM_STR(); if (val.empty()) { val = \"y\"; } if (val.size() > 512) { val.resize(512); }\nmmkv->set(val, keyView);\n\nint32_t need = (int32_t)mmkv->getValueSize(keyView, true);\nFUZZ_ASSERT(need == (int32_t)val.size(), \"value size must match set string size\");\n\nif (need > 0) {\n    std::vector<char> buf((size_t)need);\n    int32_t written = mmkv->writeValueToBuffer(keyView, buf.data(), need);\n    FUZZ_ASSERT(written == need, \"writeValueToBuffer must write full size\");\n    // Exercise insufficient buffer behavior (ignore result semantics)\n    if (need > 1) {\n        int32_t smallWritten = mmkv->writeValueToBuffer(keyView, buf.data(), need - 1);\n        mmkv::unused<int32_t>(smallWritten);\n    }\n} else {\n    // size 0 case: pass nullptr and expect not to crash; don't assert return value\n    int32_t written = mmkv->writeValueToBuffer(keyView, nullptr, 0);\n    mmkv::unused<int32_t>(written);\n}\n\n// Validation: Ensures buffer large enough then asserts full write; also exercises small buffer path."
+    },
+    {
+      "name": "MMKV::containsKey",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Store a value and confirm the key is reported as present\nstd::string keyBuf = FUZZ_PARAM_STR(); if (keyBuf.empty()) { keyBuf = \"khas\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\nmmkv->set(true, keyView);\n\nbool present = mmkv->containsKey(keyView);\nFUZZ_ASSERT(present, \"containsKey must be true after set\");\n\n// Validation: Verifies containsKey returns true for a set key."
+    },
+    {
+      "name": "MMKV::count",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Optionally add a few keys to make count non-zero\nfor (int i = 0; i < 2; ++i) {\n    std::string k = FUZZ_PARAM_STR(); if (k.empty()) { k = (i==0?\"c0\":\"c1\"); }\n    std::string_view kv(k.data(), k.size());\n    mmkv->set((int32_t)i, kv);\n}\n\nbool filterExpire = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nsize_t c = mmkv->count(filterExpire);\nmmkv::unused<size_t>(c);\n\n// Validation: Calls count() with/without filter; no strict assertions on value."
+    },
+    {
+      "name": "MMKV::totalSize",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "size_t ts = mmkv->totalSize();\nmmkv::unused<size_t>(ts);\n\n// Validation: Non-mutating query; instance returned unchanged."
+    },
+    {
+      "name": "MMKV::actualSize",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "size_t asz = mmkv->actualSize();\nmmkv::unused<size_t>(asz);\n\n// Validation: Non-mutating query; instance returned unchanged."
+    },
+    {
+      "name": "MMKV::enableAutoKeyExpire",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Choose a small expiration window to avoid heavy operations\nuint32_t seconds = (uint32_t)((*FUZZ_PARAM(unsigned int)) % 60);\nbool ok = mmkv->enableAutoKeyExpire(seconds);\nmmkv::unused<bool>(ok);\n\n// Validation: Calls enableAutoKeyExpire with a bounded seconds value."
+    },
+    {
+      "name": "MMKV::disableAutoKeyExpire",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "bool ok = mmkv->disableAutoKeyExpire();\nmmkv::unused<bool>(ok);\n\n// Validation: Calls disableAutoKeyExpire; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::enableCompareBeforeSet",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Enable compare-before-set; effectiveness depends on encryption/expiration state\nbool ok = mmkv->enableCompareBeforeSet();\nmmkv::unused<bool>(ok);\n\n// Query and record state for coverage\nbool enabled = mmkv->isCompareBeforeSetEnabled();\nmmkv::unused<bool>(enabled);\n\n// Validation: Invokes enabler and inspects reported state without enforcing success."
+    },
+    {
+      "name": "MMKV::disableCompareBeforeSet",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Disable compare-before-set; effectiveness depends on current state (encryption/expiration)\nbool ok = mmkv->disableCompareBeforeSet();\nmmkv::unused<bool>(ok);\n\n// Observe reported state for coverage; do not assert because it may already be disabled\nbool enabled = mmkv->isCompareBeforeSetEnabled();\nmmkv::unused<bool>(enabled);\n\n// Validation: Calls the disabler and inspects the flag without enforcing a particular state; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::isExpirationEnabled",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "bool b = mmkv->isExpirationEnabled();\nmmkv::unused<bool>(b);\n\n// Validation: Simple const query; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::isEncryptionEnabled",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "bool b = mmkv->isEncryptionEnabled();\nmmkv::unused<bool>(b);\n\n// Validation: Simple const query; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::isCompareBeforeSetEnabled",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "bool b = mmkv->isCompareBeforeSetEnabled();\nmmkv::unused<bool>(b);\n\n// Validation: Simple const query; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::removeValueForKey",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Prepare a non-empty key and set a value first to ensure it exists\nstd::string keyBuf = FUZZ_PARAM_STR(); if (keyBuf.empty()) { keyBuf = \"krm\"; }\nstd::string_view keyView(keyBuf.data(), keyBuf.size());\nmmkv->set(true, keyView);\nFUZZ_ASSERT(mmkv->containsKey(keyView), \"Key should exist before removal\");\n\n// Remove the value and validate absence\nmmkv->removeValueForKey(keyView);\nbool present = mmkv->containsKey(keyView);\nFUZZ_ASSERT(!present, \"Key should be absent after removeValueForKey\");\n\n// Validation: Ensures remove deletes a previously stored key; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::clearAll",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Optionally keep space to exercise both paths\nbool keepSpace = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nmmkv->clearAll(keepSpace);\n\n// Optional light validation: count should be zero without filtering (best-effort)\nsize_t c = mmkv->count(false);\nmmkv::unused<size_t>(c);\n\n// Validation: Invokes clearAll with random keepSpace; does not assert on count due to implementation variability."
+    },
+    {
+      "name": "MMKV::trim",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Exercise trim which may be costly; just call once\nmmkv->trim();\n\n// Validation: Non-throwing maintenance call; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::close",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Close the instance; any subsequent use is undefined, so we do not return it\nmmkv->close();\n\n// Validation: Properly drops the instance by not returning it after close."
+    },
+    {
+      "name": "MMKV::clearMemoryCache",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "bool keepSpace = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nmmkv->clearMemoryCache(keepSpace);\n\n// Validation: Clears memory cache; instance remains valid and is returned."
+    },
+    {
+      "name": "MMKV::sync",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Choose sync or async flag\nSyncFlag flag = (((*FUZZ_PARAM(unsigned int)) & 1) != 0) ? MMKV_SYNC : MMKV_ASYNC;\nmmkv->sync(flag);\n\n// Validation: Calls sync with a valid flag; instance returned unchanged."
+    },
+    {
+      "name": "MMKV::lock",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Acquire lock then release to avoid deadlock in the fuzzer\nmmkv->lock();\nmmkv->unlock();\n\n// Validation: Ensures lock is paired with unlock to maintain liveness; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::unlock",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// To satisfy precondition, lock first, then invoke target unlock\nmmkv->lock();\nmmkv->unlock();\n\n// Validation: Guarantees unlock is called after a successful lock; instance returned unchanged."
+    },
+    {
+      "name": "MMKV::try_lock",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "bool got = mmkv->try_lock();\nif (got) {\n    // Must unlock if we acquired the lock\n    mmkv->unlock();\n}\nmmkv::unused<bool>(got);\n\n// Validation: Honors contract by unlocking only when try_lock succeeds; returns instance unchanged."
+    },
+    {
+      "name": "MMKV::getRootDir",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure MMKV is initialized once before querying root dir\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR();\n    if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir;\n    rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Query the configured root directory\nconst MMKVPath_t &rd = MMKV::getRootDir();\nmmkv::unused<const MMKVPath_t &>(rd);\n\n// Validation: Initializes if needed, then safely reads the root directory reference."
+    },
+    {
+      "name": "MMKV::backupOneToDirectory",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure initialized root directory\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR();\n    if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir;\n    rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Create/open an instance with a concrete ID to ensure files exist\nstd::string id = FUZZ_PARAM_STR();\nif (id.empty()) { id = \"bkid\"; }\nif (id.size() > 64) { id.resize(64); }\nMMKV *inst = MMKV::mmkvWithID(id, MMKV_SINGLE_PROCESS, nullptr, nullptr, 0);\nif (!inst) { FUZZ_BAIL(); }\n\n// Write some data and sync to ensure on-disk presence\nstd::string k = \"bk_key\";\ninst->set(true, std::string_view(k.data(), k.size()));\ninst->sync(MMKV_SYNC);\n\n// Use the current root dir as a valid writable destination; srcDir is null => use root\nconst MMKVPath_t &dst = MMKV::getRootDir();\nbool ok = MMKV::backupOneToDirectory(id, dst, nullptr);\nmmkv::unused<bool>(ok);\n\n// Validation: Ensures instance exists and is synced before invoking backup to the configured root directory."
+    },
+    {
+      "name": "MMKV::restoreOneFromDirectory",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure MMKV is initialized and has a valid root directory\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR(); if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir; rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Create an instance and ensure on-disk presence so that restore has real files\nstd::string id = FUZZ_PARAM_STR(); if (id.empty()) { id = \"rid\"; }\nif (id.size() > 64) { id.resize(64); }\nMMKV *inst = MMKV::mmkvWithID(id, MMKV_SINGLE_PROCESS, nullptr, nullptr, 0);\nif (!inst) { FUZZ_BAIL(); }\ninst->set(true, std::string_view(\"restore_key\", 11));\ninst->sync(MMKV_SYNC);\n\n// Use the current root dir as a valid readable source directory; dstDir = nullptr implies MMKV root\nconst MMKVPath_t &src = MMKV::getRootDir();\nbool ok = MMKV::restoreOneFromDirectory(id, src, nullptr);\nmmkv::unused<bool>(ok);\n\n// Validation: Ensures files exist by creating/syncing an instance, then calls restore from root to root (dst=null)."
+    },
+    {
+      "name": "MMKV::backupAllToDirectory",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure MMKV is initialized\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR(); if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir; rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Create a couple of instances to increase coverage and ensure there is content to back up\nfor (int i = 0; i < 2; ++i) {\n    std::string id = FUZZ_PARAM_STR(); if (id.empty()) { id = (i==0?\"ba0\":\"ba1\"); }\n    if (id.size() > 64) { id.resize(64); }\n    MMKV *inst = MMKV::mmkvWithID(id, MMKV_SINGLE_PROCESS, nullptr, nullptr, 0);\n    if (!inst) { FUZZ_BAIL(); }\n    std::string key = (i==0?\"bak_key0\":\"bak_key1\");\n    inst->set(i!=0, std::string_view(key.data(), key.size()));\n    inst->sync(MMKV_SYNC);\n}\n\n// Destination: reuse the configured root directory (valid writable directory)\nconst MMKVPath_t &dst = MMKV::getRootDir();\nsize_t count = MMKV::backupAllToDirectory(dst, nullptr);\nmmkv::unused<size_t>(count);\n\n// Validation: Backs up all instances from root (src=null) into root dir."
+    },
+    {
+      "name": "MMKV::restoreAllFromDirectory",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure MMKV is initialized\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR(); if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir; rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Ensure there are some instance files present in the root source directory\nfor (int i = 0; i < 2; ++i) {\n    std::string id = FUZZ_PARAM_STR(); if (id.empty()) { id = (i==0?\"rs0\":\"rs1\"); }\n    if (id.size() > 64) { id.resize(64); }\n    MMKV *inst = MMKV::mmkvWithID(id, MMKV_SINGLE_PROCESS, nullptr, nullptr, 0);\n    if (!inst) { FUZZ_BAIL(); }\n    std::string key = (i==0?\"rs_key0\":\"rs_key1\");\n    inst->set(i==0, std::string_view(key.data(), key.size()));\n    inst->sync(MMKV_SYNC);\n}\n\n// Source is the current root dir; dstDir=null means restore to root\nconst MMKVPath_t &src = MMKV::getRootDir();\nsize_t restored = MMKV::restoreAllFromDirectory(src, nullptr);\nmmkv::unused<size_t>(restored);\n\n// Validation: Restores all instances from root to root; exercises path without asserting counts."
+    },
+    {
+      "name": "MMKV::checkContentChanged",
+      "inputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mmkv",
+          "type": "MMKV *"
+        }
+      ],
+      "code": "// Invoke content change check; intended for multi-process scenarios\nmmkv->checkContentChanged();\n\n// Validation: Non-throwing state update; instance returned unchanged."
+    },
+    {
+      "name": "MMKV::registerContentChangeHandler",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Register a content change handler; using nullptr to avoid signature mismatch while exercising registration\nMMKV::registerContentChangeHandler(nullptr);\n\n// Validation: Registers (potentially clears) global handler; separate stub handles unregistration."
+    },
+    {
+      "name": "MMKV::unRegisterContentChangeHandler",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Unregister previously registered content change handler (if any)\nMMKV::unRegisterContentChangeHandler();\n\n// Validation: Calls the unregistration path; no assumptions about prior state."
+    },
+    {
+      "name": "MMKV::registerErrorHandler",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Register a global error handler; use nullptr to exercise API without providing a specific callback\nMMKV::registerErrorHandler(nullptr);\n\n// Validation: Exercises registration with a null handler, acceptable per initializeMMKV usage pattern."
+    },
+    {
+      "name": "MMKV::unRegisterErrorHandler",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Unregister global error handler\nMMKV::unRegisterErrorHandler();\n\n// Validation: Unregister path invoked; independent of whether one was registered."
+    },
+    {
+      "name": "MMKV::setLogLevel",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Set a valid log level within enum range [0,4]\nMMKVLogLevel lvl = (MMKVLogLevel)((*FUZZ_PARAM(unsigned int)) % 5);\nMMKV::setLogLevel(lvl);\n\n// Validation: Sets global log level to a constrained valid value."
+    },
+    {
+      "name": "MMKV::registerLogHandler",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Register a global log handler; pass nullptr to exercise registration paths safely\nMMKV::registerLogHandler(nullptr);\n\n// Validation: Registers (or clears) the log handler without relying on function pointer signature."
+    },
+    {
+      "name": "MMKV::unRegisterLogHandler",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Unregister the global log handler\nMMKV::unRegisterLogHandler();\n\n// Validation: Calls unregistration; independent of previous registration state."
+    },
+    {
+      "name": "MMKV::isFileValid",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure initialized\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR(); if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir; rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Create an instance to ensure files exist, then query validity\nstd::string id = FUZZ_PARAM_STR(); if (id.empty()) { id = \"vf\"; }\nif (id.size() > 64) { id.resize(64); }\nMMKV *inst = MMKV::mmkvWithID(id, MMKV_SINGLE_PROCESS, nullptr, nullptr, 0);\nif (!inst) { FUZZ_BAIL(); }\ninst->set(false, std::string_view(\"valid_key\", 9));\ninst->sync(MMKV_SYNC);\n\n// Query validity with and without relatePath\nbool v1 = MMKV::isFileValid(id, nullptr);\nmmkv::unused<bool>(v1);\nMMKVPath_t rel = MMKV::getRootDir();\nbool v2 = MMKV::isFileValid(id, &rel);\nmmkv::unused<bool>(v2);\n\n// Validation: Ensures files exist, then exercises both null and non-null relatePath variants."
+    },
+    {
+      "name": "MMKV::removeStorage",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure initialized\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"mmkv_initialized\") == 0) {\n    std::string raw = FUZZ_PARAM_STR(); if (raw.empty()) { raw = \".\"; }\n    MMKVPath_t rootDir; rootDir.assign(raw.begin(), raw.end());\n    MMKV::initializeMMKV(rootDir, MMKVLogInfo, nullptr);\n    FUZZ_SET_ATTR_INT_GLOBAL(\"mmkv_initialized\", 1);\n}\n\n// Create an instance and ensure it has data so removal has an effect\nstd::string id = FUZZ_PARAM_STR(); if (id.empty()) { id = \"rmv\"; }\nif (id.size() > 64) { id.resize(64); }\nMMKV *inst = MMKV::mmkvWithID(id, MMKV_SINGLE_PROCESS, nullptr, nullptr, 0);\nif (!inst) { FUZZ_BAIL(); }\ninst->set(true, std::string_view(\"rm_key\", 6));\ninst->sync(MMKV_SYNC);\n\n// Remove the storage; after this, existing instance pointers should not be used further in this stub\nbool ok = MMKV::removeStorage(id, nullptr);\nmmkv::unused<bool>(ok);\n\n// Validation: Creates and syncs an instance, then removes its storage; does not reuse the pointer thereafter."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "string2MMKVPath_t",
+      "reason": "This is a real function only on Windows; on other platforms it is a macro and not linkable for a harness call."
+    },
+    {
+      "name": "MMKVPath_t2String",
+      "reason": "This is a real function only on Windows; on other platforms it is a macro and not linkable for a harness call."
+    },
+    {
+      "name": "MMKV::getObject",
+      "reason": "This API is available only when MMKV_APPLE is defined and cannot be safely exercised in a generic cross-platform fuzzer build."
+    },
+    {
+      "name": "MMKV::allKeys",
+      "reason": "This method is available only when MMKV_APPLE is defined and is not linkable on non-Apple builds."
+    },
+    {
+      "name": "MMKV::removeValuesForKeys",
+      "reason": "This method is available only when MMKV_APPLE is defined and is not linkable on non-Apple builds."
+    },
+    {
+      "name": "MMKV::lock_thread",
+      "reason": "This method is available only when MMKV_WIN32 is not defined (non-Windows) and is not present on Windows builds."
+    },
+    {
+      "name": "MMKV::unlock_thread",
+      "reason": "This method is available only when MMKV_WIN32 is not defined (non-Windows) and is not present on Windows builds."
+    },
+    {
+      "name": "MMKV::try_lock_thread",
+      "reason": "This method is available only when MMKV_WIN32 is not defined (non-Windows) and is not present on Windows builds."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "mmkv::MMBuffer::MMBuffer",
+      "data_types": []
+    },
+    {
+      "name": "mmkv::MMBuffer::~MMBuffer",
+      "data_types": []
+    },
+    {
+      "name": "mmkv::MMBuffer::isStoredOnStack",
+      "data_types": []
+    },
+    {
+      "name": "mmkv::MMBuffer::getPtr",
+      "data_types": []
+    },
+    {
+      "name": "mmkv::MMBuffer::length",
+      "data_types": []
+    },
+    {
+      "name": "mmkv::MMBuffer::detach",
+      "data_types": []
+    },
+    {
+      "name": "mmkv::MMBuffer::operator==",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::onExit",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::mmapID",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::cryptKey",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::totalSize",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::actualSize",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::enableAutoKeyExpire",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::disableAutoKeyExpire",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::enableCompareBeforeSet",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::disableCompareBeforeSet",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::isExpirationEnabled",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::isEncryptionEnabled",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::isCompareBeforeSetEnabled",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::clearAll",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::trim",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::close",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::clearMemoryCache",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::sync",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::lock",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::unlock",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::try_lock",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::checkContentChanged",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::registerContentChangeHandler",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::unRegisterContentChangeHandler",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::registerErrorHandler",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::unRegisterErrorHandler",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::setLogLevel",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::registerLogHandler",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::unRegisterLogHandler",
+      "data_types": []
+    },
+    {
+      "name": "mmkv::unused",
+      "data_types": []
+    },
+    {
+      "name": "MMKV::initializeMMKV",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::defaultMMKV",
+      "data_types": [
+        "filesystem path",
+        "cryptographic key"
+      ]
+    },
+    {
+      "name": "MMKV::mmkvWithID",
+      "data_types": [
+        "identifier",
+        "cryptographic key",
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::reKey",
+      "data_types": [
+        "cryptographic key"
+      ]
+    },
+    {
+      "name": "MMKV::checkReSetCryptKey",
+      "data_types": [
+        "cryptographic key"
+      ]
+    },
+    {
+      "name": "MMKV::set",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getString",
+      "data_types": [
+        "identifier",
+        "arbitrary binary-safe string"
+      ]
+    },
+    {
+      "name": "MMKV::getBytes",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getVector",
+      "data_types": [
+        "identifier",
+        "arbitrary binary-safe string"
+      ]
+    },
+    {
+      "name": "MMKV::getBool",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getInt32",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getUInt32",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getInt64",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getUInt64",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getFloat",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getDouble",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getValueSize",
+      "data_types": [
+        "identifier",
+        "arbitrary binary-safe string"
+      ]
+    },
+    {
+      "name": "MMKV::writeValueToBuffer",
+      "data_types": [
+        "identifier",
+        "arbitrary binary-safe string"
+      ]
+    },
+    {
+      "name": "MMKV::containsKey",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::count",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::removeValueForKey",
+      "data_types": [
+        "identifier"
+      ]
+    },
+    {
+      "name": "MMKV::getRootDir",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::backupOneToDirectory",
+      "data_types": [
+        "identifier",
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::restoreOneFromDirectory",
+      "data_types": [
+        "identifier",
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::backupAllToDirectory",
+      "data_types": [
+        "identifier",
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::restoreAllFromDirectory",
+      "data_types": [
+        "identifier",
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::isFileValid",
+      "data_types": [
+        "identifier",
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "MMKV::removeStorage",
+      "data_types": [
+        "identifier",
+        "filesystem path"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path",
+      "description": "A string representing a filesystem directory or file path. On Windows this may be converted to a wide-character path; on POSIX it remains a narrow UTF-8/byte string. May include separators, dots, and relative components."
+    },
+    {
+      "data_type": "cryptographic key",
+      "description": "A short byte string used as an encryption key. For MMKV it must be 0 to 16 bytes; an empty string disables encryption. Treated as raw bytes; not required to be printable."
+    },
+    {
+      "data_type": "identifier",
+      "description": "A non-empty string used as an application- or storage-level identifier (e.g., mmapID or key names). May contain arbitrary characters but should not be empty. Often truncated to a maximum length (e.g., 64 bytes for mmapID)."
+    },
+    {
+      "data_type": "arbitrary binary-safe string",
+      "description": "A general-purpose string value that may contain any bytes including nulls and non-UTF8 data. Used for storing and retrieving values without format constraints."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# This generator targets filesystem path inputs and short string fields (IDs, crypt keys)\n# used by the MMKV fuzzer stubs. We produce a single bytes buffer that the harness will\n# slice to provide FUZZ_PARAM_STR() and related calls. We therefore embed multiple\n# interesting strings separated by NUL (\"\\0\") so the harness can pull distinct values.\n#\n# Requirements derived from stubs:\n# - Root directory path: prefer existing, writable, short paths like \".\" or a simple subdir.\n# - mmapID: non-empty, <= 64 bytes.\n# - cryptKey: optional, <= 16 bytes; include both empty and non-empty variants.\n# - Alternate root path: valid directory string.\n# - Include a few sane ASCII IDs and keys, plus some edge-case path forms.\n#\n# The fuzzer will request many FUZZ_PARAM_STR values. We provide a pool of strings covering:\n# - Relative paths: \".\", \"./data\", \"..\", nested\n# - Absolute-like POSIX paths: \"/tmp/mmkv\", \"/var/tmp\"\n# - Windows-like paths (even on non-Windows, they are just strings):\n#   \"C:\\\\mmkv\", \"C:\\\\temp\\\\..\\\\mmkv\", UNC path\n# - mmap IDs: short alphanumerics, with separators, unicode-ish\n# - crypt keys: lengths 0..16 with varied bytes\n# - Additional small tokens used as keys\n#\n# We NUL-join the list and return as bytes.\n\nMAX_TOTAL = 4096\n\n_ascii = string.ascii_letters + string.digits + \"_-:.\"\n\n\ndef _rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    n = rng.randint(min_len, max_len)\n    return \"\".join(rng.choice(_ascii) for _ in range(n))\n\n\ndef _rand_crypt_key(rng: random.Random) -> str:\n    # 0..16 length\n    n = rng.randint(0, 16)\n    # Include some non-printable bytes occasionally by hex encoding to remain printable\n    # but keep key as direct string (the library expects raw bytes but harness passes strings).\n    # We'll bias toward printable ASCII.\n    if n == 0:\n        return \"\"\n    return \"\".join(rng.choice(string.ascii_letters + string.digits) for _ in range(n))\n\n\ndef _rand_mmap_id(rng: random.Random) -> str:\n    # 1..64, include dots and slashes avoided (IDs are not paths but allow separators in practice).\n    # We'll keep it safe: alphanumerics with dots/underscores.\n    n = rng.randint(1, 64)\n    alphabet = string.ascii_lowercase + string.digits + \"._-\"\n    s = \"\".join(rng.choice(alphabet) for _ in range(n))\n    # Ensure non-empty and not starting with dot-only sometimes\n    if all(c == '.' for c in s):\n        s = \"id\" + s[: max(0, n - 2)]\n    return s\n\n\ndef _interesting_paths(rng: random.Random) -> List[str]:\n    # Base candidates\n    cands = [\n        \".\",\n        \"./\",\n        \"..\",\n        \"./data\",\n        \"./mmkv\",\n        \"./tmp\",\n        \"../mmkv\",\n        \"mmkv\",\n        \"data\",\n        \"data/mmkv\",\n        \"./data/../mmkv\",\n        \"/tmp/mmkv\",\n        \"/var/tmp/mmkv\",\n        \"/tmp\",\n        \"C:\\\\mmkv\",\n        \"C:\\\\temp\\\\mmkv\",\n        \"C:\\\\temp\\\\..\\\\mmkv\",\n        \"\\\\\\\\server\\\\share\\\\mmkv\",\n    ]\n    # Add a few random relative subdirs\n    for _ in range(rng.randint(3, 6)):\n        segs = [_rand_ascii(rng, 1, 8) for _ in range(rng.randint(1, 3))]\n        cands.append(\"./\" + \"/\".join(segs))\n    # Deduplicate while preserving order\n    seen = set()\n    out = []\n    for s in cands:\n        if s not in seen:\n            seen.add(s)\n            out.append(s)\n    return out\n\n\ndef _interesting_ids(rng: random.Random) -> List[str]:\n    fixed = [\n        \"id\",\n        \"default\",\n        \"com.tencent.mmkv\",\n        \"user_01\",\n        \"session-abc\",\n        \"a\",\n        \"z\" * 64,\n    ]\n    # Trim any overlong fixed entries to 64\n    fixed = [s[:64] for s in fixed if s]\n    # Add random ids\n    for _ in range(rng.randint(4, 8)):\n        fixed.append(_rand_mmap_id(rng))\n    # Ensure non-empty\n    fixed = [s if s else \"id\" for s in fixed]\n    # Dedup\n    seen = set()\n    out = []\n    for s in fixed:\n        if s not in seen:\n            seen.add(s)\n            out.append(s)\n    return out\n\n\ndef _interesting_keys(rng: random.Random) -> List[str]:\n    fixed = [\"\", \"k\", \"key\", \"bk_key\", \"restore_key\", \"valid_key\", \"rs_key0\", \"rs_key1\"]\n    # Add a couple random short keys\n    for _ in range(rng.randint(3, 6)):\n        fixed.append(_rand_ascii(rng, 1, 12))\n    # Ensure <=16 for potential crypt keys if reused\n    return fixed\n\n\ndef _crypt_keys(rng: random.Random) -> List[str]:\n    keys = [\n        \"\",  # none\n        \"0\",\n        \"secret\",\n        \"sixteen_char_key\"[:16],  # exactly 16\n    ]\n    for _ in range(rng.randint(3, 6)):\n        keys.append(_rand_crypt_key(rng))\n    # Trim to <=16\n    keys = [k[:16] for k in keys]\n    # Dedup\n    seen = set()\n    out = []\n    for k in keys:\n        if k not in seen:\n            seen.add(k)\n            out.append(k)\n    return out\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    parts: List[str] = []\n\n    # Root dirs first (used by many stubs)\n    parts.extend(_interesting_paths(rng))\n\n    # Alternate root paths as well\n    parts.extend(_interesting_paths(rng))\n\n    # IDs\n    parts.extend(_interesting_ids(rng))\n\n    # Crypt keys (<=16)\n    parts.extend(_crypt_keys(rng))\n\n    # Additional short keys and misc tokens\n    parts.extend(_interesting_keys(rng))\n\n    # Include some numeric-looking strings that may be used elsewhere\n    for v in [\"0\", \"1\", \"2\", \"15\", \"16\", \"64\", \"128\", \"2048\"]:\n        parts.append(v)\n\n    # Shuffle to vary consumption order across seeds\n    rng.shuffle(parts)\n\n    # Ensure constraints per stubs\n    parts = [p if p else \".\" for p in parts]  # avoid empty where not desired\n\n    # Join with NUL separators so multiple FUZZ_PARAM_STR pulls get distinct values\n    blob = \"\\0\".join(parts)\n\n    # Limit to MAX_TOTAL; ensure we don't cut in the middle of a multi-byte sequence (ASCII only here)\n    if len(blob.encode('utf-8')) > MAX_TOTAL:\n        # Truncate by characters while trying to end on a separator if possible\n        enc = blob.encode('utf-8')[:MAX_TOTAL]\n        # Backtrack to last NUL to avoid partial token\n        last0 = enc.rfind(b\"\\0\")\n        if last0 != -1 and last0 >= MAX_TOTAL // 2:\n            enc = enc[:last0]\n        blob_bytes = enc\n    else:\n        blob_bytes = blob.encode('utf-8')\n\n    return blob_bytes\n"
+    },
+    {
+      "data_type": "cryptographic key",
+      "generator": "import os\nimport random\nfrom typing import List\n\n# Data type: cryptographic key for MMKV\n# Constraints:\n# - 0 to 16 bytes\n# - Empty string disables encryption\n# - Treated as raw bytes; can be arbitrary binary\n# Target fuzzers use FUZZ_PARAM_STR for:\n#   - initializeMMKV rootDir (expects a reasonable path); they fallback to \".\" if empty\n#   - mmapID (must be non-empty; truncated to 64)\n#   - optional crypt keys (<=16)\n#   - optional alternative root path (fallback \".\")\n#   - reKey/checkReSetCryptKey: key length <=16, empty allowed to disable\n# Our generator returns a single bytes buffer that the harness will slice for successive FUZZ_PARAM_STR calls.\n# We will produce a composite buffer containing multiple sections separated by delimiters, so that\n# each FUZZ_PARAM_STR read yields meaningful content for the various uses.\n#\n# Layout we generate (as UTF-8 friendly but arbitrary bytes allowed):\n#   1) root dir: a plausible relative or absolute path string\n#   2) defaultMMKV optional key: 0..16 binary bytes (may be empty)\n#   3) mmkvWithID mmapID: non-empty identifier\n#   4) mmkvWithID optional crypt key: 0..16 binary bytes (may be empty)\n#   5) alternative root path: plausible path\n#   6) reKey key: 0..16 binary bytes (may be empty)\n#   7) checkReSetCryptKey key: 0..16 binary bytes (may be empty)\n# Each section is length-prefixed to allow FUZZ framework to split, but since the fuzz harness\n# just reads sequential FUZZ_PARAM_STR from a monolithic buffer, we will separate with newlines. Most harnesses\n# split by NUL or newline. To increase compatibility, we will also ensure there are no stray newlines inside\n# path strings; binary keys will be hex-encoded to make them safe as strings while still representing all bytes.\n# The library treats keys as raw bytes, but the stub passes std::string built from FUZZ_PARAM_STR().\n# Providing hex keeps inputs printable and deterministic; truncation to <=16 will still occur.\n# The stub does not decode hex, but raw string bytes are acceptable. Using a mix of random ASCII and NULs is risky\n# for splitting, so keep within visible ASCII to avoid early termination.\n#\n# Note: We keep total size <= 4096 bytes.\n\nSAFE_CHARS = \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-\"\n\ndef _rand_path(rng: random.Random) -> str:\n    # Generate a plausible path that works on POSIX and Windows-like code\n    parts: List[str] = []\n    depth = rng.randint(1, 4)\n    for _ in range(depth):\n        name_len = rng.randint(1, 12)\n        name = ''.join(rng.choice(SAFE_CHARS) for _ in range(name_len))\n        parts.append(name)\n    # Randomly choose absolute or relative\n    if rng.random() < 0.5:\n        # relative\n        prefix = '.' if rng.random() < 0.6 else ''\n        path = '/'.join(p for p in ([prefix] if prefix else []) + parts)\n    else:\n        # absolute POSIX-like\n        path = '/' + '/'.join(parts)\n    # Occasionally add Windows drive style (still a string, acceptable on non-Windows too)\n    if rng.random() < 0.2:\n        drive = rng.choice('CDE')\n        win = f\"{drive}:/\" + '/'.join(parts)\n        return win\n    return path\n\ndef _rand_id(rng: random.Random) -> str:\n    # Generate a reasonable mmapID like com.example.app:userid\n    segments = []\n    seg_count = rng.randint(2, 4)\n    for _ in range(seg_count):\n        seg_len = rng.randint(2, 12)\n        seg = ''.join(rng.choice('abcdefghijklmnopqrstuvwxyz0123456789') for _ in range(seg_len))\n        segments.append(seg)\n    base = '.'.join(segments)\n    if rng.random() < 0.5:\n        suffix = rng.randint(0, 9999)\n        base += f\":{suffix}\"\n    # Ensure non-empty and within 64 chars; the stub truncates if longer\n    return base[:64] if base else 'id'\n\ndef _rand_key_bytes(rng: random.Random) -> bytes:\n    # Length from 0..16; bias towards {0, 16} and some middle lengths\n    choices = [0, 1, 2, 8, 15, 16]\n    if rng.random() < 0.6:\n        ln = rng.choice(choices)\n    else:\n        ln = rng.randint(0, 16)\n    # Mix of random bytes including non-printable\n    return bytes(rng.randrange(0, 256) for _ in range(ln))\n\ndef _encode_key_for_str(b: bytes) -> str:\n    # Turn arbitrary bytes into a compact printable string without newlines.\n    # Use base16 without 0x prefix for compactness.\n    if not b:\n        return ''\n    return b.hex()\n\ndef _rand_yes(rng: random.Random, p: float) -> bool:\n    return rng.random() < p\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build sections\n    root_dir_1 = _rand_path(rng)\n    default_key_raw = _rand_key_bytes(rng)\n    default_key = _encode_key_for_str(default_key_raw)\n\n    mmap_id = _rand_id(rng)\n    id_key_raw = _rand_key_bytes(rng)\n    id_key = _encode_key_for_str(id_key_raw)\n\n    alt_root = _rand_path(rng)\n\n    rekey_raw = _rand_key_bytes(rng)\n    rekey = _encode_key_for_str(rekey_raw)\n\n    resetkey_raw = _rand_key_bytes(rng)\n    resetkey = _encode_key_for_str(resetkey_raw)\n\n    # Sometimes force empty keys explicitly to exercise disable encryption paths\n    if _rand_yes(rng, 0.3):\n        default_key = ''\n    if _rand_yes(rng, 0.3):\n        id_key = ''\n    if _rand_yes(rng, 0.3):\n        rekey = ''\n    if _rand_yes(rng, 0.3):\n        resetkey = ''\n\n    # Compose buffer with newline separators\n    sections = [\n        root_dir_1,\n        default_key,\n        mmap_id,\n        id_key,\n        alt_root,\n        rekey,\n        resetkey,\n    ]\n\n    # Ensure non-empty strings where required by stub defaults\n    # Stub already handles empty rootDir by substituting \".\"; we still keep our value as-is\n    # Ensure mmapID non-empty\n    if not sections[2]:\n        sections[2] = 'id'\n\n    data = ('\\n'.join(sections)).encode('utf-8')\n\n    # Cap size to <= 4096 bytes\n    if len(data) > 4096:\n        data = data[:4096]\n    return data\n"
+    },
+    {
+      "data_type": "identifier",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Data type: identifier\n# Non-empty string identifiers used for mmapID and key names.\n# Requirements from stubs:\n# - MMKV::initializeMMKV: FUZZ_PARAM_STR provides a root path string; empty replaced with \".\".\n# - MMKV::mmkvWithID: mmapID non-empty, truncated to 64 bytes.\n# - Keys for set/get ops: non-empty; common lengths small to moderate; sometimes truncated (64 for vectors, 512 for values).\n# Our strategy:\n# - Encode multiple newline-separated fields to feed successive FUZZ_PARAM_STR() calls.\n# - Provide a mix of ASCII, unicode-ish bytes, and pathy strings.\n# - Keep total size under 4096 bytes.\n# - Include several identifiers of varied lengths including edge cases: 1 char, 64 chars, mixed chars, with separators, etc.\n# - Also include some long strings that will be safely truncated by the stub (up to 512 for values, 64 for ids/elems).\n# - Interleave with some empty lines; the fuzzer replaces empties with a fallback (\".\", default keys). This gives branch variety while staying valid.\n\nUNICODE_SAMPLES = [\n    \"αβγ\", \"日本語\", \"⽂字混合\", \"🙂🚀\", \"über\", \"façade\", \"спутник\", \"árvíztűrő\"  # diverse scripts\n]\n\nPATH_SAMPLES = [\n    \".\", \"..\", \"./data\", \"./tmp/mmkv\", \"./subdir/../data/\", \"C:/mmkv\", \"/var/tmp/mmkv\", \"./.hidden\"\n]\n\nSAFE_PUNCT = \"-_.:@+\"  # safe-ish in paths/ids\n\n\ndef rand_ident(rng: random.Random, min_len: int = 1, max_len: int = 64) -> str:\n    # Create a non-empty identifier with diverse characters.\n    choice = rng.randint(0, 4)\n    if choice == 0:\n        # Alnum core\n        core = ''.join(rng.choice(string.ascii_letters + string.digits) for _ in range(rng.randint(min_len, max_len)))\n    elif choice == 1:\n        # Path-like\n        core = rng.choice(PATH_SAMPLES)\n        # Optionally append a leaf name\n        if rng.random() < 0.6:\n            leaf = ''.join(rng.choice(string.ascii_lowercase + string.digits + SAFE_PUNCT) for _ in range(rng.randint(1, max_len - len(core) if max_len > len(core) else 1)))\n            if not core.endswith('/') and '/' in core:\n                core = core + '/'\n            core = (core + leaf)[:max_len]\n    elif choice == 2:\n        # Unicode-rich identifier\n        parts = [rng.choice(UNICODE_SAMPLES) for _ in range(rng.randint(1, 4))]\n        core = ''.join(parts)\n        # Mix ASCII tail\n        if rng.random() < 0.7:\n            core += '-' + ''.join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(1, 12)))\n        core = core[:max_len]\n    elif choice == 3:\n        # Numeric-like\n        core = str(rng.randrange(10**rng.randint(1, min(12, max_len))))\n    else:\n        # Mixed\n        alph = string.ascii_letters + string.digits + SAFE_PUNCT\n        base = ''.join(rng.choice(alph) for _ in range(rng.randint(min_len, max_len)))\n        # Sprinkle unicode\n        if rng.random() < 0.5:\n            ins = rng.choice(UNICODE_SAMPLES)\n            pos = rng.randrange(0, len(base)+1)\n            core = (base[:pos] + ins + base[pos:])[:max_len]\n        else:\n            core = base\n    # Ensure non-empty\n    if not core:\n        core = \"x\"\n    return core\n\n\ndef bounded_value_string(rng: random.Random, max_len: int) -> str:\n    # Generate general values for set/get with potential truncation up to max_len.\n    blocks: List[str] = []\n    # Start with random ASCII block\n    ascii_block = ''.join(rng.choice(string.ascii_letters + string.digits + string.punctuation + ' \\t') for _ in range(rng.randint(1, min(64, max_len))))\n    blocks.append(ascii_block)\n    # Add unicode block\n    if rng.random() < 0.9:\n        blocks.append(rng.choice(UNICODE_SAMPLES) * rng.randint(1, 3))\n    # Add path-ish block\n    if rng.random() < 0.8:\n        blocks.append(rng.choice(PATH_SAMPLES))\n    # Join with separators\n    sep = rng.choice([\"|\", \",\", \";\", \" \", \"::\", \"/\", \"_\"])\n    s = sep.join(blocks)\n    # Optionally expand to approach max_len\n    if len(s) < max_len and rng.random() < 0.5:\n        pad = ''.join(rng.choice(string.ascii_lowercase) for _ in range(min(max_len - len(s), rng.randint(0, max(0, max_len - len(s))))) )\n        s += pad\n    if len(s) == 0:\n        s = \"y\"\n    return s[:max_len]\n\n\ndef build_lines(rng: random.Random) -> List[str]:\n    lines: List[str] = []\n\n    # 1) Initialization rootDir (first use of FUZZ_PARAM_STR in stubs)\n    lines.append(rng.choice(PATH_SAMPLES))\n\n    # 2) For mmkvWithID stub: mmapID (<=64)\n    lines.append(rand_ident(rng, 1, 64))\n\n    # 3) Optional crypt key source (<=16 in stub)\n    # Provide both short and near-limit content\n    ck = bounded_value_string(rng, 16)\n    lines.append(ck)\n\n    # 4) Optional alternative root path\n    lines.append(rng.choice(PATH_SAMPLES))\n\n    # Subsequent stubs make many FUZZ_PARAM_STR() calls for keys and values.\n    # Provide a pool of diverse identifiers and values.\n    # Keys for bool/int/float/double\n    for tag in [\"k\", \"ks\", \"kb\", \"kv\", \"kbool\", \"ki32\", \"ku32\", \"ki64\", \"ku64\", \"kf\", \"kd\", \"kvs\", \"kwb\", \"khas\", \"c0\", \"c1\", \"krm\"]:\n        # Some will be replaced if empty; we still provide non-empty varied ids\n        if rng.random() < 0.2:\n            # leave empty to exercise defaulting paths in the stub\n            lines.append(\"\")\n        else:\n            base = tag + \"_\" + rand_ident(rng, 1, 32)\n            lines.append(base[:64])\n\n    # Values used in set/getString, vectors, buffers, etc.\n    # Provide multiple values; some long to hit truncation to 512, some short\n    for _ in range(8):\n        max_len = rng.choice([16, 32, 64, 128, 256, 512])\n        lines.append(bounded_value_string(rng, max_len))\n\n    # Additional IDs for backup/restore/isFileValid/removeStorage sequences\n    for tag in [\"bkid\", \"rid\", \"ba0\", \"ba1\", \"rs0\", \"rs1\", \"vf\", \"rmv\"]:\n        if rng.random() < 0.15:\n            lines.append(\"\")\n        else:\n            lines.append((tag + \"_\" + rand_ident(rng, 1, 40))[:64])\n\n    # Ensure we have a good amount but stay well under 4096 bytes overall after joining\n    return lines\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    lines = build_lines(rng)\n\n    # Join with newlines to feed successive FUZZ_PARAM_STR() calls.\n    # Some stubs may read more strings than provided; to keep validity, append a few fallback lines.\n    fallback = [\".\", \"id\", \"key\", \"val\", \"more\", \"data\"]\n    while len(lines) < 80:\n        # Mix extra identifiers and values\n        if rng.random() < 0.5:\n            lines.append(rand_ident(rng, 1, 64))\n        else:\n            lines.append(bounded_value_string(rng, rng.choice([32, 64, 128, 256, 512])))\n    lines.extend(fallback)\n\n    blob = (\"\\n\".join(lines)).encode(\"utf-8\", errors=\"surrogatepass\")\n    return blob[:4096]\n"
+    },
+    {
+      "data_type": "arbitrary binary-safe string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Target data type: arbitrary binary-safe string\n# Fuzzer uses FUZZ_PARAM_STR for keys and values. Requirements from stubs:\n# - Keys must be non-empty. The stubs already replace empty with defaults, but we should provide mostly non-empty.\n# - Values are strings, binary-safe, any bytes including NUL are allowed.\n# - Sizes are capped by the stubs to <= 512 for values. We'll generate within that to avoid truncation and exercise exact-size logic.\n# - Different paths exercised: getString, getVector, getValueSize(actualSize=true), writeValueToBuffer.\n# Strategy:\n# - Construct a compact binary blob containing several candidate strings concatenated with length prefixes. The harness will read FUZZ_PARAM_STR sequentially.\n# - Provide a mix of ASCII, UTF-8, UTF-16-like bytes, random binary with NULs, repeated patterns, edge sizes (0, 1, 511, 512), and path-like strings.\n# - Keep total size <= 4096 bytes.\n# Format we output: A simple concatenation of variable-length string items, each preceded by a 2-byte little-endian length (L), followed by L bytes of data.\n# This is a common pattern FUZZ_PARAM_STR providers can parse. If their provider instead slices, they will still see rich content chunks.\n\nMAX_TOTAL = 4096\nMAX_ITEM = 512\n\n_ascii = string.ascii_letters + string.digits\n_punct = \"-_./\\\\:@,;[]{}()!$%&^~`+=\"\n_ws = \" \\t\\r\\n\\v\\f\"\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_ascii(rng: random.Random, n: int) -> bytes:\n    chars = _ascii + _punct + _ws\n    return ''.join(rng.choice(chars) for _ in range(n)).encode('utf-8', 'ignore')\n\n\ndef _make_pattern(rng: random.Random, n: int) -> bytes:\n    patterns = [b\"A\", b\"\\x00\", b\"\\xff\", b\"\\x00\\xff\", b\"ab\", b\"\\r\\n\", b\"\\x7f\", b\"\\x80\"]\n    p = rng.choice(patterns)\n    return (p * (n // len(p) + 1))[:n]\n\n\ndef _make_utf8(rng: random.Random, n: int) -> bytes:\n    # Mix valid UTF-8 sequences and random bytes\n    pieces: List[bytes] = []\n    while sum(len(x) for x in pieces) < n:\n        choice = rng.randint(0, 4)\n        if choice == 0:\n            pieces.append(_make_ascii(rng, rng.randint(1, min(16, n))))\n        elif choice == 1:\n            # Some multi-byte UTF-8\n            s = [\n                \"π\", \"你好\", \"🙂\", \"𐍈\", \"é\", \"ß\", \"ž\", \"東京\", \"🚀\", \"€\", \"¼\",\n            ]\n            pieces.append(rng.choice(s).encode('utf-8'))\n        else:\n            pieces.append(_rand_bytes(rng, rng.randint(1, min(8, n))))\n        if sum(len(x) for x in pieces) > n:\n            break\n    blob = b\"\".join(pieces)\n    return blob[:n]\n\n\ndef _make_path(rng: random.Random) -> bytes:\n    # Create plausible mmapID/key-like and filesystem-like strings\n    domains = [\"com.tencent.test\", \"com.example.app\", \"org.sample\", \"io.mmkv\", \"cn.demo\"]\n    names = [\"store\", \"prefs\", \"session\", \"用户\", \"設定\", \"データ\", \"data\"]\n    mmap = rng.choice(domains) + \".\" + rng.choice(names)\n    # Sometimes return a path-like string\n    if rng.random() < 0.5:\n        dirs = [\"/tmp\", \"/var/lib/mmkv\", \"C:/mmkv\", \"D:/data\", \"/sdcard/mmkv\"]\n        tail = rng.choice([\"default\", \"kv\", \"backup\", \"restore\", \"测试\"]) + str(rng.randint(0,999))\n        path = rng.choice(dirs) + \"/\" + tail\n        return path.encode('utf-8')\n    return mmap.encode('utf-8')\n\n\ndef _with_nuls(rng: random.Random, base: bytes, target_len: int) -> bytes:\n    b = bytearray(base)\n    # insert some NULs at random positions\n    ins = max(1, target_len // 16)\n    for _ in range(ins):\n        pos = rng.randrange(0, len(b)+1)\n        b[pos:pos] = b\"\\x00\"\n        if len(b) >= target_len:\n            break\n    if len(b) < target_len:\n        b.extend(b\"\\x00\" * (target_len - len(b)))\n    return bytes(b[:target_len])\n\n\ndef _emit_item(buf: bytearray, data: bytes) -> None:\n    l = len(data)\n    if l > 0xFFFF:\n        data = data[:0xFFFF]\n        l = len(data)\n    buf.extend((l & 0xFF, (l >> 8) & 0xFF))\n    buf.extend(data)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    out = bytearray()\n\n    # Decide how many items to emit; FUZZ_PARAM_STR will be consumed many times\n    count = rng.randint(8, 24)\n\n    # Predefine some edge-sized entries\n    sizes = [\n        0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64,\n        127, 128, 255, 256, 511, 512\n    ]\n    rng.shuffle(sizes)\n\n    generators = [\n        lambda n: _make_ascii(rng, n),\n        lambda n: _make_pattern(rng, n),\n        lambda n: _make_utf8(rng, n),\n        lambda n: _rand_bytes(rng, n),\n        lambda n: _with_nuls(rng, _make_ascii(rng, max(1, n//2)), n),\n    ]\n\n    # Ensure the first few items are good non-empty keys and values to satisfy immediate assertions\n    primary_items: List[bytes] = []\n    # Good key\n    primary_items.append(_make_ascii(rng, rng.randint(2, 16)))\n    # Good value within 512\n    primary_items.append(_make_utf8(rng, rng.randint(1, 64)))\n    # Another key\n    primary_items.append(_make_ascii(rng, rng.randint(2, 12)))\n    # Vector elements source: short ASCII and possibly empty (the stub replaces empty first element)\n    primary_items.append(_make_ascii(rng, rng.randint(1, 32)))\n    primary_items.append(_make_ascii(rng, rng.randint(0, 32)))\n    # Path-like or mmap-like string which may be used as key\n    primary_items.append(_make_path(rng))\n\n    # Emit primaries first\n    for it in primary_items:\n        if len(out) + 2 + len(it) > MAX_TOTAL:\n            break\n        _emit_item(out, it)\n\n    # Emit a mix of sized items\n    i = 0\n    while len(out) < MAX_TOTAL and i < count:\n        # Choose size\n        if rng.random() < 0.6:\n            n = rng.choice(sizes)\n        else:\n            n = rng.randint(0, MAX_ITEM)\n        # Cap overall size\n        if len(out) + 2 + n > MAX_TOTAL:\n            n = max(0, MAX_TOTAL - len(out) - 2)\n        # Pick generator\n        if rng.random() < 0.15:\n            data = _make_path(rng)[:n] if n > 0 else b\"\"\n        else:\n            gen = rng.choice(generators)\n            data = gen(n)\n        _emit_item(out, data)\n        i += 1\n\n    # Ensure we include at least one exact 512-sized value to match equality and size checks\n    if len(out) + 2 + 512 <= MAX_TOTAL:\n        data512 = _make_utf8(rng, 512)\n        _emit_item(out, data512)\n\n    return bytes(out)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9262,
+            "output_tokens": 7798,
+            "total_tokens": 17060
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8840,
+            "output_tokens": 519,
+            "total_tokens": 9359
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9845,
+            "output_tokens": 10221,
+            "total_tokens": 20066
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 85744,
+            "output_tokens": 19377,
+            "total_tokens": 105121
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 35507,
+            "output_tokens": 736,
+            "total_tokens": 36243
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 729.1971216201782,
+    "scan_objects": 80.59280824661255,
+    "validate_objects": 2.750977039337158,
+    "scan_functions": 112.29472851753235,
+    "synthesis": 456.2595386505127,
+    "fill": 0,
+    "classify": 31.57102632522583,
+    "build_generators": 45.72677803039551
+  }
+}

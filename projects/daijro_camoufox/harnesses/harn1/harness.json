@@ -1,0 +1,1136 @@
+{
+  "objects": [
+    {
+      "ptr_type": "BezierCalculator *",
+      "aliases": [],
+      "definition": "class BezierCalculator {\n public:\n  static long long factorial(int n) {\n    if (n < 0) return -1;  // Indicate error\n    long long result = 1;\n    for (int i = 2; i <= n; i++) result *= i;\n    return result;\n  }\n\n  static double binomial(int n, int k) {\n    return static_cast<double>(factorial(n)) /\n           (factorial(k) * factorial(n - k));\n  }\n\n  static double bernsteinPolynomialPoint(double x, int i, int n) {\n    return binomial(n, i) * std::pow(x, i) * std::pow(1 - x, n - i);\n  }\n\n  static std::vector<double> bernsteinPolynomial(\n      const std::vector<std::pair<double, double>>& points, double t) {\n    int n = static_cast<int>(points.size()) - 1;\n    double x = 0.0;\n    double y = 0.0;\n    for (int i = 0; i <= n; i++) {\n      double bern = bernsteinPolynomialPoint(t, i, n);\n      x += points[i].first * bern;\n      y += points[i].second * bern;\n    }\n    return {x, y};\n  }\n\n  static std::vector<std::vector<double>> calculatePointsInCurve(\n      int nPoints, const std::vector<std::pair<double, double>>& points) {\n    std::vector<std::vector<double>> curvePoints;\n    for (int i = 0; i < nPoints; i++) {\n      double t = static_cast<double>(i) / (nPoints - 1);\n      curvePoints.push_back(bernsteinPolynomial(points, t));\n    }\n    return curvePoints;\n  }\n};",
+      "description": "Utility class providing static methods to compute Bezier curves via Bernstein polynomials. No instances are required; methods compute factorials, binomial coefficients, curve points and full curve sampling.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "HumanizeMouseTrajectory *",
+      "aliases": [],
+      "definition": "class HumanizeMouseTrajectory {\n public:\n  HumanizeMouseTrajectory(const std::pair<double, double>& fromPoint,\n                          const std::pair<double, double>& toPoint)\n      : fromPoint(fromPoint), toPoint(toPoint) {\n    generateCurve();\n  }\n\n  std::vector<int> getPoints() const {\n    std::vector<int> flatPoints;\n    flatPoints.reserve(points.size() * 2);\n\n    for (const auto& point : points) {\n      flatPoints.push_back(static_cast<int>(std::round(point[0])));\n      flatPoints.push_back(static_cast<int>(std::round(point[1])));\n    }\n\n    return flatPoints;\n  }\n\n private:\n  std::pair<double, double> fromPoint;\n  std::pair<double, double> toPoint;\n  std::vector<std::vector<double>> points;\n\n  void generateCurve() {\n    double leftBoundary = std::min(fromPoint.first, toPoint.first) - 80.0;\n    double rightBoundary = std::max(fromPoint.first, toPoint.first) + 80.0;\n    double downBoundary = std::min(fromPoint.second, toPoint.second) - 80.0;\n    double upBoundary = std::max(fromPoint.second, toPoint.second) + 80.0;\n\n    std::vector<std::pair<double, double>> internalKnots =\n        generateInternalKnots(leftBoundary, rightBoundary, downBoundary,\n                              upBoundary, 2);\n\n    std::vector<std::vector<double>> curvePoints =\n        generatePoints(internalKnots);\n    curvePoints = distortPoints(curvePoints, 1.0, 1.0, 0.5);\n    points = tweenPoints(curvePoints);\n  }\n\n  double easeOutQuad(double n) const {\n    assert(n >= 0.0 && n <= 1.0 && \"Argument must be between 0.0 and 1.0.\");\n    return -n * (n - 2);\n  }\n\n  std::vector<std::pair<double, double>> generateInternalKnots(\n      double lBoundary, double rBoundary, double dBoundary, double uBoundary,\n      int knotsCount) const {\n    assert(isNumeric(lBoundary) && isNumeric(rBoundary) &&\n           isNumeric(dBoundary) && isNumeric(uBoundary) &&\n           \"Boundaries must be numeric values\");\n    assert(knotsCount >= 0 && \"knotsCount must be non-negative\");\n    assert(lBoundary <= rBoundary &&\n           \"Left boundary must be less than or equal to right boundary\");\n    assert(dBoundary <= uBoundary &&\n           \"Down boundary must be less than or equal to upper boundary\");\n\n    std::vector<double> knotsX =\n        randomChoiceDoubles(lBoundary, rBoundary, knotsCount);\n    std::vector<double> knotsY =\n        randomChoiceDoubles(dBoundary, uBoundary, knotsCount);\n\n    std::vector<std::pair<double, double>> knots;\n    for (int i = 0; i < knotsCount; i++) {\n      knots.emplace_back(knotsX[i], knotsY[i]);\n    }\n    return knots;\n  }\n\n  std::vector<double> randomChoiceDoubles(double min, double max,\n                                          int size) const {\n    std::vector<double> choices;\n    std::uniform_real_distribution<double> dist(min, max);\n    for (int i = 0; i < size; i++) {\n      choices.push_back(dist(randomEngine));\n    }\n    return choices;\n  }\n\n  std::vector<std::vector<double>> generatePoints(\n      const std::vector<std::pair<double, double>>& knots) const {\n    assert(isListOfPoints(knots) && \"Knots must be a valid list of points\");\n    int midPtsCnt = static_cast<int>(\n        std::max({std::abs(fromPoint.first - toPoint.first),\n                  std::abs(fromPoint.second - toPoint.second), 2.0}));\n    std::vector<std::pair<double, double>> controlPoints = knots;\n    controlPoints.insert(controlPoints.begin(), fromPoint);\n    controlPoints.push_back(toPoint);\n    return BezierCalculator::calculatePointsInCurve(midPtsCnt, controlPoints);\n  }\n\n  std::vector<std::vector<double>> distortPoints(\n      const std::vector<std::vector<double>>& points, double distortionMean,\n      double distortionStDev, double distortionFrequency) const {\n    assert(isNumeric(distortionMean) && isNumeric(distortionStDev) &&\n           isNumeric(distortionFrequency) && \"Distortions must be numeric\");\n    assert(isListOfPoints(points) && \"Points must be a valid list of points\");\n    assert(0.0 <= distortionFrequency && distortionFrequency <= 1.0 &&\n           \"distortion_frequency must be in range [0,1]\");\n\n    std::vector<std::vector<double>> distorted;\n    distorted.push_back(points.front());\n\n    std::normal_distribution<double> normalDist(distortionMean,\n                                                distortionStDev);\n    std::uniform_real_distribution<double> uniformDist(0.0, 1.0);\n\n    for (size_t i = 1; i < points.size() - 1; i++) {\n      double x = points[i][0];\n      double y = points[i][1];\n      double delta = 0.0;\n      if (uniformDist(randomEngine) < distortionFrequency) {\n        delta = std::round(normalDist(randomEngine));\n      }\n      distorted.push_back({x, y + delta});\n    }\n    distorted.push_back(points.back());\n    return distorted;\n  }\n\n  int32_t getMaxTime() const {\n    if (auto maxTime = MaskConfig::GetDouble(\"humanize:maxTime\")) {\n      return static_cast<int32_t>(maxTime.value() * 100);\n    }\n    return 150;\n  }\n\n  int32_t getMinTime() const {\n    if (auto minTime = MaskConfig::GetDouble(\"humanize:minTime\")) {\n      return static_cast<int32_t>(minTime.value() * 100);\n    }\n    return 0;\n  }\n\n  std::vector<std::vector<double>> tweenPoints(\n      const std::vector<std::vector<double>>& points) const {\n    assert(isListOfPoints(points) && \"List of points not valid\");\n\n    double totalLength = 0.0;\n    for (size_t i = 1; i < points.size(); ++i) {\n      double dx = points[i][0] - points[i - 1][0];\n      double dy = points[i][1] - points[i - 1][1];\n      totalLength += std::sqrt(dx * dx + dy * dy);\n    }\n\n    // Uses a power scale to keep the speed consistent\n    int targetPoints = std::min(\n        getMaxTime(),\n        std::max(getMinTime() + 2, static_cast<int>(std::pow(totalLength, 0.25) * 20)));\n\n    std::vector<std::vector<double>> res;\n    for (int i = 0; i < targetPoints; i++) {\n      double t = static_cast<double>(i) / (targetPoints - 1);\n      double easedT = easeOutQuad(t);\n      int index = static_cast<int>(easedT * (points.size() - 1));\n      res.push_back(points[index]);\n    }\n    return res;\n  }\n\n  bool isNumeric(double val) const { return !std::isnan(val); }\n\n  bool isListOfPoints(\n      const std::vector<std::pair<double, double>>& points) const {\n    for (const auto& p : points) {\n      if (!isNumeric(p.first) || !isNumeric(p.second)) return false;\n    }\n    return true;\n  }\n\n  bool isListOfPoints(const std::vector<std::vector<double>>& points) const {\n    for (const auto& p : points) {\n      if (p.size() != 2 || !isNumeric(p[0]) || !isNumeric(p[1])) return false;\n    }\n    return true;\n  }\n\n  mutable std::default_random_engine randomEngine{std::random_device{}()};\n};",
+      "description": "Generates human-like mouse trajectories between two points. On construction, computes a Bezier curve with random internal knots, applies distortion, and time-eases sampling for realistic movement. Use getPoints() to retrieve flattened [x0,y0,x1,y1,...] integer coordinates.",
+      "direct_api_constructors": [
+        "HumanizeMouseTrajectory::HumanizeMouseTrajectory(const std::pair<double, double>& fromPoint, const std::pair<double, double>& toPoint)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "nlohmann::json *",
+      "aliases": [
+        "nlohmann::basic_json<> *"
+      ],
+      "definition": "using json = basic_json<>;",
+      "description": "Alias type (typedef) for the default instantiation of nlohmann::basic_json (JSON for Modern C++). Provides a complete JSON value type with parsing, serialization, and manipulation APIs.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "nlohmann::json::json_pointer *",
+      "aliases": [
+        "nlohmann::json_pointer<nlohmann::json::string_t> *"
+      ],
+      "definition": "template<typename RefStringType>\nclass json_pointer\n{\n  ...\n};",
+      "description": "A JSON Pointer class per RFC 6901 that identifies and navigates to specific values within a JSON document. Supports construction from strings, concatenation, parent/child navigation, and resolving/assigning against nlohmann::json values.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "nlohmann::json *"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "BezierCalculator::factorial",
+      "signature": "static long long BezierCalculator::factorial(int n)",
+      "description": "Computes n! as a 64-bit signed integer. Returns -1 to indicate error if n < 0. No overflow checks are performed; for n large enough, the result will overflow.",
+      "requirements": [
+        "Argument n must be >= 0; otherwise the function returns -1 as an error indicator.",
+        "Result may overflow long long for relatively small n (e.g., n > 20); caller must handle overflow if relevant."
+      ],
+      "error": null
+    },
+    {
+      "name": "BezierCalculator::binomial",
+      "signature": "static double BezierCalculator::binomial(int n, int k)",
+      "description": "Computes the binomial coefficient C(n, k) = n! / (k! * (n-k)!) using factorial() and returns it as double. No argument validation or overflow/underflow handling is performed.",
+      "requirements": [
+        "Meaningful only when 0 <= k <= n and n >= 0.",
+        "May overflow or produce NaN/Inf if factorial overflows or denominator is zero (e.g., k < 0, k > n)."
+      ],
+      "error": null
+    },
+    {
+      "name": "BezierCalculator::bernsteinPolynomialPoint",
+      "signature": "static double BezierCalculator::bernsteinPolynomialPoint(double x, int i, int n)",
+      "description": "Evaluates the i-th Bernstein basis polynomial of degree n at x: C(n,i) * x^i * (1 - x)^(n - i).",
+      "requirements": [
+        "Typically 0 <= i <= n.",
+        "x is generally expected in [0, 1] for standard Bernstein polynomials; outside this range values are extrapolated.",
+        "May overflow for large n due to binomial/factorial use."
+      ],
+      "error": null
+    },
+    {
+      "name": "BezierCalculator::bernsteinPolynomial",
+      "signature": "static std::vector<double> BezierCalculator::bernsteinPolynomial(const std::vector<std::pair<double, double>>& points, double t)",
+      "description": "Evaluates a Bezier curve at parameter t using Bernstein polynomials over control points. Returns a 2-element vector {x, y}.",
+      "requirements": [
+        "points should contain at least 1 control point; meaningful Bezier curves need at least 2.",
+        "t is typically within [0, 1]; outside values extrapolate.",
+        "Large point counts can cause numeric issues via binomial/factorial."
+      ],
+      "error": null
+    },
+    {
+      "name": "BezierCalculator::calculatePointsInCurve",
+      "signature": "static std::vector<std::vector<double>> BezierCalculator::calculatePointsInCurve(int nPoints, const std::vector<std::pair<double, double>>& points)",
+      "description": "Generates nPoints samples of the Bezier curve defined by control points using uniform parameter spacing from t=0 to t=1. Returns a list of {x, y} pairs.",
+      "requirements": [
+        "nPoints must be >= 2 to avoid division by zero when computing t = i / (nPoints - 1).",
+        "points should have at least one control point; Bezier definition typically requires >= 2.",
+        "Computation uses Bernstein polynomials (see binomial/factorial caveats)."
+      ],
+      "error": null
+    },
+    {
+      "name": "HumanizeMouseTrajectory::HumanizeMouseTrajectory",
+      "signature": "HumanizeMouseTrajectory::HumanizeMouseTrajectory(const std::pair<double, double>& fromPoint, const std::pair<double, double>& toPoint)",
+      "description": "Constructs a human-like mouse trajectory generator between fromPoint and toPoint. Immediately generates an internal curve using randomized internal knots, distortions, and easing-based tweening.",
+      "requirements": [
+        "fromPoint and toPoint are 2D coordinates in pixels (double).",
+        "Uses randomness via internal random engine; repeated constructions yield different trajectories."
+      ],
+      "error": null
+    },
+    {
+      "name": "HumanizeMouseTrajectory::getPoints",
+      "signature": "std::vector<int> HumanizeMouseTrajectory::getPoints() const",
+      "description": "Returns the generated trajectory as a flat vector of integers [x0, y0, x1, y1, ...], rounding internal double coordinates.",
+      "requirements": [
+        "Must be called after construction (curve is generated in constructor).",
+        "Returned list length is even; each pair is a point."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::get_env_utf8",
+      "signature": "inline std::optional<std::string> MaskConfig::get_env_utf8(const std::string& name)",
+      "description": "Fetches the value of an environment variable as UTF-8. On Windows, reads via wide API and converts UTF-16 to UTF-8; on other platforms, returns getenv result as std::string. Returns nullopt if the variable is not set.",
+      "requirements": [
+        "name must be a valid environment variable name.",
+        "On Windows, value must be valid UTF-16 to convert to UTF-8; otherwise conversion may fail implicitly producing implementation-defined results."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetJson",
+      "signature": "inline const nlohmann::json& MaskConfig::GetJson()",
+      "description": "Loads and caches configuration JSON from CAMOU_CONFIG_1, CAMOU_CONFIG_2, ... concatenated, or CAMOU_CONFIG fallback. Validates the concatenated string as JSON once using call_once and returns a reference to the cached nlohmann::json.",
+      "requirements": [
+        "Environment variables CAMOU_CONFIG_* should contain fragments that concatenate into valid JSON; otherwise an empty JSON object is returned and an error is printed.",
+        "Thread-safe one-time initialization."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::HasKey",
+      "signature": "inline bool MaskConfig::HasKey(const std::string& key, const nlohmann::json& data)",
+      "description": "Returns true if the JSON object data contains key.",
+      "requirements": [
+        "data should be an object; for other types, contains() is false."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetString",
+      "signature": "inline std::optional<std::string> MaskConfig::GetString(const std::string& key)",
+      "description": "Retrieves a string value for key from the cached configuration JSON, or nullopt if missing. Prints an error if the value is present but not a string.",
+      "requirements": [
+        "key must exist and be a string for a non-null result."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetStringList",
+      "signature": "inline std::vector<std::string> MaskConfig::GetStringList(const std::string& key)",
+      "description": "Retrieves an array of strings for key from the cached configuration JSON. Returns empty if missing. Converts each array element via get<std::string>().",
+      "requirements": [
+        "If key exists, data[key] must be an array of strings; otherwise exceptions may be thrown by nlohmann::json on type mismatch."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetStringListLower",
+      "signature": "inline std::vector<std::string> MaskConfig::GetStringListLower(const std::string& key)",
+      "description": "Returns GetStringList(key) transformed to lowercase (ASCII locale).",
+      "requirements": [
+        "Same as GetStringList; list strings are converted using std::tolower on unsigned char."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetUint64",
+      "signature": "inline std::optional<uint64_t> MaskConfig::GetUint64(const std::string& key)",
+      "description": "Retrieves an unsigned integer (uint64_t) from configuration if present and of an unsigned integer type; prints an error and returns nullopt otherwise.",
+      "requirements": [
+        "key must exist and be an unsigned integer value for non-null result."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetUint32",
+      "signature": "inline std::optional<uint32_t> MaskConfig::GetUint32(const std::string& key)",
+      "description": "Retrieves an unsigned integer (uint32_t) from configuration if present and unsigned; prints an error and returns nullopt otherwise.",
+      "requirements": [
+        "key must exist and be an unsigned integer value for non-null result."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetInt32",
+      "signature": "inline std::optional<int32_t> MaskConfig::GetInt32(const std::string& key)",
+      "description": "Retrieves a signed integer (int32_t) from configuration if present and integer; prints an error and returns nullopt otherwise.",
+      "requirements": [
+        "key must exist and be an integer (signed) for non-null result."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetDouble",
+      "signature": "inline std::optional<double> MaskConfig::GetDouble(const std::string& key)",
+      "description": "Retrieves a double value from configuration if present. Accepts native float, or converts integer/unsigned to double. Prints an error and returns nullopt for other types.",
+      "requirements": [
+        "key must exist and be a number (float or integer) for non-null result."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetBool",
+      "signature": "inline std::optional<bool> MaskConfig::GetBool(const std::string& key)",
+      "description": "Retrieves a boolean value from configuration if present; otherwise prints an error and returns nullopt.",
+      "requirements": [
+        "key must exist and be a boolean for non-null result."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::CheckBool",
+      "signature": "inline bool MaskConfig::CheckBool(const std::string& key)",
+      "description": "Convenience to return the boolean value for key, or false if not present or not a boolean.",
+      "requirements": [
+        "None; returns false if key missing or invalid."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetRect",
+      "signature": "inline std::optional<std::array<uint32_t, 4>> MaskConfig::GetRect(const std::string& left, const std::string& top, const std::string& width, const std::string& height)",
+      "description": "Builds a 4-tuple (left, top, width, height) of unsigned ints from the configuration keys. Requires width and height to be present together; otherwise returns nullopt and warns. Missing left/top default to 0.",
+      "requirements": [
+        "If one of width or height is provided, both must be provided; otherwise nullopt is returned and a warning is printed.",
+        "left/top default to 0 if missing."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetInt32Rect",
+      "signature": "inline std::optional<std::array<int32_t, 4>> MaskConfig::GetInt32Rect(const std::string& left, const std::string& top, const std::string& width, const std::string& height)",
+      "description": "Builds a 4-tuple of int32 from GetRect by static casting the unsigned results. Returns nullopt if GetRect returns nullopt.",
+      "requirements": [
+        "Same as GetRect; if present, values must fit into int32 when cast."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetNested",
+      "signature": "inline std::optional<nlohmann::json> MaskConfig::GetNested(const std::string& domain, std::string keyStr)",
+      "description": "Fetches a nested JSON value from the cached config under object domain at keyStr. Returns nullopt if not present.",
+      "requirements": [
+        "GetJson()[domain] must exist and have keyStr for non-null result.",
+        "Both domain and keyStr are case-sensitive."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GetAttribute",
+      "signature": "template <typename T>\ninline std::optional<T> MaskConfig::GetAttribute(const std::string attrib, bool isWebGL2)",
+      "description": "Returns context attribute value T from either webGl:contextAttributes or webGl2:contextAttributes based on isWebGL2 flag. Returns nullopt if not found.",
+      "requirements": [
+        "T must be JSON-deserializable via nlohmann::json::get<T>().",
+        "attrib is the key inside the chosen contextAttributes object."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::GLParam",
+      "signature": "inline std::optional<std::variant<int64_t, bool, double, std::string, std::nullptr_t>> MaskConfig::GLParam(uint32_t pname, bool isWebGL2)",
+      "description": "Looks up a GL parameter by pname (as a string key) under webGl:parameters or webGl2:parameters. Returns the stored variant (int, bool, double, string, or null).",
+      "requirements": [
+        "pname is converted to decimal string for lookup.",
+        "Domain is selected by isWebGL2."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::MParamGL",
+      "signature": "template <typename T>\ninline T MaskConfig::MParamGL(uint32_t pname, T defaultValue, bool isWebGL2)",
+      "description": "Returns a GL parameter value of type T from webGl/webGl2 parameters if present, otherwise returns defaultValue. No type checking beyond json::get<T>().",
+      "requirements": [
+        "T must be JSON-deserializable from the stored value.",
+        "pname is converted to string key; domain selected by isWebGL2."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::MParamGLVector",
+      "signature": "template <typename T>\ninline std::vector<T> MaskConfig::MParamGLVector(uint32_t pname, std::vector<T> defaultValue, bool isWebGL2)",
+      "description": "Returns a 4-element vector<T> from webGl/webGl2 parameters when the stored value is an array convertible to std::array<T,4>. Otherwise returns defaultValue.",
+      "requirements": [
+        "Stored value must be an array convertible to std::array<T,4> for success.",
+        "pname is converted to string key; domain selected by isWebGL2."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::MShaderData",
+      "signature": "inline std::optional<std::array<int32_t, 3UL>> MaskConfig::MShaderData(uint32_t shaderType, uint32_t precisionType, bool isWebGL2)",
+      "description": "Fetches shader precision format data as array {rangeMin, rangeMax, precision} from webGl(:shaderPrecisionFormats) or webGl2 domain using composite key \"shaderType,precisionType\". Returns nullopt if absent or missing fields.",
+      "requirements": [
+        "The stored object must contain integer fields rangeMin, rangeMax, precision for success.",
+        "Keys are stringified as shaderType,precisionType with comma separator; domain selected by isWebGL2."
+      ],
+      "error": null
+    },
+    {
+      "name": "MaskConfig::MVoices",
+      "signature": "inline std::optional<std::vector<std::tuple<std::string, std::string, std::string, bool, bool>>> MaskConfig::MVoices()",
+      "description": "Returns an optional list of voice tuples (lang, name, voiceUri, isDefault, isLocalService) collected from the 'voices' array if it exists and elements have all required fields.",
+      "requirements": [
+        "GetJson() must contain \"voices\" as an array; elements must contain fields lang, name, voiceUri, isDefault, isLocalService with correct types.",
+        "Invalid/incomplete items are skipped; overall nullopt is returned only if voices is missing or not an array."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::to_string",
+      "signature": "std::string nlohmann::to_string(const nlohmann::json& j)",
+      "description": "Converts a JSON value to its compact string representation by calling j.dump(). Equivalent to JSON serialization without pretty printing.",
+      "requirements": [
+        "j must be a valid nlohmann::json value."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::meta",
+      "signature": "static nlohmann::json nlohmann::basic_json::meta()",
+      "description": "Returns a JSON object containing metadata about the nlohmann::json library (copyright, name, url, version, platform, compiler, C++ standard).",
+      "requirements": [
+        "None; information is compiled from macros and platform defines."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::flatten",
+      "signature": "nlohmann::json nlohmann::basic_json::flatten() const",
+      "description": "Flattens a nested JSON structure into a single object mapping JSON Pointer strings to primitive values. Empty objects/arrays are represented as null at their pointer.",
+      "requirements": [
+        "Called on any JSON value; non-object/array values produce a single mapping at root pointer \"\"."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::unflatten",
+      "signature": "nlohmann::json nlohmann::basic_json::unflatten() const",
+      "description": "Interprets the current JSON (expected to be an object mapping JSON Pointer strings to primitive values) and reconstructs the nested JSON structure.",
+      "requirements": [
+        "This JSON must be an object with keys valid as JSON Pointers and primitive values; throws type_error if invalid.",
+        "Throws parse_error/type_error if array indices are invalid or paths are inconsistent."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::diff",
+      "signature": "static nlohmann::json nlohmann::basic_json::diff(const nlohmann::json& source, const nlohmann::json& target, const std::string& path = \"\")",
+      "description": "Computes a JSON Patch (RFC 6902) to transform source into target. Returns an array of patch operations (add/remove/replace/move/copy/test).",
+      "requirements": [
+        "source and target must be valid JSON values.",
+        "path is the JSON Pointer prefix used internally; callers typically omit it."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::to_cbor",
+      "signature": "static std::vector<std::uint8_t> nlohmann::basic_json::to_cbor(const nlohmann::json& j)",
+      "description": "Serializes a JSON value to CBOR and returns the byte vector.",
+      "requirements": [
+        "j must be a valid JSON value.",
+        "CBOR may not preserve key order for some types; binary and special numbers follow library behavior."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::to_msgpack",
+      "signature": "static std::vector<std::uint8_t> nlohmann::basic_json::to_msgpack(const nlohmann::json& j)",
+      "description": "Serializes JSON to MessagePack and returns bytes.",
+      "requirements": [
+        "j must be valid JSON."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::to_ubjson",
+      "signature": "static std::vector<std::uint8_t> nlohmann::basic_json::to_ubjson(const nlohmann::json& j, const bool use_size = false, const bool use_type = false)",
+      "description": "Serializes JSON to UBJSON and returns bytes. Optional flags enable UBJSON optimizations for container sizes and types.",
+      "requirements": [
+        "j must be valid JSON.",
+        "If use_type/use_size are true, serialization uses optimized markers."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::to_bjdata",
+      "signature": "static std::vector<std::uint8_t> nlohmann::basic_json::to_bjdata(const nlohmann::json& j, const bool use_size = false, const bool use_type = false)",
+      "description": "Serializes JSON to BJData (Binary JData) bytes. Optional flags use BJData optimizations.",
+      "requirements": [
+        "j must be valid JSON."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::to_bson",
+      "signature": "static std::vector<std::uint8_t> nlohmann::basic_json::to_bson(const nlohmann::json& j)",
+      "description": "Serializes JSON to BSON and returns bytes.",
+      "requirements": [
+        "j must be valid JSON."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::from_cbor",
+      "signature": "template<typename InputType>\nstatic nlohmann::json nlohmann::basic_json::from_cbor(InputType&& i, const bool strict = true, const bool allow_exceptions = true, const nlohmann::detail::cbor_tag_handler_t tag_handler = nlohmann::detail::cbor_tag_handler_t::error)",
+      "description": "Parses CBOR input into a JSON value. Strict mode enforces complete consumption; allow_exceptions controls error throwing; tag_handler controls CBOR tag handling.",
+      "requirements": [
+        "InputType must be accepted by nlohmann::detail::input_adapter.",
+        "If allow_exceptions is false, parsing errors result in a discarded JSON.",
+        "strict=true expects the input to be fully consumed."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::from_msgpack",
+      "signature": "template<typename InputType>\nstatic nlohmann::json nlohmann::basic_json::from_msgpack(InputType&& i, const bool strict = true, const bool allow_exceptions = true)",
+      "description": "Parses MessagePack input into a JSON value.",
+      "requirements": [
+        "InputType must be compatible with input_adapter.",
+        "strict and allow_exceptions behave as in from_cbor."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::from_ubjson",
+      "signature": "template<typename InputType>\nstatic nlohmann::json nlohmann::basic_json::from_ubjson(InputType&& i, const bool strict = true, const bool allow_exceptions = true)",
+      "description": "Parses UBJSON input into a JSON value.",
+      "requirements": [
+        "InputType must be compatible with input_adapter.",
+        "strict and allow_exceptions behave as above."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::from_bjdata",
+      "signature": "template<typename InputType>\nstatic nlohmann::json nlohmann::basic_json::from_bjdata(InputType&& i, const bool strict = true, const bool allow_exceptions = true)",
+      "description": "Parses BJData input into a JSON value.",
+      "requirements": [
+        "InputType must be compatible with input_adapter."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::from_bson",
+      "signature": "template<typename InputType>\nstatic nlohmann::json nlohmann::basic_json::from_bson(InputType&& i, const bool strict = true, const bool allow_exceptions = true)",
+      "description": "Parses BSON input into a JSON value.",
+      "requirements": [
+        "InputType must be compatible with input_adapter."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::parse",
+      "signature": "template<typename InputType>\nstatic nlohmann::json nlohmann::basic_json::parse(InputType&& i, const nlohmann::basic_json::parser_callback_t cb = nullptr, const bool allow_exceptions = true, const bool ignore_comments = false)",
+      "description": "Parses a textual JSON input into a JSON value. An optional SAX callback can influence parsing (filtering) and error handling is controlled via allow_exceptions; ignore_comments allows C++-style comments if true.",
+      "requirements": [
+        "InputType must be compatible with input_adapter.",
+        "If allow_exceptions is false, returns discarded JSON on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::accept",
+      "signature": "template<typename InputType>\nstatic bool nlohmann::basic_json::accept(InputType&& i, const bool ignore_comments = false)",
+      "description": "Returns true if the textual input is a syntactically valid JSON document. Does not construct a JSON value.",
+      "requirements": [
+        "InputType must be compatible with input_adapter.",
+        "ignore_comments allows comments if true."
+      ],
+      "error": null
+    },
+    {
+      "name": "nlohmann::basic_json::sax_parse",
+      "signature": "template<typename InputType, typename SAX>\nstatic bool nlohmann::basic_json::sax_parse(InputType&& i, SAX* sax, nlohmann::detail::input_format_t format = nlohmann::detail::input_format_t::json, const bool strict = true, const bool ignore_comments = false)",
+      "description": "Parses input and emits events to the provided SAX handler. Supports text JSON and binary formats (format parameter).",
+      "requirements": [
+        "SAX must implement the required json_sax interface.",
+        "InputType must be compatible with input_adapter.",
+        "strict=true requires full consumption (depending on format)."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator\"\"_json",
+      "signature": "nlohmann::json nlohmann::literals::json_literals::operator \"\"_json(const char* s, std::size_t n)",
+      "description": "User-defined literal to parse a JSON string literal at runtime into nlohmann::json by calling json::parse on the char sequence.",
+      "requirements": [
+        "s must point to a UTF-8 JSON text of length n; malformed input throws parse_error."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator\"\"_json_pointer",
+      "signature": "nlohmann::json::json_pointer nlohmann::literals::json_literals::operator \"\"_json_pointer(const char* s, std::size_t n)",
+      "description": "User-defined literal to construct a JSON Pointer from a string literal, without parsing any JSON value.",
+      "requirements": [
+        "s must be a valid JSON Pointer string per RFC 6901; invalid sequences throw on subsequent usage."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "BezierCalculator::factorial",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate n with coverage for valid and error paths\nint choice = (int)(*FUZZ_PARAM(unsigned int) % 3);\nint n = 0;\nif (choice == 0) {\n  n = (int)(*FUZZ_PARAM(unsigned int) % 21); // 0..20 typical safe range\n} else if (choice == 1) {\n  n = (int)(*FUZZ_PARAM(unsigned int) % 40); // larger to stress overflow\n} else {\n  n = -((int)(*FUZZ_PARAM(unsigned int) % 10) + 1); // negative to hit error path\n}\nlong long r = BezierCalculator::factorial(n);\n// Validate contract: negative input yields -1\nif (n < 0) {\n  FUZZ_ASSERT(r == -1, \"factorial must return -1 for negative input\");\n}\n// Done. No persistent outputs.\n// Validation: Inputs none, outputs none; enforces negative-input contract and exercises overflow-prone domain."
+    },
+    {
+      "name": "BezierCalculator::binomial",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose n within a moderate range and k across invalid/valid spans\nint n = (int)(*FUZZ_PARAM(unsigned int) % 25);\nint span = (int)(*FUZZ_PARAM(unsigned int) % 10);\nint k_mode = (int)(*FUZZ_PARAM(unsigned int) % 3);\nint k = 0;\nif (k_mode == 0) k = (int)(*FUZZ_PARAM(unsigned int) % (n + 1)); // valid 0..n\nelse if (k_mode == 1) k = n + 1 + span; // > n\nelse k = -1 - span; // negative\nvolatile double c = BezierCalculator::binomial(n, k);\n(void)c;\n// No strict assertions because function does no validation and may yield Inf/NaN.\n// Validation: Calls cover valid/invalid k relative to n. No persistent objects."
+    },
+    {
+      "name": "BezierCalculator::bernsteinPolynomialPoint",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Parameters: x typically in [0,1], i in [0..n] (with occasional OOB)\nint n = (int)(*FUZZ_PARAM(unsigned int) % 15);\ndouble x = (double)(*FUZZ_PARAM(unsigned int) % 100000) / 100000.0; // [0,1)\n// Occasionally push x outside [0,1]\nif ((*FUZZ_PARAM(unsigned int) % 4) == 0) {\n  x = ((int)(*FUZZ_PARAM(unsigned int) % 2) ? -0.5 : 1.5);\n}\nint i;\nint mode = (int)(*FUZZ_PARAM(unsigned int) % 3);\nif (mode == 0) i = (int)(*FUZZ_PARAM(unsigned int) % (n + 1));\nelse if (mode == 1) i = n + 1 + (int)(*FUZZ_PARAM(unsigned int) % 5);\nelse i = -1 - (int)(*FUZZ_PARAM(unsigned int) % 5);\nvolatile double v = BezierCalculator::bernsteinPolynomialPoint(x, i, n);\n(void)v;\n// Validation: Exercises typical and extrapolation domains; no additional invariants required."
+    },
+    {
+      "name": "BezierCalculator::bernsteinPolynomial",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build 1..6 control points with finite doubles\nint count = 1 + (int)(*FUZZ_PARAM(unsigned int) % 6);\nstd::vector<std::pair<double,double>> pts;\npts.reserve(count);\nfor (int i = 0; i < count; ++i) {\n  double px = ((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000);\n  double py = ((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000);\n  pts.emplace_back(px, py);\n}\n// Pick t in [0,1] with occasional out-of-range\ndouble t = (double)(*FUZZ_PARAM(unsigned int) % 100000) / 100000.0;\nif ((*FUZZ_PARAM(unsigned int) % 5) == 0) t = ((int)(*FUZZ_PARAM(unsigned int) % 2) ? -0.25 : 1.25);\nstd::vector<double> res = BezierCalculator::bernsteinPolynomial(pts, t);\n// Expect exactly two elements {x,y}\nFUZZ_ASSERT(res.size() == 2, \"bernsteinPolynomial should return a 2-element vector\");\n// Validation: Ensures at least one control point and checks 2-element output."
+    },
+    {
+      "name": "BezierCalculator::calculatePointsInCurve",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure nPoints >= 2 to avoid division by zero\nint nPoints = 2 + (int)(*FUZZ_PARAM(unsigned int) % 50);\n// Ensure at least one control point (Bezier typically >=2, but function allows >=1)\nint count = 1 + (int)(*FUZZ_PARAM(unsigned int) % 6);\nstd::vector<std::pair<double,double>> pts;\npts.reserve(count);\nfor (int i = 0; i < count; ++i) {\n  double px = ((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000);\n  double py = ((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000);\n  pts.emplace_back(px, py);\n}\nstd::vector<std::vector<double>> curve = BezierCalculator::calculatePointsInCurve(nPoints, pts);\n// Validate: number of points equals nPoints and each is 2D\nFUZZ_ASSERT((int)curve.size() == nPoints, \"calculatePointsInCurve must return nPoints elements\");\nfor (const auto& p : curve) {\n  FUZZ_ASSERT(p.size() == 2, \"Each curve point must have 2 components\");\n}\n// Validation: Enforces nPoints>=2 and structural properties of output."
+    },
+    {
+      "name": "HumanizeMouseTrajectory::HumanizeMouseTrajectory",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "traj",
+          "type": "HumanizeMouseTrajectory *"
+        }
+      ],
+      "code": "// Generate start/end points in a reasonable pixel range\nstd::pair<double,double> fromPt = { (double)((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000),\n                                    (double)((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000) };\nstd::pair<double,double> toPt   = { (double)((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000),\n                                    (double)((int)(*FUZZ_PARAM(unsigned int) % 2001) - 1000) };\nHumanizeMouseTrajectory* traj = new HumanizeMouseTrajectory(fromPt, toPt);\nFUZZ_ASSERT(traj != nullptr, \"Constructor must produce a valid object pointer\");\n// Output persistent object so it can be reused by other stubs.\n// Validation: Constructs object with finite coordinates and returns it to pool."
+    },
+    {
+      "name": "HumanizeMouseTrajectory::getPoints",
+      "inputs": [
+        {
+          "name": "traj",
+          "type": "HumanizeMouseTrajectory *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "traj",
+          "type": "HumanizeMouseTrajectory *"
+        }
+      ],
+      "code": "// Retrieve flattened coordinate list\nstd::vector<int> pts = traj->getPoints();\n// Result should have even length (pairs of x,y)\nFUZZ_ASSERT((pts.size() % 2) == 0, \"getPoints must return an even-length vector\");\n// Keep traj alive by returning it as an output\n// Validation: Uses a constructed instance and checks even-length invariant."
+    },
+    {
+      "name": "MaskConfig::get_env_utf8",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate an environment variable name; restrict to alnum and underscore\nstd::string raw = FUZZ_PARAM_STR();\nstd::string name; name.reserve(raw.size());\nfor (char c : raw) {\n  unsigned char uc = (unsigned char)c;\n  if ((uc >= 'A' && uc <= 'Z') || (uc >= 'a' && uc <= 'z') || (uc >= '0' && uc <= '9') || uc == '_') {\n    name.push_back((char)uc);\n  }\n  if (name.size() >= 32) break;\n}\nif (name.empty()) name = \"FUZZ_ENV_TEST\";\nauto v = MaskConfig::get_env_utf8(name);\n(void)v;\n// Validation: Supplies a plausible env var name; function may return nullopt."
+    },
+    {
+      "name": "MaskConfig::GetJson",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Trigger config loading and caching\nconst nlohmann::json& j = MaskConfig::GetJson();\n// Basic sanity: j is a valid json object/value (no assertion needed)\nvolatile size_t s = j.size();\n(void)s;\n// Validation: Exercises one-time initialization and returns a reference; no outputs."
+    },
+    {
+      "name": "MaskConfig::HasKey",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a small JSON object with few keys for coverage\nnlohmann::json data = nlohmann::json::object();\nstd::string k1 = \"alpha\";\nstd::string k2 = \"beta\";\nstd::string k3 = \"gamma\";\ndata[k1] = 1;\ndata[k2] = false;\n// Query existing and non-existing keys\nbool h1 = MaskConfig::HasKey(k1, data);\nbool h2 = MaskConfig::HasKey(k3, data);\n(void)h1; (void)h2;\n// Validation: Supplies an object; checks both present/absent lookups."
+    },
+    {
+      "name": "MaskConfig::GetString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Pick a random key string; actual presence depends on environment-backed config\nstd::string key = FUZZ_PARAM_STR();\nauto s = MaskConfig::GetString(key);\n(void)s;\n// Validation: Calls API; handles nullopt when key absent or not a string."
+    },
+    {
+      "name": "MaskConfig::GetStringList",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nstd::vector<std::string> v = MaskConfig::GetStringList(key);\n// Ensure vector size is within reasonable bounds for fuzz runtime\nFUZZ_ASSERT(v.size() <= 1000000, \"sanity bound (library should already constrain)\");\n// Validation: Retrieves list or empty; no further constraints."
+    },
+    {
+      "name": "MaskConfig::GetStringListLower",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nstd::vector<std::string> v = MaskConfig::GetStringListLower(key);\nfor (const auto& s : v) {\n  for (unsigned char c : s) {\n    (void)c; // strings are lowercase ASCII per API; we don't assert due to locale nuances\n  }\n}\n// Validation: Calls lowercase transformation path safely."
+    },
+    {
+      "name": "MaskConfig::GetUint64",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nauto v = MaskConfig::GetUint64(key);\n(void)v;\n// Validation: Accepts nullopt or a value; errors are handled internally by API."
+    },
+    {
+      "name": "MaskConfig::GetUint32",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nauto v = MaskConfig::GetUint32(key);\n(void)v;\n// Validation: Accepts nullopt or a value; internal type checks handled by API."
+    },
+    {
+      "name": "MaskConfig::GetInt32",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nauto v = MaskConfig::GetInt32(key);\n(void)v;\n// Validation: Accepts nullopt or a value; internal type checks handled by API."
+    },
+    {
+      "name": "MaskConfig::GetDouble",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nauto v = MaskConfig::GetDouble(key);\n(void)v;\n// Validation: Accepts nullopt or a value; API converts ints/unsigned to double."
+    },
+    {
+      "name": "MaskConfig::GetBool",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nauto v = MaskConfig::GetBool(key);\n(void)v;\n// Validation: Accepts nullopt or a value; internal errors handled by API."
+    },
+    {
+      "name": "MaskConfig::CheckBool",
+      "inputs": [],
+      "outputs": [],
+      "code": "std::string key = FUZZ_PARAM_STR();\nbool b = MaskConfig::CheckBool(key);\n(void)b;\n// Validation: Always returns a boolean; false on missing/invalid."
+    },
+    {
+      "name": "MaskConfig::GetRect",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate four key names\nstd::string kL = FUZZ_PARAM_STR();\nstd::string kT = FUZZ_PARAM_STR();\nstd::string kW = FUZZ_PARAM_STR();\nstd::string kH = FUZZ_PARAM_STR();\nauto rect = MaskConfig::GetRect(kL, kT, kW, kH);\n// If only one of width/height present in config, API returns nullopt; we don't assert here\n(void)rect;\n// Validation: Invokes combined getter; handles all presence/absence combinations."
+    },
+    {
+      "name": "MaskConfig::GetInt32Rect",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate four random keys for left, top, width, height\nstd::string kL = FUZZ_PARAM_STR();\nstd::string kT = FUZZ_PARAM_STR();\nstd::string kW = FUZZ_PARAM_STR();\nstd::string kH = FUZZ_PARAM_STR();\n// Invoke API; it will source from cached JSON, returning nullopt if invalid/missing\nauto rect = MaskConfig::GetInt32Rect(kL, kT, kW, kH);\n(void)rect;\n// Validation: API handles presence/absence and casting; no persistent outputs."
+    },
+    {
+      "name": "MaskConfig::GetNested",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Random domain and keyStr\nstd::string domain = FUZZ_PARAM_STR();\nstd::string keyStr = FUZZ_PARAM_STR();\n// Query nested value; may be nullopt if missing\nauto nested = MaskConfig::GetNested(domain, keyStr);\n(void)nested;\n// Validation: Simple invocation; relies on internally cached JSON."
+    },
+    {
+      "name": "MaskConfig::GetAttribute",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Random attribute name and WebGL version flag\nstd::string attrib = FUZZ_PARAM_STR();\nbool isWebGL2 = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n// Exercise multiple template instantiations to broaden coverage\n{\n  auto v_bool = MaskConfig::GetAttribute<bool>(attrib, isWebGL2);\n  (void)v_bool;\n}\n{\n  auto v_int = MaskConfig::GetAttribute<int>(attrib, isWebGL2);\n  (void)v_int;\n}\n{\n  auto v_double = MaskConfig::GetAttribute<double>(attrib, isWebGL2);\n  (void)v_double;\n}\n{\n  auto v_string = MaskConfig::GetAttribute<std::string>(attrib, isWebGL2);\n  (void)v_string;\n}\n// Validation: Uses several T types that are JSON-deserializable."
+    },
+    {
+      "name": "MaskConfig::GLParam",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate pname as a 32-bit value and isWebGL2 flag\nuint32_t pname = *FUZZ_PARAM(uint32_t);\nbool isWebGL2 = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n// Invoke the lookup returning a variant\nauto v = MaskConfig::GLParam(pname, isWebGL2);\n(void)v;\n// Validation: Accepts any pname; API returns optional variant."
+    },
+    {
+      "name": "MaskConfig::MParamGL",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate pname and defaults; try multiple Ts\nuint32_t pname = *FUZZ_PARAM(uint32_t);\nbool isWebGL2 = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nint def_i = (int)(*FUZZ_PARAM(unsigned int) % 1000);\ndouble def_d = (double)((int)(*FUZZ_PARAM(unsigned int) % 1000)) / 10.0;\n// Instantiate for int and double\nint vi = MaskConfig::MParamGL<int>(pname, def_i, isWebGL2);\n(double)vi; // touch value to avoid unused warning\ndouble vd = MaskConfig::MParamGL<double>(pname, def_d, isWebGL2);\n(void)vd;\n// Validation: Covers template instantiations and default path."
+    },
+    {
+      "name": "MaskConfig::MParamGLVector",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate pname and defaults for vector; exercise int and double\nuint32_t pname = *FUZZ_PARAM(uint32_t);\nbool isWebGL2 = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nstd::vector<int> def_vi = {0, 0, 0, 0};\nstd::vector<double> def_vd = {0.0, 0.0, 0.0, 0.0};\nstd::vector<int> vi = MaskConfig::MParamGLVector<int>(pname, def_vi, isWebGL2);\nstd::vector<double> vd = MaskConfig::MParamGLVector<double>(pname, def_vd, isWebGL2);\nFUZZ_ASSERT(vi.size() == 4, \"MParamGLVector<int> must return 4 elements\");\nFUZZ_ASSERT(vd.size() == 4, \"MParamGLVector<double> must return 4 elements\");\n// Validation: Ensures vector size invariant regardless of lookup success."
+    },
+    {
+      "name": "MaskConfig::MShaderData",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Random shader and precision enums, and webgl version flag\nuint32_t shaderType = *FUZZ_PARAM(uint32_t);\nuint32_t precisionType = *FUZZ_PARAM(uint32_t);\nbool isWebGL2 = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nauto data = MaskConfig::MShaderData(shaderType, precisionType, isWebGL2);\nif (data) {\n  // If present, ensure array has exactly 3 entries\n  FUZZ_ASSERT(data->size() == 3, \"MShaderData must return 3-tuple when present\");\n}\n// Validation: Optional presence; structure verified when available."
+    },
+    {
+      "name": "MaskConfig::MVoices",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Invoke voices extraction\nauto voices = MaskConfig::MVoices();\nif (voices) {\n  // Ensure each tuple has expected fields\n  for (const auto& t : *voices) {\n    (void)std::get<0>(t);\n    (void)std::get<1>(t);\n    (void)std::get<2>(t);\n    (void)std::get<3>(t);\n    (void)std::get<4>(t);\n  }\n}\n// Validation: Handles optional and iterates any results."
+    },
+    {
+      "name": "nlohmann::to_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a small JSON object programmatically for deterministic serialization\nnlohmann::json j = nlohmann::json::object();\nj[\"a\"] = (int)(*FUZZ_PARAM(unsigned int) % 1000);\nj[\"b\"] = std::string(FUZZ_PARAM_STR()).substr(0, 32);\nj[\"c\"] = nlohmann::json::array({true, false, 3.14});\nstd::string s = nlohmann::to_string(j);\nFUZZ_ASSERT(!s.empty(), \"Serialized JSON string should be non-empty\");\n// Validation: Ensures serialization path executes."
+    },
+    {
+      "name": "nlohmann::basic_json::meta",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Retrieve library metadata\nnlohmann::json m = nlohmann::json::meta();\nFUZZ_ASSERT(m.is_object(), \"meta() must return an object\");\n// Basic sanity checks on some fields (may vary by platform)\n(void)m.dump();\n// Validation: Confirm returned JSON is an object."
+    },
+    {
+      "name": "nlohmann::basic_json::flatten",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct nested JSON to exercise flatten\nnlohmann::json j = {\n  {\"x\", nlohmann::json::array({1, 2, 3})},\n  {\"y\", nlohmann::json::object({{\"z\", true}})},\n  {\"s\", std::string(FUZZ_PARAM_STR()).substr(0, 16)}\n};\nnlohmann::json flat = j.flatten();\nFUZZ_ASSERT(flat.is_object(), \"flatten() must produce an object\");\n// Validation: Nested structure flattened into object mapping pointers to values."
+    },
+    {
+      "name": "nlohmann::basic_json::unflatten",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a valid flat mapping with JSON Pointer keys to ensure no exceptions\nnlohmann::json flat = nlohmann::json::object();\nflat[\"\"] = nullptr; // root may be overwritten by deeper entries\nflat[\"/a\"] = 1;\nflat[\"/a/b\"] = 2;\nflat[\"/arr/0\"] = \"x\";\nflat[\"/arr/1\"] = \"y\";\n// Reconstruct nested JSON\nnlohmann::json rebuilt = flat.unflatten();\n// Round-trip property: flatten(unflatten(flat)) equals a normalized form\nnlohmann::json reflat = rebuilt.flatten();\nFUZZ_ASSERT(reflat.is_object(), \"re-flatten must produce object\");\n// Validation: Supplies a valid flat map; checks structural round-trip."
+    },
+    {
+      "name": "nlohmann::basic_json::diff",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build two small JSON objects with partial overlap\nnlohmann::json a = {\n  {\"k1\", 1},\n  {\"k2\", nlohmann::json::array({\"u\", \"v\"})}\n};\nnlohmann::json b = a;\n// Mutate b slightly to create differences\nb[\"k1\"] = 2;\nb[\"k3\"] = true;\n// Compute patch\nnlohmann::json patch = nlohmann::json::diff(a, b);\nFUZZ_ASSERT(patch.is_array(), \"diff must return an array of operations\");\n// Validation: Ensures return type is an array (JSON Patch)."
+    },
+    {
+      "name": "nlohmann::basic_json::to_cbor",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Serialize a constructed JSON to CBOR\nnlohmann::json j = {\n  {\"i\", (int)(*FUZZ_PARAM(unsigned int) % 1000)},\n  {\"s\", std::string(FUZZ_PARAM_STR()).substr(0, 32)},\n  {\"b\", true}\n};\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_cbor(j);\nFUZZ_ASSERT(bytes.size() < 2048, \"CBOR output should be reasonably small in this harness\");\n// Validation: Confirms serialization produces bytes within bounds."
+    },
+    {
+      "name": "nlohmann::basic_json::to_msgpack",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Serialize to MessagePack\nnlohmann::json j = {\n  {\"n\", (int)(*FUZZ_PARAM(unsigned int) % 1000)},\n  {\"arr\", nlohmann::json::array({1, 2, 3})}\n};\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_msgpack(j);\nFUZZ_ASSERT(bytes.size() < 2048, \"MessagePack output should be within bound\");\n// Validation: Bytes produced as expected."
+    },
+    {
+      "name": "nlohmann::basic_json::to_ubjson",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Serialize to UBJSON with toggled flags to hit branches\nnlohmann::json j = {\n  {\"x\", 1},\n  {\"y\", nlohmann::json::array({true, false})}\n};\nbool use_size = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool use_type = ((*FUZZ_PARAM(unsigned int)) & 2) != 0;\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_ubjson(j, use_size, use_type);\nFUZZ_ASSERT(bytes.size() < 2048, \"UBJSON output should be within bound\");\n// Validation: Exercises optimization flags."
+    },
+    {
+      "name": "nlohmann::basic_json::to_bjdata",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Serialize to BJData (Binary JData) with flags\nnlohmann::json j = {\n  {\"p\", 3.14159},\n  {\"v\", nlohmann::json::array({0, 1, 2, 3})}\n};\nbool use_size = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool use_type = ((*FUZZ_PARAM(unsigned int)) & 2) != 0;\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_bjdata(j, use_size, use_type);\nFUZZ_ASSERT(bytes.size() < 2048, \"BJData output should be within bound\");\n// Validation: Exercises flag combinations."
+    },
+    {
+      "name": "nlohmann::basic_json::to_bson",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Serialize to BSON\nnlohmann::json j = {\n  {\"k\", \"v\"},\n  {\"t\", (int)(*FUZZ_PARAM(unsigned int) % 100)}\n};\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_bson(j);\nFUZZ_ASSERT(bytes.size() < 2048, \"BSON output should be within bound\");\n// Validation: BSON bytes produced."
+    },
+    {
+      "name": "nlohmann::basic_json::from_cbor",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate valid CBOR by serializing a JSON, then parse with different flags\nnlohmann::json src = {\n  {\"a\", 1},\n  {\"b\", std::string(FUZZ_PARAM_STR()).substr(0, 16)},\n  {\"c\", nlohmann::json::array({true, 0, 2.5})}\n};\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_cbor(src);\n// Strict parse consuming entire input\nnlohmann::json j1 = nlohmann::json::from_cbor(bytes, /*strict=*/true, /*allow_exceptions=*/true);\nFUZZ_ASSERT(j1.is_object(), \"Parsed CBOR should reconstruct an object\");\n// Non-strict and no-throw path should also succeed with valid input\nnlohmann::json j2 = nlohmann::json::from_cbor(bytes, /*strict=*/false, /*allow_exceptions=*/false);\n(void)j2;\n// Validation: Covers strict/non-strict and exception toggles with valid data."
+    },
+    {
+      "name": "nlohmann::basic_json::from_msgpack",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Round-trip via MessagePack to ensure valid input\nnlohmann::json src = {\n  {\"m\", nlohmann::json::object({{\"x\", 1}, {\"y\", 2}})},\n  {\"s\", std::string(FUZZ_PARAM_STR()).substr(0, 24)}\n};\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_msgpack(src);\n// Parse in strict and permissive modes\nnlohmann::json j1 = nlohmann::json::from_msgpack(bytes, /*strict=*/true, /*allow_exceptions=*/true);\nFUZZ_ASSERT(j1.is_object(), \"Parsed MessagePack should reconstruct an object\");\nnlohmann::json j2 = nlohmann::json::from_msgpack(bytes, /*strict=*/false, /*allow_exceptions=*/false);\n(void)j2;\n// Validation: Exercises flag combinations using valid MessagePack bytes."
+    },
+    {
+      "name": "nlohmann::basic_json::from_ubjson",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Round-trip via UBJSON to ensure valid input\nnlohmann::json src = {\n  {\"u\", (int)(*FUZZ_PARAM(unsigned int) % 100)},\n  {\"arr\", nlohmann::json::array({true, false, 3})},\n  {\"s\", std::string(FUZZ_PARAM_STR()).substr(0, 16)}\n};\nbool use_size = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool use_type = ((*FUZZ_PARAM(unsigned int)) & 2) != 0;\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_ubjson(src, use_size, use_type);\n// Strict parse with exceptions\nnlohmann::json j1 = nlohmann::json::from_ubjson(bytes, /*strict=*/true, /*allow_exceptions=*/true);\nFUZZ_ASSERT(j1.is_object(), \"Parsed UBJSON should reconstruct an object\");\n// Permissive parse without exceptions\nnlohmann::json j2 = nlohmann::json::from_ubjson(bytes, /*strict=*/false, /*allow_exceptions=*/false);\n(void)j2;\n// Validation: Exercises strict/permissive modes using valid UBJSON and checks object reconstruction."
+    },
+    {
+      "name": "nlohmann::basic_json::from_bjdata",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Round-trip via BJData to obtain valid bytes\nnlohmann::json src = {\n  {\"p\", 3.14159},\n  {\"v\", nlohmann::json::array({0, 1, 2, 3})}\n};\nbool use_size = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool use_type = ((*FUZZ_PARAM(unsigned int)) & 2) != 0;\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_bjdata(src, use_size, use_type);\n// Strict parse with exceptions\nnlohmann::json j1 = nlohmann::json::from_bjdata(bytes, /*strict=*/true, /*allow_exceptions=*/true);\nFUZZ_ASSERT(j1.is_object(), \"Parsed BJData should reconstruct an object\");\n// Non-strict and no-throw path\nnlohmann::json j2 = nlohmann::json::from_bjdata(bytes, /*strict=*/false, /*allow_exceptions=*/false);\n(void)j2;\n// Validation: Covers both flag combinations with valid BJData input."
+    },
+    {
+      "name": "nlohmann::basic_json::from_bson",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Round-trip via BSON to get valid input bytes\nnlohmann::json src = {\n  {\"k\", \"v\"},\n  {\"n\", (int)(*FUZZ_PARAM(unsigned int) % 1000)}\n};\nstd::vector<std::uint8_t> bytes = nlohmann::json::to_bson(src);\n// Strict parse with exceptions\nnlohmann::json j1 = nlohmann::json::from_bson(bytes, /*strict=*/true, /*allow_exceptions=*/true);\nFUZZ_ASSERT(j1.is_object(), \"Parsed BSON should reconstruct an object\");\n// Permissive parse without exceptions\nnlohmann::json j2 = nlohmann::json::from_bson(bytes, /*strict=*/false, /*allow_exceptions=*/false);\n(void)j2;\n// Validation: Ensures both parsing modes run using valid BSON bytes."
+    },
+    {
+      "name": "nlohmann::basic_json::parse",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build both valid and invalid JSON texts to hit success/failure paths\nnlohmann::json valid = nlohmann::json::object({\n  {\"a\", (int)(*FUZZ_PARAM(unsigned int) % 100)},\n  {\"b\", std::string(FUZZ_PARAM_STR()).substr(0, 16)},\n  {\"c\", nlohmann::json::array({true, false, 1.5})}\n});\nstd::string valid_text = valid.dump();\nstd::string invalid_text = std::string(FUZZ_PARAM_STR());\n// Invalidate the string intentionally by truncating midway if too small to be JSON\nif (invalid_text.size() > 0) invalid_text = invalid_text.substr(0, invalid_text.size() / 2);\n// Parse valid JSON with exceptions enabled\nnlohmann::json j1 = nlohmann::json::parse(valid_text, /*cb=*/nullptr, /*allow_exceptions=*/true, /*ignore_comments=*/false);\nFUZZ_ASSERT(j1.is_object(), \"Parsing valid JSON must yield an object\");\n// Parse possibly invalid JSON with exceptions disabled (returns discarded on error)\nbool ignore_comments = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nnlohmann::json j2 = nlohmann::json::parse(invalid_text, /*cb=*/nullptr, /*allow_exceptions=*/false, ignore_comments);\n(void)j2;\n// Validation: Exercises both success and no-throw failure paths, toggling ignore_comments."
+    },
+    {
+      "name": "nlohmann::basic_json::accept",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide both valid and random inputs to accept()\nnlohmann::json j = nlohmann::json::object({\n  {\"x\", (int)(*FUZZ_PARAM(unsigned int) % 50)},\n  {\"y\", nlohmann::json::array({1,2,3})}\n});\nstd::string valid_text = j.dump();\nstd::string random_text = std::string(FUZZ_PARAM_STR());\nbool ignore_comments = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool a1 = nlohmann::json::accept(valid_text, ignore_comments);\nbool a2 = nlohmann::json::accept(random_text, ignore_comments);\n(void)a1; (void)a2;\n// Validation: Checks parser acceptance on definitely valid and arbitrary inputs with comment toggle."
+    },
+    {
+      "name": "operator\"\"_json",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Use the JSON user-defined literal on a fixed valid literal\nusing namespace nlohmann::literals;\nauto j = \"{\\n  \\\"a\\\": 1,\\n  \\\"b\\\": [true, false, 3],\\n  \\\"c\\\": {\\\"k\\\": \\\"v\\\"}\\n}\"_json;\nFUZZ_ASSERT(j.is_object(), \"_json literal must produce an object for this literal\");\n(void)j;\n// Validation: Ensures the UDL path executes with a valid literal JSON."
+    },
+    {
+      "name": "operator\"\"_json_pointer",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Use the JSON Pointer user-defined literal on a fixed valid pointer\nusing namespace nlohmann::literals;\nauto ptr = \"/a/b/0\"_json_pointer;\n// Validate by applying it to a small JSON\nnlohmann::json j = {{\"a\", {{\"b\", nlohmann::json::array({42})}}}};\nFUZZ_ASSERT(j.contains(ptr), \"JSON Pointer should resolve to an existing element\");\nint v = j.at(ptr).get<int>();\n(void)v;\n// Validation: Confirms the pointer resolves correctly against a constructed JSON."
+    },
+    {
+      "name": "nlohmann::basic_json::sax_parse",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Implement a SAX handler matching nlohmann::json_sax<nlohmann::json>\nstruct SimpleSax : nlohmann::json_sax<nlohmann::json> {\n  // Primitive events\n  bool null() override { return true; }\n  bool boolean(bool) override { return true; }\n  bool number_integer(number_integer_t) override { return true; }\n  bool number_unsigned(number_unsigned_t) override { return true; }\n  bool number_float(number_float_t, const string_t&) override { return true; }\n  bool string(string_t&) override { return true; }\n  bool binary(binary_t&) override { return true; }\n  // Object/array events\n  bool start_object(std::size_t) override { return true; }\n  bool key(string_t&) override { return true; }\n  bool end_object() override { return true; }\n  bool start_array(std::size_t) override { return true; }\n  bool end_array() override { return true; }\n  // Error callback: return false to signal failure\n  bool parse_error(std::size_t, const std::string&, const nlohmann::detail::exception&) override { return false; }\n};\n\n// Prepare both valid JSON and arbitrary text inputs\nnlohmann::json good_j = nlohmann::json::object({{\"a\", 1}, {\"b\", nlohmann::json::array({true, 2, 3})}});\nstd::string good = good_j.dump();\nstd::string bad = std::string(FUZZ_PARAM_STR());\n\n// Strict parse on valid JSON must succeed; pass format before strict/ignore flags\nSimpleSax sax1;\nbool ok1 = nlohmann::json::sax_parse(\n    good, &sax1,\n    nlohmann::detail::input_format_t::json,\n    /*strict=*/true,\n    /*ignore_comments=*/false);\nFUZZ_ASSERT(ok1, \"SAX strict parse should succeed for valid JSON\");\n\n// Permissive parse on arbitrary input; may succeed or fail without assertions\nSimpleSax sax2;\nbool ignore_comments = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool ok2 = nlohmann::json::sax_parse(\n    bad, &sax2,\n    nlohmann::detail::input_format_t::json,\n    /*strict=*/false,\n    ignore_comments);\n(void)ok2;\n\n// Validation: Uses correct sax_parse signature with format parameter; asserts success on well-formed input and exercises permissive path on arbitrary text."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "BezierCalculator::factorial",
+      "data_types": []
+    },
+    {
+      "name": "BezierCalculator::binomial",
+      "data_types": []
+    },
+    {
+      "name": "BezierCalculator::bernsteinPolynomialPoint",
+      "data_types": []
+    },
+    {
+      "name": "BezierCalculator::bernsteinPolynomial",
+      "data_types": []
+    },
+    {
+      "name": "BezierCalculator::calculatePointsInCurve",
+      "data_types": []
+    },
+    {
+      "name": "HumanizeMouseTrajectory::HumanizeMouseTrajectory",
+      "data_types": []
+    },
+    {
+      "name": "HumanizeMouseTrajectory::getPoints",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::GetJson",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::HasKey",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::GLParam",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::MParamGL",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::MParamGLVector",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::MShaderData",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::MVoices",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::meta",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::unflatten",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::diff",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::to_msgpack",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::to_ubjson",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::to_bjdata",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::to_bson",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::from_bjdata",
+      "data_types": []
+    },
+    {
+      "name": "nlohmann::basic_json::from_bson",
+      "data_types": []
+    },
+    {
+      "name": "operator\"\"_json",
+      "data_types": []
+    },
+    {
+      "name": "operator\"\"_json_pointer",
+      "data_types": []
+    },
+    {
+      "name": "MaskConfig::get_env_utf8",
+      "data_types": [
+        "alphanumeric+underscore string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetString",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetStringList",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetStringListLower",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetUint64",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetUint32",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetInt32",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetDouble",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetBool",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::CheckBool",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetRect",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetInt32Rect",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetNested",
+      "data_types": [
+        "arbitrary string",
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "MaskConfig::GetAttribute",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::to_string",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::flatten",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::to_cbor",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::from_cbor",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::from_msgpack",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::from_ubjson",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::parse",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::accept",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "nlohmann::basic_json::sax_parse",
+      "data_types": [
+        "arbitrary string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "alphanumeric+underscore string",
+      "description": "A string consisting only of ASCII letters (A-Z, a-z), digits (0-9), and underscores (_). Often used for environment variable names. Length in this stub is limited to at most 32 characters, and must be non-empty."
+    },
+    {
+      "data_type": "arbitrary string",
+      "description": "A free-form UTF-8 text string with no specific format constraints. May contain any bytes representable in std::string and is used as a generic key, field, or value in APIs."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "alphanumeric+underscore string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Data type: alphanumeric+underscore string, max length 32, non-empty\n# Fuzzer stub uses FUZZ_PARAM_STR to build an environment variable name by\n# filtering to [A-Za-z0-9_] and truncating to 32 chars. If empty after filtering,\n# the stub falls back to \"FUZZ_ENV_TEST\". To exercise the target, we want to\n# provide valid names directly so the stub uses our data.\n#\n# Strategy:\n# - Generate diverse environment variable-like names within 1..32 chars.\n# - Include edge cases: length 1, length 32, uppercase-only, lowercase-only,\n#   mixed case, starts with underscore, starts with digit (allowed by stub),\n#   repeated underscores, alternating patterns, random.\n# - Return as bytes (UTF-8 ASCII) since FUZZ framework will consume a byte buffer\n#   for FUZZ_PARAM_STR.\n\nALNUM_US = string.ascii_letters + string.digits + \"_\"\n\n\ndef _make_name(rng: random.Random) -> str:\n    # Choose one of several patterns to diversify behavior\n    choice = rng.randrange(10)\n    max_len = 32\n\n    if choice == 0:\n        # Minimal length\n        return rng.choice(string.ascii_letters + \"_\")\n    elif choice == 1:\n        # Max length all uppercase\n        return \"\".join(rng.choices(string.ascii_uppercase + \"_\", k=max_len))\n    elif choice == 2:\n        # Max length all lowercase\n        return \"\".join(rng.choices(string.ascii_lowercase + \"_\", k=max_len))\n    elif choice == 3:\n        # Starts with underscore, mixed rest\n        length = rng.randint(2, max_len)\n        return \"_\" + \"\".join(rng.choices(ALNUM_US, k=length - 1))\n    elif choice == 4:\n        # Starts with digit (allowed by stub), followed by letters\n        length = rng.randint(2, max_len)\n        return rng.choice(string.digits) + \"\".join(\n            rng.choices(string.ascii_letters + string.digits + \"_\", k=length - 1)\n        )\n    elif choice == 5:\n        # Alternating letters and digits\n        length = rng.randint(4, max_len)\n        s = []\n        for i in range(length):\n            if i % 2 == 0:\n                s.append(rng.choice(string.ascii_letters))\n            else:\n                s.append(rng.choice(string.digits))\n        return \"\".join(s)\n    elif choice == 6:\n        # Many underscores\n        length = rng.randint(3, max_len)\n        underscores = \"_\" * rng.randint(1, length // 2)\n        rest_len = length - len(underscores)\n        rest = \"\".join(rng.choices(string.ascii_letters + string.digits, k=rest_len))\n        # Shuffle to distribute underscores\n        chars = list(underscores + rest)\n        rng.shuffle(chars)\n        return \"\".join(chars)\n    elif choice == 7:\n        # CamelCase-like\n        chunks = [\n            rng.choice(string.ascii_uppercase) + \"\".join(rng.choices(string.ascii_lowercase, k=rng.randint(1, 6)))\n            for _ in range(rng.randint(1, 4))\n        ]\n        name = \"_\".join(chunks)\n        return name[:max_len]\n    elif choice == 8:\n        # Repeated token\n        token = rng.choice([\"ENV\", \"VAR\", \"TEST\", \"CFG\"]) + rng.choice([\"_\", \"\"]) \\\n                + rng.choice([\"1\", \"2\", \"A\", \"B\"]) \n        reps = max(1, min(8, 32 // max(1, len(token))))\n        s = (token * reps)[:max_len]\n        # Ensure valid chars only (they are), and non-empty\n        return s if s else \"A\"\n    else:\n        # Fully random length and charset within constraints\n        length = rng.randint(1, max_len)\n        return \"\".join(rng.choices(ALNUM_US, k=length))\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    name = _make_name(rng)\n    # Ensure not empty and within 32 ASCII alnum+underscore characters\n    if not name:\n        name = \"A\"\n    if len(name) > 32:\n        name = name[:32]\n    # All characters are ASCII-safe; encode to bytes\n    return name.encode(\"ascii\", errors=\"strict\")\n"
+    },
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces UTF-8 byte strings intended to be used as arbitrary\n# keys and string values for MaskConfig/nlohmann::json fuzz stubs.\n# Strategy:\n# - Emphasize keys that the MaskConfig API is likely to look up (e.g., known domains/fields)\n#   so that environment-backed config paths are exercised when present.\n# - Mix in random ASCII, unicode, JSON-pointer-like paths, dotted paths, numbers-as-strings,\n#   boolean-like strings, and varying lengths. All outputs are valid UTF-8.\n# - Keep size under 4096 bytes.\n\nKNOWN_KEYS = [\n    # Common top-level domains seen in MaskConfig\n    \"webGl\", \"webGl2\", \"voices\", \"humanize:maxTime\", \"humanize:minTime\",\n    # Attributes used in MaskConfig getters\n    \"left\", \"top\", \"width\", \"height\",\n    # GL parameter-like names (stringified integers in config)\n    \"0\", \"1\", \"2\", \"4\", \"8\", \"16\", \"32\", \"64\", \"128\", \"256\", \"512\", \"1024\",\n    # Typical attribute names\n    \"alpha\", \"depth\", \"stencil\", \"antialias\", \"premultipliedAlpha\", \"preserveDrawingBuffer\",\n    \"failIfMajorPerformanceCaveat\", \"desynchronized\",\n    # Nested examples\n    \"webGl:contextAttributes\", \"webGl2:contextAttributes\",\n    \"webGl:parameters\", \"webGl2:parameters\",\n    \"shaderPrecisionFormats\",\n    # Voice fields\n    \"lang\", \"name\", \"voiceUri\", \"isDefault\", \"isLocalService\",\n    # Random config-like keys\n    \"a\", \"b\", \"c\", \"x\", \"y\", \"z\",\n]\n\nUNICODE_SAMPLES = [\n    \"ключ\",        # Cyrillic\n    \"鍵\",           # CJK\n    \"💡\",           # emoji\n    \"ключ/путь\",   # slash with unicode\n    \"παράμετρος\",  # Greek\n    \"ключ:значение\",\n    \"属性\",\n]\n\nBOOL_STRINGS = [\"true\", \"false\", \"TRUE\", \"False\", \"tRuE\", \"FALSE\"]\nNUMERIC_LIKE = [\"0\", \"1\", \"-1\", \"42\", \"2147483647\", \"4294967295\", \"9007199254740991\"]\n\n# JSON-pointer-like fragments to encourage pointer/unflatten/flatten coverage\nPOINTER_FRAGS = [\"/a/0\", \"/a/1\", \"/x/y\", \"/voices/0/name\", \"/webGl/parameters/0\", \"/webGl2/contextAttributes/alpha\"]\n\n# Dotted/nested style keys\nNESTED_STYLE = [\n    \"webGl.contextAttributes.alpha\",\n    \"webGl2.parameters.0\",\n    \"voices.0.lang\",\n]\n\nASCII_SAFE = string.ascii_letters + string.digits + \"_-:.,/\"\n\n\ndef _rand_ascii(rng: random.Random, n: int) -> str:\n    return \"\".join(rng.choice(ASCII_SAFE) for _ in range(n))\n\n\ndef _weighted_choice(rng: random.Random, items: List[str], weights: List[int]) -> str:\n    # Simple weighted choice without numpy\n    total = sum(weights)\n    pick = rng.randrange(total)\n    acc = 0\n    for it, w in zip(items, weights):\n        acc += w\n        if pick < acc:\n            return it\n    return items[-1]\n\n\ndef _build_interesting_key(rng: random.Random) -> str:\n    # Choose a pattern to produce an interesting key/value candidate\n    patterns = [\n        \"known\", \"unicode\", \"bool\", \"numeric\", \"pointer\", \"nested\", \"ascii_rand\", \"mix\",\n    ]\n    pat = _weighted_choice(rng, patterns, [6, 2, 2, 3, 2, 2, 5, 3])\n\n    if pat == \"known\":\n        base = rng.choice(KNOWN_KEYS)\n        # Occasionally prefix/suffix namespaces\n        if rng.random() < 0.3:\n            base = f\"config:{base}\"\n        if rng.random() < 0.2:\n            base = base + \":override\"\n        return base\n\n    if pat == \"unicode\":\n        base = rng.choice(UNICODE_SAMPLES)\n        if rng.random() < 0.5:\n            base += \":\" + rng.choice(KNOWN_KEYS)\n        return base\n\n    if pat == \"bool\":\n        return rng.choice(BOOL_STRINGS)\n\n    if pat == \"numeric\":\n        # Maybe pad or add signs\n        s = rng.choice(NUMERIC_LIKE)\n        if rng.random() < 0.3:\n            s = \"+\" + s if not s.startswith(\"-\") else s\n        if rng.random() < 0.2:\n            s = s.zfill(rng.randint(2, 6))\n        return s\n\n    if pat == \"pointer\":\n        # Produce RFC6901-like path\n        p = rng.choice(POINTER_FRAGS)\n        # Occasionally escape ~ and /\n        if rng.random() < 0.3:\n            p += \"/~0~1\"  # represents ~/ in JSON Pointer\n        return p\n\n    if pat == \"nested\":\n        return rng.choice(NESTED_STYLE)\n\n    if pat == \"ascii_rand\":\n        n = rng.randint(1, 64)\n        return _rand_ascii(rng, n)\n\n    # mix\n    chunks = []\n    for _ in range(rng.randint(2, 4)):\n        choice = rng.randint(0, 4)\n        if choice == 0:\n            chunks.append(rng.choice(KNOWN_KEYS))\n        elif choice == 1:\n            chunks.append(rng.choice(UNICODE_SAMPLES))\n        elif choice == 2:\n            chunks.append(rng.choice(POINTER_FRAGS))\n        elif choice == 3:\n            chunks.append(_rand_ascii(rng, rng.randint(1, 8)))\n        else:\n            chunks.append(rng.choice(NUMERIC_LIKE))\n    sep = _weighted_choice(rng, [\":\", \"/\", \".\", \"_\"], [4, 3, 3, 2])\n    s = sep.join(chunks)\n    return s[:1024]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide how many keys/values to emit; the harness uses FUZZ_PARAM_STR multiple times.\n    # We provide a newline-separated bag of candidate strings.\n    count = rng.randint(4, 20)\n\n    parts: List[str] = []\n\n    # Start with a few highly-likely useful keys to enable config lookups\n    bootstrap = [\n        \"webGl\", \"webGl2\", \"webGl:contextAttributes\", \"webGl2:contextAttributes\",\n        \"webGl:parameters\", \"webGl2:parameters\",\n        \"voices\", \"humanize:maxTime\", \"humanize:minTime\",\n        \"left\", \"top\", \"width\", \"height\",\n    ]\n    rng.shuffle(bootstrap)\n    for s in bootstrap[:rng.randint(3, len(bootstrap))]:\n        parts.append(s)\n\n    # Add weighted random keys\n    for _ in range(count):\n        parts.append(_build_interesting_key(rng))\n\n    # Include some short JSON snippets that are valid when used as string content\n    # but also interesting as arbitrary strings in other contexts\n    json_like = [\n        '{\"a\":1,\"b\":\"x\",\"c\":[true,false,3.14]}',\n        '{\"x\":[1,2,3],\"y\":{\"z\":true}}',\n        '\"plain string value\"',\n    ]\n    if rng.random() < 0.7:\n        parts.append(rng.choice(json_like))\n\n    # Ensure a range of lengths\n    parts.append(_rand_ascii(rng, rng.randint(1, 4)))\n    parts.append(_rand_ascii(rng, rng.randint(40, 80)))\n\n    # Deduplicate while preserving order\n    seen = set()\n    uniq_parts = []\n    for s in parts:\n        if s not in seen:\n            seen.add(s)\n            uniq_parts.append(s)\n\n    # Join with newlines; many FUZZ_PARAM_STR callers will consume independently,\n    # but providing a buffer with many candidates increases usefulness across calls.\n    payload = \"\\n\".join(uniq_parts)\n\n    # Cap size to 4096 bytes.\n    data = payload.encode(\"utf-8\")[:4096]\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 233416,
+            "output_tokens": 2793,
+            "total_tokens": 236209
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 232994,
+            "output_tokens": 409,
+            "total_tokens": 233403
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 233863,
+            "output_tokens": 7635,
+            "total_tokens": 241498
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 89749,
+            "output_tokens": 15925,
+            "total_tokens": 105674
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 23018,
+            "output_tokens": 574,
+            "total_tokens": 23592
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 583.810759305954,
+    "scan_objects": 56.83697295188904,
+    "validate_objects": 1.939664363861084,
+    "scan_functions": 145.29115080833435,
+    "synthesis": 343.03404474258423,
+    "fill": 0,
+    "classify": 8.092802286148071,
+    "build_generators": 28.615482807159424
+  }
+}

@@ -1,0 +1,1392 @@
+{
+  "objects": [
+    {
+      "ptr_type": "ASS_Image *",
+      "aliases": [],
+      "definition": "typedef struct ass_image {\n    int w, h;                   // Bitmap width/height\n    int stride;                 // Bitmap stride\n    unsigned char *bitmap;      // 1-byte-per-pixel alpha buffer\n                                // Note: the last row may not be padded to\n                                // bitmap stride!\n                                // The guaranteed allocated size is\n                                // `(stride * (h - 1)) + w`, and bytes past\n                                // the width in each line may be uninitialized.\n    uint32_t color;             // Bitmap color and alpha, RGBA\n                                // For full VSFilter compatibility, the value\n                                // must be transformed as described in\n                                // ass_types.h for ASS_YCbCrMatrix\n    int dst_x, dst_y;           // Bitmap placement inside the video frame\n\n    struct ass_image *next;   // Next image, or NULL\n\n    enum {\n        IMAGE_TYPE_CHARACTER,\n        IMAGE_TYPE_OUTLINE,\n        IMAGE_TYPE_SHADOW\n    } type;\n\n    // New fields can be added here in new ABI-compatible library releases.\n} ASS_Image;",
+      "description": "Linked-list node representing a rendered subtitle bitmap with placement, color and an image type. Used as the output of ass_render_frame; render all nodes in order. The bitmap buffer is 8-bit alpha; color holds RGBA. The last bitmap row may be shorter than stride, so use the documented size constraints when accessing.",
+      "direct_api_constructors": [
+        "ass_render_frame"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ASS_Hinting *",
+      "aliases": [],
+      "definition": "typedef enum {\n    ASS_HINTING_NONE = 0,\n    ASS_HINTING_LIGHT,\n    ASS_HINTING_NORMAL,\n    ASS_HINTING_NATIVE\n} ASS_Hinting;",
+      "description": "Enum selecting font hinting mode for the renderer. Set with ass_set_hinting.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ASS_ShapingLevel *",
+      "aliases": [],
+      "definition": "typedef enum {\n    ASS_SHAPING_SIMPLE = 0,\n    ASS_SHAPING_COMPLEX\n} ASS_ShapingLevel;",
+      "description": "Enum controlling text shaping level (simple substitutions vs. complex OpenType shaping). Set with ass_set_shaper.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ASS_OverrideBits *",
+      "aliases": [],
+      "definition": "typedef enum {\n    ASS_OVERRIDE_DEFAULT = 0,\n    ASS_OVERRIDE_BIT_STYLE = 1 << 0,\n    ASS_OVERRIDE_BIT_SELECTIVE_FONT_SCALE = 1 << 1,\n    ASS_OVERRIDE_BIT_FONT_SIZE ASS_DEPRECATED_ENUM(\"replaced by ASS_OVERRIDE_BIT_SELECTIVE_FONT_SCALE\") = 1 << 1,\n    ASS_OVERRIDE_BIT_FONT_SIZE_FIELDS = 1 << 2,\n    ASS_OVERRIDE_BIT_FONT_NAME = 1 << 3,\n    ASS_OVERRIDE_BIT_COLORS = 1 << 4,\n    ASS_OVERRIDE_BIT_ATTRIBUTES = 1 << 5,\n    ASS_OVERRIDE_BIT_BORDER = 1 << 6,\n    ASS_OVERRIDE_BIT_ALIGNMENT = 1 << 7,\n    ASS_OVERRIDE_BIT_MARGINS = 1 << 8,\n    ASS_OVERRIDE_FULL_STYLE = 1 << 9,\n    ASS_OVERRIDE_BIT_JUSTIFY = 1 << 10,\n    ASS_OVERRIDE_BIT_BLUR = 1 << 11,\n    // New enum values can be added here in new ABI-compatible library releases.\n} ASS_OverrideBits;",
+      "description": "Bitmask enum controlling selective style override behavior. Used with ass_set_selective_style_override_enabled.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ASS_DefaultFontProvider *",
+      "aliases": [],
+      "definition": "typedef enum {\n    ASS_FONTPROVIDER_NONE       = 0,\n    ASS_FONTPROVIDER_AUTODETECT = 1,\n    ASS_FONTPROVIDER_CORETEXT,\n    ASS_FONTPROVIDER_FONTCONFIG,\n    ASS_FONTPROVIDER_DIRECTWRITE,\n} ASS_DefaultFontProvider;",
+      "description": "Enum selecting which default font provider backend to use for font lookup.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ASS_Feature *",
+      "aliases": [],
+      "definition": "typedef enum {\n    ASS_FEATURE_INCOMPATIBLE_EXTENSIONS,\n    ASS_FEATURE_BIDI_BRACKETS,\n    ASS_FEATURE_WHOLE_TEXT_LAYOUT,\n    ASS_FEATURE_WRAP_UNICODE,\n    // New enum values can be added here in new ABI-compatible library releases.\n} ASS_Feature;",
+      "description": "Enum of feature toggles that modify rendering/layout behavior for a track. Set via ass_track_set_feature.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "ass_library_version",
+      "signature": "int ass_library_version(void);",
+      "description": "Returns the libass compile-time version number (LIBASS_VERSION). Use to check ABI features at runtime.",
+      "requirements": [
+        "No input arguments.",
+        "Return value is an integer version tag; caller should not assume semantic version formatting beyond the hex value documented by libass."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_library_init",
+      "signature": "ASS_Library *ass_library_init(void);",
+      "description": "Initializes a libass library instance and returns its handle. Needed before creating tracks or renderers.",
+      "requirements": [
+        "Must be called before using any functions that require an ASS_Library or ASS_Renderer.",
+        "Returns NULL on failure; caller must check for NULL.",
+        "Each successful handle must later be released with ass_library_done()."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_library_done",
+      "signature": "void ass_library_done(ASS_Library *priv);",
+      "description": "Finalizes and frees a libass library instance created by ass_library_init().",
+      "requirements": [
+        "priv must be a valid ASS_Library* obtained from ass_library_init(), or NULL is not documented as supported so should be non-NULL.",
+        "All associated ASS_Track and ASS_Renderer objects should be released before destroying the library if required by your application’s lifecycle."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_fonts_dir",
+      "signature": "void ass_set_fonts_dir(ASS_Library *priv, const char *fonts_dir);",
+      "description": "Registers an additional directory to scan for fonts used by libass during font lookup.",
+      "requirements": [
+        "priv must be a valid ASS_Library*.",
+        "fonts_dir may be NULL or a valid path string; if on Windows (WIN32 APIs), path encoding rules apply: UTF-8 with CESU-8 surrogates or the encoding accepted by fopen; if both exist and valid, UTF-8 wins.",
+        "A valid fonts directory is optional and not required for embedded fonts."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_extract_fonts",
+      "signature": "void ass_set_extract_fonts(ASS_Library *priv, int extract);",
+      "description": "Controls whether fonts should be extracted from track data (attachments).",
+      "requirements": [
+        "priv must be a valid ASS_Library*.",
+        "extract is treated as boolean: 0 disables, non-zero enables."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_style_overrides",
+      "signature": "void ass_set_style_overrides(ASS_Library *priv, const char *const *list);",
+      "description": "Registers style override directives on a library instance (C++ signature). Overrides are strings like \"[Style.]Param=Value\" and are copied internally.",
+      "requirements": [
+        "priv must be a valid ASS_Library*.",
+        "list must be a NULL-terminated array of string pointers; libass copies and does not modify them.",
+        "Strings should be valid C strings; array must end with a NULL pointer."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_process_force_style",
+      "signature": "void ass_process_force_style(ASS_Track *track);",
+      "description": "Forces processing and applying of registered style overrides to a track.",
+      "requirements": [
+        "track must be a valid ASS_Track*."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_message_cb",
+      "signature": "void ass_set_message_cb(ASS_Library *priv, void (*msg_cb)(int level, const char *fmt, va_list args, void *data), void *data);",
+      "description": "Registers a logging callback to receive libass messages. If unset, libass prints messages with level < 5 to stderr.",
+      "requirements": [
+        "priv must be a valid ASS_Library*.",
+        "msg_cb may be NULL to disable callback and use default behavior.",
+        "Callback must be re-entrant/thread-safe if libass is used concurrently by the application.",
+        "The callback receives printf-style fmt and va_list args; it must not modify or retain va_list beyond its call."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_renderer_init",
+      "signature": "ASS_Renderer *ass_renderer_init(ASS_Library *);",
+      "description": "Creates and returns a renderer associated with the given ASS_Library. Must be configured before use.",
+      "requirements": [
+        "Argument must be a valid ASS_Library*.",
+        "Returns NULL on failure; caller must check.",
+        "Before rendering, configure at least ass_set_storage_size(), ass_set_frame_size(), and ass_set_fonts().",
+        "Each renderer must be finalized with ass_renderer_done()."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_renderer_done",
+      "signature": "void ass_renderer_done(ASS_Renderer *priv);",
+      "description": "Finalizes and frees a renderer created by ass_renderer_init().",
+      "requirements": [
+        "priv must be a valid ASS_Renderer* created by ass_renderer_init()."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_frame_size",
+      "signature": "void ass_set_frame_size(ASS_Renderer *priv, int w, int h);",
+      "description": "Sets the output frame size in pixels, including margins. Influences clipping and pixel aspect calculation.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "w and h are in pixels; must be set before using the renderer.",
+        "Values determine clipping bounds; images will not exceed this frame area."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_storage_size",
+      "signature": "void ass_set_storage_size(ASS_Renderer *priv, int w, int h);",
+      "description": "Sets the source video storage size in pixels. Affects some ASS tags and blur scaling and helps derive pixel aspect.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "w and h must be the actual encoded storage size (no anamorphic desqueeze).",
+        "Set to 0,0 to reset to default.",
+        "For correct results, storage size should be configured; otherwise libass will guess."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_shaper",
+      "signature": "void ass_set_shaper(ASS_Renderer *priv, ASS_ShapingLevel level);",
+      "description": "Hints which text shaper to use (simple vs complex). The renderer may choose the best available if the request cannot be fulfilled.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "level must be a valid ASS_ShapingLevel value."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_margins",
+      "signature": "void ass_set_margins(ASS_Renderer *priv, int t, int b, int l, int r);",
+      "description": "Sets frame margins in pixels relative to the video rectangle. Can be negative for crop/pan-and-scan.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "t, b, l, r are pixel margins; may be negative.",
+        "The renderer will attempt to keep subtitles within the frame; use ass_set_use_margins() to allow rendering into positive margin areas."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_use_margins",
+      "signature": "void ass_set_use_margins(ASS_Renderer *priv, int use);",
+      "description": "Controls whether regular events may be placed in the margin areas when margins are positive.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "use treated as boolean: 0 disables, non-zero enables."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_pixel_aspect",
+      "signature": "void ass_set_pixel_aspect(ASS_Renderer *priv, double par);",
+      "description": "Sets the pixel aspect ratio (width/height) correction for rendering. If 0, libass uses a default derived from frame and storage sizes.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "par > 0 sets explicit PAR; par == 0 selects default behavior.",
+        "If script specifies valid LayoutRes* headers, API-configured PAR is ignored in favor of one derived from headers and frame size."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_aspect_ratio",
+      "signature": "void ass_set_aspect_ratio(ASS_Renderer *priv, double dar, double sar);",
+      "description": "Deprecated. Sets pixel aspect by computing par = dar / sar. Prefer ass_set_pixel_aspect().",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "Use of this function is deprecated; new code should call ass_set_pixel_aspect()."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_font_scale",
+      "signature": "void ass_set_font_scale(ASS_Renderer *priv, double font_scale);",
+      "description": "Sets a fixed multiplicative font scaling factor applied during rendering. Default is 1.0.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "font_scale is a double scaling factor; no explicit bounds given."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_hinting",
+      "signature": "void ass_set_hinting(ASS_Renderer *priv, ASS_Hinting ht);",
+      "description": "Selects the font hinting method (none, light, normal, native). Enabling hinting may reduce compatibility with VSFilter and some scripts.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "ht must be one of ASS_Hinting values."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_line_spacing",
+      "signature": "void ass_set_line_spacing(ASS_Renderer *priv, double line_spacing);",
+      "description": "Sets additional line spacing in pixels; not scaled with frame size.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "line_spacing is a pixel value (double)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_line_position",
+      "signature": "void ass_set_line_position(ASS_Renderer *priv, double line_position);",
+      "description": "Sets the vertical line position of subtitles as a percentage (0 = bottom, 100 = top).",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "line_position is a percentage in range 0–100 according to documentation comment."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_get_available_font_providers",
+      "signature": "void ass_get_available_font_providers(ASS_Library *priv, ASS_DefaultFontProvider **providers, size_t *size);",
+      "description": "Returns the list of available default font providers. Allocates an array with malloc that the caller must free().",
+      "requirements": [
+        "priv must be a valid ASS_Library*.",
+        "providers must be a valid output pointer; on success set to malloc'ed array; caller must free().",
+        "size must be a valid output pointer; set to number of providers, or (size_t)-1 on allocation error."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_fonts",
+      "signature": "void ass_set_fonts(ASS_Renderer *priv, const char *default_font, const char *default_family, int dfp, const char *config, int update);",
+      "description": "Configures font lookup defaults and selects the default font provider. Must be called before using the renderer.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "default_font may be required when all system font providers are disabled or unavailable; pass a path to a default font file.",
+        "default_family may be NULL or a fallback family name.",
+        "dfp must be a value of ASS_DefaultFontProvider; passing a provider that does not exist or fails acts like ASS_FONTPROVIDER_NONE.",
+        "config is a path to a fontconfig configuration file or NULL; only relevant if fontconfig is used; encoding must match what fontconfig accepts.",
+        "update is an int; only relevant if fontconfig is used (build/update cache now).",
+        "Font lookup must be configured before the renderer can be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_selective_style_override_enabled",
+      "signature": "void ass_set_selective_style_override_enabled(ASS_Renderer *priv, int bits);",
+      "description": "Enables selective style override mode to apply user style/overrides to dialogue-like events based on heuristics. Mode is controlled by bitmask of ASS_OverrideBits.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "bits is a bitmask of ASS_OverrideBits values.",
+        "This feature relies on heuristics and may render subtitles incorrectly, per documentation warning."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_selective_style_override",
+      "signature": "void ass_set_selective_style_override(ASS_Renderer *priv, ASS_Style *style);",
+      "description": "Sets the style to be applied when selective style override is enabled. The ASS_Style struct is copied; initialize with {0} before setting fields.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "style must point to an ASS_Style initialized by the caller (e.g., zero-initialized).",
+        "String fields in style are copied by the function; caller retains ownership of originals."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_fonts_update",
+      "signature": "int ass_fonts_update(ASS_Renderer *priv);",
+      "description": "Deprecated stub; does nothing and returns a success value historically. Kept for ABI compatibility.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer* (though the function is a no-op).",
+        "Do not use in new code."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_cache_limits",
+      "signature": "void ass_set_cache_limits(ASS_Renderer *priv, int glyph_max, int bitmap_max_size);",
+      "description": "Sets hard cache limits for glyph count and bitmap cache size (in MB). Set to 0 or leave unset for reasonable defaults.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer*.",
+        "glyph_max is maximum number of cached glyphs (int).",
+        "bitmap_max_size is the maximum bitmap cache size in MB (int)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_render_frame",
+      "signature": "ASS_Image *ass_render_frame(ASS_Renderer *priv, ASS_Track *track, long long now, int *detect_change);",
+      "description": "Renders the given track at timestamp now (ms) and returns a linked list of ASS_Image bitmaps to composite in order.",
+      "requirements": [
+        "priv must be a valid ASS_Renderer* configured with at least storage size, frame size, and fonts.",
+        "track must be a valid ASS_Track* with parsed headers/events.",
+        "now is a timestamp in milliseconds.",
+        "detect_change may be NULL or a valid pointer; if provided, set to 1 if positions changed, 2 if content changed compared to previous call."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_new_track",
+      "signature": "ASS_Track *ass_new_track(ASS_Library *);",
+      "description": "Allocates and returns a new empty track object associated with the library.",
+      "requirements": [
+        "Argument must be a valid ASS_Library*.",
+        "Returns NULL on failure; caller must check.",
+        "Deallocate with ass_free_track()."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_track_set_feature",
+      "signature": "int ass_track_set_feature(ASS_Track *track, ASS_Feature feature, int enable);",
+      "description": "Enable or disable a specific track feature that affects rendering and tag interpretation. Some features may be unavailable depending on build options.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "feature must be a valid ASS_Feature; returns -1 if unknown.",
+        "enable: 0 disables; non-zero enables.",
+        "After calling ass_render_frame for the track, changing features is no longer allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_free_track",
+      "signature": "void ass_free_track(ASS_Track *track);",
+      "description": "Deallocates a track and all its child objects (styles and events).",
+      "requirements": [
+        "track may be NULL or a valid ASS_Track*; documentation says \"track to deallocate or NULL\"."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_alloc_style",
+      "signature": "int ass_alloc_style(ASS_Track *track);",
+      "description": "Allocates a new style entry in the track and returns its id (>=0) or <0 on failure.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "See GENERAL NOTE in ass_types.h for restrictions when manually modifying structures."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_alloc_event",
+      "signature": "int ass_alloc_event(ASS_Track *track);",
+      "description": "Allocates a new event entry in the track and returns its id (>=0) or <0 on failure.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "See GENERAL NOTE in ass_types.h for restrictions when manually modifying structures."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_free_style",
+      "signature": "void ass_free_style(ASS_Track *track, int sid);",
+      "description": "Deletes and deallocates the style at index sid.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "sid must be a valid style id within the track.",
+        "Does not modify track->n_styles; after freeing, caller must set track->n_styles to a value <= freed style id before calling any other libass API on the track, otherwise behavior is undefined.",
+        "Any freed style still referenced by an event in track->events results in undefined behaviour.",
+        "See GENERAL NOTE in ass_types.h."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_free_event",
+      "signature": "void ass_free_event(ASS_Track *track, int eid);",
+      "description": "Deletes and deallocates the event at index eid.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "eid must be a valid event id within the track.",
+        "Does not modify track->n_events; after freeing, caller must set track->n_events to a value <= freed event id before calling any other libass API on the track, otherwise behavior is undefined.",
+        "See GENERAL NOTE in ass_types.h."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_process_data",
+      "signature": "void ass_process_data(ASS_Track *track, const char *data, int size);",
+      "description": "Parses full lines of subtitle stream data into the track.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "data points to a buffer of length size containing subtitle text.",
+        "May change track feature flags according to file headers."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_process_codec_private",
+      "signature": "void ass_process_codec_private(ASS_Track *track, const char *data, int size);",
+      "description": "Parses Matroska CodecPrivate section and applies it to the track.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "data points to a buffer of length size in Matroska format."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_process_chunk",
+      "signature": "void ass_process_chunk(ASS_Track *track, const char *data, int size, long long timecode, long long duration);",
+      "description": "Parses a single subtitle event in Matroska packet format and adds it to the track. Using this implies not modifying events manually or by other parsers due to internal duplicate checking.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "data points to a buffer of length size containing exactly one event in Matroska format.",
+        "timecode is the event start time in ms; duration is in ms.",
+        "If you use this function, do not modify events manually or via functions like ass_process_data(); internal duplicate checking might break. Calling ass_flush_events() is allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_set_check_readorder",
+      "signature": "void ass_set_check_readorder(ASS_Track *track, int check_readorder);",
+      "description": "Controls whether ReadOrder from Matroska packets is used to eliminate duplicates when processing chunks.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "check_readorder: 0 disables, 1 enables using ReadOrder as unique id. Other values are undefined.",
+        "Default if not called is 1."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_prune_events",
+      "signature": "void ass_prune_events(ASS_Track *track, long long deadline);",
+      "description": "Deletes events that end before the given deadline timestamp.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "deadline is a cut-off timestamp in milliseconds."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_configure_prune",
+      "signature": "void ass_configure_prune(ASS_Track *track, long long delay);",
+      "description": "Configures automatic pruning after each render: events with end time before now - delay are deleted.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "delay in milliseconds; 0 prunes aggressively, negative disables automatic pruning.",
+        "Disabled by default (no automatic removal)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_flush_events",
+      "signature": "void ass_flush_events(ASS_Track *track);",
+      "description": "Flushes buffered events in the track.",
+      "requirements": [
+        "track must be a valid ASS_Track*."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_read_file",
+      "signature": "ASS_Track *ass_read_file(ASS_Library *library, const char *fname, const char *codepage);",
+      "description": "Reads and parses subtitles from a file into a newly allocated track.",
+      "requirements": [
+        "library must be a valid ASS_Library*.",
+        "fname is a path to the subtitle file. On Windows (WIN32 APIs), it must be UTF-8 with CESU-8 surrogates or the encoding accepted by fopen; if both valid and exist, UTF-8 takes precedence. No special considerations on other systems.",
+        "codepage is the text encoding in iconv format.",
+        "Returns NULL on failure; caller must check and free the track with ass_free_track() when done."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_read_memory",
+      "signature": "ASS_Track *ass_read_memory(ASS_Library *library, char *buf, size_t bufsize, const char *codepage);",
+      "description": "Reads and parses subtitles from a memory buffer into a newly allocated track.",
+      "requirements": [
+        "library must be a valid ASS_Library*.",
+        "buf points to subtitle text of length bufsize.",
+        "codepage is the text encoding in iconv format.",
+        "Returns NULL on failure; caller must check and free the track with ass_free_track() when done."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_read_styles",
+      "signature": "int ass_read_styles(ASS_Track *track, const char *fname, const char *codepage);",
+      "description": "Reads styles from a file and loads them into an already initialized track.",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "fname is a path to styles file. On Windows (WIN32 APIs), same encoding rules as ass_read_file.",
+        "codepage is the text encoding in iconv format.",
+        "Returns 0 on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_add_font",
+      "signature": "void ass_add_font(ASS_Library *library, const char *name, const char *data, int data_size);",
+      "description": "Adds an in-memory font attachment to the library for use during font lookup.",
+      "requirements": [
+        "library must be a valid ASS_Library*.",
+        "name is the attachment name (string).",
+        "data points to binary font data of length data_size.",
+        "data_size must be the size in bytes of data."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_clear_fonts",
+      "signature": "void ass_clear_fonts(ASS_Library *library);",
+      "description": "Removes all fonts stored in the library object. Safe only after all tracks and renderers associated with the library have been released.",
+      "requirements": [
+        "library must be a valid ASS_Library*.",
+        "All ASS_Track and ASS_Renderer instances tied to this library must be released first before calling this function."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_step_sub",
+      "signature": "long long ass_step_sub(ASS_Track *track, long long now, int movement);",
+      "description": "Calculates the time shift from now to the start of another subtitle event by skipping a number of events (movement).",
+      "requirements": [
+        "track must be a valid ASS_Track*.",
+        "now is current time in milliseconds.",
+        "movement is how many events to skip: e.g., +2 is the one after next, -1 is previous."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_malloc",
+      "signature": "void *ass_malloc(size_t size);",
+      "description": "Allocates memory using libass’s allocator so that libass can safely free it later. Use when assigning user buffers to libass-managed structs.",
+      "requirements": [
+        "size is the number of bytes to allocate.",
+        "Returns NULL on allocation failure; caller must check.",
+        "Buffers allocated here should be freed with ass_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "ass_free",
+      "signature": "void ass_free(void *ptr);",
+      "description": "Frees memory previously allocated by ass_malloc(). Passing NULL is a no-op.",
+      "requirements": [
+        "ptr must be either NULL or a pointer returned by ass_malloc().",
+        "Caller must not double-free."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ass_library_version",
+      "inputs": [],
+      "outputs": [],
+      "code": "// No inputs; just query version and touch a global attribute for potential cross-stub logic\nint v = ass_library_version();\n// Store the last seen version for potential conditional behavior in other stubs\nFUZZ_SET_ATTR_INT_GLOBAL(\"libass_version\", v);\n// Nothing to output; this API has no persistent objects"
+    },
+    {
+      "name": "ass_library_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Create a new library instance; must check for NULL\nASS_Library *library = ass_library_init();\nif (!library) { FUZZ_BAIL(); }\n// Track type and relationship counts for lifecycle validation\nFUZZ_SET_ATTR_STR(library, \"type\", \"ASS_Library\");\nFUZZ_SET_ATTR_INT(library, \"renderer_count\", 0);\n// Return library to the pool as a persistent object"
+    },
+    {
+      "name": "ass_library_done",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Validate input is a real ASS_Library instance and that no renderers are alive\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\nint rc = FUZZ_GET_ATTR_INT(library, \"renderer_count\");\nif (rc != 0) { // Must not destroy library while renderers still alive\n    FUZZ_BAIL();\n}\n// Finalize the library\nass_library_done((ASS_Library *)library);\n// Do not return the library; ownership transferred to libass and object is invalid now"
+    },
+    {
+      "name": "ass_set_fonts_dir",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\n// fonts_dir may be NULL or a valid path; randomly choose\nunsigned int choice = *FUZZ_PARAM(unsigned int);\nconst char *path = (choice & 1) ? FUZZ_PARAM_FILENAME() : (const char *)0;\nass_set_fonts_dir((ASS_Library *)library, path);\n// Library remains valid and is returned"
+    },
+    {
+      "name": "ass_set_extract_fonts",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\nint extract = (int)(*FUZZ_PARAM(unsigned int) & 1);\nass_set_extract_fonts((ASS_Library *)library, extract);\n// Library remains valid and is returned"
+    },
+    {
+      "name": "ass_set_style_overrides",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\n// Build a NULL-terminated array of C-strings; libass copies them.\nunsigned int n = (*FUZZ_PARAM(unsigned int) % 4); // up to 3 entries\nstd::string s0 = FUZZ_PARAM_STR();\nstd::string s1 = FUZZ_PARAM_STR();\nstd::string s2 = FUZZ_PARAM_STR();\nconst char *arr[4];\nunsigned int idx = 0;\nif (n > 0) arr[idx++] = s0.c_str();\nif (n > 1) arr[idx++] = s1.c_str();\nif (n > 2) arr[idx++] = s2.c_str();\narr[idx] = nullptr; // NULL-terminate as required\nass_set_style_overrides((ASS_Library *)library, (const char *const *)arr);\n// Library remains valid and is returned"
+    },
+    {
+      "name": "ass_process_force_style",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track object type\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nass_process_force_style((ASS_Track *)track);\n// Track persists"
+    },
+    {
+      "name": "ass_set_message_cb",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\n// Pass NULL callback to exercise API without defining a function pointer per harness constraints\nass_set_message_cb((ASS_Library *)library, nullptr, nullptr);\n// Library persists"
+    },
+    {
+      "name": "ass_new_track",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        },
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library handle\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\n// Create a new empty track associated with the library\nASS_Track *track = ass_new_track((ASS_Library *)library);\nif (!track) { FUZZ_BAIL(); }\n// Track lifecycle and relationship bookkeeping\nFUZZ_SET_ATTR_STR(track, \"type\", \"ASS_Track\");\nFUZZ_SET_ATTR_PTR(track, \"library\", (void *)library);\nFUZZ_SET_ATTR_INT(track, \"used_chunk_api\", 0);\nFUZZ_SET_ATTR_INT(track, \"used_data_parser\", 0);\nFUZZ_SET_ATTR_INT(track, \"rendered\", 0);\n// Maintain library->track_count so we can validate ass_clear_fonts and ass_library_done\nint tc = FUZZ_GET_ATTR_INT(library, \"track_count\");\nFUZZ_SET_ATTR_INT(library, \"track_count\", tc + 1);\n// Return both the new track and the library (library remains owned/persistent)"
+    },
+    {
+      "name": "ass_track_set_feature",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track and that features are not changed after rendering\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(track, \"rendered\") != 0) { FUZZ_BAIL(); }\n// Choose a valid ASS_Feature enum value in range\nunsigned int f = *FUZZ_PARAM(unsigned int) % 4; // matches listed enum values\nint enable = (int)(*FUZZ_PARAM(unsigned int) & 1);\n(void)ass_track_set_feature((ASS_Track *)track, (ASS_Feature)f, enable);\n// Keep track persistent"
+    },
+    {
+      "name": "ass_free_track",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track object\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\n// Obtain associated library to update its track_count\nvoid *library = FUZZ_GET_ATTR_PTR(track, \"library\");\nint is_lib = library && !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\n// Free the track\nass_free_track((ASS_Track *)track);\n// Decrement track_count safely (do not go negative)\nint tc = FUZZ_GET_ATTR_INT(library, \"track_count\");\nif (tc > 0) { FUZZ_SET_ATTR_INT(library, \"track_count\", tc - 1); }\n// Do not return the freed track; return the library back to the pool"
+    },
+    {
+      "name": "ass_alloc_style",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\n// Allocate a new style and ensure non-negative id\nint sid = ass_alloc_style((ASS_Track *)track);\nif (sid < 0) { FUZZ_BAIL(); }\n// Record the highest allocated style id for bookkeeping\nint max_sid = FUZZ_GET_ATTR_INT(track, \"max_style_id\");\nif (sid + 1 > max_sid) { FUZZ_SET_ATTR_INT(track, \"max_style_id\", sid + 1); }\n// Track persists"
+    },
+    {
+      "name": "ass_alloc_event",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\n// Allocate a new event and ensure non-negative id\nint eid = ass_alloc_event((ASS_Track *)track);\nif (eid < 0) { FUZZ_BAIL(); }\n// Record the highest allocated event id for bookkeeping\nint max_eid = FUZZ_GET_ATTR_INT(track, \"max_event_id\");\nif (eid + 1 > max_eid) { FUZZ_SET_ATTR_INT(track, \"max_event_id\", eid + 1); }\n// Track persists"
+    },
+    {
+      "name": "ass_process_data",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track and enforce parser exclusivity contract with chunk API\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(track, \"used_chunk_api\") != 0) { FUZZ_BAIL(); }\nstd::string buf = FUZZ_PARAM_STR();\n// Bound the size to keep allocations modest\nif (buf.size() > 2048) buf.resize(2048);\nass_process_data((ASS_Track *)track, buf.data(), (int)buf.size());\nFUZZ_SET_ATTR_INT(track, \"used_data_parser\", 1);\n// Track persists"
+    },
+    {
+      "name": "ass_process_codec_private",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nstd::string blob = FUZZ_PARAM_STR();\nif (blob.size() > 2048) blob.resize(2048);\nass_process_codec_private((ASS_Track *)track, blob.data(), (int)blob.size());\n// Track persists"
+    },
+    {
+      "name": "ass_process_chunk",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track and enforce exclusivity with line-based parser\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(track, \"used_data_parser\") != 0) { FUZZ_BAIL(); }\nstd::string pkt = FUZZ_PARAM_STR();\nif (pkt.size() > 2048) pkt.resize(2048);\nlong long timecode = (long long)(*FUZZ_PARAM(unsigned int)) * 10LL;\nlong long duration = (long long)(*FUZZ_PARAM(unsigned int) % 100000);\nass_process_chunk((ASS_Track *)track, pkt.data(), (int)pkt.size(), timecode, duration);\nFUZZ_SET_ATTR_INT(track, \"used_chunk_api\", 1);\n// Track persists"
+    },
+    {
+      "name": "ass_set_check_readorder",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nint check = (int)(*FUZZ_PARAM(unsigned int) & 1); // 0 or 1 per spec\nass_set_check_readorder((ASS_Track *)track, check);\n// Track persists"
+    },
+    {
+      "name": "ass_prune_events",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nlong long deadline = (long long)(*FUZZ_PARAM(unsigned int)) * 5LL;\nass_prune_events((ASS_Track *)track, deadline);\n// Track persists"
+    },
+    {
+      "name": "ass_configure_prune",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\n// Allow negative to disable, small positive to enable windowed pruning\nlong long delay = (long long)((int)(*FUZZ_PARAM(unsigned int)) % 200001) - 100000; // [-100000,100000]\nass_configure_prune((ASS_Track *)track, delay);\n// Track persists"
+    },
+    {
+      "name": "ass_flush_events",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nass_flush_events((ASS_Track *)track);\n// Track persists"
+    },
+    {
+      "name": "ass_read_file",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        },
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\nconst char *fname = FUZZ_PARAM_FILENAME();\nstd::string cp = FUZZ_PARAM_STR();\n// Ensure codepage is NUL-terminated C string\nASS_Track *track = ass_read_file((ASS_Library *)library, fname, cp.c_str());\nif (!track) { FUZZ_BAIL(); }\n// Bookkeeping and relationships\nFUZZ_SET_ATTR_STR(track, \"type\", \"ASS_Track\");\nFUZZ_SET_ATTR_PTR(track, \"library\", (void *)library);\nFUZZ_SET_ATTR_INT(track, \"used_chunk_api\", 0);\nFUZZ_SET_ATTR_INT(track, \"used_data_parser\", 1); // reading a file parses data\nFUZZ_SET_ATTR_INT(track, \"rendered\", 0);\nint tc = FUZZ_GET_ATTR_INT(library, \"track_count\");\nFUZZ_SET_ATTR_INT(library, \"track_count\", tc + 1);\n// Return both track and library"
+    },
+    {
+      "name": "ass_read_memory",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        },
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 2048) s.resize(2048);\n// Create a mutable buffer as API expects char *\nstd::string cp = FUZZ_PARAM_STR();\nstd::vector<char> buf(s.begin(), s.end());\nif (buf.empty()) buf.push_back('\\n');\nASS_Track *track = ass_read_memory((ASS_Library *)library, buf.data(), (size_t)buf.size(), cp.c_str());\nif (!track) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_STR(track, \"type\", \"ASS_Track\");\nFUZZ_SET_ATTR_PTR(track, \"library\", (void *)library);\nFUZZ_SET_ATTR_INT(track, \"used_chunk_api\", 0);\nFUZZ_SET_ATTR_INT(track, \"used_data_parser\", 1);\nFUZZ_SET_ATTR_INT(track, \"rendered\", 0);\nint tc = FUZZ_GET_ATTR_INT(library, \"track_count\");\nFUZZ_SET_ATTR_INT(library, \"track_count\", tc + 1);\n// Return both track and library"
+    },
+    {
+      "name": "ass_read_styles",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nconst char *fname = FUZZ_PARAM_FILENAME();\nstd::string cp = FUZZ_PARAM_STR();\nint r = ass_read_styles((ASS_Track *)track, fname, cp.c_str());\nif (r != 0) { FUZZ_BAIL(); }\n// Track persists"
+    },
+    {
+      "name": "ass_add_font",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\nstd::string name = FUZZ_PARAM_STR();\nstd::string data = FUZZ_PARAM_STR();\nif (data.size() > 2048) data.resize(2048);\nass_add_font((ASS_Library *)library, name.c_str(), data.data(), (int)data.size());\n// Library persists"
+    },
+    {
+      "name": "ass_clear_fonts",
+      "inputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "library",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate library and ensure no tracks/renderers associated\nint is_lib = !strcmp(FUZZ_GET_ATTR_STR(library, \"type\"), \"ASS_Library\");\nif (!is_lib) { FUZZ_BAIL(); }\nint rc = FUZZ_GET_ATTR_INT(library, \"renderer_count\");\nint tc = FUZZ_GET_ATTR_INT(library, \"track_count\");\nif (rc != 0 || tc != 0) { FUZZ_BAIL(); }\nass_clear_fonts((ASS_Library *)library);\n// Library persists"
+    },
+    {
+      "name": "ass_step_sub",
+      "inputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "track",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate track\nint is_track = !strcmp(FUZZ_GET_ATTR_STR(track, \"type\"), \"ASS_Track\");\nif (!is_track) { FUZZ_BAIL(); }\nlong long now = (long long)(*FUZZ_PARAM(unsigned int)) * 3LL;\nint movement = (int)((int)(*FUZZ_PARAM(unsigned int)) % 7) - 3; // range [-3,3]\n(void)ass_step_sub((ASS_Track *)track, now, movement);\n// Track persists"
+    },
+    {
+      "name": "ass_malloc",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mem",
+          "type": "void *"
+        }
+      ],
+      "code": "// Choose a small positive allocation size to keep fuzz iterations fast and within limits\nsize_t size = ((size_t)(*FUZZ_PARAM(unsigned int) % 2048u)) + 1u; // [1, 2048]\n// Allocate with libass allocator; must check for NULL\nvoid *mem = ass_malloc(size);\nif (!mem) { FUZZ_BAIL(); }\n// Tag the buffer so only ass_free will release it, preventing accidental frees of other object types\nFUZZ_SET_ATTR_STR(mem, \"type\", \"ASS_Malloc\");\nFUZZ_SET_ATTR_INT(mem, \"size\", (int)size);\n// Return the allocated pointer as a persistent object"
+    },
+    {
+      "name": "ass_free",
+      "inputs": [
+        {
+          "name": "mem",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Ensure this pointer was allocated by ass_malloc in this harness\nint is_mallocd = !strcmp(FUZZ_GET_ATTR_STR(mem, \"type\"), \"ASS_Malloc\");\nif (!is_mallocd) { FUZZ_BAIL(); }\n// Free via libass deallocator; passing non-NULL pointer allocated by ass_malloc is required\nass_free(mem);\n// Do not return the pointer; it is now invalid and removed from the pool"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "ass_renderer_init",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_renderer_done",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_frame_size",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_storage_size",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_shaper",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_margins",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_use_margins",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_pixel_aspect",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_aspect_ratio",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_font_scale",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_hinting",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_line_spacing",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_line_position",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_get_available_font_providers",
+      "reason": "This API resides in the font stack and linking pulls missing FreeType/HarfBuzz symbols in this toolchain."
+    },
+    {
+      "name": "ass_set_fonts",
+      "reason": "Linking renderer/font APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_selective_style_override_enabled",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_selective_style_override",
+      "reason": "Linking renderer/style APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_fonts_update",
+      "reason": "Linking renderer APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_set_cache_limits",
+      "reason": "Linking renderer/cache APIs fails due to missing external dependencies (FreeType/HarfBuzz) in this toolchain."
+    },
+    {
+      "name": "ass_render_frame",
+      "reason": "Rendering requires FreeType/HarfBuzz; linking fails with undefined references in this toolchain."
+    },
+    {
+      "name": "ass_free_style",
+      "reason": "Requires directly updating track->n_styles after the call, which cannot be safely done within the harness."
+    },
+    {
+      "name": "ass_free_event",
+      "reason": "Requires directly updating track->n_events after the call, which cannot be safely done within the harness."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "ass_library_version",
+      "data_types": []
+    },
+    {
+      "name": "ass_library_init",
+      "data_types": []
+    },
+    {
+      "name": "ass_library_done",
+      "data_types": []
+    },
+    {
+      "name": "ass_set_extract_fonts",
+      "data_types": []
+    },
+    {
+      "name": "ass_process_force_style",
+      "data_types": []
+    },
+    {
+      "name": "ass_set_message_cb",
+      "data_types": []
+    },
+    {
+      "name": "ass_new_track",
+      "data_types": []
+    },
+    {
+      "name": "ass_track_set_feature",
+      "data_types": []
+    },
+    {
+      "name": "ass_free_track",
+      "data_types": []
+    },
+    {
+      "name": "ass_alloc_style",
+      "data_types": []
+    },
+    {
+      "name": "ass_alloc_event",
+      "data_types": []
+    },
+    {
+      "name": "ass_set_check_readorder",
+      "data_types": []
+    },
+    {
+      "name": "ass_prune_events",
+      "data_types": []
+    },
+    {
+      "name": "ass_configure_prune",
+      "data_types": []
+    },
+    {
+      "name": "ass_flush_events",
+      "data_types": []
+    },
+    {
+      "name": "ass_clear_fonts",
+      "data_types": []
+    },
+    {
+      "name": "ass_step_sub",
+      "data_types": []
+    },
+    {
+      "name": "ass_malloc",
+      "data_types": []
+    },
+    {
+      "name": "ass_free",
+      "data_types": []
+    },
+    {
+      "name": "ass_set_fonts_dir",
+      "data_types": [
+        "filesystem path string",
+        "subtitle file contents"
+      ]
+    },
+    {
+      "name": "ass_set_style_overrides",
+      "data_types": [
+        "ASS style override directives"
+      ]
+    },
+    {
+      "name": "ass_process_data",
+      "data_types": [
+        "ASS/SSA subtitle text"
+      ]
+    },
+    {
+      "name": "ass_process_codec_private",
+      "data_types": [
+        "Matroska CodecPrivate blob"
+      ]
+    },
+    {
+      "name": "ass_process_chunk",
+      "data_types": [
+        "Matroska subtitle packet"
+      ]
+    },
+    {
+      "name": "ass_read_file",
+      "data_types": [
+        "subtitle file contents",
+        "text encoding name"
+      ]
+    },
+    {
+      "name": "ass_read_memory",
+      "data_types": [
+        "ASS/SSA subtitle text",
+        "text encoding name"
+      ]
+    },
+    {
+      "name": "ass_read_styles",
+      "data_types": [
+        "subtitle file contents",
+        "text encoding name"
+      ]
+    },
+    {
+      "name": "ass_add_font",
+      "data_types": [
+        "generic binary blob",
+        "font name string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path string",
+      "description": "A string representing a filesystem path to a directory or file. May include directory separators and platform-specific encoding; treated as an opaque path by the target APIs."
+    },
+    {
+      "data_type": "subtitle file contents",
+      "description": "Arbitrary file data read by the library when given a filename. For libass entry points that read files, this is expected to be an ASS/SSA subtitle script (text) or styles file content, but the fuzzer provides arbitrary bytes."
+    },
+    {
+      "data_type": "ASS style override directives",
+      "description": "NULL-terminated C strings formatted like \"[Style.]Param=Value\" that instruct libass to override style parameters. Examples include \"PlayResX=1280\" or \"Style.Bold=1\". The API accepts an array of such strings ending with a NULL pointer."
+    },
+    {
+      "data_type": "ASS/SSA subtitle text",
+      "description": "Text buffer containing an Advanced SubStation Alpha (ASS/SSA) subtitle script, including headers like \"[Script Info]\", \"[V4+ Styles]\", and dialogue/event lines. Encoding is specified separately by a codepage string."
+    },
+    {
+      "data_type": "Matroska CodecPrivate blob",
+      "description": "Binary buffer containing the ASS-related CodecPrivate data from a Matroska container, used to configure track headers and styles. Format per Matroska specifications."
+    },
+    {
+      "data_type": "Matroska subtitle packet",
+      "description": "Binary buffer containing a single Matroska packet for an ASS subtitle event, which includes the event payload as stored in Matroska, to be paired with an external timecode and duration."
+    },
+    {
+      "data_type": "text encoding name",
+      "description": "A string naming a character encoding in iconv format (e.g., \"UTF-8\", \"CP1252\"). Used by libass to interpret text buffers or files."
+    },
+    {
+      "data_type": "generic binary blob",
+      "description": "An arbitrary byte buffer with no required structure. In this context used to carry in-memory data such as font file bytes (e.g., TrueType/OpenType fonts)."
+    },
+    {
+      "data_type": "font name string",
+      "description": "An attachment name for an in-memory font, typically a short ASCII/UTF-8 string identifying the font resource."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path string",
+      "generator": "import os\nimport random\nimport string\nfrom typing import List\n\n# Generator for a filesystem path string buffer.\n# Target stub behavior:\n# - ass_set_fonts_dir takes either NULL or a valid path from FUZZ_PARAM_FILENAME()\n# - Our buffer will be used to back FUZZ_PARAM_FILENAME(), so produce realistic,\n#   platform-agnostic path-like byte sequences pointing to directories or files.\n# Goals:\n# - Provide varied, valid-looking paths: absolute/relative, Unix/Windows styles,\n#   with nested dirs, dots, spaces, unicode, and edge cases like trailing slashes.\n# - Keep under 4096 bytes.\n# - Deterministic based on seed but still varied per call.\n\nSAFE_ASCII = string.ascii_letters + string.digits + \"-_ .\"\n\nUNICODE_SAMPLES = [\n    \"ƒøñţ\",             # Latin accented-like\n    \"字体\",              # CJK\n    \"шрифт\",            # Cyrillic\n    \"خط\",               # Arabic\n    \"फ़ॉन्ट\",            # Devanagari\n    \"フォント\",          # Katakana\n    \"폰트\",              # Hangul\n    \"🙂\",               # Emoji\n]\n\nRESERVED_WIN = {\"<\", \">\", \":\", \"\\\"\", \"|\", \"?\", \"*\"}\nRESERVED_NAMES_WIN = {\"CON\", \"PRN\", \"AUX\", \"NUL\"} | {f\"COM{i}\" for i in range(1, 10)} | {f\"LPT{i}\" for i in range(1, 10)}\n\ndef rand_choice(rng: random.Random, seq: List[str]):\n    return seq[rng.randrange(len(seq))]\n\ndef rand_segment(rng: random.Random, allow_unicode: bool) -> str:\n    # Generate a single path segment avoiding forbidden Windows characters\n    parts = []\n    length = rng.randint(1, 16)\n    for _ in range(length):\n        if allow_unicode and rng.random() < 0.2:\n            parts.append(rand_choice(rng, UNICODE_SAMPLES))\n        else:\n            ch = SAFE_ASCII[rng.randrange(len(SAFE_ASCII))]\n            # Avoid Windows reserved characters\n            if ch in RESERVED_WIN:\n                ch = \"_\"\n            parts.append(ch)\n    seg = \"\".join(parts).strip()\n    # Avoid empty or reserved names on Windows\n    if not seg:\n        seg = \"x\"\n    base = seg.strip(\" .\") or \"x\"\n    if base.upper() in RESERVED_NAMES_WIN:\n        base += \"_x\"\n    return base\n\ndef build_unix_path(rng: random.Random) -> str:\n    absolute = rng.random() < 0.7\n    parts = []\n    depth = rng.randint(1, 6)\n    for _ in range(depth):\n        parts.append(rand_segment(rng, allow_unicode=True))\n    path = \"/\".join(parts)\n    if absolute:\n        path = \"/\" + path\n    # Occasionally add trailing slash to imply directory\n    if rng.random() < 0.4:\n        path += \"/\"\n    # sometimes add dot segments\n    if rng.random() < 0.2:\n        insert_idx = rng.randrange(len(parts)) if parts else 0\n        dot = \"..\" if rng.random() < 0.5 else \".\"\n        comps = path.strip(\"/\").split(\"/\") if path != \"/\" else []\n        comps.insert(insert_idx, dot)\n        path = (\"/\" if absolute else \"\") + \"/\".join(comps)\n        if rng.random() < 0.3:\n            path += \"/\"\n    return path\n\ndef build_windows_path(rng: random.Random) -> str:\n    style = rng.random()\n    # Choose one: drive path, UNC path, or relative path\n    if style < 0.5:\n        drive = chr(rng.randrange(ord('C'), ord('Z') + 1))\n        prefix = f\"{drive}:\\\\\"\n    elif style < 0.8:\n        # UNC\n        server = rand_segment(rng, allow_unicode=False)\n        share = rand_segment(rng, allow_unicode=False)\n        prefix = f\"\\\\\\\\{server}\\\\{share}\\\\\"\n    else:\n        prefix = \"\"  # relative\n    depth = rng.randint(1, 5)\n    segs = [rand_segment(rng, allow_unicode=True) for _ in range(depth)]\n    path = prefix + \"\\\\\".join(segs)\n    if rng.random() < 0.4:\n        path += \"\\\\\"\n    return path\n\ndef maybe_file_suffix(rng: random.Random, path: str) -> str:\n    # Sometimes return a file-like path to simulate FUZZ_PARAM_FILENAME pointing to a file\n    if path.endswith((\"/\", \"\\\\\")):\n        # already directory-like; sometimes keep as directory\n        if rng.random() < 0.6:\n            return path\n        # else append a file\n    name = rand_segment(rng, allow_unicode=True)\n    # Choose common font-related or general extensions to be interesting for libass font dir scan\n    exts = [\".ttf\", \".otf\", \".ttc\", \".woff\", \".woff2\", \".conf\", \".txt\", \".ass\", \".ssa\", \"\"]\n    ext = rand_choice(rng, exts)\n    sep = \"/\" if \"/\" in path and not \"\\\\\" in path else \"\\\\\" if \"\\\\\" in path else (\"/\" if random.random()<0.5 else \"\\\\\")\n    return path + (sep if not path.endswith((\"/\", \"\\\\\")) else \"\") + name + ext\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Decide platform flavor mix\n    make_windows = rng.random() < 0.5\n    # Generate several candidate paths and pick one to diversify across calls\n    candidates = []\n    for _ in range(rng.randint(3, 7)):\n        if make_windows and rng.random() < 0.7:\n            p = build_windows_path(rng)\n        else:\n            p = build_unix_path(rng)\n        # sometimes convert to file-like\n        if rng.random() < 0.5:\n            p = maybe_file_suffix(rng, p)\n        # Occasionally include environment-like segments (kept literally)\n        if rng.random() < 0.2:\n            prefix = \"~\" if \"/\" in p and not p.startswith(\"~\") else \"\"\n            p = prefix + p\n        # Bound overall length\n        if len(p) > 4000:\n            p = p[:4000]\n        candidates.append(p)\n    choice = rand_choice(rng, candidates)\n    # Encode to UTF-8 bytes; FUZZ harness will treat as opaque path bytes\n    data = choice.encode('utf-8', errors='strict')\n    # Ensure non-empty and within limit\n    if not data:\n        data = b\".\"\n    return data[:4096]\n"
+    },
+    {
+      "data_type": "subtitle file contents",
+      "generator": "import random\nimport textwrap\nfrom typing import List\n\ndef _rand_choice(rng: random.Random, choices: List[str]) -> str:\n    return rng.choice(choices)\n\ndef _ass_header(script_type: str = \"v4.00+\") -> str:\n    # Minimal but valid ASS header\n    # Include common headers and defaults to satisfy parser paths\n    return textwrap.dedent(f\"\"\"\n    [Script Info]\n    ; Script generated for fuzz seeding\n    ScriptType: {script_type}\n    PlayResX: 1280\n    PlayResY: 720\n    ScaledBorderAndShadow: yes\n    YCbCr Matrix: TV.709\n    WrapStyle: 0\n    Collisions: Normal\n    Timer: 100.0000\n    \n    [Aegisub Project Garbage]\n    Last Style Storage: Default\n    Audio File: dummy\n    Video File: ?dummy:\n    Video Aspect Ratio: c1.7777\n    Video Zoom Percent: 1.000000\n    \n    [V4+ Styles]\n    Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n    Style: Default,Arial,36,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1\n    Style: Big,DejaVu Sans,72,&H00FFFFFF,&H0000FFFF,&H00202020,&H64000000,0,0,0,0,120,120,0,0,1,3,1,8,15,15,30,1\n    Style: Outline,Arial,28,&H00FFFFFF,&H000000FF,&H00000000,&H7F000000,0,0,0,0,100,100,0,0,1,4,2,5,12,12,12,1\n    \n    [Events]\n    Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n    \"\"\")\n\ndef _ms(ms: int) -> str:\n    ms = max(0, ms)\n    h = ms // 3600000\n    ms %= 3600000\n    m = ms // 60000\n    ms %= 60000\n    s = ms // 1000\n    cs = (ms % 1000) // 10\n    return f\"{h:d}:{m:02d}:{s:02d}.{cs:02d}\"\n\ndef _dialogue(style: str, start_ms: int, dur_ms: int, text: str, layer: int = 0, name: str = \"\") -> str:\n    end_ms = start_ms + max(10, dur_ms)\n    return f\"Dialogue: {layer},{_ms(start_ms)},{_ms(end_ms)},{style},{name},0000,0000,0000,,{text}\\n\"\n\ndef _rand_text(rng: random.Random) -> str:\n    # Mix of plain, override tags, ruby, positioning, drawing, karaoke\n    samples = [\n        \"Hello, world!\",\n        \"{\\\\b1}Bold{\\\\b0} and {\\\\i1}Italic{\\\\i0}\",\n        \"{\\\\pos(640,360)}Centered\",\n        \"{\\\\an7}Top-Left aligned\",\n        \"{\\\\bord2\\\\shad1}Bordered\",\n        \"{\\\\blur2}Blurred text\",\n        \"{\\\\move(0,720,1280,0,0,2000)}Moving\",\n        \"{\\\\k50}ka{\\\\k50}ra{\\\\k50}o{\\\\k50}ke\",\n        \"{\\\\fad(200,300)}Fading\",\n        \"{\\\\fs28}Size 28\",\n        \"{\\\\1c&H00FF00&}Green {\\\\3c&H0000FF&}outline\",\n        # Simple vector drawing path\n        \"{\\\\p1}m 0 0 l 50 0 l 50 50 l 0 50 l 0 0{\\\\p0}\",\n    ]\n    # Add some Unicode variety\n    uni = [\"Привет\", \"مرحبا\", \"こんにちは\", \"¡Hola!\", \"😀😎🔥\", \"𝓕𝓪𝓷𝓬𝔂\"]\n    return rng.choice(samples) + \" \" + rng.choice(uni)\n\ndef _build_events(rng: random.Random) -> str:\n    lines = []\n    t = 0\n    for i in range(rng.randint(3, 8)):\n        dur = rng.randint(800, 4000)\n        style = _rand_choice(rng, [\"Default\", \"Big\", \"Outline\"])\n        layer = rng.randint(0, 3)\n        name = _rand_choice(rng, [\"\", \"Actor\", \"Narrator\", \"歌詞\"]) if rng.random() < 0.5 else \"\"\n        text = _rand_text(rng)\n        lines.append(_dialogue(style, t, dur, text, layer, name))\n        # Overlap events sometimes\n        t += rng.randint(200, 1500)\n    return \"\".join(lines)\n\ndef _maybe_sections(rng: random.Random) -> str:\n    out = []\n    if rng.random() < 0.7:\n        # Add a [Fonts] section to exercise ass_add_font code paths indirectly when present\n        out.append(\"[Fonts]\\n\")\n        # Attachment names without data are still valid headers in text files parsed by libass (ignored in ass_read_file)\n        out.append(\"fontname: DummyFont.ttf\\n\")\n    if rng.random() < 0.6:\n        # Add a [Graphics] dummy section (ignored) to vary parsing\n        out.append(\"[Graphics]\\nChecksum: 0\\n\")\n    return \"\".join(out)\n\ndef _build_styles_file(rng: random.Random) -> str:\n    # A file that only contains styles (usable by ass_read_styles)\n    hdr = _ass_header()\n    # Replace events with none; keep styles rich\n    styles_extra = \"\".join([\n        \"Style: Title,Times New Roman,48,&H0000FFFF,&H000000FF,&H00222222,&H7F000000,-1,0,0,0,100,100,0,0,1,4,3,8,30,30,40,1\\n\",\n        \"Style: Sub,Arial Unicode MS,24,&H00FFFFFF,&H000000FF,&H00000000,&H7F000000,0,0,0,0,100,100,0,0,1,2,0,2,15,15,15,1\\n\",\n    ])\n    # Remove events header and recreate minimal empty events to stay valid\n    parts = hdr.split(\"[Events]\")\n    base = parts[0]\n    base += \"[V4+ Styles]\\n\" + \\\n            \"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\\n\" + \\\n            styles_extra + \\\n            \"[Events]\\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\\n\"\n    return base\n\ndef _maybe_bom(rng: random.Random) -> bytes:\n    return rng.choice([b\"\", b\"\\xEF\\xBB\\xBF\"])  # UTF-8 BOM or none\n\ndef _compose_ass(rng: random.Random) -> bytes:\n    # Choose between full ASS with events or styles-only file to feed both ass_read_file and ass_read_styles\n    want_styles_only = rng.random() < 0.3\n    if want_styles_only:\n        text = _build_styles_file(rng)\n    else:\n        text = _ass_header() + _build_events(rng)\n        text += _maybe_sections(rng)\n    # Optionally vary ScriptType to SSA for legacy path\n    if rng.random() < 0.2:\n        text = text.replace(\"ScriptType: v4.00+\", \"ScriptType: v4.00\")\n    data = _maybe_bom(rng) + text.encode(\"utf-8\", errors=\"strict\")\n    return data\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Randomly decide between a few valid inputs: ASS script, SSA variant, or minimal valid skeleton with one event\n    data = _compose_ass(rng)\n    # Ensure size limit\n    if len(data) > 4096:\n        data = data[:4096]\n    return data\n"
+    },
+    {
+      "data_type": "ASS style override directives",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for ASS style override directives array serialized into a buffer.\n# The fuzzer stub will call FUZZ_PARAM_STR() up to 3 times to obtain strings that\n# are used as override directives, and also a random unsigned int to decide how many\n# of them are included before a final NULL terminator. Our goal is to provide valid\n# and interesting override strings covering various parameters and value types.\n\nPARAMS_SIMPLE = [\n    # Script-level headers\n    (\"PlayResX\", lambda r: str(r.choice([640, 720, 848, 960, 1024, 1280, 1366, 1440, 1920]))),\n    (\"PlayResY\", lambda r: str(r.choice([360, 400, 480, 540, 720, 800, 900, 1080]))),\n    (\"Timer\", lambda r: f\"{r.uniform(0.5, 2.0):.3f}\"),\n    (\"WrapStyle\", lambda r: str(r.randint(0, 3))),\n    (\"ScaledBorderAndShadow\", lambda r: str(r.randint(0, 1))),\n]\n\nSTYLE_BOOL_FIELDS = [\n    \"Bold\", \"Italic\", \"Underline\", \"StrikeOut\"\n]\n\nSTYLE_INT_FIELDS = [\n    \"BorderStyle\",  # 1 or 3 are most common\n    \"Outline\",      # in VSFilter integer, libass accepts float; keep integers here\n    \"Shadow\",\n    \"Spacing\",      # can be float; we provide integers sometimes\n]\n\nSTYLE_FLOAT_FIELDS = [\n    \"ScaleX\", \"ScaleY\", \"Angle\", \"Outline\", \"Shadow\", \"Spacing\", \"Blur\",\n]\n\nSTYLE_STR_FIELDS = [\n    \"Fontname\", \"PrimaryColour\", \"SecondaryColour\", \"OutlineColour\", \"BackColour\",\n    \"Alignment\"\n]\n\nALIGNMENTS = [str(x) for x in range(1, 10)]\n\nCOLORS = [\n    \"&H00FFFFFF\",  # white\n    \"&H00000000\",  # black\n    \"&H80FFFFFF\",  # semi-alpha white\n    \"&H00FF0000\",  # blue in BGR order used by ASS colours\n    \"&H0000FF00\",  # green\n    \"&H00FFFF00\",  # yellow\n]\n\nFONTS = [\n    \"Arial\", \"Times New Roman\", \"DejaVu Sans\", \"Liberation Serif\", \"Noto Sans\", \"Noto Serif\",\n    \"Comic Sans MS\", \"Courier New\"\n]\n\n# Build a variety of valid directive strings\n\ndef build_directive(r: random.Random) -> str:\n    kind = r.choice([\"script\", \"style_bool\", \"style_int\", \"style_float\", \"style_str\"])\n    if kind == \"script\":\n        name, gen = r.choice(PARAMS_SIMPLE)\n        return f\"{name}={gen(r)}\"\n    if kind == \"style_bool\":\n        field = r.choice(STYLE_BOOL_FIELDS)\n        return f\"Style.{field}={r.randint(0, 1)}\"\n    if kind == \"style_int\":\n        field = r.choice(STYLE_INT_FIELDS)\n        if field == \"BorderStyle\":\n            val = r.choice([1, 3])\n        elif field == \"Outline\":\n            val = r.randint(0, 6)\n        elif field == \"Shadow\":\n            val = r.randint(0, 6)\n        elif field == \"Spacing\":\n            val = r.randint(-5, 15)\n        else:\n            val = r.randint(0, 10)\n        return f\"Style.{field}={val}\"\n    if kind == \"style_float\":\n        field = r.choice(STYLE_FLOAT_FIELDS)\n        if field in (\"ScaleX\", \"ScaleY\"):\n            val = r.uniform(25.0, 300.0)\n        elif field == \"Angle\":\n            val = r.uniform(-180.0, 180.0)\n        elif field == \"Blur\":\n            val = r.uniform(0.0, 10.0)\n        else:\n            val = r.uniform(0.0, 10.0)\n        return f\"Style.{field}={val:.3f}\"\n    # style_str\n    field = r.choice(STYLE_STR_FIELDS)\n    if field == \"Fontname\":\n        return f\"Style.Fontname={r.choice(FONTS)}\"\n    if field.endswith(\"Colour\"):\n        return f\"Style.{field}={r.choice(COLORS)}\"\n    if field == \"Alignment\":\n        return f\"Style.Alignment={r.choice(ALIGNMENTS)}\"\n    return \"PlayResX=1280\"\n\n# Some pre-crafted interesting combos to maximize branch/feature coverage\nPRESETS = [\n    [\n        \"PlayResX=1280\", \"PlayResY=720\", \"WrapStyle=2\"\n    ],\n    [\n        \"Style.Fontname=Arial\", \"Style.Bold=1\", \"Style.Italic=0\"\n    ],\n    [\n        \"Style.Alignment=7\", \"Style.Outline=2\", \"Style.Shadow=3\"\n    ],\n    [\n        \"Timer=1.000\", \"ScaledBorderAndShadow=1\", \"Style.Blur=0.8\"\n    ],\n    [\n        \"Style.PrimaryColour=&H00FFFFFF\", \"Style.OutlineColour=&H00000000\", \"Style.BackColour=&H80000000\"\n    ],\n]\n\n# The stub reads up to 3 strings via FUZZ_PARAM_STR(). We'll serialize 1-3 lines\n# separated by newlines, so the fuzzer can split them consistently if it expects\n# raw strings. Since FUZZ_PARAM_STR returns independent strings, typical harnesses\n# take slices from the single fuzzer input buffer; providing newline-separated\n# entries keeps them independent yet simple.\n\n\ndef assemble_overrides(r: random.Random) -> List[str]:\n    # With some probability, choose a preset; otherwise synthesize random valid directives\n    if r.random() < 0.5:\n        preset = r.choice(PRESETS)\n        # Randomly perturb one value to add variety\n        if r.random() < 0.6:\n            i = r.randrange(len(preset))\n            preset = list(preset)\n            preset[i] = build_directive(r)\n        return preset[:3]\n    # Build 1-3 directives\n    n = r.randint(1, 3)\n    dirs = []\n    # Ensure at least one script-level and one style-level when possible\n    dirs.append(build_directive(r))\n    while len(dirs) < n:\n        dirs.append(build_directive(r))\n    return dirs[:3]\n\n\ndef serialize_strings(strs: List[str]) -> bytes:\n    # Join with newlines; typical fuzz frameworks will split or consume sequentially.\n    data = \"\\n\".join(strs)\n    b = data.encode(\"utf-8\")\n    if len(b) > 4096:\n        b = b[:4096]\n    return b\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    directives = assemble_overrides(r)\n    # Mix in probability of including fully-qualified vs non-prefixed parameters\n    # For script-level overrides, they already are unprefixed; for style-level, \"Style.\" is required.\n    return serialize_strings(directives)\n"
+    },
+    {
+      "data_type": "ASS/SSA subtitle text",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for valid ASS/SSA subtitle scripts as bytes.\n# Produces syntactically valid headers, styles, and events with variety.\n# Output limited to <= 4096 bytes.\n\nFONTS = [\n    \"Arial\", \"Times New Roman\", \"DejaVu Sans\", \"Noto Sans\", \"Noto Serif\",\n    \"Liberation Sans\", \"Comic Sans MS\", \"Tahoma\", \"Verdana\", \"Courier New\",\n]\nCOLORS = [\n    \"&H00FFFFFF\",  # white\n    \"&H00000000\",  # black\n    \"&H0000FFFF\",  # yellow\n    \"&H00FF0000\",  # blue\n    \"&H0000FF00\",  # green\n    \"&H00FF00FF\",  # magenta\n    \"&H0000A5FF\",  # orange-ish\n]\nALIGNMENTS = [1,2,3,4,5,6,7,8,9]\nBORDERS = [0, 0.5, 1, 2, 3, 4]\nSHADOWS = [0, 0.5, 1, 2, 3]\nBLURS = [0, 0.5, 1, 2, 3]\nWRAPS = [0, 1, 2, 3]\nSTYLES_V4P = (\n    \"Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,\" \\\n    \"Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,\" \\\n    \"Alignment,MarginL,MarginR,MarginV,Encoding\"\n)\nSTYLE_FMT = \"Style:{Name},{Fontname},{Fontsize},{PrimaryColour},{SecondaryColour},{OutlineColour},{BackColour},{Bold},{Italic},{Underline},{StrikeOut},{ScaleX},{ScaleY},{Spacing},{Angle},{BorderStyle},{Outline},{Shadow},{Alignment},{MarginL},{MarginR},{MarginV},{Encoding}\"\n\nEVENTS_FMT = \"Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\"\nDIALOGUE_FMT = \"Dialogue: {Layer},{Start},{End},{Style},{Name},{MarginL},{MarginR},{MarginV},{Effect},{Text}\"\n\n\ndef ms_to_ass(ts_ms: int) -> str:\n    if ts_ms < 0:\n        ts_ms = 0\n    h = ts_ms // 3600000\n    m = (ts_ms % 3600000) // 60000\n    s = (ts_ms % 60000) // 1000\n    cs = (ts_ms % 1000) // 10\n    return f\"{h}:{m:02d}:{s:02d}.{cs:02d}\"\n\n\ndef rand_color(rng: random.Random) -> str:\n    return rng.choice(COLORS)\n\n\ndef rand_text(rng: random.Random, max_len: int = 40) -> str:\n    pool = (\n        list(\"Hello 世界 — ♪ ♫ ☺ \") +\n        list(string.ascii_letters + string.digits + \" .,:;!?/\\\\-_()[]'\\\"\")\n    )\n    n = rng.randint(1, max_len)\n    return ''.join(rng.choice(pool) for _ in range(n)).strip()\n\n\ndef rand_effect(rng: random.Random) -> str:\n    choices = [\n        \"\",  # none\n        f\"karaoke;{rng.randint(100,2000)}\",\n        f\"banner;{rng.randint(0,10)};{rng.randint(20,60)};{rng.randint(1,5)}\",\n        f\"Scroll up;{rng.randint(1,100)};{rng.randint(200,400)}\",\n        f\"Scroll down;{rng.randint(1,100)};{rng.randint(200,400)}\",\n    ]\n    return rng.choice(choices)\n\n\ndef rand_inline_tags(rng: random.Random) -> str:\n    tags: List[str] = []\n    if rng.random() < 0.7:\n        tags.append(f\"\\\\fs{rng.randint(8,72)}\")\n    if rng.random() < 0.5:\n        tags.append(\"\\\\b1\")\n    if rng.random() < 0.3:\n        tags.append(\"\\\\i1\")\n    if rng.random() < 0.25:\n        tags.append(\"\\\\u1\")\n    if rng.random() < 0.2:\n        tags.append(\"\\\\s1\")\n    if rng.random() < 0.3:\n        tags.append(f\"\\\\an{rng.choice(ALIGNMENTS)}\")\n    if rng.random() < 0.4:\n        x1,y1 = rng.randint(0,1919), rng.randint(0,1079)\n        if rng.random() < 0.5:\n            tags.append(f\"\\\\pos({x1},{y1})\")\n        else:\n            x2,y2 = rng.randint(0,1919), rng.randint(0,1079)\n            t1,t2 = rng.randint(0,500), rng.randint(500,2000)\n            tags.append(f\"\\\\move({x1},{y1},{x2},{y2},{t1},{t2})\")\n    if rng.random() < 0.5:\n        tags.append(f\"\\\\1c{rand_color(rng)}\")\n    if rng.random() < 0.3:\n        tags.append(f\"\\\\2c{rand_color(rng)}\")\n    if rng.random() < 0.3:\n        tags.append(f\"\\\\3c{rand_color(rng)}\")\n    if rng.random() < 0.3:\n        tags.append(f\"\\\\4c{rand_color(rng)}\")\n    if rng.random() < 0.6:\n        tags.append(f\"\\\\bord{rng.choice(BORDERS)}\")\n    if rng.random() < 0.6:\n        tags.append(f\"\\\\shad{rng.choice(SHADOWS)}\")\n    if rng.random() < 0.5:\n        tags.append(f\"\\\\blur{rng.choice(BLURS)}\")\n    if rng.random() < 0.3:\n        tags.append(f\"\\\\frz{rng.randint(-180,180)}\")\n    if rng.random() < 0.3:\n        tags.append(f\"\\\\fscx{rng.randint(50,200)}\")\n    if rng.random() < 0.3:\n        tags.append(f\"\\\\fscy{rng.randint(50,200)}\")\n    if rng.random() < 0.35:\n        t1,t2 = rng.randint(0,200), rng.randint(200,1500)\n        inner = \"\\\\bord4\\\\shad2\\\\frz45\"\n        tags.append(f\"\\\\t({t1},{t2},{inner})\")\n    return \"{\" + ''.join(tags) + \"}\"\n\n\ndef rand_drawing(rng: random.Random) -> str:\n    cmds = []\n    x,y = rng.randint(0,100), rng.randint(0,100)\n    cmds.append(f\"m {x} {y}\")\n    for _ in range(rng.randint(2,6)):\n        if rng.random() < 0.7:\n            x += rng.randint(-30,30)\n            y += rng.randint(-30,30)\n            cmds.append(f\"l {x} {y}\")\n        else:\n            x1,y1 = x + rng.randint(-20,20), y + rng.randint(-20,20)\n            x2,y2 = x1 + rng.randint(-20,20), y1 + rng.randint(-20,20)\n            x3,y3 = x2 + rng.randint(-20,20), y2 + rng.randint(-20,20)\n            cmds.append(f\"b {x1} {y1} {x2} {y2} {x3} {y3}\")\n            x,y = x3,y3\n    scale = rng.choice([1,2,3,4])\n    return f\"{{\\\\p{scale}}}\" + ' '.join(cmds) + \"{\\\\p0}\"\n\n\ndef build_style(rng: random.Random, name: str) -> str:\n    font = rng.choice(FONTS)\n    fontsize = rng.randint(10, 72)\n    prim = rand_color(rng)\n    sec = rand_color(rng)\n    out = rand_color(rng)\n    back = rand_color(rng)\n    bold = -1 if rng.random() < 0.4 else 0\n    italic = -1 if rng.random() < 0.3 else 0\n    underline = -1 if rng.random() < 0.1 else 0\n    strike = -1 if rng.random() < 0.05 else 0\n    scalex = rng.randint(50, 150)\n    scaley = rng.randint(50, 150)\n    spacing = rng.randint(-2, 5)\n    angle = rng.randint(-45, 45)\n    bstyle = 3 if rng.random() < 0.2 else 1\n    outline = rng.choice(BORDERS)\n    shadow = rng.choice(SHADOWS)\n    align = rng.choice(ALIGNMENTS)\n    ml = rng.randint(0, 80)\n    mr = rng.randint(0, 80)\n    mv = rng.randint(0, 80)\n    enc = rng.choice([0, 1, 128, 204])\n    return STYLE_FMT.format(\n        Name=name,\n        Fontname=font,\n        Fontsize=fontsize,\n        PrimaryColour=prim,\n        SecondaryColour=sec,\n        OutlineColour=out,\n        BackColour=back,\n        Bold=bold,\n        Italic=italic,\n        Underline=underline,\n        StrikeOut=strike,\n        ScaleX=scalex,\n        ScaleY=scaley,\n        Spacing=spacing,\n        Angle=angle,\n        BorderStyle=bstyle,\n        Outline=outline,\n        Shadow=shadow,\n        Alignment=align,\n        MarginL=ml,\n        MarginR=mr,\n        MarginV=mv,\n        Encoding=enc,\n    )\n\n\ndef build_dialogue(rng: random.Random, styles: List[str], start_ms: int, dur_ms: int, layer: int = 0) -> str:\n    end_ms = start_ms + max(300, dur_ms)\n    style = rng.choice(styles)\n    name = \"\"\n    ml = f\"{rng.randint(0,20):02d}\"\n    mr = f\"{rng.randint(0,20):02d}\"\n    mv = f\"{rng.randint(0,20):02d}\"\n    effect = rand_effect(rng)\n\n    parts: List[str] = []\n    parts.append(rand_inline_tags(rng))\n    t = rand_text(rng, rng.randint(5, 30))\n    parts.append(t)\n    if rng.random() < 0.35:\n        parts.append(\"\\\\N\" + rand_text(rng, 20))\n    if rng.random() < 0.25:\n        parts.insert(0, \"{\\\\k\" + str(rng.randint(10, 200)) + \"}\")\n    if rng.random() < 0.2:\n        parts.append(rand_drawing(rng))\n\n    text = ''.join(parts)\n\n    return DIALOGUE_FMT.format(\n        Layer=layer,\n        Start=ms_to_ass(start_ms),\n        End=ms_to_ass(end_ms),\n        Style=style,\n        Name=name,\n        MarginL=ml,\n        MarginR=mr,\n        MarginV=mv,\n        Effect=effect,\n        Text=text,\n    )\n\n\ndef build_headers(rng: random.Random) -> List[str]:\n    lines: List[str] = []\n    lines.append(\"[Script Info]\")\n    lines.append(\"; Script generated for fuzz seed\")\n    lines.append(\"ScriptType: v4.00+\")\n    lines.append(f\"WrapStyle: {rng.choice(WRAPS)}\")\n    # Avoid f-string with list literal inside braces; choose first\n    yn = rng.choice([\"yes\", \"no\"])\n    lines.append(\"ScaledBorderAndShadow: \" + yn)\n    lines.append(f\"PlayResX: {rng.choice([640, 848, 960, 1280, 1440, 1920])}\")\n    lines.append(f\"PlayResY: {rng.choice([360, 480, 540, 720, 900, 1080])}\")\n    if rng.random() < 0.5:\n        lines.append(f\"YCbCr Matrix: {rng.choice(['None','BT.601','BT.709','BT.2020'])}\")\n    if rng.random() < 0.3:\n        lines.append(f\"Timer: {rng.uniform(0.8, 1.25):.3f}\")\n    lines.append(\"\")\n    return lines\n\n\ndef build_styles_section(rng: random.Random, n_styles: int) -> Tuple[List[str], List[str]]:\n    lines: List[str] = []\n    lines.append(\"[V4+ Styles]\")\n    lines.append(f\"Format: {STYLES_V4P}\")\n    style_names: List[str] = []\n    for i in range(n_styles):\n        name = f\"Style{i+1}\"\n        style_names.append(name)\n        lines.append(build_style(rng, name))\n    lines.append(\"\")\n    return lines, style_names\n\n\ndef build_events_section(rng: random.Random, style_names: List[str], n_events: int) -> List[str]:\n    lines: List[str] = []\n    lines.append(\"[Events]\")\n    lines.append(EVENTS_FMT)\n    t = 0\n    for _ in range(n_events):\n        dur = rng.randint(800, 4000)\n        if rng.random() < 0.5:\n            t += rng.randint(300, 1200)\n        else:\n            t += rng.randint(50, 300)\n        layer = rng.randint(0, 3)\n        lines.append(build_dialogue(rng, style_names, t, dur, layer))\n    lines.append(\"\")\n    return lines\n\n\ndef clamp_bytes(b: bytes, limit: int = 4096) -> bytes:\n    if len(b) <= limit:\n        return b\n    cut = b.rfind(b\"\\n\", 0, limit)\n    if cut == -1:\n        return b[:limit]\n    return b[:cut+1]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    n_styles = rng.randint(1, 5)\n    n_events = rng.randint(3, 20)\n\n    extra_sections: List[str] = []\n    if rng.random() < 0.3:\n        extra_sections.extend([\n            \"[Aegisub Project Garbage]\",\n            f\"Last Style Storage: {rng.choice(['Default','Storage1','Storage2'])}\",\n            f\"Audio File: {rng.choice(['?dummy:','audio.mp3','audio.ogg'])}\",\n            \"\",\n        ])\n    if rng.random() < 0.25:\n        extra_sections.extend([\n            \"[Fonts]\",\n            \"; Attachment names only, data not included\",\n            f\"fontname: {rng.choice(FONTS)}\",\n            \"\",\n        ])\n\n    lines: List[str] = []\n    lines += build_headers(rng)\n    styles_sec, style_names = build_styles_section(rng, n_styles)\n    lines += styles_sec\n    lines += extra_sections\n    lines += build_events_section(rng, style_names, n_events)\n\n    for _ in range(rng.randint(0, 4)):\n        lines.append(\"Comment: 0,0:00:00.00,0:00:01.00,{} ,,0000,0000,0000,,\".format(rng.choice(style_names)))\n    if rng.random() < 0.3:\n        lines.append(\"Dialogue: 0,0:00:01.00,0:00:03.00,{},,0000,0000,0000,,{{\\\\r}}\".format(rng.choice(style_names)))\n\n    text = \"\\n\".join(lines)\n    data = text.encode('utf-8', errors='strict')\n    return clamp_bytes(data, 4096)\n"
+    },
+    {
+      "data_type": "Matroska CodecPrivate blob",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator creates a Matroska CodecPrivate blob for SSA/ASS as used by libass.\n# In Matroska, CodecPrivate for ASS typically contains the script header and style\n# sections (text) in UTF-8, often as the full ASS header preceding events.\n# ass_process_codec_private() in libass accepts this data similarly to headers.\n# We generate valid-looking ASS header text with styles and info to exercise parsing.\n\nASS_INFO_TEMPLATES = [\n    {\n        \"name\": \"Default\",\n        \"fields\": {\n            \"ScriptType\": \"v4.00+\",\n            \"PlayResX\": \"%d\",\n            \"PlayResY\": \"%d\",\n            \"WrapStyle\": \"%d\",\n            \"ScaledBorderAndShadow\": \"%d\",\n            \"YCbCr Matrix\": \"%s\",\n        },\n    },\n    {\n        \"name\": \"Minimal\",\n        \"fields\": {\n            \"ScriptType\": \"v4.00+\",\n            \"PlayResX\": \"%d\",\n            \"PlayResY\": \"%d\",\n            \"WrapStyle\": \"%d\",\n        },\n    },\n]\n\nYCbCr_MATS = [\"\", \"TV.601\", \"BT.709\", \"PC.601\", \"PC.709\", \"TV.2020nc\", \"BT.2020nc\"]\nALIGNMENTS = [1,2,3,4,5,6,7,8,9]\n\n# Generate a single Style line in ASS [V4+ Styles]\n# Format: Style: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,\n#         Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,\n#         Alignment,MarginL,MarginR,MarginV,Encoding\n\ndef make_color_aarrggbb(a: int, r: int, g: int, b: int) -> str:\n    # ASS colors are in &HAABBGGRR or &HBBGGRR? In ASS, color tags are &HAABBGGRR (BGR order) for VSFilter.\n    # However in style lines they are in &HAABBGGRR as well. We'll use AABBGGRR to be safe with common readers.\n    # Convert inputs to bytes and arrange as AABBGGRR hex without 0x, prefixed by &H.\n    aa = a & 0xFF\n    rr = r & 0xFF\n    gg = g & 0xFF\n    bb = b & 0xFF\n    # AABBGGRR\n    val = (aa << 24) | (bb << 16) | (gg << 8) | rr\n    return f\"&H{val:08X}\"\n\nFONTS = [\n    \"Arial\", \"Times New Roman\", \"DejaVu Sans\", \"Noto Sans\", \"Noto Serif\",\n    \"Liberation Sans\", \"Comic Sans MS\", \"Verdana\", \"Helvetica\", \"Fira Sans\"\n]\n\nFAMILIES = [\"Default\", \"Alt\", \"CJK\", \"Mono\", \"Subtle\", \"Heavy\"]\n\n\ndef rand_bool(r: random.Random) -> int:\n    return 1 if r.random() < 0.5 else 0\n\n\ndef make_style(r: random.Random, name: str) -> str:\n    font = r.choice(FONTS)\n    size = r.randint(8, 64)\n    # Favor visible contrasting colors\n    pr = r.randint(200, 255)\n    pg = r.randint(200, 255)\n    pb = r.randint(200, 255)\n    sr = 255 - pr // 2\n    sg = 255 - pg // 2\n    sb = 255 - pb // 2\n    # Alpha: 0x00 opaque, 0xFF fully transparent; primary usually opaque\n    primary = make_color_aarrggbb(0x00, pr, pg, pb)\n    secondary = make_color_aarrggbb(0x00, pr, pg, pb)\n    outline = make_color_aarrggbb(r.randint(0, 0x20), 0, 0, 0)\n    back = make_color_aarrggbb(r.randint(0, 0x40), sr, sg, sb)\n\n    bold = -1 if rand_bool(r) else 0\n    italic = -1 if rand_bool(r) else 0\n    underline = -1 if rand_bool(r) else 0\n    strikeout = -1 if rand_bool(r) else 0\n    scale_x = r.choice([50, 75, 100, 120, 150])\n    scale_y = r.choice([50, 75, 100, 120, 150])\n    spacing = r.choice([0, 0.5, -0.5, 1.0, -1.0])\n    angle = r.choice([0, 5, -5, 15, -15, 30])\n    border_style = r.choice([1, 3])  # 1=Outline + drop shadow, 3=Opaque box\n    outline_w = r.uniform(0.0, 6.0)\n    shadow = r.uniform(0.0, 6.0)\n    alignment = r.choice(ALIGNMENTS)\n    ml = r.randint(0, 40)\n    mr = r.randint(0, 40)\n    mv = r.randint(0, 40)\n    encoding = r.choice([0, 1, 2, 3, 128, 134])\n\n    return (\n        f\"Style: {name},{font},{size},{primary},{secondary},{outline},{back},\"\n        f\"{bold},{italic},{underline},{strikeout},{scale_x},{scale_y},{spacing},{angle},\"\n        f\"{border_style},{outline_w:.2f},{shadow:.2f},{alignment},{ml:03d},{mr:03d},{mv:03d},{encoding}\"\n    )\n\n\ndef make_styles_section(r: random.Random) -> str:\n    # Field order must match Format line for v4+ styles\n    fmt = (\n        \"Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,\"\n        \"Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,\"\n        \"Alignment,MarginL,MarginR,MarginV,Encoding\"\n    )\n    n = r.randint(1, 4)\n    names = [\n        \"Default\",\n        \"Alt\",\n        f\"{r.choice(FAMILIES)}{r.randint(1,99)}\",\n        \"Mono\",\n    ]\n    r.shuffle(names)\n    styles = [make_style(r, names[i]) for i in range(n)]\n    return \"[V4+ Styles]\\r\\n\" + fmt + \"\\r\\n\" + \"\\r\\n\".join(styles) + \"\\r\\n\"\n\n\ndef make_events_section(r: random.Random) -> str:\n    # Only headers for events; actual events usually go to ass_process_chunk()\n    fmt = (\n        \"Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\"\n    )\n    return \"[Events]\\r\\n\" + fmt + \"\\r\\n\"\n\n\ndef make_info_section(r: random.Random) -> str:\n    t = r.choice(ASS_INFO_TEMPLATES)\n    w = r.choice([640, 704, 720, 800, 854, 960, 1024, 1280, 1440, 1920])\n    h = r.choice([360, 400, 404, 480, 576, 720, 800, 1080])\n    wrap = r.choice([0, 1, 2, 3])\n    scaled = r.choice([0, 1])\n    ycbcr = r.choice(YCbCr_MATS)\n\n    lines: List[str] = [\"[Script Info]\"]\n    # Mandatory or common lines\n    lines.append(\"; Script generated by generator\")\n    fields = t[\"fields\"]\n    for key, fmtv in fields.items():\n        if fmtv == \"%d\":\n            if key == \"PlayResX\":\n                val = w\n            elif key == \"PlayResY\":\n                val = h\n            elif key == \"WrapStyle\":\n                val = wrap\n            elif key == \"ScaledBorderAndShadow\":\n                val = scaled\n            else:\n                val = 0\n            lines.append(f\"{key}: {val}\")\n        elif fmtv == \"%s\":\n            val = ycbcr\n            if val:\n                lines.append(f\"{key}: {val}\")\n        else:\n            lines.append(f\"{key}: {fmtv}\")\n\n    # Add some optional metadata\n    if r.random() < 0.7:\n        lines.append(f\"Title: Sample {w}x{h}\")\n    if r.random() < 0.7:\n        lines.append(\"Original Script: Unknown\")\n    if r.random() < 0.7:\n        lines.append(\"ScriptType: v4.00+\")\n\n    return \"\\r\\n\".join(lines) + \"\\r\\n\"\n\n\ndef make_fonts_section(r: random.Random) -> str:\n    # Attachments header without actual binary font data; valid as header lines\n    if r.random() < 0.4:\n        lines = [\"[Fonts]\"]\n        n = r.randint(1, 2)\n        for i in range(n):\n            name = r.choice(FONTS)\n            fam = r.choice(FAMILIES)\n            lines.append(f\"fontname: {name}\")\n            lines.append(f\"family: {fam}\")\n        return \"\\r\\n\".join(lines) + \"\\r\\n\"\n    return \"\"\n\n\ndef build_codecprivate_text(r: random.Random) -> str:\n    parts = [\n        make_info_section(r),\n        make_styles_section(r),\n        make_events_section(r),\n        make_fonts_section(r),\n    ]\n    text = \"\\r\\n\".join(p for p in parts if p)\n    # Ensure size limit\n    if len(text.encode(\"utf-8\")) > 2000:\n        # Truncate optional part\n        text = text[:2000]\n        # Ensure ends with CRLF boundary\n        if not text.endswith(\"\\r\\n\"):\n            text = text.rsplit(\"\\r\\n\", 1)[0] + \"\\r\\n\"\n    return text\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    text = build_codecprivate_text(r)\n    # Return UTF-8 bytes suitable for ass_process_codec_private()\n    return text.encode(\"utf-8\")\n"
+    },
+    {
+      "data_type": "Matroska subtitle packet",
+      "generator": "import random\nimport struct\nimport time\n\n# Generator for Matroska (Matroska/ASS) subtitle packet used by ass_process_chunk\n# Libass expects the buffer to contain exactly one event payload in Matroska packet format.\n# In practice for S_TEXT/ASS and S_TEXT/SSA, Matroska stores the event text line almost\n# verbatim (UTF-8), optionally with a ReadOrder prefix separated by a comma. Some muxers\n# also include a \"Format:\"-compatible Dialogue line. Libass accepts the common payloads:\n# - Pure ASS override/text (e.g., \"{\\an7}Hello\")\n# - Full SSA/ASS Dialogue line without timing fields (muxer-specific)\n# - ReadOrder prefix: \"<readorder>,<Layer>,<Style>,<Name>,<MarginL>,<MarginR>,<MarginV>,<Effect>,<Text>\"\n#\n# This generator focuses on producing valid, reasonable packets for libass to parse:\n# - UTF-8 text strings with ASS override tags and various content features.\n# - Optional ReadOrder and field-prefix variants to explore different parse paths.\n# - Keeps size <= 2048 (the fuzzer clamps to 2048); we stay under 1 KiB.\n# - Avoid binary/null bytes that could terminate C-strings early.\n\nASS_STYLES = [\n    \"Default\", \"Alt\", \"Mono\", \"Serif\", \"Sans\", \"Subtitle\", \"Comment\"\n]\n\nASS_EFFECTS = [\n    \"\",  # no effect\n    \"Scroll up;10;20;2\",  # SSA effect syntax\n    \"Scroll down;5;0;0\",\n    \"Banner;10;1;20\",\n]\n\n# Some override tag combinations to exercise different rendering code paths\nTAG_SNIPPETS = [\n    \"{\\\\b1}\",\n    \"{\\\\i1}\",\n    \"{\\\\u1}\",\n    \"{\\\\s1}\",\n    \"{\\\\fs24}\",\n    \"{\\\\fs8}\",\n    \"{\\\\fs72}\",\n    \"{\\\\bord2}\",\n    \"{\\\\shad3}\",\n    \"{\\\\1c&H00FF00&}\",  # primary color green\n    \"{\\\\2c&HFF0000&}\",\n    \"{\\\\3c&H0000FF&}\",\n    \"{\\\\4c&H808080&}\",\n    \"{\\\\alpha&H80&}\",\n    \"{\\\\an7}\",\n    \"{\\\\an2}\",\n    \"{\\\\pos(320,240)}\",\n    \"{\\\\move(10,10,620,460,0,5000)}\",\n    \"{\\\\fad(200,200)}\",\n    \"{\\\\blur3.0}\",\n]\n\n# Some sample text pieces, including RTL and combining marks to exercise shaping\nTEXT_SNIPPETS = [\n    \"Hello, world!\",\n    \"The quick brown fox jumps over the lazy dog.\",\n    \"0123456789\", \"Symbols !@#$%^&*()[]{};:'\\\",.<>/?\",\n    \"Café naïve façade coöperate – — …\",\n    \"日本語の字幕テスト\",\n    \"한글 자막 테스트\",\n    \"Привет мир\",\n    \"مرحبا بالعالم\",  # Arabic RTL\n    \"हिंदी उपशीर्षक\",\n    \"Emoji 😀😅🔥🎬📝\",\n]\n\n# Utility to build a text with tags and line breaks\n\ndef build_ass_text(rng: random.Random) -> str:\n    # Compose multiple segments with optional tags\n    segments = []\n    n_segments = rng.randint(1, 4)\n    for _ in range(n_segments):\n        # choose 0-3 tags for variety\n        tags = \"\".join(rng.sample(TAG_SNIPPETS, rng.randint(0, 3)))\n        txt = rng.choice(TEXT_SNIPPETS)\n        segments.append(f\"{tags}{txt}\")\n    # Occasionally include explicit line breaks\n    if rng.random() < 0.4:\n        sep = \"\\\\N\" if rng.random() < 0.7 else \"\\\\n\"\n        return sep.join(segments)\n    else:\n        return \" \".join(segments)\n\n\ndef clamp_len(s: str, max_len: int = 1000) -> str:\n    if len(s.encode('utf-8')) <= max_len:\n        return s\n    # Truncate on character boundary\n    out = []\n    total = 0\n    for ch in s:\n        b = ch.encode('utf-8')\n        if total + len(b) > max_len:\n            break\n        out.append(ch)\n        total += len(b)\n    return \"\".join(out)\n\n\ndef build_readorder_packet(rng: random.Random) -> str:\n    # Matroska S_TEXT/ASS with ReadOrder prefix example:\n    # \"<ReadOrder>,<Layer>,<Style>,<Name>,<MarginL>,<MarginR>,<MarginV>,<Effect>,<Text>\"\n    readorder = str(rng.randrange(0, 1_000_000))\n    layer = str(rng.randrange(-5, 10))\n    style = rng.choice(ASS_STYLES)\n    name = \"\"  # usually empty\n    ml = f\"{rng.randrange(0, 40):d}\"\n    mr = f\"{rng.randrange(0, 40):d}\"\n    mv = f\"{rng.randrange(0, 60):d}\"\n    effect = rng.choice(ASS_EFFECTS)\n    text = build_ass_text(rng)\n    fields = [readorder, layer, style, name, ml, mr, mv, effect, text]\n    # Ensure no stray newlines; Matroska packet is a single line of UTF-8\n    payload = \",\".join(fields)\n    return clamp_len(payload)\n\n\ndef build_plain_text_packet(rng: random.Random) -> str:\n    # Plain ASS text payload (common for S_TEXT/ASS without ReadOrder)\n    return clamp_len(build_ass_text(rng))\n\n\ndef build_dialogue_like_packet(rng: random.Random) -> str:\n    # Some muxers store a Dialogue-like line but omit timing that is carried by container\n    # Format similar to SSA/ASS Dialogue:\n    # Dialogue: Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n    layer = str(rng.randrange(0, 10))\n    style = rng.choice(ASS_STYLES)\n    name = \"\"\n    ml = f\"{rng.randrange(0, 40):d}\"\n    mr = f\"{rng.randrange(0, 40):d}\"\n    mv = f\"{rng.randrange(0, 60):d}\"\n    effect = rng.choice(ASS_EFFECTS)\n    text = build_ass_text(rng)\n    line = f\"Dialogue: {layer},{style},{name},{ml},{mr},{mv},{effect},{text}\"\n    return clamp_len(line)\n\n\nVARIANTS = [\n    build_plain_text_packet,\n    build_readorder_packet,\n    build_dialogue_like_packet,\n]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a variant, with higher weight for the most common forms\n    choice_weights = [0.5, 0.3, 0.2]\n    r = rng.random()\n    if r < choice_weights[0]:\n        builder = VARIANTS[0]\n    elif r < choice_weights[0] + choice_weights[1]:\n        builder = VARIANTS[1]\n    else:\n        builder = VARIANTS[2]\n\n    payload = builder(rng)\n\n    # Ensure UTF-8 and length within fuzzer cap (2048); keep a safety margin\n    data = payload.encode('utf-8')[:1024]\n    # Guarantee non-empty; libass handles empty packets but non-empty is more interesting\n    if not data:\n        data = b\"Hi\"\n    return data\n"
+    },
+    {
+      "data_type": "text encoding name",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for valid and interesting iconv-compatible encoding names\n# to feed into FUZZ_PARAM_STR in stubs that expect a codepage string.\n# FUZZ_PARAM_FILENAME is handled by the harness; we only return a bytes\n# buffer which the harness can use either as file content (ass_read_memory)\n# or as path source when it mirrors into a temp file. Our goal is to\n# provide valid subtitle text buffers alongside plausible codepage names.\n\n# We will create an Advanced SubStation Alpha (ASS) subtitle text with:\n# - Required headers: [Script Info], [V4+ Styles], [Events]\n# - A few Styles exercising font/size/border/colors/alignment\n# - Dialogue lines with formatting tags, different alignments, and unicode\n#   so that encodings matter.\n# This content should successfully parse via ass_read_memory and also be\n# suitable to be written to a file for ass_read_file.\n\n# We also embed a leading UTF-8 BOM sometimes, and sometimes choose a\n# codepage other than UTF-8 to encourage different iconv paths. However,\n# the text is valid UTF-8 to keep it parseable when UTF-8 is chosen. For\n# legacy encodings, iconv typically treats bytes as is; since the content\n# is ASCII for non-unicode parts plus some UTF-8 sequences, it may fail in\n# strict legacy encodings. To keep inputs valid, we conditionally omit\n# non-ASCII characters when selecting a narrow legacy encoding.\n\n\ndef _encodings_catalog() -> List[str]:\n    # Use names that are recognized by Python's codec registry to avoid\n    # LookupError during encoding. These also map well to common iconv names.\n    return [\n        # Unicode family\n        \"utf-8\", \"utf8\", \"utf-16le\", \"utf-16be\", \"utf-32le\", \"utf-32be\",\n        # Western\n        \"iso-8859-1\", \"iso-8859-15\", \"cp1252\", \"windows-1252\", \"mac-roman\",\n        # Central/Eastern Europe\n        \"iso-8859-2\", \"cp1250\",\n        # Cyrillic\n        \"iso-8859-5\", \"koi8-r\", \"cp1251\",\n        # Greek\n        \"iso-8859-7\", \"cp1253\",\n        # Turkish\n        \"iso-8859-9\", \"cp1254\",\n        # Arabic/Hebrew\n        \"iso-8859-6\", \"cp1256\", \"iso-8859-8\", \"cp1255\",\n        # East Asia\n        \"shift_jis\", \"sjis\", \"euc_jp\", \"gb18030\", \"gbk\", \"big5\",\n        # Misc\n        \"ascii\",\n    ]\n\n\ndef _pick_codepage(rng: random.Random) -> str:\n    encs = _encodings_catalog()\n    # Weighted towards UTF-8 to maximize validity, but still explore others\n    weights = [\n        8 if e in (\"utf-8\", \"utf8\") else 3 if e.startswith(\"utf-\") else 1\n        for e in encs\n    ]\n    return rng.choices(encs, weights=weights, k=1)[0]\n\n\ndef _ass_header(rng: random.Random, ascii_only: bool) -> str:\n    # Randomized script info values within sane ranges\n    play_res_x = rng.choice([640, 704, 720, 800, 848, 960, 1024, 1280, 1366, 1440, 1920])\n    play_res_y = rng.choice([360, 400, 404, 480, 540, 600, 720, 800, 900, 1080])\n    wrap_style = rng.choice([0, 1, 2, 3])\n    scaled_border = rng.choice([\"yes\", \"no\"])\n\n    title = \"Sample ASS\"\n\n    lines = [\n        \"[Script Info]\",\n        f\"; Generated by seed fuzz input\",\n        f\"Title: {title}\",\n        \"ScriptType: v4.00+\",\n        f\"WrapStyle: {wrap_style}\",\n        f\"ScaledBorderAndShadow: {scaled_border}\",\n        f\"PlayResX: {play_res_x}\",\n        f\"PlayResY: {play_res_y}\",\n        \"YCbCr Matrix: TV.709\",\n        \"\",\n    ]\n    # Styles\n    align = rng.choice([1,2,3,4,5,6,7,8,9])\n    fontname = \"Arial\" if ascii_only else rng.choice([\"Arial\", \"DejaVu Sans\", \"Noto Sans\", \"Times New Roman\"])  # keep ASCII-safe font names\n    primary = rng.choice([\"&H00FFFFFF\", \"&H00FFAA00\", \"&H0000FFFF\", \"&H00777777\"])  # BGR with alpha in ASS\n    outline = rng.uniform(0.5, 4.0)\n    shadow = rng.uniform(0.0, 3.0)\n    scale_x = rng.choice([90, 100, 120])\n    scale_y = rng.choice([90, 100, 120])\n    border_style = rng.choice([1, 3])\n\n    styles = [\n        \"[V4+ Styles]\",\n        \"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\",\n        f\"Style: Default,{fontname},48,{primary},&H000000FF,&H00000000,&H64000000,0,0,0,0,{scale_x},{scale_y},0,0,{border_style},{outline:.2f},{shadow:.2f},{align},10,10,10,1\",\n        f\"Style: Big,Arial,64,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2.00,1.00,2,20,20,30,1\",\n        f\"Style: Mono,DejaVu Sans Mono,36,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,1.00,0.00,7,15,15,15,1\",\n        \"\",\n    ]\n\n    # Events header\n    events = [\n        \"[Events]\",\n        \"Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\",\n    ]\n\n    # Build some dialogue lines\n    def ts(ms: int) -> str:\n        h = ms // 3600000\n        ms %= 3600000\n        m = ms // 60000\n        ms %= 60000\n        s = ms // 1000\n        cs = (ms % 1000) // 10\n        return f\"{h:d}:{m:02d}:{s:02d}.{cs:02d}\"\n\n    t0 = 0\n    for i in range(rng.randint(3, 6)):\n        start = t0 + rng.randint(0, 1500)\n        end = start + rng.randint(1500, 6000)\n        style = rng.choice([\"Default\", \"Big\", \"Mono\"]) \n        name = \"\"\n        ml = rng.choice([0, 10, 20])\n        mr = rng.choice([0, 10, 20])\n        mv = rng.choice([10, 20, 30])\n        eff = \"\"\n        # Text content: mix of ascii and optional unicode, with ASS tags\n        ascii_texts = [\n            \"Hello, world!\",\n            \"This is a test.\",\n            \"{\\\\i1}Italic{\\\\i0} and {\\\\b1}bold{\\\\b0}.\",\n            \"{\\\\an8}Top aligned.\",\n            \"{\\\\pos(320,240)}Positioned text.\",\n            \"{\\\\blur2}Blurred text{\\\\blur0}\",\n            \"{\\\\bord3}{\\\\shad2}Border and shadow{\\\\r}.\",\n        ]\n        unicode_snippets = [\n            \" Privet\",     # Latin transliteration to avoid codec issues\n            \" Konnichiwa\",\n            \" Marhaba\",\n            \" Shalom\",\n            \" Geia\",\n            \" ¡Hola!\",\n            \" Czesc\",\n            \" Zhongwen\",\n        ]\n        text = rng.choice(ascii_texts)\n        if not ascii_only and rng.random() < 0.8:\n            text += rng.choice(unicode_snippets)\n        events.append(\n            f\"Dialogue: 0,{ts(start)},{ts(end)},{style},{name},{ml},{mr},{mv},{eff},{text}\"\n        )\n        t0 = end\n\n    return \"\\r\\n\".join(lines + styles + events) + \"\\r\\n\"\n\n\ndef _maybe_bom(rng: random.Random, codepage: str) -> bytes:\n    up = codepage.upper()\n    if up in (\"UTF-8\", \"UTF8\") and rng.random() < 0.5:\n        return b\"\\xEF\\xBB\\xBF\"\n    if up == \"UTF-16LE\" and rng.random() < 0.8:\n        return b\"\\xFF\\xFE\"\n    if up == \"UTF-16BE\" and rng.random() < 0.8:\n        return b\"\\xFE\\xFF\"\n    return b\"\"\n\n\ndef _encode_text(s: str, codepage: str, rng: random.Random) -> bytes:\n    # Try encode with fallback strategies to keep it valid\n    try:\n        return s.encode(codepage, errors=\"strict\")\n    except Exception:\n        # If strict fails (e.g., legacy encoding), degrade by replacing\n        # non-ASCII with '?', ensuring parsing still succeeds.\n        ascii_safe = s.encode(\"ascii\", errors=\"ignore\").decode(\"ascii\")\n        try:\n            return ascii_safe.encode(codepage, errors=\"ignore\")\n        except Exception:\n            # Final fallback: encode as UTF-8 to ensure we always return bytes\n            return ascii_safe.encode(\"utf-8\", errors=\"ignore\")\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a codepage and embed it at the start as a hint line that\n    # is safely ignored by the ASS parser (comment). The fuzz harness\n    # independently supplies the codepage string argument from FUZZ_PARAM_STR,\n    # but having it in the file content is harmless.\n    codepage = _pick_codepage(rng)\n    ascii_only = codepage.upper() not in (\n        \"UTF-8\", \"UTF8\", \"UTF-16LE\", \"UTF-16BE\", \"UTF-32LE\", \"UTF-32BE\", \"GB18030\", \"GBK\", \"BIG5\"\n    )\n\n    body = _ass_header(rng, ascii_only)\n    # Prepend a comment noting the intended encoding for clarity\n    comment = f\"; codepage={codepage}\\r\\n\"\n    text = comment + body\n\n    bom = _maybe_bom(rng, codepage)\n    payload = _encode_text(text, codepage, rng)\n\n    out = bom + payload\n    if len(out) > 4096:\n        out = out[:4096]\n    return out"
+    },
+    {
+      "data_type": "generic binary blob",
+      "generator": "import random\nimport struct\nimport zlib\n\n# This generator focuses on producing valid-ish font file bytes suitable for ass_add_font,\n# which expects in-memory font data. We generate several realistic TrueType/OpenType variants:\n# - Minimal TrueType (sfnt) with a single table (name) and correct checksums\n# - TTF with head/maxp/cmap/name tables\n# - OpenType CFF-based stub (OTTO header) with dummy CFF data\n# - WOFF/WOFF2 shells pointing to sfnt payload (libass likely won’t parse these directly,\n#   but they are valid fonts in general)\n# - Embedded font collections (TTC) with 1-2 faces referencing shared tables\n# All outputs kept <= 2048 bytes by construction.\n\n# Helpers\n\ndef be32(x):\n    return struct.pack(\">I\", x & 0xFFFFFFFF)\n\ndef be16(x):\n    return struct.pack(\">H\", x & 0xFFFF)\n\ndef be16s(x):\n    return struct.pack(\">h\", x & 0xFFFF if x >= 0 else (x + (1 << 16)))\n\ndef pad4(data: bytes) -> bytes:\n    pad = (-len(data)) & 3\n    return data + (b\"\\0\" * pad)\n\n# TrueType checksum algorithm (sum of 32-bit big-endian words, overflow wraps)\n\ndef ttf_checksum(data: bytes) -> int:\n    # Pad to multiple of 4 for checksum calculation\n    d = pad4(data)\n    s = 0\n    for i in range(0, len(d), 4):\n        s = (s + struct.unpack(\">I\", d[i:i+4])[0]) & 0xFFFFFFFF\n    return s\n\n# Build a minimal TrueType font with given set of tables\n\ndef build_ttf(tables: dict) -> bytes:\n    # tables: tag -> bytes\n    # Compute table directory\n    numTables = len(tables)\n    # searchRange, entrySelector, rangeShift per spec\n    maxPow2 = 1\n    entrySelector = 0\n    while (maxPow2 * 2) <= numTables:\n        maxPow2 *= 2\n        entrySelector += 1\n    searchRange = maxPow2 * 16\n    rangeShift = numTables * 16 - searchRange\n\n    # Placeholder head table checkSumAdjustment set to 0 first\n    tbl_bytes = {}\n    for tag, data in tables.items():\n        tbl_bytes[tag] = data\n\n    # Build directory with offsets after header + directory\n    offset = 12 + numTables * 16\n    records = []\n    contents = b\"\"\n    for tag in sorted(tbl_bytes.keys()):\n        data = tbl_bytes[tag]\n        data_padded = pad4(data)\n        checksum = ttf_checksum(data)\n        records.append((tag.encode(\"ascii\"), checksum, offset, len(data)))\n        contents += data_padded\n        offset += len(data_padded)\n\n    sfnt_version = 0x00010000\n    header = be32(sfnt_version) + be16(numTables) + be16(searchRange) + be16(entrySelector) + be16(rangeShift)\n    directory = b\"\".join([tag + be32(chk) + be32(off) + be32(length) for (tag, chk, off, length) in records])\n    font = header + directory + contents\n\n    # Fix checkSumAdjustment in head table if present\n    # checkSumAdjustment set so that total checksum of the font equals 0xB1B0AFBA\n    if b\"head\" in [r[0] for r in records]:\n        # locate head offset and length\n        head_off = head_len = None\n        idx = [r[0] for r in records].index(b\"head\")\n        _, _, head_off, head_len = records[idx]\n        # set adjustment to 0 temporarily\n        font = bytearray(font)\n        # checkSumAdjustment is at offset 8 within head\n        adj_pos = head_off + 8\n        font[adj_pos:adj_pos+4] = b\"\\x00\\x00\\x00\\x00\"\n        whole_sum = ttf_checksum(bytes(font))\n        adj = (0xB1B0AFBA - whole_sum) & 0xFFFFFFFF\n        font[adj_pos:adj_pos+4] = be32(adj)\n        font = bytes(font)\n\n    return font\n\n# Build simple name table\n\ndef build_name_table(strings: dict) -> bytes:\n    # strings: nameID -> str, platform=3, encoding=1, language=0x0409\n    name_records = []\n    string_storage = b\"\"\n    for nameID, s in strings.items():\n        # UTF-16BE per platform 3 encoding 1\n        enc = s.encode(\"utf-16-be\")\n        name_records.append((3, 1, 0x0409, nameID, len(enc), len(string_storage)))\n        string_storage += enc\n    count = len(name_records)\n    # format 0\n    header = be16(0) + be16(count) + be16(6 + count * 12)\n    recs = b\"\".join([be16(pl) + be16(enc) + be16(lang) + be16(nid) + be16(length) + be16(offset)\n                      for (pl, enc, lang, nid, length, offset) in name_records])\n    return header + recs + string_storage\n\n# Build minimal head table\n\ndef build_head_table(units_per_em=1000) -> bytes:\n    # version, fontRevision, checkSumAdjustment, magicNumber, flags, unitsPerEm, created, modified,\n    # xMin, yMin, xMax, yMax, macStyle, lowestRecPPEM, fontDirectionHint, indexToLocFormat, glyphDataFormat\n    data = b\"\".join([\n        be32(0x00010000),  # version\n        be32(0x00010000),  # fontRevision\n        be32(0),           # checkSumAdjustment (to be filled later)\n        be32(0x5F0F3CF5),  # magicNumber\n        be16(0),           # flags\n        be16(units_per_em),\n        be32(0), be32(0),  # created\n        be32(0), be32(0),  # modified\n        be16s(0), be16s(0), be16s(1000), be16s(1000),  # bbox\n        be16(0),           # macStyle\n        be16(8),           # lowestRecPPEM\n        be16(2),           # fontDirectionHint\n        be16(0),           # indexToLocFormat (0 for short; no glyf/loca here but okay)\n        be16(0),           # glyphDataFormat\n    ])\n    return data\n\n# Build minimal maxp table\n\ndef build_maxp_table(num_glyphs=1) -> bytes:\n    return be32(0x00010000) + be16(num_glyphs) + b\"\\x00\" * (32 - 6)  # size 32 bytes for version 1.0 with zeros\n\n# Build minimal cmap table (format 4 stub mapping ASCII subset)\n\ndef build_cmap_table():\n    # platform 3 encoding 1 -> one subtable\n    # We'll provide a tiny format 4 with empty ranges (valid minimal)\n    # For simplicity, construct a format 4 with one segment (end=0xFFFF, start=0xFFFF)\n    segCount = 1\n    segCountX2 = segCount * 2\n    searchRange = 2\n    entrySelector = 0\n    rangeShift = segCountX2 - searchRange\n    endCode = be16(0xFFFF)\n    startCode = be16(0xFFFF)\n    idDelta = be16(1)\n    idRangeOffset = be16(0)\n    subtable = b\"\".join([\n        be16(4),                 # format\n        be16(24),                # length\n        be16(0),                 # language\n        be16(segCountX2), be16(searchRange), be16(entrySelector), be16(rangeShift),\n        endCode,\n        be16(0),                 # reservedPad\n        startCode,\n        idDelta,\n        idRangeOffset,\n    ])\n    # cmap header and encoding record\n    header = be16(0) + be16(1)  # version=0, numTables=1\n    encodingRecord = be16(3) + be16(1) + be32(12)  # platform 3, encoding 1, offset to subtable\n    return header + encodingRecord + subtable\n\n# Build minimal CFF table (very small dummy; not parsed deeply by libass)\n\ndef build_cff_dummy():\n    # This is a simplistic CFF with header and empty name/index structures; sufficient for many parsers.\n    # CFF Header: major=1 minor=0 hdrSize=4 offSize=1\n    cff = bytearray(b\"\\x01\\x00\\x04\\x01\")\n    # Name INDEX with one entry name \"F\": count=1, offSize=1, offsets [1,2], data b\"F\"\n    cff += b\"\\x00\\x01\\x01\\x01\\x02F\"\n    # Top DICT INDEX with one empty dict: count=1, offSize=1, offsets [1,1]\n    cff += b\"\\x00\\x01\\x01\\x01\\x01\"\n    # String INDEX empty: count=0\n    cff += b\"\\x00\\x00\"\n    # Global Subr INDEX empty: count=0\n    cff += b\"\\x00\\x00\"\n    return bytes(cff)\n\n# Build WOFF wrapper around an sfnt payload\n\ndef build_woff(sfnt: bytes, flavor=0x00010000) -> bytes:\n    # Very small WOFF with whole sfnt as a single transformed table is not allowed; must be individual tables.\n    # For simplicity, wrap sfnt as a WOFF with 0 tables is invalid; instead produce pass-through with copy of records\n    # Here, we synthesize a minimal WOFF with one table named 'name'\n    # If sfnt contains a 'name' table, extract it; otherwise, synthesize.\n    # For simplicity for size, we compress the whole sfnt into one table tagged 'name'. Some consumers accept it; strict ones may not.\n    comp = zlib.compress(sfnt)\n    numTables = 1\n    totalSfntSize = len(sfnt)\n    header = b\"WOFF\" + be32(flavor) + be32(len(comp) + 44 + 20) + be16(numTables) + be16(0)\n    header += be32(44 + 20)  # totalSfntSize (fake minimal directory)\n    header += be16(1) + be16(0)  # major/minor\n    header += be32(0) + be32(0)  # metaOffset/Length\n    header += be32(0) + be32(0)  # privOffset/Length\n    # One table directory entry: tag 'name'\n    tag = b\"name\"\n    offset = 44 + 20\n    compLen = len(comp)\n    origLen = len(sfnt)\n    checksum = ttf_checksum(sfnt)\n    entry = tag + be32(offset) + be32(compLen) + be32(origLen) + be32(checksum)\n    body = comp\n    return header + entry + body\n\n# Build TTC with 1-2 fonts sharing tables (very minimal; many parsers accept single font in TTC)\n\ndef build_ttc(fonts: list) -> bytes:\n    # TTC header version 1.0\n    ttc = bytearray(b\"ttcf\" + be32(0x00010000) + be32(len(fonts)))\n    # offsets follow header; place first at after header + offsets\n    offset = 12 + 4 * len(fonts)\n    offsets = []\n    font_data = b\"\"\n    for f in fonts:\n        offsets.append(offset)\n        f = pad4(f)\n        font_data += f\n        offset += len(f)\n    ttc += b\"\".join([be32(o) for o in offsets])\n    return bytes(ttc) + font_data\n\n# Preset interesting small names\nNAME_SETS = [\n    {1: \"Regular\", 2: \"Book\", 4: \"Fuzz Sans\", 6: \"FuzzSans-Regular\"},\n    {1: \"Bold\", 2: \"Italic\", 4: \"Fuzz Serif\", 6: \"FuzzSerif-BoldItalic\"},\n    {1: \"Mono\", 2: \"Regular\", 4: \"Fuzz Mono\", 6: \"FuzzMono-Regular\"},\n]\n\n\ndef build_minimal_sfnt_variant(rnd: random.Random) -> bytes:\n    variant = rnd.choice([\"ttf_min\", \"ttf_multi\", \"otf_cff\", \"ttc\", \"woff\"])\n\n    # Always ensure size <= 2048; adapt contents based on random choices\n    if variant == \"ttf_min\":\n        name_tbl = build_name_table(rnd.choice(NAME_SETS))\n        head_tbl = build_head_table(rnd.choice([512, 1000, 2048]))\n        maxp_tbl = build_maxp_table(rnd.choice([1, 2, 10]))\n        cmap_tbl = build_cmap_table()\n        tables = {\n            \"head\": head_tbl,\n            \"maxp\": maxp_tbl,\n            \"name\": name_tbl,\n            \"cmap\": cmap_tbl,\n        }\n        return build_ttf(tables)\n\n    if variant == \"ttf_multi\":\n        name_tbl = build_name_table(rnd.choice(NAME_SETS))\n        head_tbl = build_head_table(rnd.choice([1000, 2048]))\n        maxp_tbl = build_maxp_table(rnd.randint(1, 32))\n        cmap_tbl = build_cmap_table()\n        # OS/2 minimal stub (version 0 with zeros)\n        os2 = be16(0) + b\"\\x00\" * 76\n        tables = {\n            \"head\": head_tbl,\n            \"maxp\": maxp_tbl,\n            \"name\": name_tbl,\n            \"cmap\": cmap_tbl,\n            \"OS/2\": os2,\n        }\n        return build_ttf(tables)\n\n    if variant == \"otf_cff\":\n        name_tbl = build_name_table(rnd.choice(NAME_SETS))\n        cff_tbl = build_cff_dummy()\n        head_tbl = build_head_table(1000)\n        maxp_tbl = build_maxp_table(1)\n        # Although CFF/OTF usually doesn’t need glyf/loca, including head/maxp is acceptable in sfnt\n        tables = {\n            \"CFF \": cff_tbl,\n            \"name\": name_tbl,\n            \"head\": head_tbl,\n            \"maxp\": maxp_tbl,\n        }\n        # Mark sfnt version as 'OTTO' by setting in build to 0x4F54544F? Our build_ttf fixes version to 1.0.\n        # To keep it small and broadly acceptable, keep 1.0 TrueType wrapper carrying CFF.\n        return build_ttf(tables)\n\n    if variant == \"ttc\":\n        # Make 1-2 faces\n        face_count = rnd.choice([1, 2])\n        faces = []\n        for _ in range(face_count):\n            name_tbl = build_name_table(rnd.choice(NAME_SETS))\n            head_tbl = build_head_table(rnd.choice([1000, 2048]))\n            maxp_tbl = build_maxp_table(rnd.randint(1, 4))\n            cmap_tbl = build_cmap_table()\n            tables = {\n                \"head\": head_tbl,\n                \"maxp\": maxp_tbl,\n                \"name\": name_tbl,\n                \"cmap\": cmap_tbl,\n            }\n            faces.append(build_ttf(tables))\n        return build_ttc(faces)\n\n    if variant == \"woff\":\n        # Build an sfnt first, then WOFF wrap\n        name_tbl = build_name_table(rnd.choice(NAME_SETS))\n        head_tbl = build_head_table(rnd.choice([512, 1000]))\n        maxp_tbl = build_maxp_table(rnd.randint(1, 8))\n        cmap_tbl = build_cmap_table()\n        sfnt = build_ttf({\"head\": head_tbl, \"maxp\": maxp_tbl, \"name\": name_tbl, \"cmap\": cmap_tbl})\n        return build_woff(sfnt)\n\n    # Fallback\n    return b\"\"\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Compose a plausible font attachment: sometimes prepend/trailing bytes, but keep valid structure\n    font = build_minimal_sfnt_variant(rnd)\n\n    # Ensure maximum size limit; trim if needed (should rarely exceed 2 KiB)\n    if len(font) > 2048:\n        font = font[:2048]\n\n    return bytes(font)\n"
+    },
+    {
+      "data_type": "font name string",
+      "generator": "import random\nimport struct\n\ndef build_ttf(min_size: int, max_size: int, rng: random.Random) -> bytes:\n    # Build a minimal sfnt-like header with a few table records and random payloads\n    num_tables = rng.randint(1, 4)\n    scaler = rng.choice([0x00010000, 0x4F54544F])  # 1.0 or 'OTTO'\n    # Compute searchRange, entrySelector, rangeShift as per TrueType spec approximation\n    max_pow2 = 1 << (num_tables.bit_length() - 1)\n    search_range = 16 * max_pow2\n    entry_selector = num_tables.bit_length() - 1\n    range_shift = 16 * num_tables - search_range\n    header = struct.pack(\n        \">IHHHH\", scaler, num_tables, search_range, entry_selector, range_shift\n    )\n    # table records: 16 bytes each\n    records = bytearray()\n    offset = 12 + num_tables * 16\n    blobs = []\n    possible_tags = [b\"cmap\", b\"head\", b\"name\", b\"OS/2\", b\"glyf\", b\"maxp\"]\n    for _ in range(num_tables):\n        tag = rng.choice(possible_tags)\n        length = rng.randint(16, 128)\n        if offset % 4:\n            offset += 4 - (offset % 4)\n        check = rng.getrandbits(32)\n        records += tag\n        records += struct.pack(\">III\", check, offset, length)\n        blobs.append((offset, length))\n        offset += length\n    total_len = max(min_size, min(max_size, offset))\n    buf = bytearray(total_len)\n    buf[:12] = header\n    end_rec = 12 + len(records)\n    if end_rec > total_len:\n        # ensure we have room; if not, shrink number of tables (shouldn't happen with small sizes)\n        end_rec = min(end_rec, total_len)\n    buf[12:end_rec] = records[: max(0, end_rec - 12)]\n    # fill blobs\n    for off, length in blobs:\n        if off >= total_len:\n            continue\n        end = min(off + length, total_len)\n        for i in range(off, end):\n            buf[i] = rng.randrange(0, 256)\n    return bytes(buf)\n\n\ndef build_woff(min_size: int, max_size: int, rng: random.Random) -> bytes:\n    kind = rng.choice([b\"wOFF\", b\"wOF2\"])  # magic\n    total_len = rng.randint(min_size, max_size)\n    header_len = 44 if kind == b\"wOFF\" else 48\n    buf = bytearray(total_len)\n    buf[:4] = kind\n    if total_len >= 12:\n        struct.pack_into(\">I\", buf, 8, total_len)\n    if total_len >= 16:\n        # numTables field (not exact position for WOFF2 spec, but adequate for plausible data)\n        try:\n            struct.pack_into(\">H\", buf, 12, rng.randint(1, 8))\n        except Exception:\n            pass\n    for i in range(min(header_len, total_len), total_len):\n        buf[i] = rng.randrange(0, 256)\n    return bytes(buf)\n\n\ndef build_font_payload(max_size: int, rng: random.Random) -> bytes:\n    choice = rng.choices([\"ttf\", \"otf\", \"woff\", \"woff2\"], weights=[4, 2, 2, 2], k=1)[0]\n    min_size = 128\n    max_size = min(max_size, 2048)\n    if choice in (\"ttf\", \"otf\"):\n        return build_ttf(min_size, max_size, rng)\n    else:\n        return build_woff(min_size, max_size, rng)\n\n\ndef build_font_name(rng: random.Random) -> str:\n    families = [\n        \"DejaVuSans\", \"Arial\", \"TimesNewRoman\", \"NotoSans\", \"NotoSerif\",\n        \"LiberationMono\", \"Roboto\", \"OpenSans\", \"SourceHanSans\", \"ComicSansMS\"\n    ]\n    styles = [\"Regular\", \"Bold\", \"Italic\", \"BoldItalic\", \"Light\", \"Medium\"]\n    ext = rng.choice([\"ttf\", \"otf\", \"woff\", \"woff2\"])\n    fam = rng.choice(families)\n    sty = rng.choice(styles)\n    sep = \" \" if rng.random() < 0.3 else \"-\"\n    base = f\"{fam}{sep}{sty}.{ext}\"\n    if rng.random() < 0.2:\n        base = \"字体-\" + base\n    return base[:128]\n\n\ndef pack_len_prefixed(name: bytes, data: bytes) -> bytes:\n    return struct.pack(\">I\", len(name)) + name + struct.pack(\">I\", len(data)) + data\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    payload_size_limit = rng.choice([512, 1024, 1536, 2048])\n    payload = build_font_payload(payload_size_limit, rng)\n    name = build_font_name(rng).encode(\"utf-8\", errors=\"strict\")\n    if rng.random() < 0.25:\n        payload2 = build_font_payload(payload_size_limit, rng)\n        payload = (payload + payload2)[:2048]\n    buf = pack_len_prefixed(name, payload)\n    if len(buf) > 4096:\n        buf = buf[:4096]\n    return buf"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11423,
+            "output_tokens": 1009,
+            "total_tokens": 12432
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11001,
+            "output_tokens": 253,
+            "total_tokens": 11254
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11718,
+            "output_tokens": 5218,
+            "total_tokens": 16936
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 66202,
+            "output_tokens": 13589,
+            "total_tokens": 79791
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9504,
+            "output_tokens": 625,
+            "total_tokens": 10129
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 345.24286127090454,
+    "scan_objects": 11.844779968261719,
+    "validate_objects": 0.49792981147766113,
+    "scan_functions": 54.647122859954834,
+    "synthesis": 178.5791313648224,
+    "fill": 0,
+    "classify": 8.56817889213562,
+    "build_generators": 91.10429406166077
+  }
+}

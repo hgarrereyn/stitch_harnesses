@@ -1,0 +1,1044 @@
+{
+  "objects": [
+    {
+      "ptr_type": "ots::OTSStream *",
+      "aliases": [],
+      "definition": "namespace ots {\n\n// -----------------------------------------------------------------------------\n// This is an interface for an abstract stream class which is used for writing\n// the serialised results out.\n// -----------------------------------------------------------------------------\nclass OTSStream {\n public:\n  OTSStream() : chksum_(0) {}\n\n  virtual ~OTSStream() {}\n\n  virtual size_t size() = 0;\n\n  // This should be implemented to perform the actual write.\n  virtual bool WriteRaw(const void *data, size_t length) = 0;\n\n  bool Write(const void *data, size_t length) {\n    if (!length) return false;\n\n    const size_t orig_length = length;\n    size_t offset = 0;\n\n    size_t chksum_offset = Tell() & 3;\n    if (chksum_offset) {\n      const size_t l = std::min(length, static_cast<size_t>(4) - chksum_offset);\n      uint32_t tmp = 0;\n      std::memcpy(reinterpret_cast<uint8_t *>(&tmp) + chksum_offset, data, l);\n      chksum_ += ots_ntohl(tmp);\n      length -= l;\n      offset += l;\n    }\n\n    while (length >= 4) {\n      uint32_t tmp;\n      std::memcpy(&tmp, reinterpret_cast<const uint8_t *>(data) + offset,\n        sizeof(uint32_t));\n      chksum_ += ots_ntohl(tmp);\n      length -= 4;\n      offset += 4;\n    }\n\n    if (length) {\n      if (length > 4) return false;  // not reached\n      uint32_t tmp = 0;\n      std::memcpy(&tmp,\n                  reinterpret_cast<const uint8_t*>(data) + offset, length);\n      chksum_ += ots_ntohl(tmp);\n    }\n\n    return WriteRaw(data, orig_length);\n  }\n\n  virtual bool Seek(off_t position) = 0;\n  virtual off_t Tell() const = 0;\n\n  virtual bool Pad(size_t bytes) {\n    static const uint32_t kZero = 0;\n    while (bytes >= 4) {\n      if (!Write(&kZero, 4)) return false;\n      bytes -= 4;\n    }\n    while (bytes) {\n      static const uint8_t kZerob = 0;\n      if (!Write(&kZerob, 1)) return false;\n      bytes--;\n    }\n    return true;\n  }\n\n  bool WriteU8(uint8_t v) {\n    return Write(&v, sizeof(v));\n  }\n\n  bool WriteU16(uint16_t v) {\n    v = ots_htons(v);\n    return Write(&v, sizeof(v));\n  }\n\n  bool WriteS16(int16_t v) {\n    v = ots_htons(v);\n    return Write(&v, sizeof(v));\n  }\n\n  bool WriteU24(uint32_t v) {\n    v = ots_htonl(v);\n    return Write(reinterpret_cast<uint8_t*>(&v)+1, 3);\n  }\n\n  bool WriteU32(uint32_t v) {\n    v = ots_htonl(v);\n    return Write(&v, sizeof(v));\n  }\n\n  bool WriteS32(int32_t v) {\n    v = ots_htonl(v);\n    return Write(&v, sizeof(v));\n  }\n\n  bool WriteR64(uint64_t v) {\n    return Write(&v, sizeof(v));\n  }\n\n  void ResetChecksum() {\n    assert((Tell() & 3) == 0);\n    chksum_ = 0;\n  }\n\n  uint32_t chksum() const {\n    return chksum_;\n  }\n\n protected:\n  uint32_t chksum_;\n};\n\n}  // namespace ots",
+      "description": "Abstract output stream interface used by OTS to write sanitized OpenType data while maintaining a running checksum. Subclasses must implement size(), WriteRaw(), Seek(), and Tell(). Provides helpers for writing integer types with network byte order and padding.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ots::OTSContext *",
+      "aliases": [],
+      "definition": "namespace ots {\n\nclass OTSContext {\n  public:\n    OTSContext() {}\n    virtual ~OTSContext() {}\n\n    // Process a given OpenType file and write out a sanitized version\n    //   output: a pointer to an object implementing the OTSStream interface. The\n    //     sanitisied output will be written to this. In the even of a failure,\n    //     partial output may have been written.\n    //   input: the OpenType file\n    //   length: the size, in bytes, of |input|\n    //   index: if the input is a font collection and index is specified, then\n    //     the corresponding font will be returned, otherwise the whole\n    //     collection. Ignored for non-collection fonts.\n    bool Process(OTSStream *output, const uint8_t *input, size_t length, uint32_t index = -1);\n\n    // This function will be called when OTS is reporting an error.\n    //   level: the severity of the generated message:\n    //     0: error messages in case OTS fails to sanitize the font.\n    //     1: warning messages about issue OTS fixed in the sanitized font.\n    virtual void Message(int level OTS_UNUSED, const char *format OTS_UNUSED, ...) MSGFUNC_FMT_ATTR {}\n\n    // This function will be called when OTS needs to decide what to do for a\n    // font table.\n    //   tag: table tag formed with OTS_TAG() macro\n    virtual TableAction GetTableAction(uint32_t tag OTS_UNUSED) { return ots::TABLE_ACTION_DEFAULT; }\n};\n\n}  // namespace ots",
+      "description": "Customization and entry point class for running the OTS sanitizer. Provides Process() to sanitize an input font to an OTSStream, and virtual hooks for logging and per-table action decisions.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ots::MemoryStream *",
+      "aliases": [],
+      "definition": "namespace ots {\n\nclass MemoryStream : public OTSStream {\n public:\n  MemoryStream(void *ptr, size_t length)\n      : ptr_(ptr), length_(length), off_(0) {\n  }\n\n  size_t size() override { return length_; }\n\n  bool WriteRaw(const void *data, size_t length) override {\n    if ((off_ + length > length_) ||\n        (length > std::numeric_limits<size_t>::max() - off_)) {\n      return false;\n    }\n    std::memcpy(static_cast<char*>(ptr_) + off_, data, length);\n    off_ += static_cast<off_t>(length);\n    return true;\n  }\n\n  bool Seek(off_t position) override {\n    if (position < 0) return false;\n    if (static_cast<size_t>(position) > length_) return false;\n    off_ = position;\n    return true;\n  }\n\n  off_t Tell() const override {\n    return off_;\n  }\n\n private:\n  void* const ptr_;\n  size_t length_;\n  off_t off_;\n};\n\n}  // namespace ots",
+      "description": "Concrete OTSStream that writes into a caller-provided fixed-size memory buffer. Fails writes that would exceed the buffer size. Maintains an internal offset and supports seeking within bounds.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ots::ExpandingMemoryStream *",
+      "aliases": [],
+      "definition": "namespace ots {\n\nclass ExpandingMemoryStream : public OTSStream {\n public:\n  ExpandingMemoryStream(size_t initial, size_t limit)\n      : length_(initial), limit_(limit), off_(0) {\n    ptr_ = new uint8_t[length_];\n  }\n\n  ~ExpandingMemoryStream() {\n    delete[] static_cast<uint8_t*>(ptr_);\n  }\n\n  void* get() const {\n    return ptr_;\n  }\n\n  size_t size() override { return limit_; }\n\n  bool WriteRaw(const void *data, size_t length) override {\n    if ((off_ + length > length_) ||\n        (length > std::numeric_limits<size_t>::max() - off_)) {\n      if (length_ == limit_)\n        return false;\n      size_t new_length = (length_ + 1) * 2;\n      if (new_length < length_)\n        return false;\n      if (new_length > limit_)\n        new_length = limit_;\n      uint8_t* new_buf = new uint8_t[new_length];\n      std::memcpy(new_buf, ptr_, length_);\n      length_ = new_length;\n      delete[] static_cast<uint8_t*>(ptr_);\n      ptr_ = new_buf;\n      return WriteRaw(data, length);\n    }\n    std::memcpy(static_cast<char*>(ptr_) + off_, data, length);\n    off_ += static_cast<off_t>(length);\n    return true;\n  }\n\n  bool Seek(off_t position) override {\n    if (position < 0) return false;\n    if (static_cast<size_t>(position) > length_) return false;\n    off_ = position;\n    return true;\n  }\n\n  off_t Tell() const override {\n    return off_;\n  }\n\n private:\n  void* ptr_;\n  size_t length_;\n  const size_t limit_;\n  off_t off_;\n};\n\n}  // namespace ots",
+      "description": "Resizable memory-backed OTSStream implementation. Starts with an initial capacity and doubles up to a specified limit when more space is required by writes. Exposes the internal buffer via get().",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ots::TableAction *",
+      "aliases": [],
+      "definition": "enum TableAction {\n  TABLE_ACTION_DEFAULT,  // Use OTS's default action for that table\n  TABLE_ACTION_SANITIZE, // Sanitize the table, potentially dropping it\n  TABLE_ACTION_PASSTHRU, // Serialize the table unchanged\n  TABLE_ACTION_DROP,     // Drop the table\n  TABLE_ACTION_SANITIZE_SOFT, // Sanitize the table, but without failing overall\n                              // sanitzation even if this table fails/is dropped\n};",
+      "description": "Enumeration controlling how OTS handles individual font tables during processing: default behavior, sanitize, passthrough, drop, or soft-sanitize (don’t fail overall if table sanitization fails).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "ots::OTSStream::size",
+      "signature": "virtual size_t ots::OTSStream::size() = 0;",
+      "description": "Returns the stream’s capacity/size as reported by the concrete OTSStream implementation. Pure virtual; implemented by derived classes such as MemoryStream and ExpandingMemoryStream.",
+      "requirements": [
+        "Must be called on a valid instance of a concrete subclass (OTSStream is abstract).",
+        "No side effects; safe to call anytime the stream object is valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteRaw",
+      "signature": "virtual bool ots::OTSStream::WriteRaw(const void *data, size_t length) = 0;",
+      "description": "Low-level write used by OTSStream to actually output bytes. Implementations must perform the write without modifying checksum state; OTSStream::Write handles checksum accumulation and then calls WriteRaw.",
+      "requirements": [
+        "Must be called on a valid instance of a concrete subclass (pure virtual).",
+        "data must point to at least length bytes if length > 0.",
+        "Return true on complete write, false on failure (caller should not assume partial success).",
+        "Implementations must not alter OTSStream::chksum_ (checksum is handled by Write)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::Write",
+      "signature": "bool ots::OTSStream::Write(const void *data, size_t length);",
+      "description": "Writes length bytes from data to the stream and updates the running 32-bit checksum (sum of big-endian 32-bit words with final partial aligned as documented in code). Delegates the actual output to WriteRaw.",
+      "requirements": [
+        "data must point to at least length bytes; undefined behavior if data is null and length > 0.",
+        "length must be non-zero; if length == 0 the function returns false and performs no write.",
+        "The underlying WriteRaw must be functional; Write returns false if WriteRaw returns false.",
+        "Callers should not rely on atomicity: on failure, some bytes may have already been written by WriteRaw."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::Seek",
+      "signature": "virtual bool ots::OTSStream::Seek(off_t position) = 0;",
+      "description": "Moves the stream’s write/read position to position. Semantics depend on the concrete stream implementation.",
+      "requirements": [
+        "Must be called on a valid instance of a concrete subclass (pure virtual).",
+        "position must be within the valid range for the concrete stream (see derived classes).",
+        "Return true on success, false if the position is invalid or unsupported."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::Tell",
+      "signature": "virtual off_t ots::OTSStream::Tell() const = 0;",
+      "description": "Returns the current stream position (offset).",
+      "requirements": [
+        "Must be called on a valid instance of a concrete subclass (pure virtual).",
+        "No side effects; callable at any time the stream is valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::Pad",
+      "signature": "virtual bool ots::OTSStream::Pad(size_t bytes);",
+      "description": "Writes bytes zero bytes to the stream (padding) using 32-bit chunks where possible, then single bytes, updating the checksum accordingly.",
+      "requirements": [
+        "bytes is the number of zero bytes to write; may be zero (returns true with no write).",
+        "Underlying Write must succeed for all emitted chunks; returns false on the first failure.",
+        "May partially write before failing; caller must handle partial output."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteU8",
+      "signature": "bool ots::OTSStream::WriteU8(uint8_t v);",
+      "description": "Writes an 8-bit unsigned integer to the stream without byte-order conversion.",
+      "requirements": [
+        "No special range requirements beyond uint8_t (0..255).",
+        "Returns false if the underlying Write fails (e.g., out of space)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteU16",
+      "signature": "bool ots::OTSStream::WriteU16(uint16_t v);",
+      "description": "Writes a 16-bit unsigned integer to the stream in network/big-endian order.",
+      "requirements": [
+        "Input v is host-endian; function converts to big-endian.",
+        "Returns false if the underlying Write fails."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteS16",
+      "signature": "bool ots::OTSStream::WriteS16(int16_t v);",
+      "description": "Writes a 16-bit signed integer to the stream in network/big-endian order.",
+      "requirements": [
+        "Input v is host-endian; function converts to big-endian.",
+        "Returns false if the underlying Write fails."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteU24",
+      "signature": "bool ots::OTSStream::WriteU24(uint32_t v);",
+      "description": "Writes a 24-bit unsigned integer (lower 24 bits of v) to the stream in network/big-endian order.",
+      "requirements": [
+        "Only the least significant 24 bits of v are written; callers should ensure v fits in 24 bits to avoid truncation.",
+        "Returns false if the underlying Write fails."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteU32",
+      "signature": "bool ots::OTSStream::WriteU32(uint32_t v);",
+      "description": "Writes a 32-bit unsigned integer to the stream in network/big-endian order.",
+      "requirements": [
+        "Input v is host-endian; function converts to big-endian.",
+        "Returns false if the underlying Write fails."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteS32",
+      "signature": "bool ots::OTSStream::WriteS32(int32_t v);",
+      "description": "Writes a 32-bit signed integer to the stream in network/big-endian order.",
+      "requirements": [
+        "Input v is host-endian; function converts to big-endian.",
+        "Returns false if the underlying Write fails."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::WriteR64",
+      "signature": "bool ots::OTSStream::WriteR64(uint64_t v);",
+      "description": "Writes a 64-bit value to the stream exactly as provided (no byte-order conversion). Intended for raw 64-bit fields that are already in desired endianness.",
+      "requirements": [
+        "Caller is responsible for endianness; value is written as-is.",
+        "Returns false if the underlying Write fails."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::ResetChecksum",
+      "signature": "void ots::OTSStream::ResetChecksum();",
+      "description": "Resets the running checksum accumulator to zero. Asserts that the current position is 4-byte aligned (Tell() & 3 == 0).",
+      "requirements": [
+        "Must only be called when Tell() is 4-byte aligned; otherwise the internal assert will fail in debug builds.",
+        "Has no effect on stream position or contents."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSStream::chksum",
+      "signature": "uint32_t ots::OTSStream::chksum() const;",
+      "description": "Returns the current accumulated checksum value maintained by OTSStream::Write and related writes.",
+      "requirements": [
+        "Call after writes to inspect the checksum state; read-only and side-effect free."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSContext::Process",
+      "signature": "bool ots::OTSContext::Process(OTSStream *output, const uint8_t *input, size_t length, uint32_t index = static_cast<uint32_t>(-1));",
+      "description": "Sanitizes an OpenType font (or collection) from the given input buffer and writes the sanitized result to output. On failure, partial output may have been written. If input is a font collection and index is specified, the corresponding font is returned; otherwise, the whole collection is processed.",
+      "requirements": [
+        "output must be a valid, writable OTSStream instance.",
+        "input must point to at least length bytes of the font data; length must reflect the input size.",
+        "Caller must handle the boolean return value: false indicates sanitization failed and partial output may exist and must not be used as a valid font.",
+        "index is used only for font collections; ignored for non-collection fonts."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSContext::Message",
+      "signature": "virtual void ots::OTSContext::Message(int level, const char *format, ...) MSGFUNC_FMT_ATTR;",
+      "description": "Callback for reporting messages during processing. level indicates severity (0: error, 1: warning). format follows printf-style formatting, with variadic arguments.",
+      "requirements": [
+        "Implementations should accept printf-style format and arguments consistent with the format string.",
+        "level values 0 and 1 are defined; other values may be ignored or treated as implementation-defined.",
+        "Must be callable from OTS processing threads/context; implementation should be reentrant or thread-safe if used concurrently."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::OTSContext::GetTableAction",
+      "signature": "virtual ots::TableAction ots::OTSContext::GetTableAction(uint32_t tag);",
+      "description": "Decides how OTS should handle a specific font table identified by tag (use OTS_TAG to build tags). Default returns TABLE_ACTION_DEFAULT.",
+      "requirements": [
+        "tag must be a 4-byte OpenType table tag encoded via OTS_TAG or equivalent.",
+        "Implementations should return one of the TableAction enum values to guide processing."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::MemoryStream::MemoryStream",
+      "signature": "ots::MemoryStream::MemoryStream(void *ptr, size_t length);",
+      "description": "Constructs a fixed-size memory-backed stream over the buffer [ptr, ptr+length). Writes that exceed length or overflow arithmetic fail.",
+      "requirements": [
+        "ptr must point to a writable buffer of at least length bytes that remains valid for the lifetime of the MemoryStream.",
+        "length defines the maximum writable size; no reallocation occurs.",
+        "Behavior is undefined if ptr is null and length > 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::MemoryStream::size",
+      "signature": "size_t ots::MemoryStream::size() override;",
+      "description": "Returns the total capacity (length) of the underlying fixed buffer.",
+      "requirements": [
+        "Object must be a valid MemoryStream instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::MemoryStream::WriteRaw",
+      "signature": "bool ots::MemoryStream::WriteRaw(const void *data, size_t length) override;",
+      "description": "Writes length bytes from data into the fixed buffer at the current offset. Fails if the write would exceed the buffer or if size arithmetic would overflow. Advances the offset on success.",
+      "requirements": [
+        "data must point to at least length bytes.",
+        "Write fails (returns false) if off_ + length > length_ or if size_t overflow would occur.",
+        "On success, exactly length bytes are written; on failure, no bytes are written."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::MemoryStream::Seek",
+      "signature": "bool ots::MemoryStream::Seek(off_t position) override;",
+      "description": "Sets the current position to position within the fixed buffer.",
+      "requirements": [
+        "position must be >= 0 and <= length_.",
+        "Returns false if position is out of range; does not change the offset in that case."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::MemoryStream::Tell",
+      "signature": "off_t ots::MemoryStream::Tell() const override;",
+      "description": "Returns the current position within the buffer.",
+      "requirements": [
+        "Object must be a valid MemoryStream instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::ExpandingMemoryStream",
+      "signature": "ots::ExpandingMemoryStream::ExpandingMemoryStream(size_t initial, size_t limit);",
+      "description": "Constructs a growable memory-backed stream with an initial allocation of initial bytes and a maximum capacity limit. The buffer grows geometrically on demand up to limit.",
+      "requirements": [
+        "initial bytes are allocated immediately; allocation must succeed (otherwise construction throws in standard C++ new).",
+        "limit defines the maximum capacity; writes beyond limit will fail.",
+        "For predictable behavior, initial should be <= limit (not enforced in code but larger initial than limit prevents growth and may cause immediate failures for larger writes)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::~ExpandingMemoryStream",
+      "signature": "ots::ExpandingMemoryStream::~ExpandingMemoryStream();",
+      "description": "Destructor; releases the allocated buffer.",
+      "requirements": [
+        "Do not use the stream after destruction.",
+        "No special requirements for callers beyond normal C++ object lifetime management."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::get",
+      "signature": "void* ots::ExpandingMemoryStream::get() const;",
+      "description": "Returns a pointer to the internal buffer. Useful for accessing the accumulated bytes after writing.",
+      "requirements": [
+        "Pointer remains valid until the stream is destroyed or reallocated by further writes; subsequent writes may reallocate and invalidate previously obtained pointers.",
+        "Caller is responsible for tracking the valid written length via stream position or external bookkeeping (no length is returned by get)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::size",
+      "signature": "size_t ots::ExpandingMemoryStream::size() override;",
+      "description": "Returns the maximum capacity (limit) of the expanding stream, not the current used size.",
+      "requirements": [
+        "Object must be a valid ExpandingMemoryStream instance.",
+        "Note: This reports the limit, not the current write position or current allocated length."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::WriteRaw",
+      "signature": "bool ots::ExpandingMemoryStream::WriteRaw(const void *data, size_t length) override;",
+      "description": "Writes length bytes to the stream, expanding the internal buffer geometrically as needed up to the configured limit. On success, advances the offset by length. Fails if the write would exceed the limit or if size arithmetic overflows.",
+      "requirements": [
+        "data must point to at least length bytes.",
+        "If off_ + length exceeds current allocation, the stream attempts to grow up to limit_. If already at limit_ and more space is needed, returns false.",
+        "Handles size_t overflow guards; returns false if (off_ + length) would overflow size_t.",
+        "On success, exactly length bytes are written and the offset advances by length."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::Seek",
+      "signature": "bool ots::ExpandingMemoryStream::Seek(off_t position) override;",
+      "description": "Sets the current position within the currently allocated buffer (not beyond the current allocation length).",
+      "requirements": [
+        "position must be >= 0 and <= current allocated length (length_).",
+        "Returns false if position is out of range; does not change the offset in that case."
+      ],
+      "error": null
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::Tell",
+      "signature": "off_t ots::ExpandingMemoryStream::Tell() const override;",
+      "description": "Returns the current position (offset) within the buffer.",
+      "requirements": [
+        "Object must be a valid ExpandingMemoryStream instance."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "ots::OTSStream::size",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Query the reported capacity/size from the concrete stream implementation.\n// Using ExpandingMemoryStream here exercises virtual dispatch via OTSStream.\nsize_t cap = static_cast<ots::OTSStream*>(stream)->size();\n// Persist a hint for downstream stubs.\nFUZZ_SET_ATTR_INT(stream, \"cap_hint\", static_cast<int>(cap & 0x7fffffff));\n// Validation: call has no side effects; we retain the stream as output.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteRaw",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Prepare a data buffer; choose a length that sometimes fits within remaining limit\n// and sometimes exceeds it to exercise both success and failure paths.\nstd::string data = FUZZ_PARAM_STR();\nsize_t limit = static_cast<ots::OTSStream*>(stream)->size();\noff_t pos = stream->Tell();\nsize_t remaining = (pos < 0 || static_cast<size_t>(pos) > limit) ? 0 : (limit - static_cast<size_t>(pos));\nunsigned int pick = *FUZZ_PARAM(unsigned int);\n// Cap the attempted length to keep allocations small.\nsize_t base_len = std::min<size_t>(data.size(), 512);\nif (base_len == 0) { base_len = 1; }\n// 50% within remaining (or 1 if remaining==0), 50% beyond remaining if possible\nbool try_within = (pick & 1) != 0;\nsize_t len_within = remaining ? std::min(remaining, base_len) : 1;\nsize_t len_beyond = remaining ? (std::min<size_t>(remaining + 16, base_len + remaining + 16)) : (base_len + 16);\nsize_t to_write = try_within ? len_within : len_beyond;\nif (to_write > data.size()) to_write = data.size();\nif (to_write == 0) to_write = 1;\nbool ok = static_cast<ots::OTSStream*>(stream)->WriteRaw(data.data(), to_write);\n// Property: ExpandingMemoryStream::WriteRaw should succeed iff write does not exceed limit\n// at current position (taking into account it can grow up to limit).\nbool expect_ok = (to_write <= remaining);\nFUZZ_ASSERT(ok == expect_ok, \"WriteRaw result must reflect whether write fits within limit\");\n// Validation: We exercised both success and failure; stream remains valid and is returned.\n"
+    },
+    {
+      "name": "ots::OTSStream::Write",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Generate a random payload and length; sometimes exercise the zero-length early return.\nstd::string payload = FUZZ_PARAM_STR();\nsize_t max_n = std::min<size_t>(payload.size(), 512);\nunsigned int r = *FUZZ_PARAM(unsigned int);\nbool use_zero = (r & 1) == 0;\nsize_t n = use_zero ? 0 : (max_n ? (1 + (r % max_n)) : 0);\nbool ok = static_cast<ots::OTSStream*>(stream)->Write(payload.data(), n);\nFUZZ_SET_ATTR_INT(stream, \"last_write_n\", static_cast<int>(n));\nFUZZ_SET_ATTR_INT(stream, \"last_write_ok\", ok ? 1 : 0);\n// Validation: zero-length requests should return false; other results depend on stream capacity.\n"
+    },
+    {
+      "name": "ots::OTSStream::Seek",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Seek within the currently allocated range. For ExpandingMemoryStream, positions\n// up to current allocated length are valid; Tell() is always within that, so [0, Tell()] is safe.\noff_t cur = stream->Tell();\nif (cur < 0) { FUZZ_BAIL(); }\nsize_t span = static_cast<size_t>(cur);\nsize_t back = span ? (*FUZZ_PARAM(unsigned int) % (span + 1)) : 0;\noff_t target = static_cast<off_t>(span - back);\nbool ok = static_cast<ots::OTSStream*>(stream)->Seek(target);\nFUZZ_ASSERT(ok, \"Seek to [0, Tell()] must succeed\");\n// Validation: We constrained target to a valid range; stream remains usable.\n"
+    },
+    {
+      "name": "ots::OTSStream::Tell",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "off_t pos = static_cast<const ots::OTSStream*>(stream)->Tell();\nFUZZ_SET_ATTR_INT(stream, \"last_tell\", static_cast<int>(pos));\n// Validation: Tell has no side effects; we record the position for downstream use.\n"
+    },
+    {
+      "name": "ots::OTSStream::Pad",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Write a small number of zero bytes as padding.\nsize_t bytes = (*FUZZ_PARAM(unsigned int) % 65); // 0..64\nbool ok = static_cast<ots::OTSStream*>(stream)->Pad(bytes);\nFUZZ_SET_ATTR_INT(stream, \"last_pad\", static_cast<int>(bytes));\nFUZZ_SET_ATTR_INT(stream, \"last_pad_ok\", ok ? 1 : 0);\n// Validation: Pad may partially write before failing; we just track the outcome.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteU8",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "uint8_t v = static_cast<uint8_t>(*FUZZ_PARAM(unsigned int));\nstatic_cast<ots::OTSStream*>(stream)->WriteU8(v);\n// Validation: No special constraints; boolean result depends on stream space.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteU16",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "uint16_t v = static_cast<uint16_t>(*FUZZ_PARAM(unsigned int));\nstatic_cast<ots::OTSStream*>(stream)->WriteU16(v);\n// Validation: Host-endian converted to big-endian internally; we just invoke it.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteS16",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "int16_t v = static_cast<int16_t>(*FUZZ_PARAM(unsigned int));\nstatic_cast<ots::OTSStream*>(stream)->WriteS16(v);\n// Validation: Value converted to big-endian internally; stream remains valid.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteU24",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "uint32_t v = *FUZZ_PARAM(unsigned int);\n// Sometimes ensure the value exceeds 24 bits to exercise truncation semantics.\nif ((v & 0xFF000000u) == 0) { v |= 0x11000000u; }\nstatic_cast<ots::OTSStream*>(stream)->WriteU24(v);\n// Validation: Only low 24 bits are written; stream state remains consistent.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteU32",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "uint32_t v = *FUZZ_PARAM(unsigned int);\nstatic_cast<ots::OTSStream*>(stream)->WriteU32(v);\n// Validation: Converted to big-endian internally; write may fail if out of space.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteS32",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "int32_t v = static_cast<int32_t>(*FUZZ_PARAM(unsigned int));\nstatic_cast<ots::OTSStream*>(stream)->WriteS32(v);\n// Validation: Converted to big-endian internally; we keep the stream in pool.\n"
+    },
+    {
+      "name": "ots::OTSStream::WriteR64",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "uint64_t v = (static_cast<uint64_t>(*FUZZ_PARAM(unsigned int)) << 32) | *FUZZ_PARAM(unsigned int);\nstatic_cast<ots::OTSStream*>(stream)->WriteR64(v);\n// Validation: Raw 64-bit write; endianness is caller's responsibility.\n"
+    },
+    {
+      "name": "ots::OTSStream::ResetChecksum",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Ensure 4-byte alignment prior to ResetChecksum() to satisfy its assert.\noff_t pos = stream->Tell();\nif (pos < 0) { FUZZ_BAIL(); }\nunsigned int mis = static_cast<unsigned int>(pos & 3);\nunsigned int need = (mis == 0) ? 0u : (4u - mis);\nif (need) {\n  if (!static_cast<ots::OTSStream*>(stream)->Pad(need)) { FUZZ_BAIL(); }\n}\n// Now aligned; reset checksum and verify state.\nstatic_cast<ots::OTSStream*>(stream)->ResetChecksum();\nFUZZ_ASSERT((stream->Tell() & 3) == 0, \"Position must be 4-byte aligned after ResetChecksum\");\nFUZZ_ASSERT(static_cast<const ots::OTSStream*>(stream)->chksum() == 0, \"Checksum must be zero after reset\");\n// Validation: We enforced alignment via Pad and ensured checksum cleared.\n"
+    },
+    {
+      "name": "ots::OTSStream::chksum",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "uint32_t sum = static_cast<const ots::OTSStream*>(stream)->chksum();\nFUZZ_SET_ATTR_INT(stream, \"last_chksum\", static_cast<int>(sum));\n// Validation: Read-only inspection; no side effects on the stream.\n"
+    },
+    {
+      "name": "ots::OTSContext::Message",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "ots::OTSContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "ots::OTSContext *"
+        }
+      ],
+      "code": "// Use a safe printf-style format (\"%s\") and supply exactly one matching argument to avoid UB.\nint level = static_cast<int>(*FUZZ_PARAM(unsigned int) % 3); // 0,1 or other\nstd::string msg = FUZZ_PARAM_STR();\nctx->Message(level, \"%s\", msg.c_str());\n// Validation: Variadic call uses a fixed format string with a matching argument; safe for any implementation.\n"
+    },
+    {
+      "name": "ots::OTSContext::GetTableAction",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "ots::OTSContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "ots::OTSContext *"
+        }
+      ],
+      "code": "// Build a 4-byte OpenType tag from random bytes.\nunsigned int r0 = *FUZZ_PARAM(unsigned int);\nuint32_t tag = ((r0 & 0xFFu) << 24) | (((r0 >> 8) & 0xFFu) << 16) |\n               (((r0 >> 16) & 0xFFu) << 8) | ((r0 >> 24) & 0xFFu);\nots::TableAction act = ctx->GetTableAction(tag);\nFUZZ_SET_ATTR_INT(ctx, \"last_action\", static_cast<int>(act));\n// Validation: We return the context for reuse; the result guides later behavior if needed.\n"
+    },
+    {
+      "name": "ots::MemoryStream::MemoryStream",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "memory_stream",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "code": "// Allocate a backing buffer that outlives the MemoryStream (MemoryStream does not free it).\nsize_t cap = 1 + (*FUZZ_PARAM(unsigned int) % 1024);\nuint8_t *backing = new uint8_t[cap];\n// Initialize buffer with random data to exercise Write overwrites deterministically.\nfor (size_t i = 0; i < cap; ++i) backing[i] = static_cast<uint8_t>(*FUZZ_PARAM(unsigned int));\nots::MemoryStream *memory_stream = new ots::MemoryStream(static_cast<void*>(backing), cap);\n// Track the backing pointer for potential downstream use.\nFUZZ_SET_ATTR_PTR(memory_stream, \"backing_ptr\", backing);\nFUZZ_SET_ATTR_INT(memory_stream, \"capacity\", static_cast<int>(cap));\n// Validation: Constructed MemoryStream has a valid persistent backing; leak is acceptable in fuzzer context.\n"
+    },
+    {
+      "name": "ots::MemoryStream::size",
+      "inputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "code": "size_t cap = ms->size();\nFUZZ_SET_ATTR_INT(ms, \"reported_capacity\", static_cast<int>(cap));\n// Validation: Simple query on a valid MemoryStream instance; we keep ms in the pool.\n"
+    },
+    {
+      "name": "ots::MemoryStream::WriteRaw",
+      "inputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "code": "// Attempt a raw write into the fixed-size MemoryStream buffer.\n// Compute remaining writable space from current position up to total capacity.\nsize_t cap = ms->size();\noff_t pos = ms->Tell();\nif (pos < 0 || static_cast<size_t>(pos) > cap) { FUZZ_BAIL(); }\nsize_t remaining = cap - static_cast<size_t>(pos);\n// Prepare a payload; cap its size for performance and boundary coverage.\nstd::string data = FUZZ_PARAM_STR();\nsize_t base_len = std::min<size_t>(data.size(), 512);\nif (base_len == 0) base_len = 1;\n// Choose to sometimes exceed remaining to exercise failure path.\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nbool try_within = (pick & 1) != 0;\nsize_t len_within = remaining ? std::min(remaining, base_len) : 0;\nsize_t len_beyond = remaining ? std::min(base_len + remaining + 16, static_cast<size_t>(1024)) : std::min(base_len + 16, static_cast<size_t>(1024));\nsize_t to_write = try_within ? len_within : len_beyond;\nif (to_write > data.size()) to_write = data.size();\nif (to_write == 0) to_write = 1; // ensure non-zero length per API note\nbool ok = ms->WriteRaw(data.data(), to_write);\n// Property for MemoryStream: succeeds iff write fits entirely in remaining space.\nbool expect_ok = (to_write <= remaining);\nFUZZ_ASSERT(ok == expect_ok, \"MemoryStream::WriteRaw must reflect capacity\");\n// Keep ms in pool; any partial effects are handled by the API (it guarantees all-or-nothing for WriteRaw)."
+    },
+    {
+      "name": "ots::MemoryStream::Seek",
+      "inputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "code": "// Seek to a valid position within [0, size()]. MemoryStream allows any offset up to capacity.\nsize_t cap = ms->size();\nunsigned int r = *FUZZ_PARAM(unsigned int);\noff_t target = static_cast<off_t>(r % (cap + 1));\nbool ok = ms->Seek(target);\nFUZZ_ASSERT(ok, \"MemoryStream::Seek within [0, size()] must succeed\");\n// Persist last seek target for downstream checks.\nFUZZ_SET_ATTR_INT(ms, \"last_seek\", static_cast<int>(target));"
+    },
+    {
+      "name": "ots::MemoryStream::Tell",
+      "inputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ms",
+          "type": "ots::MemoryStream *"
+        }
+      ],
+      "code": "// Report current offset; no side effects expected.\noff_t pos = ms->Tell();\nFUZZ_SET_ATTR_INT(ms, \"tell\", static_cast<int>(pos));"
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::ExpandingMemoryStream",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Choose an initial capacity and a limit; enforce initial <= limit and modest sizes for performance.\nunsigned int r0 = *FUZZ_PARAM(unsigned int);\nunsigned int r1 = *FUZZ_PARAM(unsigned int);\nsize_t initial = 1 + (r0 % 256);              // 1..256\nsize_t limit = initial + (r1 % 1024);         // initial..initial+1023\nif (limit > 2048) limit = 2048;               // keep bounded\nots::ExpandingMemoryStream *stream = new ots::ExpandingMemoryStream(initial, limit);\n// Track the configured limit for downstream reasoning.\nFUZZ_SET_ATTR_INT(stream, \"limit\", static_cast<int>(limit));\nFUZZ_SET_ATTR_INT(stream, \"initial\", static_cast<int>(initial));"
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::~ExpandingMemoryStream",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Destroy the expanding stream; after this, the object must not be used.\ndelete stream; // releases internal buffer\n// No outputs returned; runtime drops ownership."
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::get",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Expose internal buffer pointer; pointer may be invalidated by future writes.\nvoid *buf = stream->get();\nFUZZ_SET_ATTR_PTR(stream, \"buf\", buf);\nFUZZ_SET_ATTR_INT(stream, \"buf_at_pos\", static_cast<int>(stream->Tell()));\n// Keep stream for further operations; client code should not assume a length from this call."
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::size",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// size() returns the configured limit (maximum capacity), not current offset or allocation.\nsize_t lim = stream->size();\nFUZZ_SET_ATTR_INT(stream, \"reported_limit\", static_cast<int>(lim));"
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::WriteRaw",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Attempt a raw write; ExpandingMemoryStream can grow geometrically up to limit.\nsize_t limit = stream->size();\noff_t pos = stream->Tell();\nif (pos < 0 || static_cast<size_t>(pos) > limit) { FUZZ_BAIL(); }\nsize_t remaining_until_limit = limit - static_cast<size_t>(pos);\nstd::string data = FUZZ_PARAM_STR();\nsize_t base_len = std::min<size_t>(data.size(), 512);\nif (base_len == 0) base_len = 1;\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nbool try_within = (pick & 1) != 0;\nsize_t len_within = remaining_until_limit ? std::min(remaining_until_limit, base_len) : 0;\nsize_t len_beyond = remaining_until_limit ? std::min(base_len + remaining_until_limit + 16, static_cast<size_t>(1024)) : std::min(base_len + 16, static_cast<size_t>(1024));\nsize_t to_write = try_within ? len_within : len_beyond;\nif (to_write > data.size()) to_write = data.size();\nif (to_write == 0) to_write = 1;\nbool ok = stream->WriteRaw(data.data(), to_write);\n// Property: success iff write does not exceed global limit from current position.\nbool expect_ok = (to_write <= remaining_until_limit);\nFUZZ_ASSERT(ok == expect_ok, \"ExpandingMemoryStream::WriteRaw must respect limit\");\nFUZZ_SET_ATTR_INT(stream, \"last_wrote\", static_cast<int>(to_write));"
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::Seek",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// For ExpandingMemoryStream, position must be within current allocated length.\n// We pick a target in [0, Tell()] which is guaranteed to be valid.\noff_t cur = stream->Tell();\nif (cur < 0) { FUZZ_BAIL(); }\nsize_t span = static_cast<size_t>(cur);\nsize_t back = span ? (*FUZZ_PARAM(unsigned int) % (span + 1)) : 0;\noff_t target = static_cast<off_t>(span - back);\nbool ok = stream->Seek(target);\nFUZZ_ASSERT(ok, \"ExpandingMemoryStream::Seek to [0, Tell()] must succeed\");\nFUZZ_SET_ATTR_INT(stream, \"last_seek\", static_cast<int>(target));"
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::Tell",
+      "inputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stream",
+          "type": "ots::ExpandingMemoryStream *"
+        }
+      ],
+      "code": "// Report current offset for attribute tracking.\noff_t pos = stream->Tell();\nFUZZ_SET_ATTR_INT(stream, \"tell\", static_cast<int>(pos));"
+    },
+    {
+      "name": "ots::OTSContext *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "ots::OTSContext *"
+        }
+      ],
+      "code": "// Construct a default OTSContext instance. The base class provides\n// a no-op Message() and TABLE_ACTION_DEFAULT for GetTableAction().\nots::OTSContext *ctx = new ots::OTSContext();\n// Track simple attributes for downstream stubs.\nFUZZ_SET_ATTR_INT(ctx, \"ctx_ready\", 1);\nFUZZ_SET_ATTR_INT(ctx, \"last_action\", static_cast<int>(ots::TABLE_ACTION_DEFAULT));\n// Validation: Allocation succeeded and ctx is non-null; runtime will own and pool this object."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "ots::OTSContext::Process",
+      "reason": "Link-time dependencies on woff2 symbols are unresolved in this environment, preventing construction of a working harness."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "ots::OTSStream::size",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::Seek",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::Tell",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::Pad",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteU8",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteU16",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteS16",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteU24",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteU32",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteS32",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteR64",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::ResetChecksum",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::chksum",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSContext::GetTableAction",
+      "data_types": []
+    },
+    {
+      "name": "ots::MemoryStream::MemoryStream",
+      "data_types": []
+    },
+    {
+      "name": "ots::MemoryStream::size",
+      "data_types": []
+    },
+    {
+      "name": "ots::MemoryStream::Seek",
+      "data_types": []
+    },
+    {
+      "name": "ots::MemoryStream::Tell",
+      "data_types": []
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::ExpandingMemoryStream",
+      "data_types": []
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::~ExpandingMemoryStream",
+      "data_types": []
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::get",
+      "data_types": []
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::size",
+      "data_types": []
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::Seek",
+      "data_types": []
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::Tell",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSContext *",
+      "data_types": []
+    },
+    {
+      "name": "ots::OTSStream::WriteRaw",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ots::OTSStream::Write",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ots::OTSContext::Message",
+      "data_types": [
+        "text string"
+      ]
+    },
+    {
+      "name": "ots::MemoryStream::WriteRaw",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ots::ExpandingMemoryStream::WriteRaw",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A byte buffer with no required structure or encoding. May contain any sequence of bytes including nulls and non-UTF-8 data. Used when functions write raw payloads to streams without interpreting content."
+    },
+    {
+      "data_type": "text string",
+      "description": "A generic human-readable string intended for textual messages. Typically UTF-8 but not strictly enforced; passed to printf-style \"%s\" consumers."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nfrom typing import List\n\n# Data type: arbitrary binary data\n# Target usage summary:\n# - FUZZ_PARAM_STR() supplies a std::string payload used as raw bytes for Write/WriteRaw.\n# - Stubs cap writes around 1..512 bytes typically, sometimes 0 length for Write().\n# - Streams under test: MemoryStream and ExpandingMemoryStream; they do not\n#   interpret content, but checksum and alignment paths in OTSStream::Write\n#   can be exercised by varying lengths and content patterns to cross 4-byte\n#   boundaries.\n#\n# Strategy for generating interesting, yet valid buffers:\n# - Produce arbitrary binary payloads that include a mix of patterns:\n#   * All-zero runs (to exercise Pad-like effects and easy checksum values)\n#   * 0xFF runs (opposite extreme)\n#   * Incrementing/decrementing sequences (exercise memcpy paths and 4-byte batches)\n#   * Random bytes\n#   * Repeated 32-bit words to tick checksum accumulation on boundaries\n# - Vary total length in the typical range [1, 512], sometimes longer but <= 4096.\n# - Ensure non-empty by default since many stubs force to_write >= 1, but we\n#   also include zero-length edge case regions inside the buffer for callers\n#   that might use subsequences.\n# - Keep it pure bytes; no external I/O.\n\nMAX_TOTAL = 4096\n\ndef _chunk(pattern: str, n: int, seed: int) -> bytes:\n    rnd = random.Random(seed)\n    if pattern == \"zeros\":\n        return bytes([0]) * n\n    if pattern == \"ffs\":\n        return bytes([0xFF]) * n\n    if pattern == \"inc\":\n        return bytes([(i % 256) for i in range(n)])\n    if pattern == \"dec\":\n        return bytes([((255 - i) % 256) for i in range(n)])\n    if pattern == \"rand\":\n        return bytes([rnd.randrange(256) for _ in range(n)])\n    if pattern == \"wordrep\":\n        # Repeat a 4-byte word; choose from a small interesting set.\n        words = [0x00000000, 0xFFFFFFFF, 0x01020304, 0xA5A5A5A5, 0x11223344, 0x89ABCDEF]\n        w = words[rnd.randrange(len(words))]\n        b = w.to_bytes(4, byteorder=\"big\")\n        return (b * (n // 4)) + b[: n % 4]\n    if pattern == \"alt01\":\n        return bytes([0x00 if (i & 1) == 0 else 0x01 for i in range(n)])\n    if pattern == \"alt7f80\":\n        return bytes([0x7F if (i & 1) == 0 else 0x80 for i in range(n)])\n    return bytes([0] * n)\n\ndef _build_sections(seed: int, total_len: int) -> List[bytes]:\n    rnd = random.Random(seed)\n    # Choose 3..8 sections of varying patterns\n    num_sections = rnd.randrange(3, 9)\n    remaining = total_len\n    sections: List[bytes] = []\n    patterns = [\"zeros\", \"ffs\", \"inc\", \"dec\", \"rand\", \"wordrep\", \"alt01\", \"alt7f80\"]\n\n    for i in range(num_sections):\n        if i == num_sections - 1:\n            n = remaining\n        else:\n            # Bias sizes to create a mix of small and medium chunks\n            base = max(1, remaining // (num_sections - i))\n            low = max(1, base // 2)\n            high = max(1, int(base * 1.5))\n            n = rnd.randrange(low, min(high, remaining) + 1)\n        pat = rnd.choice(patterns)\n        sections.append(_chunk(pat, n, seed + i * 101))\n        remaining -= n\n        if remaining <= 0:\n            break\n    # Occasionally align a section boundary to 4 bytes by inserting small padding,\n    # to exercise both aligned and unaligned states in OTSStream::Write.\n    if sections and rnd.random() < 0.5:\n        pad = rnd.randrange(0, 4)\n        if pad:\n            pad_bytes = _chunk(\"zeros\", pad, seed + 999)\n            if sum(len(s) for s in sections) + pad <= total_len:\n                sections.append(pad_bytes)\n            else:\n                # Adjust last section if needed\n                last = sections.pop()\n                if len(last) > pad:\n                    sections.append(last[:-pad])\n                    sections.append(pad_bytes)\n                else:\n                    sections.append(last)\n    return sections\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Choose total length with a strong bias toward <= 512, but sometimes larger up to 4096.\n    if rnd.random() < 0.8:\n        total_len = rnd.randrange(1, 513)\n    else:\n        total_len = rnd.randrange(513, MAX_TOTAL + 1)\n\n    sections = _build_sections(seed, total_len)\n    buf = b\"\".join(sections)\n\n    # Ensure the final size is exactly total_len (trim or pad zeros if necessary).\n    if len(buf) > total_len:\n        buf = buf[:total_len]\n    elif len(buf) < total_len:\n        buf += bytes([0]) * (total_len - len(buf))\n\n    # Occasionally prepend or append short headers/footers to create different\n    # starting alignments and checksum behaviors without imposing structure.\n    tweak = rnd.randrange(0, 3)\n    if tweak == 1 and len(buf) + 3 <= MAX_TOTAL:\n        # Prepend 3 bytes to force misalignment\n        buf = b\"HDR\" + buf\n    elif tweak == 2 and len(buf) + 4 <= MAX_TOTAL:\n        # Append 4 bytes to finish on 4-byte boundary\n        buf = buf + b\"TAIL\"\n\n    # Cap to MAX_TOTAL strictly\n    return buf[:MAX_TOTAL]\n"
+    },
+    {
+      "data_type": "text string",
+      "generator": "import random\nimport struct\nimport itertools\n\n# Generator for a generic text string meant for printf(\"%s\") usage.\n# The fuzzer stub pulls FUZZ_PARAM_STR() and passes it as a C-string.\n# Our buffer should therefore contain a plausible, interesting NUL-terminated\n# string payload. AFL-style harnesses often split one input buffer across\n# multiple FUZZ_PARAM_* calls. We'll encode a single logical string that\n# parsers can slice from. Keep under 4096 bytes.\n\nASCII_PRINTABLE = [\n    *(range(0x20, 0x7f))  # space to tilde\n]\n\nCOMMON_PREFIXES = [\n    \"\", \"Error: \", \"Warning: \", \"Info: \",\n    \"[OTS] \", \"<debug> \", \"msg:\",\n]\n\n# Include diverse unicode samples that still make sense as UTF-8 and printf %s\nUNICODE_SAMPLES = [\n    \"こんにちは\",  # Japanese\n    \"Привет\",     # Russian\n    \"مرحبا\",      # Arabic\n    \"你好\",        # Chinese\n    \"🙂😀🙃\",      # Emoji\n    \"Ångström\",   # Latin extended\n]\n\nEDGE_CASES = [\n    \"\",  # empty string\n    \" \",\n    \"\\t\",\n    \"\\n\",\n    \"\\r\\n\",\n    \"%\",           # percent by itself\n    \"%%\",          # escaped percent-like content\n    \"%s\",          # would be safe because format is fixed, but interesting content\n    \"%9999999s\",   # large width\n    \"%.0s\",        # precision zero\n    \"%-20s\",       # left-justify\n    \"{json:false}\",\n    \"(null)\",\n    \"A\" * 1024,    # long but within cap\n]\n\nWORDS = [\n    \"font\", \"glyph\", \"table\", \"cmap\", \"head\", \"name\", \"kern\", \"GSUB\",\n    \"GPOS\", \"OTF\", \"TTF\", \"COLR\", \"CPAL\", \"CFF\", \"sanitizer\", \"checksum\",\n    \"stream\", \"write\", \"seek\", \"tell\", \"pad\", \"u16\", \"u32\",\n]\n\nSEPARATORS = [\" \", \"-\", \"_\", \":\", \";\", \", \", \"|\", \"/\", \"::\", \"#\"]\n\n\ndef _rand_choice(rng, seq):\n    return seq[rng.randrange(len(seq))]\n\n\ndef _build_interesting_text(rng: random.Random) -> str:\n    # Occasionally return a predefined edge case\n    if rng.random() < 0.25:\n        return _rand_choice(rng, EDGE_CASES)\n\n    parts = []\n    # Optional prefix\n    if rng.random() < 0.7:\n        parts.append(_rand_choice(rng, COMMON_PREFIXES))\n\n    # Mix words with separators\n    n_words = rng.randint(1, 10)\n    for i in range(n_words):\n        if rng.random() < 0.25:\n            parts.append(_rand_choice(rng, UNICODE_SAMPLES))\n        else:\n            parts.append(_rand_choice(rng, WORDS))\n        if i != n_words - 1:\n            parts.append(_rand_choice(rng, SEPARATORS))\n\n    # Optional trailing punctuation or newline patterns\n    tail_opts = [\"\", \"\\n\", \"\\r\\n\", \"...\", \"!\", \"?\", \" \\n\"]\n    parts.append(_rand_choice(rng, tail_opts))\n\n    s = \"\".join(parts)\n\n    # Occasionally include percent signs inside but they are just data; format is fixed to \"%s\"\n    if rng.random() < 0.3:\n        insert_pos = rng.randrange(0, len(s) + 1)\n        s = s[:insert_pos] + (\" %\" * rng.randint(1, 5)) + s[insert_pos:]\n\n    # Cap size to remain under overall limit when encoded and NUL-terminated\n    return s[:3500]\n\n\ndef _encode_c_string(text: str) -> bytes:\n    # Encode as UTF-8; ensure no embedded NUL so C \"%s\" prints full string\n    # If there are NULs, replace them with visible \\x00-like sequence\n    text = text.replace(\"\\x00\", \"<NUL>\")\n    data = text.encode(\"utf-8\", errors=\"replace\")\n    return data + b\"\\x00\"\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build one or multiple C-strings concatenated, so harnesses that draw\n    # multiple FUZZ_PARAM_STR slices have material to consume. We'll pack:\n    # [count][len1][str1\\0][len2][str2\\0]... in a simple self-describing blob,\n    # but many fuzzers just pass raw; including lengths first keeps it robust if\n    # the harness interprets size, and harmless if not (they just become part of the string).\n\n    count = rng.randint(1, 5)\n    chunks = []\n\n    # Header: magic + count\n    magic = b\"OTSMSG\\x01\"  # recognizable prefix\n    chunks.append(magic)\n    chunks.append(struct.pack(\"<I\", count))\n\n    for _ in range(count):\n        s = _build_interesting_text(rng)\n        b = _encode_c_string(s)\n        chunks.append(struct.pack(\"<I\", len(b)))\n        chunks.append(b)\n\n    blob = b\"\".join(chunks)\n    # Ensure max size <= 4096\n    return blob[:4096]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3069,
+            "output_tokens": 2450,
+            "total_tokens": 5519
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2647,
+            "output_tokens": 268,
+            "total_tokens": 2915
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3359,
+            "output_tokens": 3842,
+            "total_tokens": 7201
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 23427,
+            "output_tokens": 10234,
+            "total_tokens": 33661
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 13446,
+            "output_tokens": 1056,
+            "total_tokens": 14502
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8670,
+            "output_tokens": 203,
+            "total_tokens": 8873
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 442.6760175228119,
+    "scan_objects": 88.75456762313843,
+    "validate_objects": 0.6300010681152344,
+    "scan_functions": 66.38506126403809,
+    "synthesis": 199.0519256591797,
+    "fill": 41.10767221450806,
+    "classify": 20.82085633277893,
+    "build_generators": 25.92474937438965
+  }
+}

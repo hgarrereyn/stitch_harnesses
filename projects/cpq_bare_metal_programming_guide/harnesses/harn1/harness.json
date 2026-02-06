@@ -1,0 +1,331 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct systick *",
+      "aliases": [],
+      "definition": "struct systick {\n  volatile uint32_t CTRL, LOAD, VAL, CALIB;\n};",
+      "description": "Memory-mapped register block for the ARM SysTick timer (CTRL, LOAD, VAL, CALIB). Intended to be accessed via the SYSTICK macro pointing to address 0xe000e010.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct rcc *",
+      "aliases": [],
+      "definition": "struct rcc {\n  volatile uint32_t CR, PLLCFGR, CFGR, CIR, AHB1RSTR, AHB2RSTR, AHB3RSTR,\n      RESERVED0, APB1RSTR, APB2RSTR, RESERVED1[2], AHB1ENR, AHB2ENR, AHB3ENR,\n      RESERVED2, APB1ENR, APB2ENR, RESERVED3[2], AHB1LPENR, AHB2LPENR,\n      AHB3LPENR, RESERVED4, APB1LPENR, APB2LPENR, RESERVED5[2], BDCR, CSR,\n      RESERVED6[2], SSCGR, PLLI2SCFGR;\n};",
+      "description": "Memory-mapped register block for the Reset and Clock Control (RCC) peripheral of STM32F4-class MCUs, exposing clock/reset enables, prescalers, and related control/status registers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct gpio *",
+      "aliases": [],
+      "definition": "struct gpio {\n  volatile uint32_t MODER, OTYPER, OSPEEDR, PUPDR, IDR, ODR, BSRR, LCKR, AFR[2];\n};",
+      "description": "Memory-mapped register block for a GPIO port, including mode, type, speed, pull-up/down, input/output data, bit set/reset, lock, and alternate function registers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct uart *",
+      "aliases": [],
+      "definition": "struct uart {\n  volatile uint32_t SR, DR, BRR, CR1, CR2, CR3, GTPR;\n};",
+      "description": "Memory-mapped register block for a USART/UART peripheral, including status, data, baud rate, control, and prescaler registers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "spin",
+      "signature": "static inline void spin(volatile uint32_t count)",
+      "description": "Busy-wait loop that spins for approximately count iterations. Useful for very short, non-precise delays in bare-metal code.",
+      "requirements": [
+        "count may be any 32-bit value; larger values take longer to return",
+        "This is a blocking, CPU-busy delay; it does not sleep or yield and timing is not precise and depends on CPU frequency"
+      ],
+      "error": null
+    },
+    {
+      "name": "systick_init",
+      "signature": "static inline void systick_init(uint32_t ticks)",
+      "description": "Initializes the Cortex-M SysTick timer with the given reload value (ticks) and enables it along with the SYSCFG clock. If ticks is out of the 24-bit SysTick range, the function returns without changing configuration.",
+      "requirements": [
+        "ticks must be in the range 1..0xFFFFFF for the configuration to take effect (SysTick is 24-bit)",
+        "Caller should pass a reload value computed for the desired tick rate at the current CPU clock (FREQ)",
+        "This function directly accesses SYSTICK and RCC registers; it must be called in a context where those peripherals are present (Cortex-M with STM32-style RCC)"
+      ],
+      "error": null
+    },
+    {
+      "name": "gpio_set_mode",
+      "signature": "static inline void gpio_set_mode(uint16_t pin, uint8_t mode)",
+      "description": "Configures the GPIO mode for the specified pin. It enables the GPIO bank clock and sets the pin’s MODER field to the provided mode (input/output/alternate/analog).",
+      "requirements": [
+        "pin must be encoded with the PIN(bankChar, pinNumber) macro used by this HAL",
+        "mode must be one of: 0 (GPIO_MODE_INPUT), 1 (GPIO_MODE_OUTPUT), 2 (GPIO_MODE_AF), or 3 (GPIO_MODE_ANALOG)",
+        "Target GPIO bank must exist on the device; the function writes to RCC->AHB1ENR and the GPIOx MODER register"
+      ],
+      "error": null
+    },
+    {
+      "name": "gpio_set_af",
+      "signature": "static inline void gpio_set_af(uint16_t pin, uint8_t af_num)",
+      "description": "Selects the alternate function (AF) for the specified GPIO pin by programming the AFR register for that pin.",
+      "requirements": [
+        "pin must be encoded with the PIN(bankChar, pinNumber) macro used by this HAL",
+        "af_num must be in the range 0..15 (the AFR field is 4 bits)",
+        "The pin should be configured to alternate-function mode (GPIO_MODE_AF) via gpio_set_mode prior to use",
+        "Target GPIO bank/pin must support the requested AF as per the MCU datasheet"
+      ],
+      "error": null
+    },
+    {
+      "name": "gpio_write",
+      "signature": "static inline void gpio_write(uint16_t pin, bool val)",
+      "description": "Sets or resets a GPIO pin by writing to the BSRR register. Writes a 1 to the set bit when val is true, or to the reset bit when val is false.",
+      "requirements": [
+        "pin must be encoded with the PIN(bankChar, pinNumber) macro used by this HAL",
+        "The pin should be configured as output or as an AF output for changes to take effect",
+        "Target GPIO bank must exist; function writes to GPIOx->BSRR"
+      ],
+      "error": null
+    },
+    {
+      "name": "uart_init",
+      "signature": "static inline void uart_init(struct uart *uart, unsigned long baud)",
+      "description": "Initializes a UART peripheral for basic TX/RX with the specified baud rate. Enables the corresponding APB clock, configures the default TX/RX pins to AF mode with AF7, programs BRR based on FREQ, and sets UE, RE, TE in CR1.",
+      "requirements": [
+        "uart must point to a valid UART instance, expected to be one of UART1, UART2, or UART3 defined by this HAL",
+        "baud must be non-zero to avoid division by zero when computing BRR",
+        "The default pin mappings used are: UART1: PA9/PA10, UART2: PA2/PA3, UART3: PD8/PD9, all with AF7; the target MCU must support these mappings",
+        "FREQ must reflect the UART peripheral clock frequency for the computed BRR to be correct",
+        "This function reconfigures pins and UART registers; it should be called before transmitting/receiving"
+      ],
+      "error": null
+    },
+    {
+      "name": "uart_write_byte",
+      "signature": "static inline void uart_write_byte(struct uart *uart, uint8_t byte)",
+      "description": "Transmits a single byte over the specified UART. Blocks until the transmit data register is empty (TXE set) after writing the byte.",
+      "requirements": [
+        "uart must point to an initialized UART peripheral",
+        "This call busy-waits on the TXE flag; it is blocking and assumes polling mode",
+        "Hardware must be clocked/enabled; otherwise the wait may never complete"
+      ],
+      "error": null
+    },
+    {
+      "name": "uart_write_buf",
+      "signature": "static inline void uart_write_buf(struct uart *uart, char *buf, size_t len)",
+      "description": "Transmits len bytes from the buffer over the specified UART by repeatedly calling uart_write_byte.",
+      "requirements": [
+        "uart must point to an initialized UART peripheral",
+        "If len > 0, buf must point to a readable memory region of at least len bytes",
+        "This function is blocking and performs polled transmission; it loops until all bytes are sent"
+      ],
+      "error": null
+    },
+    {
+      "name": "uart_read_ready",
+      "signature": "static inline int uart_read_ready(struct uart *uart)",
+      "description": "Returns non-zero if the UART has received data available to read (RXNE set), otherwise returns 0.",
+      "requirements": [
+        "uart must point to a valid UART peripheral",
+        "Caller should check the return value before calling uart_read_byte to avoid reading when no data is present"
+      ],
+      "error": null
+    },
+    {
+      "name": "uart_read_byte",
+      "signature": "static inline uint8_t uart_read_byte(struct uart *uart)",
+      "description": "Reads and returns the least significant 8 bits from the UART data register (DR). Intended to be called after uart_read_ready indicates data availability.",
+      "requirements": [
+        "uart must point to a valid UART peripheral",
+        "Caller should ensure data is available (e.g., via uart_read_ready) before calling to avoid reading invalid/old data",
+        "Reading DR may clear the RXNE flag on some MCUs; handle accordingly in caller logic"
+      ],
+      "error": null
+    },
+    {
+      "name": "timer_expired",
+      "signature": "static inline bool timer_expired(uint32_t *t, uint32_t prd, uint32_t now)",
+      "description": "Periodic timer helper. Tracks expiration using a state variable at *t, a desired period prd, and the current time now. Returns true when the timer expires and updates *t to the next expiration, handling wrap-around of the time base.",
+      "requirements": [
+        "t must be a non-NULL pointer to a uint32_t used as persistent state across calls",
+        "now and prd must use the same time base units (e.g., ticks) and now should be a monotonically increasing 32-bit counter that may wrap",
+        "If *t is zero on first call, the function initializes it to now + prd",
+        "A prd of 0 effectively causes immediate expiration on each call (tight loop behavior)"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "spin",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Keep the busy-wait bounded to avoid long blocking in the fuzzer.\n// Use a small iteration count (<= 1024) to exercise the code path quickly.\nuint32_t count = (uint32_t)(*FUZZ_PARAM(unsigned int) % 1024);\nspin(count);\n\n// Validation: No inputs/outputs; bounded count prevents hangs and satisfies API allowing any 32-bit value."
+    },
+    {
+      "name": "uart_read_ready",
+      "inputs": [
+        {
+          "name": "uart",
+          "type": "struct uart *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "uart",
+          "type": "struct uart *"
+        }
+      ],
+      "code": "// Prepare UART status with random bits to exercise both ready/not-ready paths.\n// RXNE is typically bit 5; we just randomize SR and rely on target function logic.\nuart->SR = *FUZZ_PARAM(unsigned int);\n// Invoke the function under test; it should just read SR and return non-zero if RXNE set.\nint ready = uart_read_ready(uart);\n// Consume the result in a benign way to avoid optimizing away the call.\nif (ready && (uart->SR == 0xFFFFFFFF)) { /* unreachable combo, no-op */ }\n\n// Output: return the same uart object to the pool since it's still valid and owned by the runtime.\n\n// Validation: The stub safely mutates the in-memory struct and calls the function; no blocking/waits or hardware access beyond the provided struct."
+    },
+    {
+      "name": "uart_read_byte",
+      "inputs": [
+        {
+          "name": "uart",
+          "type": "struct uart *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "uart",
+          "type": "struct uart *"
+        }
+      ],
+      "code": "// Seed DR with a random byte to read back; SR can be randomized as well.\nuart->DR = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0xFFu);\nuart->SR = *FUZZ_PARAM(unsigned int);\n// Invoke the function under test and read a byte. Reading DR is safe on this in-memory struct.\nvolatile uint8_t b = uart_read_byte(uart);\n// Light use of the value to avoid unused warnings.\nif ((b == 0u) && (uart->SR == 0u)) { /* no-op */ }\n\n// Output: return the same uart object to the pool since it's still valid and owned by the runtime.\n\n// Validation: No loops or waits; we only perform plain struct reads/writes compatible with the fuzzer environment."
+    },
+    {
+      "name": "timer_expired",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a local timer state and parameters. This function is pure logic and does not touch hardware.\n// t: persistent state (simulated locally here). Sometimes start from 0 to exercise initialization path.\nuint32_t t_state = (*FUZZ_PARAM(unsigned int) % 2) ? 0u : *FUZZ_PARAM(unsigned int);\n// prd: allow 0 to cover the immediate-expiration behavior; otherwise keep it moderate.\nuint32_t prd = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0x000FFFFFu); // up to ~1M ticks, including 0\n// now: random 32-bit counter value.\nuint32_t now1 = *FUZZ_PARAM(unsigned int);\n// First call exercises either init or regular path.\nbool e1 = timer_expired(&t_state, prd, now1);\n// Second call advances time by a small delta or near-wrap to exercise wrap-around logic.\nuint32_t delta = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0x0000FFFFu); // small positive delta\nuint32_t near_wrap_bias = (uint32_t)(*FUZZ_PARAM(unsigned int) % 2);\nuint32_t now2 = near_wrap_bias ? (0xFFFFFFFFu - delta) : (now1 + delta);\nbool e2 = timer_expired(&t_state, prd, now2);\n// Light use of results to avoid unused warnings and keep code paths alive.\nif ((int)e1 + (int)e2 == -1) { /* impossible, no-op */ }\n\n// Validation: All parameters are local and bounded; covers init (t=0), prd=0, normal, and near-wrap scenarios without side effects."
+    },
+    {
+      "name": "struct uart *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "uart",
+          "type": "struct uart *"
+        }
+      ],
+      "code": "// Construct a UART instance as a heap-allocated, fuzzer-managed object.\n// No hardware access is performed; we only manipulate the in-memory register block.\nstruct uart *uart = (struct uart *)malloc(sizeof(struct uart));\nif (!uart) { FUZZ_BAIL(); }\n\n// Initialize all registers to deterministic baseline, then apply fuzz/random values\n// where safe. This simulates a powered-on, enabled UART that downstream stubs can use.\nmemset(uart, 0, sizeof(*uart));\n\n// Baud rate register: ensure non-zero to satisfy potential divisions/assumptions.\n// Keep value modest; mask to 16 bits and add 1.\nuart->BRR = ((uint32_t)(*FUZZ_PARAM(unsigned int) & 0xFFFFu)) + 1u;\n\n// Control register CR1: set UE (bit 13), RE (bit 2), TE (bit 3) to simulate initialized UART.\n// Other bits randomized lightly to increase coverage without breaking invariants.\nuint32_t cr1_rand = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0x000003FFu); // low misc bits\nuart->CR1 = (1u << 13) | (1u << 2) | (1u << 3) | cr1_rand;\n\n// Control registers CR2/CR3 and prescaler GTPR can be fuzzed freely (masked to keep values small).\nuart->CR2 = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0x0000FFFFu);\nuart->CR3 = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0x0000FFFFu);\nuart->GTPR = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0x0000FFFFu);\n\n// Status register SR: set TXE (bit 7) to avoid potential blocking waits in downstream writes.\n// Also optionally set RXNE (bit 5) to exercise read-ready paths; rest randomized within 16 bits.\nuint32_t sr_rand = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0x0000FFFFu);\nuint32_t txe_bit = (1u << 7);\nuint32_t rxne_bit = (FUZZ_GET_ATTR_INT_GLOBAL(\"bias_rxne\") ? (1u << 5) : 0u); // optional bias hook\nuart->SR = sr_rand | txe_bit | rxne_bit;\n\n// Data register DR: seed with a random byte so uart_read_byte has meaningful content.\nuart->DR = (uint32_t)(*FUZZ_PARAM(unsigned int) & 0xFFu);\n\n// Mark attributes so other stubs can verify/use this object safely.\n// - initialized: indicates uart is configured and ready for RX/TX in polling mode\n// - uart_num: pseudo-identifier 1..3 matching common UART instances\nint which = (int)(*FUZZ_PARAM(unsigned int) % 3u) + 1;\nFUZZ_SET_ATTR_INT(uart, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(uart, \"uart_num\", which);\n\n// Property validation: ensure constructed object meets baseline expectations.\nFUZZ_ASSERT(uart->BRR != 0u, \"UART BRR must be non-zero after construction\");\nFUZZ_ASSERT((uart->CR1 & (1u << 13)) != 0u, \"UART must be enabled (UE)\");\nFUZZ_ASSERT((uart->CR1 & (1u << 3)) != 0u, \"UART TX must be enabled (TE)\");\nFUZZ_ASSERT((uart->CR1 & (1u << 2)) != 0u, \"UART RX must be enabled (RE)\");\nFUZZ_ASSERT((uart->SR & (1u << 7)) != 0u, \"UART TXE should be set to avoid blocking writes\");\n\n// Validation summary: We return a non-null, initialized UART object with TXE set and BRR non-zero,\n// suitable for uart_read_ready/read/write paths without hardware dependencies."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "systick_init",
+      "reason": "Directly accesses memory-mapped SYSTICK and RCC registers at fixed addresses, which are not present in the fuzzer environment and could crash."
+    },
+    {
+      "name": "gpio_set_mode",
+      "reason": "Writes to RCC/GPIO memory-mapped registers based on a hardware-encoded pin, which is not safe or meaningful without the MCU hardware."
+    },
+    {
+      "name": "gpio_set_af",
+      "reason": "Programs GPIO AFR fields via memory-mapped registers using encoded pins; without hardware this risks invalid memory access and cannot be validated."
+    },
+    {
+      "name": "gpio_write",
+      "reason": "Manipulates GPIO BSRR in memory-mapped I/O for specific banks; absent hardware this is unsafe and untestable."
+    },
+    {
+      "name": "uart_init",
+      "reason": "Enables clocks and reconfigures GPIO/UART registers tied to specific MCU addresses; without hardware this may access invalid memory and block."
+    },
+    {
+      "name": "uart_write_byte",
+      "reason": "Performs a blocking wait on the TXE flag; without hardware support it may never complete, causing the fuzzer to hang."
+    },
+    {
+      "name": "uart_write_buf",
+      "reason": "Loops on uart_write_byte and can block indefinitely without hardware TXE transitions, making it unsafe for the fuzzer."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "spin",
+      "data_types": []
+    },
+    {
+      "name": "uart_read_ready",
+      "data_types": []
+    },
+    {
+      "name": "uart_read_byte",
+      "data_types": []
+    },
+    {
+      "name": "timer_expired",
+      "data_types": []
+    },
+    {
+      "name": "struct uart *",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2220,
+            "output_tokens": 604,
+            "total_tokens": 2824
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1798,
+            "output_tokens": 55,
+            "total_tokens": 1853
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2278,
+            "output_tokens": 2182,
+            "total_tokens": 4460
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5786,
+            "output_tokens": 4317,
+            "total_tokens": 10103
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5372,
+            "output_tokens": 2099,
+            "total_tokens": 7471
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 184.50958633422852,
+    "scan_objects": 7.506552219390869,
+    "validate_objects": 0.28267574310302734,
+    "scan_functions": 43.373613357543945,
+    "synthesis": 86.45591759681702,
+    "fill": 46.83549785614014,
+    "classify": 0.054488182067871094,
+    "build_generators": 0.00006818771362304688
+  }
+}

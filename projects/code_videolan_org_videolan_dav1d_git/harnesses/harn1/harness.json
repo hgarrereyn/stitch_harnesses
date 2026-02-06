@@ -1,0 +1,1055 @@
+{
+  "objects": [
+    {
+      "ptr_type": "Dav1dUserData *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dUserData {\n    const uint8_t *data; ///< data pointer\n    struct Dav1dRef *ref; ///< allocation origin\n} Dav1dUserData;",
+      "description": "Reference-counted wrapper for an arbitrary user-provided data pointer. The data field points to the payload; ref points to an internal reference-counting owner (Dav1dRef) that tracks the allocation origin. The exact lifecycle semantics of Dav1dRef are not defined in this header; consumers should treat ref as an opaque handle and avoid modifying it directly.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dDataProps *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dDataProps *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dDataProps {\n    int64_t timestamp; ///< container timestamp of input data, INT64_MIN if unknown (default)\n    int64_t duration; ///< container duration of input data, 0 if unknown (default)\n    int64_t offset; ///< stream offset of input data, -1 if unknown (default)\n    size_t size; ///< packet size, default Dav1dData.sz\n    struct Dav1dUserData user_data; ///< user-configurable data, default NULL members\n} Dav1dDataProps;",
+      "description": "Metadata associated with an input data packet, propagated to the decoded output image. Fields include timestamp, duration, byte offset, packet size, and a user-configurable user_data block. Intended to carry container/stream information through the decoder unchanged; exact defaults and interpretation are noted in comments.",
+      "direct_api_constructors": [
+        "dav1d_data_props_unref"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dPictureParameters *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dPictureParameters {\n    int w; ///< width (in pixels)\n    int h; ///< height (in pixels)\n    enum Dav1dPixelLayout layout; ///< format of the picture\n    int bpc; ///< bits per pixel component (8 or 10)\n} Dav1dPictureParameters;",
+      "description": "Parameter block describing picture geometry and format for allocation/processing: width, height, pixel layout (enum Dav1dPixelLayout, defined elsewhere), and bits per component (8 or 10). Used to size and allocate picture buffers.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dPicture *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dPicture *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dPicture {\n    Dav1dSequenceHeader *seq_hdr;\n    Dav1dFrameHeader *frame_hdr;\n\n    /**\n     * Pointers to planar image data (Y is [0], U is [1], V is [2]). The data\n     * should be bytes (for 8 bpc) or words (for 10 bpc). In case of words\n     * containing 10 bpc image data, the pixels should be located in the LSB\n     * bits, so that values range between [0, 1023]; the upper bits should be\n     * zero'ed out.\n     */\n    void *data[3];\n\n    /**\n     * Number of bytes between 2 lines in data[] for luma [0] or chroma [1].\n     */\n    ptrdiff_t stride[2];\n\n    Dav1dPictureParameters p;\n    Dav1dDataProps m;\n\n    /**\n     * High Dynamic Range Content Light Level metadata applying to this picture,\n     * as defined in section 5.8.3 and 6.7.3\n     */\n    Dav1dContentLightLevel *content_light;\n    /**\n     * High Dynamic Range Mastering Display Color Volume metadata applying to\n     * this picture, as defined in section 5.8.4 and 6.7.4\n     */\n    Dav1dMasteringDisplay *mastering_display;\n    /**\n     * Array of ITU-T T.35 metadata as defined in section 5.8.2 and 6.7.2\n     */\n    Dav1dITUTT35 *itut_t35;\n\n    /**\n     * Number of ITU-T T35 metadata entries in the array\n     */\n    size_t n_itut_t35;\n\n    uintptr_t reserved[4]; ///< reserved for future use\n\n    struct Dav1dRef *frame_hdr_ref; ///< Dav1dFrameHeader allocation origin\n    struct Dav1dRef *seq_hdr_ref; ///< Dav1dSequenceHeader allocation origin\n    struct Dav1dRef *content_light_ref; ///< Dav1dContentLightLevel allocation origin\n    struct Dav1dRef *mastering_display_ref; ///< Dav1dMasteringDisplay allocation origin\n    struct Dav1dRef *itut_t35_ref; ///< Dav1dITUTT35 allocation origin\n    uintptr_t reserved_ref[4]; ///< reserved for future use\n    struct Dav1dRef *ref; ///< Frame data allocation origin\n\n    void *allocator_data; ///< pointer managed by the allocator\n} Dav1dPicture;",
+      "description": "Primary image container for decoded AV1 frames: holds planar YUV data pointers and strides, picture parameters, metadata pointers, reference-counting handles, and allocator private data. Buffers are typically provided via Dav1dPicAllocator. Fields like seq_hdr, frame_hdr, and metadata pointers point to separately managed objects.",
+      "direct_api_constructors": [
+        "dav1d_picture_unref"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dPicAllocator *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dPicAllocator {\n    void *cookie; ///< custom data to pass to the allocator callbacks.\n    /**\n     * Allocate the picture buffer based on the Dav1dPictureParameters.\n     *\n     * The data[0], data[1] and data[2] must be DAV1D_PICTURE_ALIGNMENT byte\n     * aligned and with a pixel width/height multiple of 128 pixels. Any\n     * allocated memory area should also be padded by DAV1D_PICTURE_ALIGNMENT\n     * bytes.\n     * data[1] and data[2] must share the same stride[1].\n     *\n     * This function will be called on the main thread (the thread which calls\n     * dav1d_get_picture()).\n     *\n     * @param  pic The picture to allocate the buffer for. The callback needs to\n     *             fill the picture data[0], data[1], data[2], stride[0] and\n     *             stride[1].\n     *             The allocator can fill the pic allocator_data pointer with\n     *             a custom pointer that will be passed to\n     *             release_picture_callback().\n     * @param cookie Custom pointer passed to all calls.\n     *\n     * @note No fields other than data, stride and allocator_data must be filled\n     *       by this callback.\n     * @return 0 on success. A negative DAV1D_ERR value on error.\n     */\n    int (*alloc_picture_callback)(Dav1dPicture *pic, void *cookie);\n    /**\n     * Release the picture buffer.\n     *\n     * If frame threading is used, this function may be called by the main\n     * thread (the thread which calls dav1d_get_picture()) or any of the frame\n     * threads and thus must be thread-safe. If frame threading is not used,\n     * this function will only be called on the main thread.\n     *\n     * @param pic    The picture that was filled by alloc_picture_callback().\n     * @param cookie Custom pointer passed to all calls.\n     */\n    void (*release_picture_callback)(Dav1dPicture *pic, void *cookie);\n} Dav1dPicAllocator;",
+      "description": "User-supplied allocator vtable for picture buffer management. Provides a cookie and two callbacks: one to allocate and fill Dav1dPicture data/strides with proper alignment and padding, and one to release them. Thread-safety requirements apply to the release callback when frame threading is used.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct Dav1dRef *",
+      "aliases": [],
+      "definition": "struct Dav1dRef;",
+      "description": "Opaque reference-counted handle used internally to track allocation origin and lifetime of headers, metadata, and frame buffers. Only a forward declaration is present here; definition is elsewhere.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dPicture *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dData *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dData {\n    const uint8_t *data; ///< data pointer\n    size_t sz; ///< data size\n    struct Dav1dRef *ref; ///< allocation origin\n    Dav1dDataProps m; ///< user provided metadata passed to the output picture\n} Dav1dData;",
+      "description": "Opaque-like data holder for an encoded bitstream buffer and its associated metadata. It stores a pointer to immutable bytes, their size, a reference-counted allocation origin (Dav1dRef, defined elsewhere), and user-provided metadata (Dav1dDataProps, defined in common.h). Used as the input container to dav1d APIs for wrapping/allocating/freeing input data.",
+      "direct_api_constructors": [
+        "dav1d_data_create",
+        "dav1d_data_wrap",
+        "dav1d_data_wrap_user_data"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum Dav1dObuType *",
+      "aliases": [],
+      "definition": "enum Dav1dObuType {\n    DAV1D_OBU_SEQ_HDR   = 1,\n    DAV1D_OBU_TD        = 2,\n    DAV1D_OBU_FRAME_HDR = 3,\n    DAV1D_OBU_TILE_GRP  = 4,\n    DAV1D_OBU_METADATA  = 5,\n    DAV1D_OBU_FRAME     = 6,\n    DAV1D_OBU_REDUNDANT_FRAME_HDR = 7,\n    DAV1D_OBU_PADDING   = 15,\n};",
+      "description": "OBU (Open Bitstream Unit) types as defined by AV1. Used to identify the kind of OBU encountered in the bitstream.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum Dav1dTxfmMode *",
+      "aliases": [],
+      "definition": "enum Dav1dTxfmMode {\n    DAV1D_TX_4X4_ONLY,\n    DAV1D_TX_LARGEST,\n    DAV1D_TX_SWITCHABLE,\n    DAV1D_N_TX_MODES,\n};",
+      "description": "Transform mode signaling permitted in a frame (e.g., only 4x4, largest allowed, or fully switchable).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dFilterMode *",
+      "aliases": [],
+      "definition": "enum Dav1dFilterMode {\n    DAV1D_FILTER_8TAP_REGULAR,\n    DAV1D_FILTER_8TAP_SMOOTH,\n    DAV1D_FILTER_8TAP_SHARP,\n    DAV1D_N_SWITCHABLE_FILTERS,\n    DAV1D_FILTER_BILINEAR = DAV1D_N_SWITCHABLE_FILTERS,\n    DAV1D_N_FILTERS,\n    DAV1D_FILTER_SWITCHABLE = DAV1D_N_FILTERS,\n};",
+      "description": "Interpolation filter selection for subpel motion: specific 8-tap variants, bilinear, or switchable.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dAdaptiveBoolean *",
+      "aliases": [],
+      "definition": "enum Dav1dAdaptiveBoolean {\n    DAV1D_OFF = 0,\n    DAV1D_ON = 1,\n    DAV1D_ADAPTIVE = 2,\n};",
+      "description": "Tri-state boolean used in sequence header signaling: off, on, or adaptively selected by the encoder/bitstream.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSequenceHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dRestorationType *",
+      "aliases": [],
+      "definition": "enum Dav1dRestorationType {\n    DAV1D_RESTORATION_NONE,\n    DAV1D_RESTORATION_SWITCHABLE,\n    DAV1D_RESTORATION_WIENER,\n    DAV1D_RESTORATION_SGRPROJ,\n};",
+      "description": "In-loop restoration filter type per plane: none, switchable, Wiener, or self-guided restoration (SGRPROJ).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dWarpedMotionType *",
+      "aliases": [],
+      "definition": "enum Dav1dWarpedMotionType {\n    DAV1D_WM_TYPE_IDENTITY,\n    DAV1D_WM_TYPE_TRANSLATION,\n    DAV1D_WM_TYPE_ROT_ZOOM,\n    DAV1D_WM_TYPE_AFFINE,\n};",
+      "description": "Global/warped motion model type: identity, translation, rotation+zoom, or full affine.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dWarpedMotionParams *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dWarpedMotionParams *",
+      "aliases": [
+        "struct Dav1dWarpedMotionParams *"
+      ],
+      "definition": "typedef struct Dav1dWarpedMotionParams {\n    enum Dav1dWarpedMotionType type;\n    int32_t matrix[6];\n    union {\n        struct {\n            int16_t alpha, beta, gamma, delta;\n        } p;\n        int16_t abcd[4];\n    } u;\n} Dav1dWarpedMotionParams;",
+      "description": "Holds a warped/global motion model: the model type, 3x2 fixed-point matrix parameters, and unpacked alpha/beta/gamma/delta coefficients.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dPixelLayout *",
+      "aliases": [],
+      "definition": "enum Dav1dPixelLayout {\n    DAV1D_PIXEL_LAYOUT_I400, ///< monochrome\n    DAV1D_PIXEL_LAYOUT_I420, ///< 4:2:0 planar\n    DAV1D_PIXEL_LAYOUT_I422, ///< 4:2:2 planar\n    DAV1D_PIXEL_LAYOUT_I444, ///< 4:4:4 planar\n};",
+      "description": "Pixel format layout (monochrome or YUV 4:2:0 / 4:2:2 / 4:4:4).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSequenceHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dFrameType *",
+      "aliases": [],
+      "definition": "enum Dav1dFrameType {\n    DAV1D_FRAME_TYPE_KEY = 0,    ///< Key Intra frame\n    DAV1D_FRAME_TYPE_INTER = 1,  ///< Inter frame\n    DAV1D_FRAME_TYPE_INTRA = 2,  ///< Non key Intra frame\n    DAV1D_FRAME_TYPE_SWITCH = 3, ///< Switch Inter frame\n};",
+      "description": "AV1 frame coding type: key, inter, intra (non-key), or switch. Used in frame headers.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dColorPrimaries *",
+      "aliases": [],
+      "definition": "enum Dav1dColorPrimaries {\n    DAV1D_COLOR_PRI_BT709 = 1,\n    DAV1D_COLOR_PRI_UNKNOWN = 2,\n    DAV1D_COLOR_PRI_BT470M = 4,\n    DAV1D_COLOR_PRI_BT470BG = 5,\n    DAV1D_COLOR_PRI_BT601 = 6,\n    DAV1D_COLOR_PRI_SMPTE240 = 7,\n    DAV1D_COLOR_PRI_FILM = 8,\n    DAV1D_COLOR_PRI_BT2020 = 9,\n    DAV1D_COLOR_PRI_XYZ = 10,\n    DAV1D_COLOR_PRI_SMPTE431 = 11,\n    DAV1D_COLOR_PRI_SMPTE432 = 12,\n    DAV1D_COLOR_PRI_EBU3213 = 22,\n    DAV1D_COLOR_PRI_RESERVED = 255,\n};",
+      "description": "Color primaries identifiers (AV1/ISO). Used for mastering and matrix conversion.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSequenceHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dTransferCharacteristics *",
+      "aliases": [],
+      "definition": "enum Dav1dTransferCharacteristics {\n    DAV1D_TRC_BT709 = 1,\n    DAV1D_TRC_UNKNOWN = 2,\n    DAV1D_TRC_BT470M = 4,\n    DAV1D_TRC_BT470BG = 5,\n    DAV1D_TRC_BT601 = 6,\n    DAV1D_TRC_SMPTE240 = 7,\n    DAV1D_TRC_LINEAR = 8,\n    DAV1D_TRC_LOG100 = 9,         ///< logarithmic (100:1 range)\n    DAV1D_TRC_LOG100_SQRT10 = 10, ///< lograithmic (100*sqrt(10):1 range)\n    DAV1D_TRC_IEC61966 = 11,\n    DAV1D_TRC_BT1361 = 12,\n    DAV1D_TRC_SRGB = 13,\n    DAV1D_TRC_BT2020_10BIT = 14,\n    DAV1D_TRC_BT2020_12BIT = 15,\n    DAV1D_TRC_SMPTE2084 = 16,     ///< PQ\n    DAV1D_TRC_SMPTE428 = 17,\n    DAV1D_TRC_HLG = 18,           ///< hybrid log/gamma (BT.2100 / ARIB STD-B67)\n    DAV1D_TRC_RESERVED = 255,\n};",
+      "description": "Transfer characteristics (OETF/EOTF) identifiers for the stream.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSequenceHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dMatrixCoefficients *",
+      "aliases": [],
+      "definition": "enum Dav1dMatrixCoefficients {\n    DAV1D_MC_IDENTITY = 0,\n    DAV1D_MC_BT709 = 1,\n    DAV1D_MC_UNKNOWN = 2,\n    DAV1D_MC_FCC = 4,\n    DAV1D_MC_BT470BG = 5,\n    DAV1D_MC_BT601 = 6,\n    DAV1D_MC_SMPTE240 = 7,\n    DAV1D_MC_SMPTE_YCGCO = 8,\n    DAV1D_MC_BT2020_NCL = 9,\n    DAV1D_MC_BT2020_CL = 10,\n    DAV1D_MC_SMPTE2085 = 11,\n    DAV1D_MC_CHROMAT_NCL = 12, ///< Chromaticity-derived\n    DAV1D_MC_CHROMAT_CL = 13,\n    DAV1D_MC_ICTCP = 14,\n    DAV1D_MC_RESERVED = 255,\n};",
+      "description": "YUV/RGB matrix coefficients enumeration used for color conversion.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSequenceHeader *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dChromaSamplePosition *",
+      "aliases": [],
+      "definition": "enum Dav1dChromaSamplePosition {\n    DAV1D_CHR_UNKNOWN = 0,\n    DAV1D_CHR_VERTICAL = 1,  ///< Horizontally co-located with luma(0, 0)\n                           ///< sample, between two vertical samples\n    DAV1D_CHR_COLOCATED = 2, ///< Co-located with luma(0, 0) sample\n};",
+      "description": "Chroma sample siting relative to luma (unknown, vertical, or co-located).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSequenceHeader *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dContentLightLevel *",
+      "aliases": [
+        "struct Dav1dContentLightLevel *"
+      ],
+      "definition": "typedef struct Dav1dContentLightLevel {\n    uint16_t max_content_light_level;\n    uint16_t max_frame_average_light_level;\n} Dav1dContentLightLevel;",
+      "description": "Content light level signaling (MaxCLL and MaxFALL) typically from HDR metadata.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dMasteringDisplay *",
+      "aliases": [
+        "struct Dav1dMasteringDisplay *"
+      ],
+      "definition": "typedef struct Dav1dMasteringDisplay {\n    uint16_t primaries[3][2]; ///< 0.16 fixed point\n    uint16_t white_point[2]; ///< 0.16 fixed point\n    uint32_t max_luminance; ///< 24.8 fixed point\n    uint32_t min_luminance; ///< 18.14 fixed point\n} Dav1dMasteringDisplay;",
+      "description": "Mastering display color volume metadata: RGB primaries, white point, and min/max luminance in fixed-point units.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dITUTT35 *",
+      "aliases": [
+        "struct Dav1dITUTT35 *"
+      ],
+      "definition": "typedef struct Dav1dITUTT35 {\n    uint8_t  country_code;\n    uint8_t  country_code_extension_byte;\n    size_t   payload_size;\n    uint8_t *payload;\n} Dav1dITUTT35;",
+      "description": "Container for ITU-T T.35 user data SEI-style payload: country codes and raw payload bytes.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dSequenceHeader *",
+      "aliases": [
+        "struct Dav1dSequenceHeader *"
+      ],
+      "definition": "typedef struct Dav1dSequenceHeader {\n    /**\n     * Stream profile, 0 for 8-10 bits/component 4:2:0 or monochrome;\n     * 1 for 8-10 bits/component 4:4:4; 2 for 4:2:2 at any bits/component,\n     * or 12 bits/component at any chroma subsampling.\n     */\n    uint8_t profile;\n    /**\n     * Maximum dimensions for this stream. In non-scalable streams, these\n     * are often the actual dimensions of the stream, although that is not\n     * a normative requirement.\n     */\n    int max_width, max_height;\n    enum Dav1dPixelLayout layout; ///< format of the picture\n    enum Dav1dColorPrimaries pri; ///< color primaries (av1)\n    enum Dav1dTransferCharacteristics trc; ///< transfer characteristics (av1)\n    enum Dav1dMatrixCoefficients mtrx; ///< matrix coefficients (av1)\n    enum Dav1dChromaSamplePosition chr; ///< chroma sample position (av1)\n    /**\n     * 0, 1 and 2 mean 8, 10 or 12 bits/component, respectively. This is not\n     * exactly the same as 'hbd' from the spec; the spec's hbd distinguishes\n     * between 8 (0) and 10-12 (1) bits/component, and another element\n     * (twelve_bit) to distinguish between 10 and 12 bits/component. To get\n     * the spec's hbd, use !!our_hbd, and to get twelve_bit, use hbd == 2.\n     */\n    uint8_t hbd;\n    /**\n     * Pixel data uses JPEG pixel range ([0,255] for 8bits) instead of\n     * MPEG pixel range ([16,235] for 8bits luma, [16,240] for 8bits chroma).\n     */\n    uint8_t color_range;\n\n    uint8_t num_operating_points;\n    struct Dav1dSequenceHeaderOperatingPoint {\n        uint8_t major_level, minor_level;\n        uint8_t initial_display_delay;\n        uint16_t idc;\n        uint8_t tier;\n        uint8_t decoder_model_param_present;\n        uint8_t display_model_param_present;\n    } operating_points[DAV1D_MAX_OPERATING_POINTS];\n\n    uint8_t still_picture;\n    uint8_t reduced_still_picture_header;\n    uint8_t timing_info_present;\n    uint32_t num_units_in_tick;\n    uint32_t time_scale;\n    uint8_t equal_picture_interval;\n    uint32_t num_ticks_per_picture;\n    uint8_t decoder_model_info_present;\n    uint8_t encoder_decoder_buffer_delay_length;\n    uint32_t num_units_in_decoding_tick;\n    uint8_t buffer_removal_delay_length;\n    uint8_t frame_presentation_delay_length;\n    uint8_t display_model_info_present;\n    uint8_t width_n_bits, height_n_bits;\n    uint8_t frame_id_numbers_present;\n    uint8_t delta_frame_id_n_bits;\n    uint8_t frame_id_n_bits;\n    uint8_t sb128;\n    uint8_t filter_intra;\n    uint8_t intra_edge_filter;\n    uint8_t inter_intra;\n    uint8_t masked_compound;\n    uint8_t warped_motion;\n    uint8_t dual_filter;\n    uint8_t order_hint;\n    uint8_t jnt_comp;\n    uint8_t ref_frame_mvs;\n    enum Dav1dAdaptiveBoolean screen_content_tools;\n    enum Dav1dAdaptiveBoolean force_integer_mv;\n    uint8_t order_hint_n_bits;\n    uint8_t super_res;\n    uint8_t cdef;\n    uint8_t restoration;\n    uint8_t ss_hor, ss_ver, monochrome;\n    uint8_t color_description_present;\n    uint8_t separate_uv_delta_q;\n    uint8_t film_grain_present;\n\n    // Dav1dSequenceHeaders of the same sequence are required to be\n    // bit-identical until this offset. See 7.5 \"Ordering of OBUs\":\n    //   Within a particular coded video sequence, the contents of\n    //   sequence_header_obu must be bit-identical each time the\n    //   sequence header appears except for the contents of\n    //   operating_parameters_info.\n    struct Dav1dSequenceHeaderOperatingParameterInfo {\n        uint32_t decoder_buffer_delay;\n        uint32_t encoder_buffer_delay;\n        uint8_t low_delay_mode;\n    } operating_parameter_info[DAV1D_MAX_OPERATING_POINTS];\n} Dav1dSequenceHeader;",
+      "description": "Top-level AV1 sequence header parameters describing codec tools, color config, operating points, timing, and constraints for the coded video sequence.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dSegmentationData *",
+      "aliases": [
+        "struct Dav1dSegmentationData *"
+      ],
+      "definition": "typedef struct Dav1dSegmentationData {\n    int16_t delta_q;\n    int8_t delta_lf_y_v, delta_lf_y_h, delta_lf_u, delta_lf_v;\n    int8_t ref;\n    uint8_t skip;\n    uint8_t globalmv;\n} Dav1dSegmentationData;",
+      "description": "Per-segment parameter deltas and flags: quantizer delta, loopfilter deltas, reference override, skip, and global motion usage.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSegmentationDataSet *",
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dSegmentationDataSet *",
+      "aliases": [
+        "struct Dav1dSegmentationDataSet *"
+      ],
+      "definition": "typedef struct Dav1dSegmentationDataSet {\n    Dav1dSegmentationData d[DAV1D_MAX_SEGMENTS];\n    uint8_t preskip;\n    int8_t last_active_segid;\n} Dav1dSegmentationDataSet;",
+      "description": "Holds the set of segment data entries for all segments plus control flags for map/update behavior.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dLoopfilterModeRefDeltas *",
+      "aliases": [
+        "struct Dav1dLoopfilterModeRefDeltas *"
+      ],
+      "definition": "typedef struct Dav1dLoopfilterModeRefDeltas {\n    int8_t mode_delta[2 /* is_zeromv */];\n    int8_t ref_delta[DAV1D_TOTAL_REFS_PER_FRAME];\n} Dav1dLoopfilterModeRefDeltas;",
+      "description": "Loop filter deltas indexed by mode and reference frame, used to adjust deblocking strength.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dFilmGrainData *",
+      "aliases": [
+        "struct Dav1dFilmGrainData *"
+      ],
+      "definition": "typedef struct Dav1dFilmGrainData {\n    unsigned seed;\n    int num_y_points;\n    uint8_t y_points[14][2 /* value, scaling */];\n    int chroma_scaling_from_luma;\n    int num_uv_points[2];\n    uint8_t uv_points[2][10][2 /* value, scaling */];\n    int scaling_shift;\n    int ar_coeff_lag;\n    int8_t ar_coeffs_y[24];\n    int8_t ar_coeffs_uv[2][25 + 3 /* padding for alignment purposes */];\n    uint64_t ar_coeff_shift;\n    int grain_scale_shift;\n    int uv_mult[2];\n    int uv_luma_mult[2];\n    int uv_offset[2];\n    int overlap_flag;\n    int clip_to_restricted_range;\n} Dav1dFilmGrainData;",
+      "description": "AV1 film grain synthesis parameters, including control points, autoregressive coefficients, scaling and blending behavior.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dFrameHeader *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dFrameHeader *",
+      "aliases": [
+        "struct Dav1dFrameHeader *"
+      ],
+      "definition": "typedef struct Dav1dFrameHeader {\n    struct {\n        Dav1dFilmGrainData data;\n        uint8_t present, update;\n    } film_grain; ///< film grain parameters\n    enum Dav1dFrameType frame_type; ///< type of the picture\n    int width[2 /* { coded_width, superresolution_upscaled_width } */], height;\n    uint8_t frame_offset; ///< frame number\n    uint8_t temporal_id; ///< temporal id of the frame for SVC\n    uint8_t spatial_id; ///< spatial id of the frame for SVC\n\n    uint8_t show_existing_frame;\n    uint8_t existing_frame_idx;\n    uint32_t frame_id;\n    uint32_t frame_presentation_delay;\n    uint8_t show_frame;\n    uint8_t showable_frame;\n    uint8_t error_resilient_mode;\n    uint8_t disable_cdf_update;\n    uint8_t allow_screen_content_tools;\n    uint8_t force_integer_mv;\n    uint8_t frame_size_override;\n    uint8_t primary_ref_frame;\n    uint8_t buffer_removal_time_present;\n    struct Dav1dFrameHeaderOperatingPoint {\n        uint32_t buffer_removal_time;\n    } operating_points[DAV1D_MAX_OPERATING_POINTS];\n    uint8_t refresh_frame_flags;\n    int render_width, render_height;\n    struct {\n        uint8_t width_scale_denominator;\n        uint8_t enabled;\n    } super_res;\n    uint8_t have_render_size;\n    uint8_t allow_intrabc;\n    uint8_t frame_ref_short_signaling;\n    int8_t refidx[DAV1D_REFS_PER_FRAME];\n    uint8_t hp;\n    enum Dav1dFilterMode subpel_filter_mode;\n    uint8_t switchable_motion_mode;\n    uint8_t use_ref_frame_mvs;\n    uint8_t refresh_context;\n    struct {\n        uint8_t uniform;\n        uint8_t n_bytes;\n        uint8_t min_log2_cols, max_log2_cols, log2_cols, cols;\n        uint8_t min_log2_rows, max_log2_rows, log2_rows, rows;\n        uint16_t col_start_sb[DAV1D_MAX_TILE_COLS + 1];\n        uint16_t row_start_sb[DAV1D_MAX_TILE_ROWS + 1];\n        uint16_t update;\n    } tiling;\n    struct {\n        uint8_t yac;\n        int8_t ydc_delta;\n        int8_t udc_delta, uac_delta, vdc_delta, vac_delta;\n        uint8_t qm, qm_y, qm_u, qm_v;\n    } quant;\n    struct {\n        uint8_t enabled, update_map, temporal, update_data;\n        Dav1dSegmentationDataSet seg_data;\n        uint8_t lossless[DAV1D_MAX_SEGMENTS], qidx[DAV1D_MAX_SEGMENTS];\n    } segmentation;\n    struct {\n        struct {\n            uint8_t present;\n            uint8_t res_log2;\n        } q;\n        struct {\n            uint8_t present;\n            uint8_t res_log2;\n            uint8_t multi;\n        } lf;\n    } delta;\n    uint8_t all_lossless;\n    struct {\n        uint8_t level_y[2 /* dir */];\n        uint8_t level_u, level_v;\n        uint8_t mode_ref_delta_enabled;\n        uint8_t mode_ref_delta_update;\n        Dav1dLoopfilterModeRefDeltas mode_ref_deltas;\n        uint8_t sharpness;\n    } loopfilter;\n    struct {\n        uint8_t damping;\n        uint8_t n_bits;\n        uint8_t y_strength[DAV1D_MAX_CDEF_STRENGTHS];\n        uint8_t uv_strength[DAV1D_MAX_CDEF_STRENGTHS];\n    } cdef;\n    struct {\n        enum Dav1dRestorationType type[3 /* plane */];\n        uint8_t unit_size[2 /* y, uv */];\n    } restoration;\n    enum Dav1dTxfmMode txfm_mode;\n    uint8_t switchable_comp_refs;\n    uint8_t skip_mode_allowed, skip_mode_enabled;\n    int8_t skip_mode_refs[2];\n    uint8_t warp_motion;\n    uint8_t reduced_txtp_set;\n    Dav1dWarpedMotionParams gmv[DAV1D_REFS_PER_FRAME];\n} Dav1dFrameHeader;",
+      "description": "Per-frame header describing reference structure, tools enabled, tiling, quantization, segmentation, loop filters, CDEF, restoration, transform mode, and global motion vectors.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom data types (structs, enums, typedefs, or classes) are defined in this header. It only contains preprocessor macros for dav1d API versioning and an extern \"C\" linkage guard.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dContext *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dContext Dav1dContext;",
+      "description": "Opaque decoder context type for a dav1d decoder instance. Only forward-declared here; created with dav1d_open() and freed with dav1d_close().",
+      "direct_api_constructors": [
+        "dav1d_open"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dRef *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dRef Dav1dRef;",
+      "description": "Opaque internal reference-counted buffer handle. Only forward-declared here; definition not provided in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Dav1dLogger *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dLogger {\n    void *cookie; ///< Custom data to pass to the callback.\n    /**\n     * Logger callback. May be NULL to disable logging.\n     *\n     * @param cookie Custom pointer passed to all calls.\n     * @param format The vprintf compatible format string.\n     * @param     ap List of arguments referenced by the format string.\n     */\n    void (*callback)(void *cookie, const char *format, va_list ap);\n} Dav1dLogger;",
+      "description": "Configurable logger with a user cookie and a vprintf-style callback used by the library for diagnostics. Set in Dav1dSettings to enable logging.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSettings *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dInloopFilterType *",
+      "aliases": [],
+      "definition": "enum Dav1dInloopFilterType {\n    DAV1D_INLOOPFILTER_NONE        = 0,\n    DAV1D_INLOOPFILTER_DEBLOCK     = 1 << 0,\n    DAV1D_INLOOPFILTER_CDEF        = 1 << 1,\n    DAV1D_INLOOPFILTER_RESTORATION = 1 << 2,\n    DAV1D_INLOOPFILTER_ALL = DAV1D_INLOOPFILTER_DEBLOCK |\n                             DAV1D_INLOOPFILTER_CDEF |\n                             DAV1D_INLOOPFILTER_RESTORATION,\n};",
+      "description": "Bitmask flags selecting which AV1 in-loop filters to apply: deblocking, CDEF, and restoration. Used within Dav1dSettings.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSettings *"
+      ]
+    },
+    {
+      "ptr_type": "enum Dav1dDecodeFrameType *",
+      "aliases": [],
+      "definition": "enum Dav1dDecodeFrameType {\n    DAV1D_DECODEFRAMETYPE_ALL   = 0, ///< decode and return all frames\n    DAV1D_DECODEFRAMETYPE_REFERENCE = 1,///< decode and return frames referenced by other frames only\n    DAV1D_DECODEFRAMETYPE_INTRA = 2, ///< decode and return intra frames only (includes keyframes)\n    DAV1D_DECODEFRAMETYPE_KEY   = 3, ///< decode and return keyframes only\n};",
+      "description": "Selector for which frame types to decode and return (all, reference-only, intra-only, key-only). Used in Dav1dSettings.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "Dav1dSettings *"
+      ]
+    },
+    {
+      "ptr_type": "Dav1dSettings *",
+      "aliases": [],
+      "definition": "typedef struct Dav1dSettings {\n    int n_threads; ///< number of threads (0 = number of logical cores in host system, default 0)\n    int max_frame_delay; ///< Set to 1 for low-latency decoding (0 = ceil(sqrt(n_threads)), default 0)\n    int apply_grain; ///< whether to apply film grain on output frames (default 1)\n    int operating_point; ///< select an operating point for scalable AV1 bitstreams (0 - 31, default 0)\n    int all_layers; ///< output all spatial layers of a scalable AV1 biststream (default 1)\n    unsigned frame_size_limit; ///< maximum frame size, in pixels (0 = unlimited, default 0)\n    Dav1dPicAllocator allocator; ///< Picture allocator callback.\n    Dav1dLogger logger; ///< Logger callback.\n    int strict_std_compliance; ///< whether to abort decoding on standard compliance violations\n                               ///< that don't affect actual bitstream decoding (e.g. inconsistent\n                               ///< or invalid metadata, default 0)\n    int output_invisible_frames; ///< output invisibly coded frames (in coding order) in addition\n                                 ///< to all visible frames. Because of show-existing-frame, this\n                                 ///< means some frames may appear twice (once when coded,\n                                 ///< once when shown, default 0)\n    enum Dav1dInloopFilterType inloop_filters; ///< postfilters to enable during decoding (default\n                                               ///< DAV1D_INLOOPFILTER_ALL)\n    enum Dav1dDecodeFrameType decode_frame_type; ///< frame types to decode (default\n                                                 ///< DAV1D_DECODEFRAMETYPE_ALL)\n    uint8_t reserved[16]; ///< reserved for future use\n} Dav1dSettings;",
+      "description": "Configuration parameters for a dav1d decoder instance, including threading, buffering, film grain, SVC operating point, frame size limits, allocators, logging, compliance, output behavior, and in-loop filtering. Initialize with dav1d_default_settings() before use.",
+      "direct_api_constructors": [
+        "dav1d_default_settings"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum Dav1dEventFlags *",
+      "aliases": [],
+      "definition": "enum Dav1dEventFlags {\n    /**\n     * The last returned picture contains a reference to a new Sequence Header,\n     * either because it's the start of a new coded sequence, or the decoder was\n     * flushed before it was generated.\n     */\n    DAV1D_EVENT_FLAG_NEW_SEQUENCE =       1 << 0,\n    /**\n     * The last returned picture contains a reference to a Sequence Header with\n     * new operating parameters information for the current coded sequence.\n     */\n    DAV1D_EVENT_FLAG_NEW_OP_PARAMS_INFO = 1 << 1,\n};",
+      "description": "Bitmask flags signaling decoder events associated with recently returned pictures (e.g., new sequence header or new operating parameters info). Used with dav1d_get_event_flags().",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "dav1d_data_props_unref",
+      "signature": "DAV1D_API void dav1d_data_props_unref(Dav1dDataProps *props);",
+      "description": "Releases the reference(s) held by a Dav1dDataProps instance, typically unreferencing any associated user_data/ref internals so that resources can be reclaimed. Use when you are done with the metadata copied from an input packet. After this call, any internal references the structure held may be invalid, so treat the contents as no longer owning referenced resources unless reinitialized. Exact side-effects beyond releasing references are not documented in this header.",
+      "requirements": [
+        "props must be a valid, non-null pointer to a Dav1dDataProps.",
+        "props must be initialized by the caller such that its internal references (e.g., user_data.ref) are either NULL or valid references created/managed by the dav1d API.",
+        "Do not reuse any released internal pointers/references from props after this call unless you have reinitialized them.",
+        "The function does not return an error; callers should not expect a return value or errno to be set."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_picture_unref",
+      "signature": "void dav1d_picture_unref(Dav1dPicture *p)",
+      "description": "Release a reference to a Dav1dPicture. Typically used by callers after they are done consuming a decoded frame to drop their reference and allow underlying buffers to be freed via the allocator when the last reference is gone. After this call, the picture should be considered uninitialized/empty and its fields must not be accessed unless it is reinitialized by the decoder or allocator. Note: The header only states that it releases a reference; detailed refcounting and side effects are not documented here and are inferred from typical dav1d API behavior.",
+      "requirements": [
+        "p must point to a Dav1dPicture that currently holds a valid reference (inferred from function name and typical ref/unref patterns).",
+        "Do not access fields of *p after calling this function unless it has been reinitialized or repopulated by the library (inferred).",
+        "Thread-safety, allowance of NULL, and idempotency (calling multiple times) are not documented here; behavior for those cases is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_data_create",
+      "signature": "uint8_t *dav1d_data_create(Dav1dData *data, size_t sz);",
+      "description": "Allocate an internal buffer of size sz for a Dav1dData and associate it with the provided data context. On success, returns a pointer to the allocated buffer; on failure, returns NULL. Typical usage is to prepare a Dav1dData to hold sz bytes of input bitstream before passing it to the decoder.",
+      "requirements": [
+        "data must be a valid pointer to a Dav1dData structure (input/output parameter).",
+        "sz specifies the size, in bytes, of the buffer to allocate; allowable range is unknown from this header.",
+        "Caller must check the return value: non-NULL indicates success; NULL indicates allocation failure.",
+        "Error handling strategy beyond returning NULL is not specified in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_data_wrap",
+      "signature": "int dav1d_data_wrap(Dav1dData *data, const uint8_t *buf, size_t sz, void (*free_callback)(const uint8_t *buf, void *cookie), void *cookie);",
+      "description": "Wrap an existing data buffer buf of size sz into a Dav1dData without copying. When the last reference to the wrapped data is released, free_callback is invoked with the original buf and cookie so the caller can free or otherwise finalize the memory. Returns 0 on success or a negative DAV1D_ERR code on error.",
+      "requirements": [
+        "data must be a valid pointer to a Dav1dData structure to receive the wrapped buffer.",
+        "buf must point to an existing data array of at least sz bytes; ownership remains with the wrapper until the last reference is released.",
+        "free_callback will be called exactly when the last reference to this wrapped data is released; it receives the same buf and cookie passed here.",
+        "cookie is an opaque pointer value passed through to free_callback; its content/lifetime must remain valid until free_callback is called.",
+        "Thread-safety requirements for free_callback are not specified for this function in this header (unknown).",
+        "Caller must check the return value: 0 indicates success; a negative DAV1D_ERR value indicates failure.",
+        "Behavior and allowance of NULL free_callback are not specified in this header (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_data_wrap_user_data",
+      "signature": "int dav1d_data_wrap_user_data(Dav1dData *data, const uint8_t *user_data, void (*free_callback)(const uint8_t *user_data, void *cookie), void *cookie);",
+      "description": "Wrap a user-provided pointer user_data into a reference-counted object stored in data->m.user_data. When the last reference is released, free_callback is invoked on the same thread that released it (if frame threading is used, make sure it is thread-safe). Returns 0 on success or a negative DAV1D_ERR on error.",
+      "requirements": [
+        "data must be a valid pointer to a Dav1dData structure.",
+        "user_data is an opaque user pointer to be wrapped; its interpretation is up to the caller.",
+        "free_callback will be called when the last reference is released, with user_data and cookie as provided.",
+        "free_callback will be invoked on the same thread that releases the last reference; if frame threading is used, free_callback must be thread-safe.",
+        "cookie is an opaque pointer passed to free_callback and must remain valid until free_callback is called.",
+        "Caller must check the return value: 0 indicates success; a negative DAV1D_ERR value indicates failure.",
+        "Whether user_data or free_callback may be NULL is not specified in this header (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_data_unref",
+      "signature": "void dav1d_data_unref(Dav1dData *data);",
+      "description": "Release a Dav1dData reference. Decrements the reference count for data->m.user_data if it was initialized via dav1d_data_wrap_user_data, and then memset the Dav1dData object to zero.",
+      "requirements": [
+        "data must be a valid pointer to a Dav1dData structure; it will be zeroed after the call.",
+        "If data->m.user_data was initialized with dav1d_data_wrap_user_data, its reference count will be decremented; any associated free callbacks may be invoked accordingly (timing specifics beyond this are not detailed here).",
+        "Function returns no status; callers should not use the contents of data after calling, as it is zeroed."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_version",
+      "signature": "const char *dav1d_version(void);",
+      "description": "Return the library version string. Use to display or log the linked dav1d version.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "dav1d_version_api",
+      "signature": "unsigned dav1d_version_api(void);",
+      "description": "Return the library API version as 0x00XXYYZZ (XX=major, YY=minor, ZZ=patch). Useful for compile- or run-time compatibility checks.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "dav1d_default_settings",
+      "signature": "void dav1d_default_settings(Dav1dSettings *s);",
+      "description": "Initialize a Dav1dSettings struct to safe default values. Call before customizing settings used to open a decoder.",
+      "requirements": [
+        "s must be a non-NULL pointer to writable Dav1dSettings storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_open",
+      "signature": "int dav1d_open(Dav1dContext **c_out, const Dav1dSettings *s);",
+      "description": "Allocate and open a decoder instance using the provided settings. On success, *c_out receives the created decoder. The decoder must later be closed with dav1d_close.",
+      "requirements": [
+        "c_out must be non-NULL and point to a location where the created Dav1dContext* can be stored.",
+        "s must point to a valid Dav1dSettings (e.g., set via dav1d_default_settings) or be configured according to the struct’s documented fields.",
+        "On success, the caller must eventually call dav1d_close(&ctx) to free resources.",
+        "Return value must be checked: 0 indicates success; negative values are DAV1D_ERR codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_parse_sequence_header",
+      "signature": "int dav1d_parse_sequence_header(Dav1dSequenceHeader *out, const uint8_t *buf, const size_t sz);",
+      "description": "Parse a Sequence Header OBU from the provided buffer. Safe to pass buffers containing other OBU types; only the last Sequence Header, if any, is returned in out.",
+      "requirements": [
+        "out must be a non-NULL pointer to writable Dav1dSequenceHeader storage.",
+        "buf must be a valid pointer to at least sz bytes of readable memory (may contain zero or more OBUs).",
+        "sz is the size in bytes of buf.",
+        "Caller must check return value: 0 on success; DAV1D_ERR(ENOENT) if no Sequence Header present; other negative DAV1D_ERR for invalid data/args."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_send_data",
+      "signature": "int dav1d_send_data(Dav1dContext *c, Dav1dData *in);",
+      "description": "Feed one or more AV1 OBUs to the decoder. On success, ownership of the Dav1dData reference is transferred to the library. If the decoder cannot accept more input (EAGAIN), obtain frames via dav1d_get_picture and retry.",
+      "requirements": [
+        "c must be a valid, opened Dav1dContext.",
+        "in must be a valid pointer to a Dav1dData containing input data; on success, ownership is transferred to the decoder and the caller must not reuse it.",
+        "If the function returns DAV1D_ERR(EAGAIN), the caller should call dav1d_get_picture() to retrieve frames before retrying.",
+        "If a negative error other than EAGAIN is returned, the input reference remains owned by the caller and must be managed by the caller.",
+        "Return value must be checked for success (0) or negative DAV1D_ERR codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_get_picture",
+      "signature": "int dav1d_get_picture(Dav1dContext *c, Dav1dPicture *out);",
+      "description": "Return a decoded picture if available. On success, the caller assumes ownership of the returned picture reference. Use repeatedly to drain frames (e.g., at end of stream until EAGAIN).",
+      "requirements": [
+        "c must be a valid, opened Dav1dContext.",
+        "out must be a non-NULL pointer to writable Dav1dPicture storage.",
+        "Caller must check return value: 0 on success (one frame returned); DAV1D_ERR(EAGAIN) if more input is needed; other negative DAV1D_ERR for errors.",
+        "On success, the caller assumes ownership of the picture reference and must unref/free it via the appropriate dav1d picture unref function or allocator semantics."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_apply_grain",
+      "signature": "int dav1d_apply_grain(Dav1dContext *c, Dav1dPicture *out, const Dav1dPicture *in);",
+      "description": "Apply film grain synthesis to a previously decoded picture. If the source picture lacks grain metadata, a new reference is returned without modification. Note: if Dav1dSettings.apply_grain was enabled during decoding, calling this will apply grain a second time.",
+      "requirements": [
+        "c must be a valid, opened Dav1dContext.",
+        "out must be a non-NULL pointer to writable Dav1dPicture storage; on success, caller takes ownership of the returned reference.",
+        "in must be a valid pointer to a previously decoded Dav1dPicture; no ownership is transferred.",
+        "Caller must check return value for success (0) or negative DAV1D_ERR codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_close",
+      "signature": "void dav1d_close(Dav1dContext **c_out);",
+      "description": "Close a decoder instance and free all associated resources. Sets *c_out to NULL.",
+      "requirements": [
+        "c_out must be non-NULL and point to a Dav1dContext* previously returned by dav1d_open.",
+        "After return, *c_out is set to NULL and must no longer be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_flush",
+      "signature": "void dav1d_flush(Dav1dContext *c);",
+      "description": "Flush delayed frames and clear the decoder’s internal state (used for seeking). Decoding resumes after a valid Sequence Header OBU is delivered via dav1d_send_data.",
+      "requirements": [
+        "c must be a valid, opened Dav1dContext.",
+        "After flushing, the caller must provide a valid sequence header in subsequent input before decoding can start again."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_get_event_flags",
+      "signature": "int dav1d_get_event_flags(Dav1dContext *c, enum Dav1dEventFlags *flags);",
+      "description": "Fetch a bitmask of decoding event flags (e.g., new sequence or new operating parameters) and clear them in the decoder.",
+      "requirements": [
+        "c must be a valid, opened Dav1dContext.",
+        "flags must be a non-NULL pointer to writable storage for the bitmask.",
+        "Caller must check return value: 0 on success; negative DAV1D_ERR codes on error.",
+        "Note: calling this clears the stored event flags in the decoder."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_get_decode_error_data_props",
+      "signature": "int dav1d_get_decode_error_data_props(Dav1dContext *c, Dav1dDataProps *out);",
+      "description": "Retrieve user-provided metadata (Dav1dDataProps) associated with the input packet that caused the last reported decoding error (a negative return from dav1d_send_data or dav1d_get_picture, excluding EAGAIN). On success, the caller assumes ownership of the returned reference.",
+      "requirements": [
+        "c must be a valid, opened Dav1dContext.",
+        "out must be a non-NULL pointer to writable Dav1dDataProps storage.",
+        "Meaningful only after a decoding error has been reported to the user (negative return value other than EAGAIN from dav1d_send_data or dav1d_get_picture).",
+        "Caller must check return value: 0 on success; negative DAV1D_ERR codes on error.",
+        "On success, caller assumes ownership of the returned reference and must manage its lifetime appropriately."
+      ],
+      "error": null
+    },
+    {
+      "name": "dav1d_get_frame_delay",
+      "signature": "int dav1d_get_frame_delay(const Dav1dSettings *s);",
+      "description": "Return the decoder’s frame delay (number of internally buffered frames, excluding references) for a context configured with the provided settings; guaranteed to be >= 1 and <= max_frame_delay.",
+      "requirements": [
+        "s must point to a valid Dav1dSettings instance representing the configuration used (or to be used) for the decoder.",
+        "Caller must check return value: non-negative delay on success; negative DAV1D_ERR code on error.",
+        "The returned delay is valid only for a Dav1dContext initialized with these settings."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "dav1d_data_props_unref",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a valid Dav1dDataProps on the stack and pass a non-null pointer.\n// We ensure user_data.ref is NULL (valid per API) because we cannot safely\n// fabricate a real Dav1dRef in this harness. Other fields are initialized\n// to reasonable values from fuzzed data but do not affect unref behavior.\n\n// Ephemeral buffer for potential user_data.data\nstd::string fuzz_buf = FUZZ_PARAM_STR();\nconst uint8_t *udata = nullptr;\n// Randomly decide whether data is present or NULL to cover both cases\nif ((*FUZZ_PARAM(unsigned int) % 2) == 1) {\n    // Note: dav1d_data_props_unref should not access this payload; it's just metadata\n    udata = reinterpret_cast<const uint8_t *>(fuzz_buf.data());\n}\n\nDav1dDataProps props;\nprops.timestamp = (int64_t)0;   // defaults are permitted; exact values are not used here\nprops.duration  = (int64_t)0;\nprops.offset    = (int64_t)-1;  // -1 means unknown\nprops.size      = (size_t)(*FUZZ_PARAM(unsigned int) % 2048); // keep small\nprops.user_data.data = udata;   // may be NULL or point to ephemeral data\nprops.user_data.ref  = nullptr; // must be NULL or a valid Dav1dRef; we choose NULL\n\n// Call the target. Requirements enforced:\n// - props is non-null and valid\n// - user_data.ref is NULL (valid), so unref is a no-op on it\n// - do not rely on any internal pointers after this call\n\ndav1d_data_props_unref(&props);\n\n// No outputs; all resources are either stack-owned or released.\n"
+    },
+    {
+      "name": "dav1d_picture_unref",
+      "inputs": [
+        {
+          "name": "p",
+          "type": "Dav1dPicture *"
+        }
+      ],
+      "outputs": [],
+      "code": "// dav1d_picture_unref stub\n// Goal: Safely release our reference to a Dav1dPicture and model lifetime via attributes.\n// Inputs: p (Dav1dPicture *) - assumed non-null by runtime.\n// Outputs: none (we drop our reference and do not return p to the pool).\n\n// 1) Enforce that p currently holds a valid reference.\n//    We use attributes to track ownership and reference count across stubs.\n//    Initialize defaults if missing so we can exercise the API under fuzzing.\nint refcnt = FUZZ_GET_ATTR_INT(p, \"refcount\");\nif (refcnt <= 0) {\n    // Default to 1 if unknown or invalid to ensure a single owned reference exists.\n    refcnt = 1;\n    FUZZ_SET_ATTR_INT(p, \"refcount\", refcnt);\n}\nint owns_ref = FUZZ_GET_ATTR_INT(p, \"owns_ref\");\nif (owns_ref == 0) {\n    // If not explicitly tracked, assume we currently own one reference.\n    owns_ref = 1;\n    FUZZ_SET_ATTR_INT(p, \"owns_ref\", owns_ref);\n}\n// Property: we must own a valid reference before unref.\nFUZZ_ASSERT(owns_ref == 1, \"dav1d_picture_unref requires an owned reference\");\n\n// 2) Call the target API to release our reference.\ndav1d_picture_unref(p);\n\n// 3) Update our lifetime/ownership tracking.\n//    After unref, our handle must not be used again by the fuzzer; drop it from pool.\nrefcnt -= 1;\nif (refcnt < 0) refcnt = 0; // clamp to non-negative for safety\nFUZZ_SET_ATTR_INT(p, \"refcount\", refcnt);\nFUZZ_SET_ATTR_INT(p, \"owns_ref\", 0);\nFUZZ_SET_ATTR_INT(p, \"valid\", 0);\n// We intentionally do not return p as an output to model loss of ownership and\n// to prevent double-unref or use-after-unref.\n"
+    },
+    {
+      "name": "dav1d_data_create",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "code": "// Enforce that the input Dav1dData is not already initialized to avoid double-init\nif (FUZZ_GET_ATTR_INT(data, \"state\") != 0) { FUZZ_BAIL(); }\n\n// Choose a bounded allocation size (1..1024) for performance and safety\nsize_t sz = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\n\n// Attempt to allocate internal buffer for data\nuint8_t *buf = dav1d_data_create(data, sz);\nif (!buf) { FUZZ_BAIL(); }\n\n// Optionally write some random bytes into the buffer to exercise the allocation path\n// without exceeding sz\nstd::string payload = FUZZ_PARAM_STR();\nsize_t to_copy = payload.size() < sz ? payload.size() : sz;\nif (to_copy > 0) { memcpy(buf, payload.data(), to_copy); }\n\n// Track initialization state and metadata for downstream stubs (e.g., unref)\nFUZZ_SET_ATTR_INT(data, \"state\", 1);               // 1 = created\nFUZZ_SET_ATTR_INT(data, \"size\", (int)sz);          // track sz (truncated)\nFUZZ_SET_ATTR_PTR(data, \"buf_ptr\", (void*)buf);    // non-owning: owned by dav1d internals\nFUZZ_SET_ATTR_INT(data, \"has_free_cb\", 0);         // create path doesn't use a free_cb\n\n// Validation summary: Ensures non-reinitialized input, checks non-NULL return, and records state for safe later unref."
+    },
+    {
+      "name": "dav1d_data_wrap",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "code": "// Avoid wrapping into an already-initialized Dav1dData to prevent lifetime confusion\nif (FUZZ_GET_ATTR_INT(data, \"state\") != 0) { FUZZ_BAIL(); }\n\n// Pick buffer size (1..1024) and allocate backing storage that will live until unref\nsize_t sz = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\nuint8_t *owned = new (std::nothrow) uint8_t[sz];\nif (!owned) { FUZZ_BAIL(); }\n\n// Fill the buffer with fuzz data\nstd::string s = FUZZ_PARAM_STR();\nsize_t to_copy = s.size() < sz ? s.size() : sz;\nif (to_copy > 0) { memcpy(owned, s.data(), to_copy); }\n\n// Free callback that releases our backing store when dav1d drops the last ref\nauto free_cb = +[](const uint8_t *buf, void *cookie) {\n    (void)cookie; // cookie unused in this harness\n    // Cast away const to match allocation; safe since we allocated it\n    delete[] const_cast<uint8_t*>(buf);\n};\n\n// Wrap the external buffer; on failure, free and bail\nint rc = dav1d_data_wrap(data, (const uint8_t*)owned, sz, free_cb, nullptr);\nif (rc < 0) {\n    delete[] owned;\n    FUZZ_BAIL();\n}\n\n// Track initialization state and metadata\nFUZZ_SET_ATTR_INT(data, \"state\", 2);                // 2 = wrapped buffer\nFUZZ_SET_ATTR_INT(data, \"size\", (int)sz);\nFUZZ_SET_ATTR_PTR(data, \"buf_ptr\", (void*)owned);   // the buffer that will be freed by free_cb\nFUZZ_SET_ATTR_INT(data, \"has_free_cb\", 1);\n\n// Validation summary: Ensures clean input, guarantees backing storage lifetime via free_cb, checks rc==0, and records state for safe later unref."
+    },
+    {
+      "name": "dav1d_data_wrap_user_data",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "code": "// Avoid reusing an already-initialized Dav1dData\nif (FUZZ_GET_ATTR_INT(data, \"state\") != 0) { FUZZ_BAIL(); }\n\n// Create a small user_data blob (1..64 bytes) that persists until unref\nsize_t usize = (size_t)(*FUZZ_PARAM(unsigned int) % 64u) + 1u;\nuint8_t *user_blob = new (std::nothrow) uint8_t[usize];\nif (!user_blob) { FUZZ_BAIL(); }\n\n// Fill with fuzz data\nstd::string s = FUZZ_PARAM_STR();\nsize_t to_copy = s.size() < usize ? s.size() : usize;\nif (to_copy > 0) { memcpy(user_blob, s.data(), to_copy); }\n\n// Free callback that releases the user data when last ref is dropped\nauto free_cb = +[](const uint8_t *user_data, void *cookie) {\n    (void)cookie; // cookie unused in this harness\n    delete[] const_cast<uint8_t*>(user_data);\n};\n\nint rc = dav1d_data_wrap_user_data(data, (const uint8_t*)user_blob, free_cb, nullptr);\nif (rc < 0) {\n    delete[] user_blob;\n    FUZZ_BAIL();\n}\n\n// Track state for later unref and validation\nFUZZ_SET_ATTR_INT(data, \"state\", 3);                    // 3 = wrapped user_data\nFUZZ_SET_ATTR_PTR(data, \"user_data_ptr\", (void*)user_blob);\nFUZZ_SET_ATTR_INT(data, \"has_free_cb\", 1);\n\n// Validation summary: Ensures clean input, installs thread-safe free_cb, checks rc==0, and records state for correct unref handling."
+    },
+    {
+      "name": "dav1d_data_unref",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Only unref if the object was previously initialized by create/wrap/wrap_user_data\nint state = FUZZ_GET_ATTR_INT(data, \"state\");\nif (state == 0) { FUZZ_BAIL(); }\n\n// Invoke the target function; after this call, the Dav1dData contents are zeroed\n// and any installed free_callback may be invoked by the library.\ndav1d_data_unref(data);\n\n// Clear our fuzzer-side bookkeeping to reflect the zeroed structure\nFUZZ_SET_ATTR_INT(data, \"state\", 0);\nFUZZ_SET_ATTR_INT(data, \"size\", 0);\nFUZZ_SET_ATTR_PTR(data, \"buf_ptr\", nullptr);\nFUZZ_SET_ATTR_PTR(data, \"user_data_ptr\", nullptr);\nFUZZ_SET_ATTR_INT(data, \"has_free_cb\", 0);\n\n// Validation summary: Ensures we only unref initialized objects, then clears tracked attributes to avoid UAF/double-free in subsequent stubs."
+    },
+    {
+      "name": "dav1d_version",
+      "inputs": [],
+      "outputs": [],
+      "code": "// No inputs; just call and touch the returned string for coverage.\nconst char *ver = dav1d_version();\n// Basic property: version string must be non-null and NUL-terminated.\nFUZZ_ASSERT(ver != nullptr, \"dav1d_version returned null\");\n// Lightly read a few bytes to keep ASan happy; string is expected to be C-str.\nvolatile char ch0 = ver[0]; (void)ch0;\n// Validation: The stub checks for non-null and performs a harmless read."
+    },
+    {
+      "name": "dav1d_version_api",
+      "inputs": [],
+      "outputs": [],
+      "code": "// No inputs; just call and sanity-check the returned API version code.\nunsigned v = dav1d_version_api();\n// Property: version is encoded as 0x00XXYYZZ; we only assert it is non-zero.\nFUZZ_ASSERT(v != 0u, \"dav1d_version_api returned 0\");\n// Validation: Ensures a non-zero version indicator was returned."
+    },
+    {
+      "name": "dav1d_default_settings",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "Dav1dSettings *"
+        }
+      ],
+      "code": "// Allocate writable settings storage and initialize to defaults.\nDav1dSettings *s = new Dav1dSettings();\ndav1d_default_settings(s);\n// Basic invariants: defaults should set reasonable ranges.\nFUZZ_ASSERT(s->n_threads >= 0, \"n_threads negative after defaults\");\n// Output: s persists for future stubs (e.g., dav1d_open, get_frame_delay).\n// Validation: Creates a valid Dav1dSettings instance initialized by the API."
+    },
+    {
+      "name": "dav1d_open",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "code": "// Prepare settings using API defaults, then tweak a few fields within safe ranges.\nDav1dSettings s_local; dav1d_default_settings(&s_local);\n// Fuzz a few knobs within reasonable bounds.\ns_local.n_threads = (int)(*FUZZ_PARAM(unsigned int) % 9);            // 0..8\ns_local.max_frame_delay = (int)(*FUZZ_PARAM(unsigned int) % 5);       // 0..4\ns_local.apply_grain = (int)(*FUZZ_PARAM(unsigned int) % 2);           // 0/1\ns_local.operating_point = (int)(*FUZZ_PARAM(unsigned int) % 32);      // 0..31\ns_local.all_layers = (int)(*FUZZ_PARAM(unsigned int) % 2);            // 0/1\ns_local.frame_size_limit = (unsigned)(*FUZZ_PARAM(unsigned int) % 2073600u); // up to ~1080p\n// Leave allocator/logger as defaults (NULL callbacks) for safety.\n\nDav1dContext *ctx = nullptr;\nint ret = dav1d_open(&ctx, &s_local);\nif (ret != 0 || !ctx) { FUZZ_BAIL(); }\n// Track a few settings on the context for downstream logic if needed.\nFUZZ_SET_ATTR_INT(ctx, \"apply_grain\", s_local.apply_grain);\nFUZZ_SET_ATTR_INT(ctx, \"n_threads\", s_local.n_threads);\n// Validation: Ensures successful open and exports a live context."
+    },
+    {
+      "name": "dav1d_parse_sequence_header",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "seq_hdr",
+          "type": "Dav1dSequenceHeader *"
+        }
+      ],
+      "code": "// Generate an arbitrary buffer; function tolerates other OBU types mixed in.\nstd::string buf = FUZZ_PARAM_STR();\nDav1dSequenceHeader *seq_hdr = new Dav1dSequenceHeader();\nint ret = dav1d_parse_sequence_header(seq_hdr, (const uint8_t*)buf.data(), (size_t)buf.size());\nif (ret != 0) { delete seq_hdr; FUZZ_BAIL(); }\n// Sanity: validate a few fields are within documented enums/ranges.\nFUZZ_ASSERT(seq_hdr->layout >= DAV1D_PIXEL_LAYOUT_I400 && seq_hdr->layout <= DAV1D_PIXEL_LAYOUT_I444, \"invalid layout range\");\nFUZZ_ASSERT(seq_hdr->hbd <= 2, \"invalid hbd range\");\n// Validation: Provides a populated Dav1dSequenceHeader only on successful parse."
+    },
+    {
+      "name": "dav1d_send_data",
+      "inputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        },
+        {
+          "name": "in",
+          "type": "Dav1dData *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "code": "// Feed encoded data to the decoder. On success, ownership of `in` transfers to the library.\nint ret = dav1d_send_data(c, in);\n// To avoid ownership ambiguity in the harness model, accept only success here.\nif (ret != 0) { FUZZ_BAIL(); }\n// Return the context to the pool; `in` is intentionally not output on success.\n// Validation: Enforces transfer-of-ownership semantics by bailing on non-zero return."
+    },
+    {
+      "name": "dav1d_get_picture",
+      "inputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        },
+        {
+          "name": "out_pic",
+          "type": "Dav1dPicture *"
+        }
+      ],
+      "code": "// Prepare writable storage for the returned picture; caller takes ownership on success.\nDav1dPicture *out_pic = new Dav1dPicture();\nint ret = dav1d_get_picture(c, out_pic);\nif (ret != 0) { delete out_pic; FUZZ_BAIL(); }\n// Basic invariants: width/height should be positive.\nFUZZ_ASSERT(out_pic->p.w > 0 && out_pic->p.h > 0, \"returned picture has non-positive dimensions\");\n// Validation: Only succeeds when a frame is available; returns context and owned picture."
+    },
+    {
+      "name": "dav1d_apply_grain",
+      "inputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        },
+        {
+          "name": "in_pic",
+          "type": "Dav1dPicture *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        },
+        {
+          "name": "in_pic",
+          "type": "Dav1dPicture *"
+        },
+        {
+          "name": "out_pic",
+          "type": "Dav1dPicture *"
+        }
+      ],
+      "code": "// Apply film grain to a decoded picture. Provide writable storage for output.\nDav1dPicture *out_pic = new Dav1dPicture();\nint ret = dav1d_apply_grain(c, out_pic, in_pic);\nif (ret != 0) { delete out_pic; FUZZ_BAIL(); }\n// Sanity: output picture dimensions should match input render size or coded size constraints.\nFUZZ_ASSERT(out_pic->p.w > 0 && out_pic->p.h > 0, \"grain output has invalid dimensions\");\n// in_pic remains owned by the caller; return it to the pool alongside the new out_pic and context.\n// Validation: Preserves input picture ownership and exports the new, grain-applied picture."
+    },
+    {
+      "name": "dav1d_close",
+      "inputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Close decoder and invalidate the pointer.\nDav1dContext *tmp = c; // take a local so we can pass address\nif (!tmp) { FUZZ_BAIL(); }\ndav1d_close(&tmp);\n// After close, tmp becomes NULL and must not be used; do not return any outputs.\n// Validation: Properly closes and drops the context from the pool."
+    },
+    {
+      "name": "dav1d_flush",
+      "inputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "code": "// Flush internal decoder state; subsequent decoding requires a valid sequence header in input.\ndav1d_flush(c);\n// Return the still-valid context back to the pool.\n// Validation: Stateless flush; preserves context ownership."
+    },
+    {
+      "name": "dav1d_get_event_flags",
+      "inputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "code": "// Retrieve and clear decoder event flags.\nenum Dav1dEventFlags flags = (enum Dav1dEventFlags)0;\nint ret = dav1d_get_event_flags(c, &flags);\nif (ret != 0) { FUZZ_BAIL(); }\n// Optionally record the flags for later logic.\nFUZZ_SET_ATTR_INT(c, \"last_event_flags\", (int)flags);\n// Validation: Ensures successful query and preserves context ownership."
+    },
+    {
+      "name": "dav1d_get_decode_error_data_props",
+      "inputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "c",
+          "type": "Dav1dContext *"
+        },
+        {
+          "name": "props",
+          "type": "Dav1dDataProps *"
+        }
+      ],
+      "code": "// Retrieve metadata for the packet that caused the last decoding error.\nDav1dDataProps *props = new Dav1dDataProps();\nint ret = dav1d_get_decode_error_data_props(c, props);\nif (ret != 0) { delete props; FUZZ_BAIL(); }\n// Basic sanity: size should be non-negative (size_t) and user_data ref pointer is opaque.\n// No further invariants enforced here.\n// Validation: Only succeeds if such metadata is available; returns context and owned props."
+    },
+    {
+      "name": "dav1d_get_frame_delay",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "Dav1dSettings *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "Dav1dSettings *"
+        }
+      ],
+      "code": "// Query frame delay for the provided settings. Must be >= 1 and <= max_frame_delay (if non-zero).\nint delay = dav1d_get_frame_delay((const Dav1dSettings*)s);\nif (delay < 1) { FUZZ_BAIL(); }\nif (s->max_frame_delay > 0 && delay > s->max_frame_delay) { FUZZ_BAIL(); }\n// Return the settings object unchanged.\n// Validation: Checks documented bounds on the returned delay and preserves settings ownership."
+    },
+    {
+      "name": "Dav1dData *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "Dav1dData *"
+        }
+      ],
+      "code": "// Construct a fresh, user-managed Dav1dData instance suitable for create/wrap APIs.\n// The struct must start zero-initialized per API expectations so that\n// dav1d_data_create / dav1d_data_wrap / dav1d_data_wrap_user_data can safely initialize it.\n\nDav1dData *data = new (std::nothrow) Dav1dData();\nif (!data) { FUZZ_BAIL(); }\n\n// Zero-initialize all fields to the documented defaults\nmemset(data, 0, sizeof(*data));\n\n// Track lifetime/state for downstream stubs\nFUZZ_SET_ATTR_INT(data, \"state\", 0);               // 0 = uninitialized (no buffer/user_data installed)\nFUZZ_SET_ATTR_INT(data, \"size\", 0);\nFUZZ_SET_ATTR_PTR(data, \"buf_ptr\", nullptr);\nFUZZ_SET_ATTR_PTR(data, \"user_data_ptr\", nullptr);\nFUZZ_SET_ATTR_INT(data, \"has_free_cb\", 0);\n\n// Validation summary: Returns a non-null, zeroed Dav1dData ready for dav1d_data_create/wrap.\n// Ownership is transferred to the fuzzer object pool via the output variable."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "dav1d_picture_unref",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_data_unref",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_version",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_version_api",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_default_settings",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_open",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_send_data",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_get_picture",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_apply_grain",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_close",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_flush",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_get_event_flags",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_get_decode_error_data_props",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_get_frame_delay",
+      "data_types": []
+    },
+    {
+      "name": "Dav1dData *",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_data_props_unref",
+      "data_types": []
+    },
+    {
+      "name": "dav1d_data_create",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "dav1d_data_wrap",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "dav1d_data_wrap_user_data",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "dav1d_parse_sequence_header",
+      "data_types": [
+        "AV1 bitstream (OBU sequence header or mixed OBUs)"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary blob",
+      "description": "An unrestricted sequence of bytes with no required encoding or structure. May contain any values (0x00–0xFF) and any length as provided by the fuzzer. Suitable for APIs that accept raw buffers without a specified format."
+    },
+    {
+      "data_type": "AV1 bitstream (OBU sequence header or mixed OBUs)",
+      "description": "A buffer containing AV1 OBUs (Open Bitstream Units) as defined by the AV1 specification. The data may include a Sequence Header OBU and can be mixed with other OBU types; parsers typically scan the buffer and extract the last Sequence Header if present. Bytes must follow AV1 OBU syntax to be considered valid."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary blob",
+      "generator": "import os\nimport random\nfrom typing import List\n\n# This generator targets dav1d_data_create / dav1d_data_wrap / dav1d_data_wrap_user_data\n# fuzzer stubs. They copy a payload from FUZZ_PARAM_STR into allocated buffers.\n# We therefore generate interesting arbitrary binary blobs sized within the harness\n# bounds (up to 1024 for data buffers, up to 64 for user_data). We mix sizes and\n# contents to exercise different paths while staying valid.\n\nMAX_CREATE_WRAP = 1024  # matches stub upper bound\nMAX_USER_DATA = 64      # matches stub upper bound\nMAX_TOTAL = 4096        # overall cap\n\nASCII_MARKERS: List[bytes] = [\n    b\"\\x00\",                    # NUL presence\n    b\"\\xff\",                    # all-ones byte\n    b\"DAV1D\",                   # library tag\n    b\"OBU\\x00\\x01\\x02\",        # AV1-like OBU marker fragment\n    b\"SEQHDR\",                  # sequence header text\n    b\"FRAME\",                   # frame text\n    b\"USERDATA\",                # user data tag\n    b\"\\r\\n\\r\\n\",              # header/body separator\n]\n\n# Predefined length cases to exercise corner sizes inside [1..1024]\nINTERESTING_SIZES = [1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 65, 127, 128,\n                     255, 256, 257, 511, 512, 513, 768, 1000, 1023, 1024]\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    # Mix of structured chunks and random bytes for diversity\n    out = bytearray()\n    while len(out) < n:\n        choice = rng.randint(0, 4)\n        remain = n - len(out)\n        if choice == 0 and remain >= 4:\n            # Insert a small structured header-like sequence\n            tag = rng.choice(ASCII_MARKERS)\n            out.extend(tag[:min(remain, len(tag))])\n        elif choice == 1:\n            # Repeated byte run\n            b = rng.randrange(256)\n            run = rng.randint(1, min(32, remain))\n            out.extend(bytes([b]) * run)\n        elif choice == 2 and remain >= 8:\n            # Patterned increasing bytes\n            start = rng.randrange(256)\n            run = rng.randint(8, min(64, remain))\n            out.extend(bytes((start + i) & 0xFF for i in range(run)))\n        else:\n            # Pure random\n            chunk = os.urandom(min(remain, rng.randint(1, 64)))\n            out.extend(chunk)\n    return bytes(out[:n])\n\n\ndef _build_payload(rng: random.Random) -> bytes:\n    # Choose a target scenario: main buffer (<=1024) or user_data (<=64)\n    scenario = rng.choice([\"create_wrap\", \"user_data\"])\n    if scenario == \"create_wrap\":\n        # Select a size within [1..1024], biased to interesting sizes\n        if rng.random() < 0.7:\n            size = rng.choice(INTERESTING_SIZES)\n        else:\n            size = rng.randint(1, MAX_CREATE_WRAP)\n    else:\n        # user_data path\n        interesting_user_sizes = [1, 2, 3, 7, 8, 15, 16, 31, 32, 33, 63, 64]\n        if rng.random() < 0.7:\n            size = rng.choice(interesting_user_sizes)\n        else:\n            size = rng.randint(1, MAX_USER_DATA)\n\n    # Build content with markers at boundaries to exercise memcpy sizes\n    body = _rand_bytes(rng, size)\n\n    # Occasionally prefix or suffix with recognizable tokens, still within size bounds\n    if size >= 8 and rng.random() < 0.5:\n        tok = rng.choice(ASCII_MARKERS)\n        # Place token at start or end by blending with body\n        if rng.random() < 0.5:\n            body = (tok + body)[:size]\n        else:\n            body = (body + tok)[:size]\n\n    return body\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Compose one or more payloads concatenated, but keep <= 4096 bytes.\n    # The fuzzer harness typically consumes a single FUZZ_PARAM_STR per call,\n    # but multiple stubs may be invoked; concatenating can give more variety.\n    parts: List[bytes] = []\n    total = 0\n    n_parts = rng.randint(1, 6)\n    for _ in range(n_parts):\n        p = _build_payload(rng)\n        if total + len(p) > MAX_TOTAL:\n            break\n        parts.append(p)\n        total += len(p)\n\n    data = b\"\".join(parts)\n    # Ensure non-empty and within bounds\n    if not data:\n        data = _build_payload(rng)\n    return data[:MAX_TOTAL]\n"
+    },
+    {
+      "data_type": "AV1 bitstream (OBU sequence header or mixed OBUs)",
+      "generator": "import random\nfrom typing import List\n\n# This generator produces a valid AV1 byte buffer containing OBUs, ensuring that\n# at least one valid Sequence Header OBU is present (the last one), optionally\n# surrounded by other benign OBUs. The OBU headers and leb128 sizes are encoded\n# per AV1 spec. The sequence header payload is constructed to be consistent and\n# simple, following the semantics described in the dav1d headers. It should be\n# accepted by dav1d_parse_sequence_header() and yield a populated Dav1dSequenceHeader.\n\n# Utility: leb128 unsigned integer encoding (8-bit groups, msb=1 for continuation)\ndef uleb128(n: int) -> bytes:\n    out = bytearray()\n    while True:\n        b = n & 0x7F\n        n >>= 7\n        if n:\n            out.append(0x80 | b)\n        else:\n            out.append(b)\n            break\n    return bytes(out)\n\n# Bit writer helper to assemble bitfields\ndef bw_write_bits(val: int, nbits: int, acc_bits: List[int]):\n    for i in range(nbits - 1, -1, -1):\n        acc_bits.append((val >> i) & 1)\n\ndef bw_align_to_byte(acc_bits: List[int]):\n    while len(acc_bits) % 8 != 0:\n        acc_bits.append(0)\n\ndef bw_to_bytes(acc_bits: List[int]) -> bytes:\n    bw_align_to_byte(acc_bits)\n    out = bytearray()\n    for i in range(0, len(acc_bits), 8):\n        byte = 0\n        for b in acc_bits[i:i+8]:\n            byte = (byte << 1) | b\n        out.append(byte)\n    return bytes(out)\n\n# Encode minimal timing_info (present flag separate outside) and operating points to keep parser happy\ndef build_sequence_header_bits(rng: random.Random) -> bytes:\n    bits: List[int] = []\n\n    # profile: choose based on layout/bits to remain consistent (0,1,2). We'll pick a consistent trio later.\n    profile = rng.choice([0, 1])  # stick to common profiles\n    bw_write_bits(profile, 3, bits)  # 3 bits in AV1 spec\n\n    # still_picture / reduced_still_picture_header: keep both zero for general stream\n    bw_write_bits(0, 1, bits)\n    bw_write_bits(0, 1, bits)\n\n    # timing_info_present_flag\n    timing_info_present = rng.choice([0, 1])\n    bw_write_bits(timing_info_present, 1, bits)\n    if timing_info_present:\n        # num_units_in_display_tick (32 bits)\n        bw_write_bits(1000, 32, bits)\n        # time_scale (32 bits)\n        bw_write_bits(60000, 32, bits)\n        # equal_picture_interval flag\n        bw_write_bits(0, 1, bits)\n        # decoder_model_info_present_flag\n        bw_write_bits(0, 1, bits)\n    # initial_display_delay_present_flag (when timing present). Keep 0 if present\n    if timing_info_present:\n        bw_write_bits(0, 1, bits)\n\n    # operating_points_cnt_minus_1 (5 bits). choose 0 => 1 operating point\n    bw_write_bits(0, 5, bits)\n    # For each operating point (one): operating_point_idc (12 bits)\n    bw_write_bits(0, 12, bits)\n    # seq_level_idx (5 bits) choose level 10 (Main 3.1) or 13 etc; pick 10\n    bw_write_bits(10, 5, bits)\n    # seq_tier (1 bit) only if level not 31; write 0\n    bw_write_bits(0, 1, bits)\n    # decoder_model_present_for_this_op (1 bit) -> 0\n    bw_write_bits(0, 1, bits)\n    # initial_display_delay_present_for_this_op (1 bit) -> 0\n    bw_write_bits(0, 1, bits)\n\n    # frame_id_numbers_present_flag\n    bw_write_bits(0, 1, bits)\n\n    # seq_constraints\n    # bit_depth: map to hbd later, but spec fields differ. We'll set twelve_bit=0, high_bitdepth flag optionally.\n    high_bitdepth = rng.choice([0, 1])\n    twelve_bit = 0\n    monochrome = rng.choice([0, 1])\n    chroma_subsampling_x = 0\n    chroma_subsampling_y = 0\n    # For profile 0: only 4:2:0 or mono at 8/10 bit; enforce subsampling 4:2:0 if not mono\n    if profile == 0:\n        if monochrome:\n            chroma_subsampling_x = 0\n            chroma_subsampling_y = 0\n        else:\n            chroma_subsampling_x = 1\n            chroma_subsampling_y = 1\n    elif profile == 1:\n        # 4:4:4\n        chroma_subsampling_x = 0\n        chroma_subsampling_y = 0\n    # Write constraint flags per spec ordering\n    bw_write_bits(still_picture:=0, 1, bits)  # reserved till constraints in recent spec drafts; keep 0s\n    bw_write_bits(reduced_still_picture_header:=0, 1, bits)\n    bw_write_bits(twelve_bit, 1, bits)\n    bw_write_bits(high_bitdepth, 1, bits)\n    bw_write_bits(monochrome, 1, bits)\n    bw_write_bits(chroma_subsampling_x, 1, bits)\n    bw_write_bits(chroma_subsampling_y, 1, bits)\n    # chroma_sample_position (2 bits) if subsampled; if not subsampled, write 0\n    csp = 0\n    if not monochrome and (chroma_subsampling_x or chroma_subsampling_y):\n        csp = rng.choice([0, 1, 2])\n    bw_write_bits(csp, 2, bits)\n    # color_range bit (full/limited): 0 limited, 1 full\n    color_range = rng.choice([0, 1])\n    bw_write_bits(color_range, 1, bits)\n\n    # subsampling_x/y additional reserved bits for profile 1+ at 12-bit not used here; pad zeros as per spec\n    # film_grain_params_present: choose randomly\n    film_grain_present = rng.choice([0, 1])\n    bw_write_bits(film_grain_present, 1, bits)\n\n    # color_config: color_description_present_flag\n    color_description_present = rng.choice([0, 1])\n    bw_write_bits(color_description_present, 1, bits)\n    if color_description_present:\n        # color_primaries (8 bits)\n        bw_write_bits(rng.choice([1, 9, 13, 255]), 8, bits)\n        # transfer_characteristics (8 bits)\n        bw_write_bits(rng.choice([1, 13, 16, 18, 255]), 8, bits)\n        # matrix_coefficients (8 bits)\n        mc = rng.choice([0, 1, 6, 9, 14, 255])\n        bw_write_bits(mc, 8, bits)\n        # color_range already written earlier, but spec places it here; duplicate writing avoided by sticking to this path\n    # separate_uv_delta_q flag\n    bw_write_bits(rng.choice([0, 1]), 1, bits)\n\n    # max_frame_width_minus_1 and height (16 bits each) choose common sizes\n    max_w = rng.choice([640, 854, 1280, 1920, 2560, 3840])\n    max_h = rng.choice([360, 480, 720, 1080, 1440, 2160])\n    bw_write_bits(max_w - 1, 16, bits)\n    bw_write_bits(max_h - 1, 16, bits)\n\n    # order_hint_bits minus flags: enable order_hint and pick 7 bits commonly\n    enable_order_hint = rng.choice([0, 1])\n    bw_write_bits(enable_order_hint, 1, bits)\n    if enable_order_hint:\n        bw_write_bits(rng.choice([3, 5, 7]), 3, bits)  # order_hint_bits_minus_1 (3 bits representing 0..7)\n\n    # enable_cdef, enable_restoration, enable_warped_motion etc. Keep a set of common flags\n    bw_write_bits(1, 1, bits)  # enable_cdef\n    bw_write_bits(1, 1, bits)  # enable_restoration\n    bw_write_bits(1, 1, bits)  # enable_warped_motion\n    bw_write_bits(1, 1, bits)  # enable_ref_frame_mvs\n\n    # Reserved trailing bits not strictly needed; align\n    return bw_to_bytes(bits)\n\n# Build a generic non-critical metadata OBU (e.g., padding or metadata) to mix in\ndef build_simple_obu(rng: random.Random) -> bytes:\n    obu_type = rng.choice([15, 5, 2])  # PADDING, METADATA, TEMPORAL_DELIMITER\n    payload_len = rng.randint(0, 16)\n    payload = bytes(rng.getrandbits(8) for _ in range(payload_len))\n    obu_header = build_obu_header(obu_type, obu_has_size_field=True, obu_extension_flag=False)\n    return obu_header + uleb128(len(payload)) + payload\n\n# Construct OBU header per AV1: forbidden(1)=0, type(4), ext(1), has_size_field(1), reserved(1)=0\ndef build_obu_header(obu_type: int, obu_has_size_field: bool, obu_extension_flag: bool) -> bytes:\n    forbidden = 0\n    extension = 1 if obu_extension_flag else 0\n    has_size = 1 if obu_has_size_field else 0\n    header = (forbidden << 7) | ((obu_type & 0x0F) << 3) | (extension << 2) | (has_size << 1) | 0\n    out = bytearray([header])\n    if extension:\n        # temporal_id 3 bits, spatial_id 2 bits, reserved 3 bits\n        out.append(0)  # simplest: all zeros\n    return bytes(out)\n\n# Sequence header OBU builder\ndef build_sequence_header_obu(rng: random.Random) -> bytes:\n    sh_bytes = build_sequence_header_bits(rng)\n    header = build_obu_header(1, obu_has_size_field=True, obu_extension_flag=False)  # type=SEQ_HDR\n    return header + uleb128(len(sh_bytes)) + sh_bytes\n\n# Public API\n# Generate a bytes buffer containing a mix of OBUs with the last being a valid Sequence Header OBU.\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    obus = []\n\n    # Optionally prefix with a temporal delimiter and some padding/metadata\n    prefix_count = rng.randint(0, 3)\n    for _ in range(prefix_count):\n        obus.append(build_simple_obu(rng))\n\n    # Ensure at least one valid sequence header\n    obus.append(build_sequence_header_obu(rng))\n\n    # Optionally add additional OBUs before a final overriding sequence header (so the last SH is used)\n    extra = rng.choice([0, 1])\n    if extra:\n        # some tiles/frames placeholders as padding/metadata\n        mid_count = rng.randint(0, 2)\n        for _ in range(mid_count):\n            obus.append(build_simple_obu(rng))\n        # Final sequence header to be the last one\n        obus.append(build_sequence_header_obu(rng))\n\n    buf = b\"\".join(obus)\n    # Cap size to 4096 just in case (should be much smaller)\n    return buf[:4096]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15038,
+            "output_tokens": 9036,
+            "total_tokens": 24074
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12506,
+            "output_tokens": 210,
+            "total_tokens": 12716
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15221,
+            "output_tokens": 7113,
+            "total_tokens": 22334
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 55151,
+            "output_tokens": 13376,
+            "total_tokens": 68527
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 19805,
+            "output_tokens": 1011,
+            "total_tokens": 20816
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 16036,
+            "output_tokens": 263,
+            "total_tokens": 16299
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 399.02850437164307,
+    "scan_objects": 59.133294343948364,
+    "validate_objects": 3.135875940322876,
+    "scan_functions": 0,
+    "synthesis": 253.17956042289734,
+    "fill": 22.62358260154724,
+    "classify": 7.735144138336182,
+    "build_generators": 53.219733476638794
+  }
+}

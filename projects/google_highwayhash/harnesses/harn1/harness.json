@@ -1,0 +1,794 @@
+{
+  "objects": [
+    {
+      "ptr_type": "highwayhash::StringView *",
+      "aliases": [],
+      "definition": "struct StringView {\n  const char* data;  // not necessarily aligned/padded\n  size_t num_bytes;  // possibly zero\n};",
+      "description": "Lightweight replacement for std::string_view used for hashing. Holds a pointer to byte data and its length. Does not own the memory and imposes no alignment or padding guarantees. Safe to copy by value. Callers must ensure the lifetime of data exceeds use.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "highwayhash::SipHashState *",
+      "aliases": [
+        "highwayhash::SipHashStateT<2, 4> *"
+      ],
+      "definition": "using SipHashState = SipHashStateT<2, 4>;",
+      "description": "Alias for SipHashStateT configured with 2 update rounds and 4 finalize rounds (standard SipHash-2-4).",
+      "direct_api_constructors": [
+        "highwayhash::SipHash",
+        "highwayhash::ComputeHash"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "highwayhash::SipHash13State *",
+      "aliases": [
+        "highwayhash::SipHashStateT<1, 3> *"
+      ],
+      "definition": "using SipHash13State = SipHashStateT<1, 3>;",
+      "description": "Alias for SipHashStateT configured with 1 update round and 3 finalize rounds (SipHash-1-3).",
+      "direct_api_constructors": [
+        "highwayhash::SipHash13",
+        "highwayhash::ComputeHash"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "HHKey *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque key type for HighwayHash, brought into C namespace via using directive from hh_types.h. Only referenced here; definition is not present in this header. Details of size/layout unknown from this file.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "HHPacket *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque packet type referenced from hh_types.h and made available in C via using directive. Not defined in this header; purpose likely represents a fixed-size block used internally by HighwayHash.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "HHResult128 *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque 128-bit hash result wrapper type referenced from hh_types.h. Not defined here; this header only references it via using. Intended to hold a 128-bit HighwayHash result.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "HHResult256 *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque 256-bit hash result wrapper type referenced from hh_types.h. Not defined here; this header only references it via using. Intended to hold a 256-bit HighwayHash result.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "HHResult64 *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque 64-bit hash result wrapper type referenced from hh_types.h. Not defined here; this header only references it via using. Intended to hold a 64-bit HighwayHash result.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "highwayhash::InstructionSets *",
+      "aliases": [],
+      "definition": "namespace highwayhash {\n\n// Detects TargetBits and calls specializations of a user-defined functor.\nclass InstructionSets {\n public:\n// Returns bit array of HH_TARGET_* supported by the current CPU.\n// The HH_TARGET_Portable bit is guaranteed to be set.\n#if HH_ARCH_X64\n  static TargetBits Supported();\n#elif HH_ARCH_PPC\n  static HH_INLINE TargetBits Supported() {\n    return HH_TARGET_VSX | HH_TARGET_Portable;\n  }\n#elif HH_ARCH_NEON\n  static HH_INLINE TargetBits Supported() {\n    return HH_TARGET_NEON | HH_TARGET_Portable;\n  }\n#else\n  static HH_INLINE TargetBits Supported() { return HH_TARGET_Portable; }\n#endif\n\n  // Chooses the best available \"Target\" for the current CPU, runs the\n  // corresponding Func<Target>::operator()(args) and returns that Target\n  // (a single bit). The overhead of dispatching is low, about 4 cycles, but\n  // this should only be called infrequently (e.g. hoisting it out of loops).\n  template <template <TargetBits> class Func, typename... Args>\n  static HH_INLINE TargetBits Run(Args&&... args) {\n#if HH_ARCH_X64\n    const TargetBits supported = Supported();\n    if (supported & HH_TARGET_AVX2) {\n      Func<HH_TARGET_AVX2>()(std::forward<Args>(args)...);\n      return HH_TARGET_AVX2;\n    }\n    if (supported & HH_TARGET_SSE41) {\n      Func<HH_TARGET_SSE41>()(std::forward<Args>(args)...);\n      return HH_TARGET_SSE41;\n    }\n#elif HH_ARCH_PPC\n    const TargetBits supported = Supported();\n    if (supported & HH_TARGET_VSX) {\n      Func<HH_TARGET_VSX>()(std::forward<Args>(args)...);\n      return HH_TARGET_VSX;\n    }\n#elif HH_ARCH_NEON\n    const TargetBits supported = Supported();\n    if (supported & HH_TARGET_NEON) {\n      Func<HH_TARGET_NEON>()(std::forward<Args>(args)...);\n      return HH_TARGET_NEON;\n    }\n#endif\n\n    // No matching HH_ARCH or no supported HH_TARGET:\n    Func<HH_TARGET_Portable>()(std::forward<Args>(args)...);\n    return HH_TARGET_Portable;\n  }\n\n  // Calls Func<Target>::operator()(args) for all Target supported by the\n  // current CPU, and returns their HH_TARGET_* bits.\n  template <template <TargetBits> class Func, typename... Args>\n  static HH_INLINE TargetBits RunAll(Args&&... args) {\n    const TargetBits supported = Supported();\n\n#if HH_ARCH_X64\n    if (supported & HH_TARGET_AVX2) {\n      Func<HH_TARGET_AVX2>()(std::forward<Args>(args)...);\n    }\n    if (supported & HH_TARGET_SSE41) {\n      Func<HH_TARGET_SSE41>()(std::forward<Args>(args)...);\n    }\n#elif HH_ARCH_PPC\n    if (supported & HH_TARGET_VSX) {\n      Func<HH_TARGET_VSX>()(std::forward<Args>(args)...);\n    }\n\n#elif HH_ARCH_NEON\n    if (supported & HH_TARGET_NEON) {\n      Func<HH_TARGET_NEON>()(std::forward<Args>(args)...);\n    }\n#endif\n\n    Func<HH_TARGET_Portable>()(std::forward<Args>(args)...);\n\n    return supported;  // i.e. all that were run\n  }\n};\n\n}  // namespace highwayhash",
+      "description": "Utility class providing runtime CPU feature detection and templated dispatch to target-specific functors. It selects the best supported instruction-set target (e.g., AVX2, SSE4.1, VSX, NEON, or Portable) and invokes a user-provided templated functor specialization. The exact TargetBits type and HH_TARGET_* values are declared in included headers, not here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "highwayhash::HighwayHashT",
+      "signature": "template <class State, typename Result> void highwayhash::HighwayHashT(State* state, const char* bytes, size_t size, Result* hash)",
+      "description": "Computes a HighwayHash of the given byte range using the provided hashing state. Callers supply a state initialized with a key, the data pointer and length, and a result buffer (64-, 128-, or 256-bit) to receive the final hash. Intended for single-shot hashing of a contiguous buffer; for incremental hashing of multiple ranges, either replicate this logic using State::Update/Finalize or use HighwayHashCatT.",
+      "requirements": [
+        "state must be a valid pointer to a State (typically HHStateT<...>) that has been initialized with an HHKey.",
+        "bytes must point to at least size readable bytes; the pointer may be unaligned.",
+        "size specifies exactly how many bytes are hashed; the function does not read beyond bytes + size.",
+        "hash must point to writable storage for a Result compatible with State::Finalize (commonly HHResult64/128/256).",
+        "Must be compiled with flags appropriate for the chosen implementation/State (as required by the target-specific HighwayHash implementation)."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::HighwayHashCatT",
+      "signature": "template <TargetBits Target> highwayhash::HighwayHashCatT<Target>::HighwayHashCatT(const HHKey& key)",
+      "description": "Constructs an incremental HighwayHash accumulator for the specified target, initializing the internal state with the provided key and clearing the internal buffer. Use with Append to feed data ranges and Finalize to obtain the hash.",
+      "requirements": [
+        "key must be a valid HHKey for initializing the HighwayHash state (exact key generation/format not specified in this header).",
+        "Object is not thread-safe; use from a single thread unless externally synchronized (not stated explicitly; typical for mutable hashers)."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::Reset",
+      "signature": "template <TargetBits Target> void highwayhash::HighwayHashCatT<Target>::Reset(const HHKey& key)",
+      "description": "Resets the hasher to its initial state with a new key, discarding any previously appended data and clearing the internal buffer. Use to reuse the same object for hashing a new message.",
+      "requirements": [
+        "key must be a valid HHKey for initializing the HighwayHash state.",
+        "May be called at any time to start a new hash; previously appended but not finalized data is discarded."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::Append",
+      "signature": "template <TargetBits Target> void highwayhash::HighwayHashCatT<Target>::Append(const char* bytes, size_t num_bytes)",
+      "description": "Appends a byte range to the incremental hash. Internally buffers partial packets and updates the state for full packets. Can be called repeatedly before Finalize. There are no alignment requirements. Note: hashing sequences like {\"A\", \"\"} and {\"\", \"A\"} produce the same result unless you include a disambiguator (e.g., lengths).",
+      "requirements": [
+        "If num_bytes == 0 the call has no effect.",
+        "When num_bytes > 0, bytes must point to at least num_bytes readable bytes within [bytes, bytes + num_bytes).",
+        "bytes may be unaligned; alignment is not required.",
+        "May be called multiple times before Finalize; order of calls affects the hash only through the concatenation of contents (empty ranges do not affect the result)."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::Finalize",
+      "signature": "template <TargetBits Target, typename Result> void highwayhash::HighwayHashCatT<Target>::Finalize(Result* hash) const",
+      "description": "Finalizes the incremental hash and writes the resulting 64-, 128-, or 256-bit value to the provided result buffer. This does not modify the existing object’s state besides using a copy internally, allowing subsequent reuse via Reset or further hashing as desired.",
+      "requirements": [
+        "hash must point to writable storage for a Result type compatible with HHStateT<Target>::Finalize (commonly HHResult64/128/256).",
+        "May be called after any number of Append calls (including zero).",
+        "All data to be included in the hash must be provided via Append before calling Finalize."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::HighwayHash::operator()",
+      "signature": "template <highwayhash::TargetBits Target>\nvoid highwayhash::HighwayHash<Target>::operator()(const highwayhash::HHKey& key,\n                                                   const char* HH_RESTRICT bytes,\n                                                   const size_t size,\n                                                   highwayhash::HHResult64* HH_RESTRICT hash) const;",
+      "description": "Computes a 64-bit HighwayHash of the input byte sequence using the implementation specialized for the Target CPU. Use when you want a strong PRF-style hash over a contiguous buffer with minor runtime dispatch overhead via InstructionSets::Run or by instantiating the template directly. The result is identical across targets.",
+      "requirements": [
+        "key must reference a valid highwayhash::HHKey (either randomly generated or hard-coded)",
+        "bytes may be unaligned; must point to at least 'size' readable bytes (no additional bytes are read)",
+        "size is the exact number of bytes to hash (can be zero)",
+        "hash must be a non-null pointer to writable highwayhash::HHResult64 storage",
+        "Function does not return a status; callers should assume no explicit error reporting"
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::HighwayHashCat::operator()",
+      "signature": "template <highwayhash::TargetBits Target>\nvoid highwayhash::HighwayHashCat<Target>::operator()(const highwayhash::HHKey& key,\n                                                      const highwayhash::StringView* HH_RESTRICT fragments,\n                                                      const size_t num_fragments,\n                                                      highwayhash::HHResult64* HH_RESTRICT hash) const;",
+      "description": "Computes a 64-bit HighwayHash over a sequence of fragments without per-fragment dispatch overhead. The result matches hashing the concatenation of all fragments with HighwayHash, independent of Target.",
+      "requirements": [
+        "key must reference a valid highwayhash::HHKey",
+        "fragments must point to an array with at least num_fragments entries",
+        "Each fragments[i].data may be unaligned but must point to at least fragments[i].num_bytes readable bytes (num_bytes may be zero)",
+        "num_fragments specifies the exact number of fragments to include",
+        "hash must be a non-null pointer to writable highwayhash::HHResult64 storage",
+        "No explicit error reporting; function returns void"
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::SipHashStateT",
+      "signature": "explicit highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::SipHashStateT(const Key& key)",
+      "description": "Constructs a SipHash state initialized from a 128-bit secret key (Key is HH_U64[2]). The constructor seeds the four internal 64-bit state words per the SipHash specification. Use to begin an incremental SipHash computation with the chosen round counts.",
+      "requirements": [
+        "key must reference two 64-bit values (128-bit total).",
+        "key must be initialized before calling the constructor.",
+        "A constructed state is intended to be used for subsequent Update calls followed by Finalize."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Update",
+      "signature": "void highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Update(const char* bytes)",
+      "description": "Absorbs one 8-byte packet into the SipHash state and performs kUpdateIters rounds of the SipHash compression. The packet is interpreted as little-endian (converted via host_from_le64). Call repeatedly with successive 8-byte chunks of the message.",
+      "requirements": [
+        "bytes must point to at least 8 readable bytes (sizeof(HH_U64)).",
+        "The SipHashStateT instance must have been constructed with a valid key before calling Update.",
+        "Update should be called with full 8-byte packets; any remaining tail bytes should be handled by the appropriate PaddedUpdate specialization or higher-level hashing routine."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Finalize",
+      "signature": "HH_U64 highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Finalize()",
+      "description": "Finalizes the SipHash computation by mixing in the finalization constant and performing kFinalizeIters rounds, then returns the 64-bit hash value (v0^v1^v2^v3). Call after all Update operations (including the padded final packet) have been applied.",
+      "requirements": [
+        "Must be called after all intended Update calls for the message have completed (including the final padded packet).",
+        "Returns a 64-bit hash value; the state is consumed by convention and should not be reused for another message without reinitialization (inferred from typical hash state semantics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::PaddedUpdate<highwayhash::SipHashState>",
+      "signature": "void highwayhash::PaddedUpdate<highwayhash::SipHashState>(const HH_U64 size, const char* remaining_bytes, const HH_U64 remaining_size, highwayhash::SipHashState* state)",
+      "description": "Specialized padding handler for SipHashState that forms the final 8-byte packet per SipHash: copies the remaining tail bytes (0..7), zero-pads, and sets the last byte to size & 0xFF, then updates the state with that packet.",
+      "requirements": [
+        "state must be non-null and point to an initialized SipHashState.",
+        "remaining_bytes must be readable for remaining_size bytes.",
+        "remaining_size must be in the range [0, 7] (fits into the 8-byte final packet).",
+        "size is the total message size in bytes; only its low 8 bits are encoded into the final packet (per this implementation)."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::PaddedUpdate<highwayhash::SipHash13State>",
+      "signature": "void highwayhash::PaddedUpdate<highwayhash::SipHash13State>(const HH_U64 size, const char* remaining_bytes, const HH_U64 remaining_size, highwayhash::SipHash13State* state)",
+      "description": "Specialized padding handler for the round-reduced SipHash13State. Behaves like the SipHash version: copies the remaining tail bytes (0..7), zero-pads, sets the last byte to size & 0xFF, and updates the state.",
+      "requirements": [
+        "state must be non-null and point to an initialized SipHash13State.",
+        "remaining_bytes must be readable for remaining_size bytes.",
+        "remaining_size must be in the range [0, 7].",
+        "size is the total message size in bytes; only its low 8 bits are encoded into the final packet."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::SipHash",
+      "signature": "HH_U64 highwayhash::SipHash(const highwayhash::SipHashState::Key& key, const char* bytes, const HH_U64 size)",
+      "description": "Computes the 64-bit SipHash-2-4 of a byte sequence using a 128-bit secret key. This is a fast, cryptographically strong PRF suitable for keyed hashing (e.g., hash-flooding resistance) and deterministic pseudo-random generation. Internally processes 8-byte packets and applies SipHash padding so that the result is endian-stable.",
+      "requirements": [
+        "key must reference two initialized 64-bit values (128-bit secret).",
+        "bytes must point to at least ceil(size / 8) * 8 readable bytes (the implementation may read up to the next 8-byte boundary).",
+        "size is the number of data bytes to hash; it may be any HH_U64 value representable.",
+        "The function is branch-free and endian-stable; callers should not depend on host endianness of input beyond the defined behavior."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::SipHash13",
+      "signature": "HH_U64 highwayhash::SipHash13(const highwayhash::SipHash13State::Key& key, const char* bytes, const HH_U64 size)",
+      "description": "Computes the 64-bit round-reduced SipHash-1-3 of a byte sequence using a 128-bit secret key. Trades some security margin for speed while remaining suitable for many non-adversarial keyed-hash uses. Endian-stable output.",
+      "requirements": [
+        "key must reference two initialized 64-bit values (128-bit secret).",
+        "bytes must point to at least ceil(size / 8) * 8 readable bytes.",
+        "size is the number of data bytes to hash; it may be any HH_U64 value representable."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::ReduceSipTreeHash<kNumLanes, kUpdateIters, kFinalizeIters>",
+      "signature": "template <int kNumLanes, int kUpdateIters, int kFinalizeIters>\nHH_U64 highwayhash::ReduceSipTreeHash(const typename highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Key& key, const uint64_t (&hashes)[kNumLanes])",
+      "description": "Reduces an array of kNumLanes 64-bit lane hashes into a single 64-bit SipHash value using a SipHash state parameterized by kUpdateIters and kFinalizeIters. Each 64-bit lane value is fed as one 8-byte packet to the state, then finalized.",
+      "requirements": [
+        "kNumLanes must be a positive compile-time constant (template argument).",
+        "hashes must be an array of exactly kNumLanes uint64_t values; each element is read as an 8-byte packet.",
+        "key must reference two initialized 64-bit values (128-bit secret).",
+        "Intended for aggregating parallel or tree-hash lane outputs into a single hash value."
+      ],
+      "error": null
+    },
+    {
+      "name": "SipTreeHash",
+      "signature": "HH_U64 SipTreeHash(const HH_U64 (&key)[4], const char* bytes, const HH_U64 size);",
+      "description": "Computes a 64-bit SipTreeHash over the provided byte buffer using a secret 256-bit key. Intended as a fast, cryptographically strong pseudo-random function for resistant hashing (e.g., hash tables with attacker-controlled inputs) and deterministic/idempotent random-like number generation. Operates sequentially and branch-free, tolerating unaligned inputs. Requires an AVX2-capable CPU. Exactly size bytes are read from bytes and incorporated into the hash.",
+      "requirements": [
+        "key must be a 256-bit secret key provided as an array of four HH_U64 values (const HH_U64 (&key)[4]).",
+        "bytes must point to a readable memory region containing at least size bytes; inputs may be unaligned.",
+        "size specifies exactly how many bytes are read; the caller must ensure the buffer is at least this large.",
+        "Requires an AVX2-capable CPU at runtime (and appropriate compilation settings) to execute.",
+        "If size > 0, bytes must be non-null; if size == 0, bytes may be null (inferred from conventional API design).",
+        "The same secret key must remain unknown to attackers to retain collision-resistance properties."
+      ],
+      "error": null
+    },
+    {
+      "name": "SipTreeHash13",
+      "signature": "HH_U64 SipTreeHash13(const HH_U64 (&key)[4], const char* bytes, const HH_U64 size);",
+      "description": "Computes a 64-bit hash over the provided byte buffer using a secret 256-bit key, using the SipTreeHash13 variant. Intended for fast pseudo-random hashing similar to SipTreeHash with sequential, branch-free processing and tolerance for unaligned inputs. Exactly size bytes are read from bytes. Specific differences versus SipTreeHash (e.g., round counts) are not documented here and remain unknown; name suggests a variant trading some security for speed.",
+      "requirements": [
+        "key must be provided as an array of four HH_U64 values (const HH_U64 (&key)[4]) representing a 256-bit secret key.",
+        "bytes must point to a readable memory region containing at least size bytes; inputs may be unaligned.",
+        "size specifies exactly how many bytes are read; the caller must ensure the buffer is at least this large.",
+        "Requires an AVX2-capable CPU at runtime (and appropriate compilation settings) to execute.",
+        "If size > 0, bytes must be non-null; if size == 0, bytes may be null (inferred from conventional API design).",
+        "Security/performance trade-offs versus SipTreeHash are not specified in this header; callers should select this variant only if that trade-off is acceptable or documented elsewhere (inferred from the function name)."
+      ],
+      "error": null
+    },
+    {
+      "name": "ScalarSipTreeHash",
+      "signature": "HH_U64 highwayhash::ScalarSipTreeHash(const HH_U64 (&key)[4], const char* bytes, const HH_U64 size)",
+      "description": "Computes a 64-bit SipTreeHash of the input byte sequence using a 256-bit key (four HH_U64 values). This is the scalar (non-SIMD) implementation intended for portability and reference/verification against vectorized versions. Typical usage: provide a 4-word key, a pointer to the data buffer, and its size in bytes; the function returns a 64-bit hash. Implementation details (such as endianness handling and exact mixing rounds) are not documented here; behavior is inferred from the name and context within HighwayHash.",
+      "requirements": [
+        "Must be compiled as C++ (the key parameter is a reference to an array type, which is not valid in C).",
+        "Callers must pass a reference to an array of exactly four HH_U64 values for key; the array must be fully initialized and remain valid for the duration of the call.",
+        "bytes must point to a readable memory region of at least size bytes; passing nullptr is only valid when size == 0 (inferred from common C/C++ conventions).",
+        "size specifies the number of bytes to read from bytes; it is an HH_U64 (unsigned 64-bit) length and must not exceed the accessible size of the buffer.",
+        "The function does not modify key or the input buffer (both are treated as read-only).",
+        "No error reporting is provided; callers should use the returned HH_U64 as the hash value."
+      ],
+      "error": null
+    },
+    {
+      "name": "ScalarSipTreeHash13",
+      "signature": "HH_U64 highwayhash::ScalarSipTreeHash13(const HH_U64 (&key)[4], const char* bytes, const HH_U64 size)",
+      "description": "Computes a 64-bit SipTreeHash variant using 1-3 rounds (\"13\"), trading some security margin for speed, with the same 256-bit key and input interface as ScalarSipTreeHash. This is the scalar (non-SIMD) implementation. Use when the 1-3 round variant is desired (e.g., faster, potentially lower collision resistance). Exact round details are inferred from the function name; specifics are not documented here.",
+      "requirements": [
+        "Must be compiled as C++ (the key parameter is a reference to an array type, which is not valid in C).",
+        "Callers must pass a reference to an array of exactly four HH_U64 values for key; the array must be fully initialized and remain valid for the duration of the call.",
+        "bytes must point to a readable memory region of at least size bytes; passing nullptr is only valid when size == 0 (inferred from common C/C++ conventions).",
+        "size specifies the number of bytes to read from bytes; it is an HH_U64 (unsigned 64-bit) length and must not exceed the accessible size of the buffer.",
+        "The function does not modify key or the input buffer (both are treated as read-only).",
+        "No error reporting is provided; callers should use the returned HH_U64 as the hash value."
+      ],
+      "error": null
+    },
+    {
+      "name": "SipHashC",
+      "signature": "uint64_t SipHashC(const uint64_t* key, const char* bytes, const uint64_t size);",
+      "description": "Computes a 64-bit SipHash of the input buffer using the provided secret key. Intended as a C-callable binding. Typical use: pass a pointer to secret key words and a data buffer with its size in bytes; receive a 64-bit hash.",
+      "requirements": [
+        "key must point to initialized key material appropriate for SipHash (commonly two uint64_t words; exact layout is defined by the library; not shown here). (inferred from function name/signature and standard SipHash usage)",
+        "bytes must be a valid pointer to a buffer of at least size bytes for reading. (inferred)",
+        "size is the number of bytes to hash and may be 0. If size == 0, bytes may be null. (inferred common C API pattern; not explicitly stated)",
+        "Function is pure with respect to inputs; return value is the 64-bit hash; no out-parameters or errno are used. (inferred)"
+      ],
+      "error": null
+    },
+    {
+      "name": "SipHash13C",
+      "signature": "uint64_t SipHash13C(const uint64_t* key, const char* bytes, const uint64_t size);",
+      "description": "Computes a 64-bit SipHash-1-3 variant of the input buffer using the provided secret key. This is the 1 compression / 3 finalization rounds version. Use when you specifically need the SipHash-1-3 variant for performance/security trade-offs.",
+      "requirements": [
+        "key must point to initialized key material appropriate for SipHash (commonly two uint64_t words; exact layout is defined by the library; not shown here). (inferred from function name/signature and standard SipHash usage)",
+        "bytes must be a valid pointer to a buffer of at least size bytes for reading. (inferred)",
+        "size is the number of bytes to hash and may be 0. If size == 0, bytes may be null. (inferred common C API pattern; not explicitly stated)",
+        "Function returns the 64-bit hash; no out-parameters or errno are used. (inferred)"
+      ],
+      "error": null
+    },
+    {
+      "name": "HighwayHash64",
+      "signature": "uint64_t HighwayHash64(const HHKey key, const char* bytes, const uint64_t size);",
+      "description": "Computes a 64-bit HighwayHash of the input buffer using the best implementation for the current CPU. The key type HHKey is defined in hh_types.h (commonly a 256-bit key). Use this when you want automatic CPU feature detection and a 64-bit hash result.",
+      "requirements": [
+        "key must be a valid HHKey initialized per hh_types.h (exact layout/size is defined there; not shown in this header).",
+        "bytes must be a valid pointer to a buffer of at least size bytes for reading. (inferred)",
+        "size is the number of bytes to hash and may be 0. If size == 0, bytes may be null. (inferred common C API pattern; not explicitly stated)",
+        "Caller does not need to select a specific backend; implementation selects the best available for the running CPU. (from comment)"
+      ],
+      "error": null
+    },
+    {
+      "name": "HighwayHash64_TargetPortable",
+      "signature": "uint64_t HighwayHash64_TargetPortable(const HHKey key, const char* bytes, const uint64_t size);",
+      "description": "Computes a 64-bit HighwayHash using the portable (baseline) implementation, independent of SIMD instruction set. Use to force a backend without SIMD or for cross-platform determinism across CPU features.",
+      "requirements": [
+        "key must be a valid HHKey initialized per hh_types.h (exact layout/size is defined there; not shown in this header).",
+        "bytes must be a valid pointer to a buffer of at least size bytes for reading. (inferred)",
+        "size is the number of bytes to hash and may be 0. If size == 0, bytes may be null. (inferred common C API pattern; not explicitly stated)"
+      ],
+      "error": null
+    },
+    {
+      "name": "HighwayHash64_TargetSSE41",
+      "signature": "uint64_t HighwayHash64_TargetSSE41(const HHKey key, const char* bytes, const uint64_t size);",
+      "description": "Computes a 64-bit HighwayHash using the SSE4.1-targeted implementation. Intended for use when you explicitly want the SSE4.1 backend.",
+      "requirements": [
+        "key must be a valid HHKey initialized per hh_types.h (exact layout/size is defined there; not shown in this header).",
+        "bytes must be a valid pointer to a buffer of at least size bytes for reading. (inferred)",
+        "size is the number of bytes to hash and may be 0. If size == 0, bytes may be null. (inferred common C API pattern; not explicitly stated)",
+        "The executing CPU should support SSE4.1 for optimal/defined execution of this backend. (inferred from function name/targeting)"
+      ],
+      "error": null
+    },
+    {
+      "name": "HighwayHash64_TargetAVX2",
+      "signature": "uint64_t HighwayHash64_TargetAVX2(const HHKey key, const char* bytes, const uint64_t size);",
+      "description": "Computes a 64-bit HighwayHash using the AVX2-targeted implementation. Intended for use when you explicitly want the AVX2 backend.",
+      "requirements": [
+        "key must be a valid HHKey initialized per hh_types.h (exact layout/size is defined there; not shown in this header).",
+        "bytes must be a valid pointer to a buffer of at least size bytes for reading. (inferred)",
+        "size is the number of bytes to hash and may be 0. If size == 0, bytes may be null. (inferred common C API pattern; not explicitly stated)",
+        "The executing CPU should support AVX2 for optimal/defined execution of this backend. (inferred from function name/targeting)"
+      ],
+      "error": null
+    },
+    {
+      "name": "HighwayHash64_TargetVSX",
+      "signature": "uint64_t HighwayHash64_TargetVSX(const HHKey key, const char* bytes, const uint64_t size);",
+      "description": "Computes a 64-bit HighwayHash using the VSX-targeted implementation (Power/POWER VSX SIMD). Intended for use when you explicitly want the VSX backend.",
+      "requirements": [
+        "key must be a valid HHKey initialized per hh_types.h (exact layout/size is defined there; not shown in this header).",
+        "bytes must be a valid pointer to a buffer of at least size bytes for reading. (inferred)",
+        "size is the number of bytes to hash and may be 0. If size == 0, bytes may be null. (inferred common C API pattern; not explicitly stated)",
+        "The executing CPU should support VSX for optimal/defined execution of this backend. (inferred from function name/targeting)"
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::InstructionSets::Supported",
+      "signature": "static TargetBits Supported();",
+      "description": "Returns a bitmask (TargetBits) indicating which HH_TARGET_* implementations are supported by the current CPU. HH_TARGET_Portable is always set. On some architectures, additional target bits (e.g., AVX2, SSE4.1, VSX, NEON) may also be set. Intended for feature detection and dispatch decisions.",
+      "requirements": [
+        "Must be called in a context where TargetBits and HH_TARGET_* constants are available (include highwayhash/arch_specific.h).",
+        "No arguments; thread-safe by design (pure query) based on the header content.",
+        "Return value is a bitmask; caller must interpret it using HH_TARGET_* constants.",
+        "Behavior depends on compile-time architecture macros (HH_ARCH_X64, HH_ARCH_PPC, HH_ARCH_NEON)."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::InstructionSets::Run",
+      "signature": "template <template <TargetBits> class Func, typename... Args>\nstatic HH_INLINE TargetBits Run(Args&&... args);",
+      "description": "Detects the best supported target for the current CPU and invokes Func<Target>::operator()(args...) for that target, returning the chosen HH_TARGET_* bit. Dispatch overhead is low (~4 cycles) and should typically be hoisted out of hot loops. On unsupported architectures or when no accelerated targets are available, it invokes the portable specialization.",
+      "requirements": [
+        "Func must be a template taking a single non-type template parameter of type TargetBits (e.g., template <TargetBits T> struct MyFunc { void operator()(...) const; }).",
+        "For the target actually selected at runtime (e.g., HH_TARGET_AVX2, HH_TARGET_SSE41, HH_TARGET_VSX, HH_TARGET_NEON, or HH_TARGET_Portable), a definition of Func<that_target>::operator()(Args...) must be available at link time.",
+        "The provided arguments must be valid for and acceptable to the selected Func<Target>::operator()(Args...), including const/volatile and value category (perfect-forwarded).",
+        "If multiple targets may be selected at runtime on a given build, all corresponding Func<target> specializations intended to be callable in that build must be defined to avoid link or ODR issues.",
+        "Caller should not assume Run will call more than one specialization; exactly one Func<Target> is invoked per call.",
+        "The return value is the HH_TARGET_* bit of the invoked specialization and should be checked if the caller needs to know which specialization ran."
+      ],
+      "error": null
+    },
+    {
+      "name": "highwayhash::InstructionSets::RunAll",
+      "signature": "template <template <TargetBits> class Func, typename... Args>\nstatic HH_INLINE TargetBits RunAll(Args&&... args);",
+      "description": "Invokes Func<Target>::operator()(args...) for each supported target on the current CPU, including HH_TARGET_Portable, and returns the union bitmask of the HH_TARGET_* values that were run. Useful for initializing or validating all available implementations.",
+      "requirements": [
+        "Func must be a template taking a single non-type template parameter of type TargetBits and provide operator()(Args...) for every target that may be run on the current CPU, including HH_TARGET_Portable.",
+        "All invoked Func<Target> specializations must be defined and linkable; otherwise linkage errors will occur.",
+        "Arguments must be valid for every Func<Target>::operator()(Args...) that will be called in this process (they are perfect-forwarded).",
+        "Caller should expect Func<Target> to be invoked zero or more times for accelerated targets depending on Supported(), and always at least once for HH_TARGET_Portable.",
+        "The returned TargetBits value is the same as Supported() for the current build/CPU and represents all targets that were invoked."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Finalize",
+      "inputs": [
+        {
+          "name": "s24",
+          "type": "highwayhash::SipHashState *"
+        },
+        {
+          "name": "s13",
+          "type": "highwayhash::SipHash13State *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s24",
+          "type": "highwayhash::SipHashState *"
+        },
+        {
+          "name": "s13",
+          "type": "highwayhash::SipHash13State *"
+        }
+      ],
+      "code": "// Finalize exactly one of the states, enforcing correct sequencing.\nint choose_13 = (int)(*FUZZ_PARAM(unsigned int) & 1);\nif (choose_13) {\n  if (FUZZ_GET_ATTR_INT(s13, \"initialized\") != 1) { FUZZ_BAIL(); }\n  if (FUZZ_GET_ATTR_INT(s13, \"finalized\") != 0) { FUZZ_BAIL(); }\n  (void)s13->Finalize();\n  FUZZ_SET_ATTR_INT(s13, \"finalized\", 1);\n} else {\n  if (FUZZ_GET_ATTR_INT(s24, \"initialized\") != 1) { FUZZ_BAIL(); }\n  if (FUZZ_GET_ATTR_INT(s24, \"finalized\") != 0) { FUZZ_BAIL(); }\n  (void)s24->Finalize();\n  FUZZ_SET_ATTR_INT(s24, \"finalized\", 1);\n}\n// States are returned as outputs; the fuzzer may drop them later if desired."
+    },
+    {
+      "name": "highwayhash::PaddedUpdate<highwayhash::SipHashState>",
+      "inputs": [
+        {
+          "name": "s24",
+          "type": "highwayhash::SipHashState *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s24",
+          "type": "highwayhash::SipHashState *"
+        }
+      ],
+      "code": "// PaddedUpdate requirements: remaining_size in [0,7]; state must be initialized and not finalized.\nif (FUZZ_GET_ATTR_INT(s24, \"initialized\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(s24, \"finalized\") != 0) { FUZZ_BAIL(); }\n// Choose a total message size; only low 8 bits will be encoded per description.\nuint64_t total_size = *FUZZ_PARAM(uint64_t);\n// Choose remaining_size in [0,7].\nuint64_t remaining_size = (uint64_t)(*FUZZ_PARAM(unsigned int) % 8);\n// Create a buffer with at least remaining_size bytes.\nstd::string tail = FUZZ_PARAM_STR();\nif (tail.size() < remaining_size) {\n  tail.resize((size_t)remaining_size, '\\0');\n}\n// Call specialized PaddedUpdate\nhighwayhash::PaddedUpdate<highwayhash::SipHashState>(total_size, tail.data(), remaining_size, s24);\n// State remains live; return as output."
+    },
+    {
+      "name": "highwayhash::PaddedUpdate<highwayhash::SipHash13State>",
+      "inputs": [
+        {
+          "name": "s13",
+          "type": "highwayhash::SipHash13State *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s13",
+          "type": "highwayhash::SipHash13State *"
+        }
+      ],
+      "code": "// PaddedUpdate requirements: remaining_size in [0,7]; state must be initialized and not finalized.\nif (FUZZ_GET_ATTR_INT(s13, \"initialized\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(s13, \"finalized\") != 0) { FUZZ_BAIL(); }\nuint64_t total_size = *FUZZ_PARAM(uint64_t);\nuint64_t remaining_size = (uint64_t)(*FUZZ_PARAM(unsigned int) % 8);\nstd::string tail = FUZZ_PARAM_STR();\nif (tail.size() < remaining_size) {\n  tail.resize((size_t)remaining_size, '\\0');\n}\nhighwayhash::PaddedUpdate<highwayhash::SipHash13State>(total_size, tail.data(), remaining_size, s13);\n// State remains live; return as output."
+    },
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::SipHashStateT",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "s24",
+          "type": "highwayhash::SipHashState *"
+        },
+        {
+          "name": "s13",
+          "type": "highwayhash::SipHash13State *"
+        }
+      ],
+      "code": "// Construct both SipHash-2-4 and SipHash-1-3 states with valid 128-bit keys.\n// Key type must exactly match the API's Key = unsigned long long[2].\nconst unsigned long long (*k24_src)[2] = FUZZ_PARAM(unsigned long long[2]);\nunsigned long long k24[2] = { (*k24_src)[0], (*k24_src)[1] };\nconst unsigned long long (*k13_src)[2] = FUZZ_PARAM(unsigned long long[2]);\nunsigned long long k13[2] = { (*k13_src)[0], (*k13_src)[1] };\n\n// Allocate states using their explicit Key-taking constructors.\nhighwayhash::SipHashState* s24 = new highwayhash::SipHashState(k24);\nhighwayhash::SipHash13State* s13 = new highwayhash::SipHash13State(k13);\n\n// Track lifecycle: constructed (initialized) and not yet finalized.\nFUZZ_SET_ATTR_INT(s24, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(s24, \"finalized\", 0);\nFUZZ_SET_ATTR_INT(s13, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(s13, \"finalized\", 0);\n\n// Validation: Keys are correctly sized and types match the API; objects are persisted via outputs."
+    },
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Update",
+      "inputs": [
+        {
+          "name": "s24",
+          "type": "highwayhash::SipHashState *"
+        },
+        {
+          "name": "s13",
+          "type": "highwayhash::SipHash13State *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s24",
+          "type": "highwayhash::SipHashState *"
+        },
+        {
+          "name": "s13",
+          "type": "highwayhash::SipHash13State *"
+        }
+      ],
+      "code": "// Choose which state to update to cover both variants across runs.\nint choose_13 = (int)(*FUZZ_PARAM(unsigned int) & 1);\n\n// Generate exactly one 8-byte packet as required by Update.\nunsigned long long packet = *FUZZ_PARAM(unsigned long long);\nconst char* bytes = reinterpret_cast<const char*>(&packet);\n\nif (choose_13) {\n  // Enforce correct sequencing: must be initialized and not finalized.\n  if (FUZZ_GET_ATTR_INT(s13, \"initialized\") != 1) { FUZZ_BAIL(); }\n  if (FUZZ_GET_ATTR_INT(s13, \"finalized\") != 0) { FUZZ_BAIL(); }\n  s13->Update(bytes);\n} else {\n  if (FUZZ_GET_ATTR_INT(s24, \"initialized\") != 1) { FUZZ_BAIL(); }\n  if (FUZZ_GET_ATTR_INT(s24, \"finalized\") != 0) { FUZZ_BAIL(); }\n  s24->Update(bytes);\n}\n\n// Validation: exactly 8 readable bytes provided; state lifetimes enforced; both states returned for persistence."
+    },
+    {
+      "name": "highwayhash::SipHash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a valid 128-bit key with the exact API type (unsigned long long[2]).\nconst unsigned long long (*key_src)[2] = FUZZ_PARAM(unsigned long long[2]);\nunsigned long long key[2] = { (*key_src)[0], (*key_src)[1] };\n\n// Generate a message buffer and choose a logical size within it.\nstd::string buf = FUZZ_PARAM_STR();\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nunsigned long long size = buf.empty() ? 0ull : (unsigned long long)(pick % (buf.size() + 1));\n\n// Ensure at least ceil(size/8)*8 readable bytes as permitted by API.\nunsigned long long padded = (size + 7ull) & ~7ull;\nif (buf.size() < padded) buf.resize((size_t)padded, '\\0');\n\n// Compute and assert determinism for identical inputs.\nunsigned long long h1 = highwayhash::SipHash(key, buf.data(), size);\nunsigned long long h2 = highwayhash::SipHash(key, buf.data(), size);\nFUZZ_ASSERT(h1 == h2, \"SipHash must be deterministic for identical input and key\");\n\n// Validation: key type matches required Key&, readable-bytes constraint enforced via padding, property check done."
+    },
+    {
+      "name": "highwayhash::SipHash13",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a valid 128-bit key with the exact API type (unsigned long long[2]).\nconst unsigned long long (*key_src)[2] = FUZZ_PARAM(unsigned long long[2]);\nunsigned long long key[2] = { (*key_src)[0], (*key_src)[1] };\n\n// Generate a message buffer and choose a logical size within it.\nstd::string buf = FUZZ_PARAM_STR();\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nunsigned long long size = buf.empty() ? 0ull : (unsigned long long)(pick % (buf.size() + 1));\n\n// Ensure at least ceil(size/8)*8 readable bytes as permitted by API.\nunsigned long long padded = (size + 7ull) & ~7ull;\nif (buf.size() < padded) buf.resize((size_t)padded, '\\0');\n\n// Compute and assert determinism for identical inputs.\nunsigned long long h1 = highwayhash::SipHash13(key, buf.data(), size);\nunsigned long long h2 = highwayhash::SipHash13(key, buf.data(), size);\nFUZZ_ASSERT(h1 == h2, \"SipHash13 must be deterministic for identical input and key\");\n\n// Validation: key type matches required Key&, readable-bytes constraint enforced via padding, property check done."
+    },
+    {
+      "name": "highwayhash::ReduceSipTreeHash<kNumLanes, kUpdateIters, kFinalizeIters>",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate concrete template ReduceSipTreeHash<4,2,4>.\n// Prepare key with exact type required (unsigned long long[2]).\nconst unsigned long long (*key_src)[2] = FUZZ_PARAM(unsigned long long[2]);\nunsigned long long key[2] = { (*key_src)[0], (*key_src)[1] };\n\n// Prepare exactly 4 lane hashes as an array (not a pointer) to match by-reference parameter.\nconst uint64_t (*lanes_src)[4] = FUZZ_PARAM(uint64_t[4]);\nuint64_t lanes[4];\nfor (int i = 0; i < 4; ++i) lanes[i] = (*lanes_src)[i];\n\n// Compute and assert determinism for identical inputs.\nunsigned long long r1 = highwayhash::ReduceSipTreeHash<4, 2, 4>(key, lanes);\nunsigned long long r2 = highwayhash::ReduceSipTreeHash<4, 2, 4>(key, lanes);\nFUZZ_ASSERT(r1 == r2, \"ReduceSipTreeHash must be deterministic for identical inputs\");\n\n// Validation: exact array/reference types are passed; covers reduction path and checks determinism."
+    },
+    {
+      "name": "SipTreeHash",
+      "inputs": [],
+      "outputs": [],
+      "code": "{\n  // Generate a 256-bit secret key (4 x 64-bit words). Keep it local/ephemeral.\n  const highwayhash::HH_U64* key_src = *FUZZ_PARAM(highwayhash::HH_U64[4]);\n  highwayhash::HH_U64 key[4];\n  for (int i = 0; i < 4; ++i) key[i] = key_src[i];\n\n  // Generate the input buffer; cap total size to <= 2048 bytes for performance.\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.size() > 2048) { buf.resize(2048); }\n\n  // Choose an unaligned start within the first up-to-8 bytes (or within size if smaller).\n  const size_t buf_size = buf.size();\n  const size_t off_mod = (buf_size == 0) ? 1 : ((buf_size < 8) ? buf_size : (size_t)8);\n  const unsigned int rnd1 = *FUZZ_PARAM(unsigned int);\n  const size_t offset = (size_t)(rnd1 % off_mod);\n\n  const char* base = buf.data() + offset;\n  const size_t avail = (offset <= buf_size) ? (buf_size - offset) : 0;\n\n  // Choose size within [0, avail]. If size==0, sometimes pass a null pointer.\n  const unsigned int rnd2 = *FUZZ_PARAM(unsigned int);\n  highwayhash::HH_U64 size = (highwayhash::HH_U64)((avail == 0) ? 0 : ((size_t)(rnd2 % (avail + 1))));\n  const unsigned int rnd3 = *FUZZ_PARAM(unsigned int);\n  const char* bytes = (size == 0 && ((rnd3 & 1u) == 0)) ? (const char*)nullptr : base;\n\n  // Enforce API constraints.\n  if (size > 0 && bytes == nullptr) { FUZZ_BAIL(); }\n  if ((size_t)size > avail) { FUZZ_BAIL(); }\n\n  // Determinism: same inputs must yield the same hash.\n  highwayhash::HH_U64 h1 = highwayhash::SipTreeHash(key, bytes, size);\n  highwayhash::HH_U64 h2 = highwayhash::SipTreeHash(key, bytes, size);\n  FUZZ_ASSERT(h1 == h2, \"SipTreeHash must be deterministic for identical inputs\");\n\n  // Validation: pure function, no persistent outputs; constraints enforced (buffer size/null handling).\n}"
+    },
+    {
+      "name": "SipTreeHash13",
+      "inputs": [],
+      "outputs": [],
+      "code": "{\n  // Generate a 256-bit secret key (4 x 64-bit words). Keep it local/ephemeral.\n  const highwayhash::HH_U64* key_src = *FUZZ_PARAM(highwayhash::HH_U64[4]);\n  highwayhash::HH_U64 key[4];\n  for (int i = 0; i < 4; ++i) key[i] = key_src[i];\n\n  // Generate the input buffer; cap total size to <= 2048 bytes for performance.\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.size() > 2048) { buf.resize(2048); }\n\n  // Choose an unaligned start within the first up-to-8 bytes (or within size if smaller).\n  const size_t buf_size = buf.size();\n  const size_t off_mod = (buf_size == 0) ? 1 : ((buf_size < 8) ? buf_size : (size_t)8);\n  const unsigned int rnd1 = *FUZZ_PARAM(unsigned int);\n  const size_t offset = (size_t)(rnd1 % off_mod);\n\n  const char* base = buf.data() + offset;\n  const size_t avail = (offset <= buf_size) ? (buf_size - offset) : 0;\n\n  // Choose size within [0, avail]. If size==0, sometimes pass a null pointer.\n  const unsigned int rnd2 = *FUZZ_PARAM(unsigned int);\n  highwayhash::HH_U64 size = (highwayhash::HH_U64)((avail == 0) ? 0 : ((size_t)(rnd2 % (avail + 1))));\n  const unsigned int rnd3 = *FUZZ_PARAM(unsigned int);\n  const char* bytes = (size == 0 && ((rnd3 & 1u) == 0)) ? (const char*)nullptr : base;\n\n  // Enforce API constraints.\n  if (size > 0 && bytes == nullptr) { FUZZ_BAIL(); }\n  if ((size_t)size > avail) { FUZZ_BAIL(); }\n\n  // Determinism: same inputs must yield the same hash.\n  highwayhash::HH_U64 h1 = highwayhash::SipTreeHash13(key, bytes, size);\n  highwayhash::HH_U64 h2 = highwayhash::SipTreeHash13(key, bytes, size);\n  FUZZ_ASSERT(h1 == h2, \"SipTreeHash13 must be deterministic for identical inputs\");\n\n  // Validation: pure function, no persistent outputs; constraints enforced (buffer size/null handling).\n}"
+    },
+    {
+      "name": "ScalarSipTreeHash",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a fully-initialized 256-bit key as an array of four highwayhash::HH_U64 values.\nconst unsigned long long rkey = *FUZZ_PARAM(unsigned long long);\nhighwayhash::HH_U64 key[4];\nkey[0] = static_cast<highwayhash::HH_U64>(rkey);\nkey[1] = static_cast<highwayhash::HH_U64>(rkey + 0x9e3779b97f4a7c15ULL);\nkey[2] = static_cast<highwayhash::HH_U64>(rkey + 2ULL * 0x9e3779b97f4a7c15ULL);\nkey[3] = static_cast<highwayhash::HH_U64>(rkey + 3ULL * 0x9e3779b97f4a7c15ULL);\n\n// Generate input bytes via fuzz string. Constrain to <= 2048 bytes for performance.\nstd::string buf = FUZZ_PARAM_STR();\nsize_t max_sz = buf.size();\nif (max_sz > static_cast<size_t>(2048)) max_sz = static_cast<size_t>(2048);\nconst highwayhash::HH_U64 max_len = static_cast<highwayhash::HH_U64>(max_sz);\n\n// Choose a valid size in [0, max_len]. Use a single random for size selection.\nconst unsigned long long rsize = *FUZZ_PARAM(unsigned long long);\nhighwayhash::HH_U64 size = (max_len == 0) ? 0 : static_cast<highwayhash::HH_U64>(rsize % (max_len + 1ULL));\n\n// bytes must be readable for at least size bytes; allow nullptr only if size == 0.\nconst char* bytes = (max_len == 0) ? nullptr : buf.data();\nif (size == 0) {\n  // Occasionally exercise the nullptr-with-zero-size path using a dedicated random choice.\n  const unsigned int null_choice = *FUZZ_PARAM(unsigned int);\n  if ((null_choice & 1U) != 0U) bytes = nullptr;\n}\n\n// Enforce API requirement: if bytes is null, size must be zero.\nif (bytes == nullptr && size != 0) { FUZZ_BAIL(); }\n// Also ensure that when non-null, buffer has at least 'size' bytes.\nif (bytes != nullptr && size > static_cast<highwayhash::HH_U64>(buf.size())) { FUZZ_BAIL(); }\n\n// Call the target function and verify determinism with identical inputs.\nhighwayhash::HH_U64 h1 = highwayhash::ScalarSipTreeHash(key, bytes, size);\nhighwayhash::HH_U64 h2 = highwayhash::ScalarSipTreeHash(key, bytes, size);\nFUZZ_ASSERT(h1 == h2, \"ScalarSipTreeHash must be deterministic for identical inputs\");\n\n// No persistent objects to return."
+    },
+    {
+      "name": "ScalarSipTreeHash13",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a fully-initialized 256-bit key as an array of four highwayhash::HH_U64 values.\nconst unsigned long long rkey = *FUZZ_PARAM(unsigned long long);\nhighwayhash::HH_U64 key[4];\nkey[0] = static_cast<highwayhash::HH_U64>(rkey);\nkey[1] = static_cast<highwayhash::HH_U64>(rkey + 0x9e3779b97f4a7c15ULL);\nkey[2] = static_cast<highwayhash::HH_U64>(rkey + 2ULL * 0x9e3779b97f4a7c15ULL);\nkey[3] = static_cast<highwayhash::HH_U64>(rkey + 3ULL * 0x9e3779b97f4a7c15ULL);\n\n// Generate input bytes via fuzz string. Constrain to <= 2048 bytes for performance.\nstd::string buf = FUZZ_PARAM_STR();\nsize_t max_sz = buf.size();\nif (max_sz > static_cast<size_t>(2048)) max_sz = static_cast<size_t>(2048);\nconst highwayhash::HH_U64 max_len = static_cast<highwayhash::HH_U64>(max_sz);\n\n// Choose a valid size in [0, max_len]. Use a single random for size selection.\nconst unsigned long long rsize = *FUZZ_PARAM(unsigned long long);\nhighwayhash::HH_U64 size = (max_len == 0) ? 0 : static_cast<highwayhash::HH_U64>(rsize % (max_len + 1ULL));\n\n// bytes must be readable for at least size bytes; allow nullptr only if size == 0.\nconst char* bytes = (max_len == 0) ? nullptr : buf.data();\nif (size == 0) {\n  // Occasionally exercise the nullptr-with-zero-size path using a dedicated random choice.\n  const unsigned int null_choice = *FUZZ_PARAM(unsigned int);\n  if ((null_choice & 1U) != 0U) bytes = nullptr;\n}\n\n// Enforce API requirement: if bytes is null, size must be zero.\nif (bytes == nullptr && size != 0) { FUZZ_BAIL(); }\n// Also ensure that when non-null, buffer has at least 'size' bytes.\nif (bytes != nullptr && size > static_cast<highwayhash::HH_U64>(buf.size())) { FUZZ_BAIL(); }\n\n// Call the target function and verify determinism with identical inputs.\nhighwayhash::HH_U64 h1 = highwayhash::ScalarSipTreeHash13(key, bytes, size);\nhighwayhash::HH_U64 h2 = highwayhash::ScalarSipTreeHash13(key, bytes, size);\nFUZZ_ASSERT(h1 == h2, \"ScalarSipTreeHash13 must be deterministic for identical inputs\");\n\n// No persistent objects to return."
+    },
+    {
+      "name": "SipHashC",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a 128-bit key (two 64-bit words) for SipHash.\nuint64_t key_words[2];\nkey_words[0] = *FUZZ_PARAM(uint64_t);\nkey_words[1] = *FUZZ_PARAM(uint64_t);\n\n// Random input buffer; clamp to <= 2048 bytes to keep runtime fast.\nstd::string data = FUZZ_PARAM_STR();\nsize_t max_n = data.size();\nif (max_n > 2048) max_n = 2048;\nuint64_t size = (max_n == 0) ? 0 : (uint64_t)(*FUZZ_PARAM(unsigned int) % (max_n + 1));\n\n// Allow nullptr when size == 0 to exercise that path; otherwise ensure non-null.\nbool use_null_when_empty = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nconst char* bytes = (size == 0 && use_null_when_empty) ? nullptr : data.data();\n\n// Call target function twice to assert determinism for identical inputs.\nuint64_t h1 = SipHashC(key_words, bytes, size);\nuint64_t h2 = SipHashC(key_words, bytes, size);\nFUZZ_ASSERT(h1 == h2, \"SipHashC must be deterministic for identical inputs\");\n"
+    },
+    {
+      "name": "SipHash13C",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a 128-bit key (two 64-bit words) for SipHash-1-3.\nuint64_t key_words[2];\nkey_words[0] = *FUZZ_PARAM(uint64_t);\nkey_words[1] = *FUZZ_PARAM(uint64_t);\n\n// Random input buffer; clamp to <= 2048 bytes.\nstd::string data = FUZZ_PARAM_STR();\nsize_t max_n = data.size();\nif (max_n > 2048) max_n = 2048;\nuint64_t size = (max_n == 0) ? 0 : (uint64_t)(*FUZZ_PARAM(unsigned int) % (max_n + 1));\n\n// Allow nullptr when size == 0; otherwise use a valid pointer.\nbool use_null_when_empty = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nconst char* bytes = (size == 0 && use_null_when_empty) ? nullptr : data.data();\n\n// Determinism check for SipHash-1-3.\nuint64_t h1 = SipHash13C(key_words, bytes, size);\nuint64_t h2 = SipHash13C(key_words, bytes, size);\nFUZZ_ASSERT(h1 == h2, \"SipHash13C must be deterministic for identical inputs\");\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "highwayhash::HighwayHashT",
+      "reason": "Requires concrete template parameters and an initialized State object type not provided in the object list, so we cannot supply a valid State* or instantiate the template."
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::HighwayHashCatT",
+      "reason": "The class highwayhash::HighwayHashCatT<Target> is not available as an object type and the Target template parameter must be fixed, so we cannot construct or manage this object in the harness."
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::Reset",
+      "reason": "Method requires a highwayhash::HighwayHashCatT<Target> instance which is not present as a ptr_type, so no valid receiver object can be provided."
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::Append",
+      "reason": "Method requires a highwayhash::HighwayHashCatT<Target> instance which is not present as a ptr_type, so no valid receiver object can be provided."
+    },
+    {
+      "name": "highwayhash::HighwayHashCatT::Finalize",
+      "reason": "Method requires a highwayhash::HighwayHashCatT<Target> instance and a compatible Result type, neither of which are available as ptr_type entries to safely exercise the API."
+    },
+    {
+      "name": "HighwayHash64",
+      "reason": "Unresolvable link dependency: calls highwayhash::InstructionSets::Supported(), which is undefined in the current toolchain/library build."
+    },
+    {
+      "name": "HighwayHash64_TargetPortable",
+      "reason": "Symbol HighwayHash64_TargetPortable is not present in the linked library, causing undefined reference at link time."
+    },
+    {
+      "name": "HighwayHash64_TargetSSE41",
+      "reason": "Target-specific entry point is not available in the linked library for this build, resulting in undefined references."
+    },
+    {
+      "name": "HighwayHash64_TargetAVX2",
+      "reason": "Target-specific entry point is not available in the linked library for this build, resulting in undefined references."
+    },
+    {
+      "name": "HighwayHash64_TargetVSX",
+      "reason": "Target-specific entry point is not available in the linked library for this build, resulting in undefined references."
+    },
+    {
+      "name": "highwayhash::InstructionSets::Supported",
+      "reason": "On this build target the function is only declared (not inline-defined) and requires a library definition we cannot link, causing an undefined reference."
+    },
+    {
+      "name": "highwayhash::InstructionSets::Run",
+      "reason": "It requires a user-supplied template functor (template< TargetBits > class) that must be defined at namespace scope, which is disallowed by the single-block stub constraints."
+    },
+    {
+      "name": "highwayhash::InstructionSets::RunAll",
+      "reason": "It requires a user-supplied template functor (template< TargetBits > class) defined at namespace scope, which cannot be provided within a single-block stub."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Finalize",
+      "data_types": []
+    },
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::SipHashStateT",
+      "data_types": []
+    },
+    {
+      "name": "highwayhash::SipHashStateT<kUpdateIters, kFinalizeIters>::Update",
+      "data_types": []
+    },
+    {
+      "name": "highwayhash::ReduceSipTreeHash<kNumLanes, kUpdateIters, kFinalizeIters>",
+      "data_types": []
+    },
+    {
+      "name": "highwayhash::PaddedUpdate<highwayhash::SipHashState>",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "highwayhash::PaddedUpdate<highwayhash::SipHash13State>",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "highwayhash::SipHash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "highwayhash::SipHash13",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "SipTreeHash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "SipTreeHash13",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ScalarSipTreeHash",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "ScalarSipTreeHash13",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "SipHashC",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "SipHash13C",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A raw byte buffer with no specific format requirements. May contain any 8-bit values, including null bytes. Length can be zero or any non-negative size as allowed by the API. Used directly as input to hashing functions without encoding or structure constraints."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List, Tuple\n\n# This generator targets arbitrary binary data consumed by the fuzz stubs.\n# The fuzzers use FUZZ_PARAM_STR and various integers to select sizes/offsets.\n# Our strategy: produce a binary blob that contains multiple interesting regions\n# and lengths so that when the fuzzer slices into it (choose size, offsets,\n# or pad to 8-byte boundaries), it will still be valid and exercise different\n# internal paths: sizes 0..7 (SipHash padding tails), exact 8/16 boundaries,\n# large blocks, unaligned prefixes, and mixed byte patterns.\n# The result is a self-contained bytes object <= 4096 bytes.\n\n_GOLDEN_RATIO_64 = 0x9E3779B97F4A7C15\n\n\ndef _p64(x: int) -> bytes:\n    return struct.pack('<Q', x & 0xFFFFFFFFFFFFFFFF)\n\n\ndef _pattern_block(tag: int, size: int, seed: int) -> bytes:\n    rnd = random.Random(seed ^ (tag * 0x5851F42D4C957F2D))\n    # Mix of runs, incrementing bytes, and random noise\n    out = bytearray()\n    modes = [\"zeros\", \"ff\", \"inc\", \"dec\", \"rand\", \"alt\", \"wordrep\"]\n    i = 0\n    while i < size:\n        mode = rnd.choice(modes)\n        run = 1 + rnd.randrange(min(64, max(1, size - i)))\n        if mode == \"zeros\":\n            out.extend(b\"\\x00\" * run)\n        elif mode == \"ff\":\n            out.extend(b\"\\xFF\" * run)\n        elif mode == \"inc\":\n            start = rnd.randrange(256)\n            for k in range(run):\n                out.append((start + k) & 0xFF)\n        elif mode == \"dec\":\n            start = rnd.randrange(256)\n            for k in range(run):\n                out.append((start - k) & 0xFF)\n        elif mode == \"rand\":\n            out.extend(bytes(rnd.getrandbits(8) for _ in range(run)))\n        elif mode == \"alt\":\n            b0 = rnd.randrange(256)\n            b1 = b0 ^ 0xFF\n            for k in range(run):\n                out.append(b0 if (k & 1) == 0 else b1)\n        elif mode == \"wordrep\":\n            # repeat a 64-bit word with interesting bits\n            w = (_GOLDEN_RATIO_64 * (1 + rnd.randrange(17))) ^ (seed << (rnd.randrange(8)))\n            chunk = _p64(w)\n            reps = (run + 7) // 8\n            out.extend(chunk * reps)\n        i += run\n    return bytes(out[:size])\n\n\ndef _make_header(sections: List[Tuple[int, int]]) -> bytes:\n    # Simple header to give structure for potential consumers:\n    # magic(4) version(2) count(2) then entries of: tag(4) offset(4) size(4)\n    header = bytearray()\n    header.extend(b\"HWHH\")\n    header.extend(struct.pack('<H', 1))\n    header.extend(struct.pack('<H', len(sections)))\n    # placeholder for entries filled by caller with proper offsets\n    return bytes(header)\n\n\ndef _align(b: bytearray, align: int) -> None:\n    pad = (-len(b)) & (align - 1)\n    if pad:\n        b.extend(b\"\\x00\" * pad)\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Decide total size budget <= 4096\n    budget = rnd.randrange(512, 4096 + 1)\n\n    # Plan sections with sizes chosen to exercise 0..7 tails and multiples of 8\n    small_tails = [0, 1, 2, 3, 4, 5, 6, 7]\n    exact_blocks = [8, 16, 24, 32, 40, 48, 56, 64]\n    var_large = [rnd.randrange(65, 512), rnd.randrange(256, 1024)]\n\n    sizes = []\n    # ensure coverage of tails by creating base sizes then plus tail\n    base = rnd.randrange(0, 256) & ~7  # multiple of 8\n    for t in small_tails:\n        sizes.append(base + t)\n    sizes.extend(exact_blocks)\n    sizes.extend(var_large)\n\n    # Trim based on budget per-section assembly\n    sections: List[Tuple[int, int]] = []  # (tag, size)\n    total_planned = 0\n    for idx, s in enumerate(sizes):\n        if total_planned + s > budget:\n            break\n        sections.append((0x100 + idx, s))\n        total_planned += s\n\n    # Always include a zero-length and a moderate section if room\n    if total_planned + 0 <= budget:\n        sections.insert(0, (0x001, 0))\n    if total_planned + 128 <= budget:\n        sections.append((0x2FF, 128))\n\n    # Build buffer: header + directory + payloads\n    # We’ll write a simple directory after header for discoverability by fuzzer slices\n    header = _make_header(sections)\n    directory_entry_size = 12  # tag, offset, size\n\n    buf = bytearray()\n    buf.extend(header)\n    # Reserve space for directory entries\n    dir_start = len(buf)\n    buf.extend(b\"\\x00\" * (len(sections) * directory_entry_size))\n\n    payload_offsets: List[int] = []\n\n    # Add some unaligned padding before first payload to encourage unaligned starts\n    if rnd.random() < 0.7:\n        buf.extend(b\"PAD!\")\n        if rnd.random() < 0.5:\n            buf.extend(b\"\\xAA\\x55\\xAA\")\n\n    # Payloads\n    for i, (tag, size) in enumerate(sections):\n        # Mix alignment: sometimes align to 8, sometimes not\n        if rnd.random() < 0.5:\n            _align(buf, 8)\n        else:\n            # add 0..7 bytes to ensure unaligned packet boundaries\n            buf.extend(b\"U\" * rnd.randrange(0, 8))\n        payload_offsets.append(len(buf))\n        block = _pattern_block(tag, size, seed ^ (i * 0xA5A5A5A5)) if size > 0 else b\"\"\n        buf.extend(block)\n        # Add sentinel between sections to allow larger reads safely up to next 8 boundary\n        _align(buf, 8)\n\n    # Fill directory\n    dir_bytes = bytearray()\n    for (tag, size), off in zip(sections, payload_offsets):\n        dir_bytes.extend(struct.pack('<III', tag & 0xFFFFFFFF, off & 0xFFFFFFFF, size & 0xFFFFFFFF))\n    buf[dir_start:dir_start + len(dir_bytes)] = dir_bytes\n\n    # Footer with some repeated hashes/keys seeds for the stubs creating keys from integers\n    # Provide multiple 64-bit words that FUZZ_PARAM(uint64_t) may pick from when slicing\n    _align(buf, 8)\n    key_seed_base = rnd.getrandbits(64)\n    footer = bytearray()\n    for k in range(16):\n        footer.extend(_p64(key_seed_base + k * _GOLDEN_RATIO_64))\n    buf.extend(footer)\n\n    # Ensure final size cap\n    return bytes(buf[:4096])\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11462,
+            "output_tokens": 4126,
+            "total_tokens": 15588
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8508,
+            "output_tokens": 425,
+            "total_tokens": 8933
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11850,
+            "output_tokens": 13254,
+            "total_tokens": 25104
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 118631,
+            "output_tokens": 38230,
+            "total_tokens": 156861
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 13880,
+            "output_tokens": 272,
+            "total_tokens": 14152
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 893.6427674293518,
+    "scan_objects": 19.13354468345642,
+    "validate_objects": 2.2255918979644775,
+    "scan_functions": 0,
+    "synthesis": 852.2627420425415,
+    "fill": 0,
+    "classify": 3.608781337738037,
+    "build_generators": 16.410097360610962
+  }
+}

@@ -1,0 +1,1331 @@
+{
+  "objects": [
+    {
+      "ptr_type": "snappy::Sink *",
+      "aliases": [],
+      "definition": "namespace snappy {\n\n// A Sink is an interface that consumes a sequence of bytes.\nclass Sink {\n public:\n  Sink() { }\n  virtual ~Sink();\n\n  // Append \"bytes[0,n-1]\" to this.\n  virtual void Append(const char* bytes, size_t n) = 0;\n\n  // Returns a writable buffer of the specified length for appending.\n  // May return a pointer to the caller-owned scratch buffer which\n  // must have at least the indicated length.  The returned buffer is\n  // only valid until the next operation on this Sink.\n  //\n  // After writing at most \"length\" bytes, call Append() with the\n  // pointer returned from this function and the number of bytes\n  // written.  Many Append() implementations will avoid copying\n  // bytes if this function returned an internal buffer.\n  //\n  // If a non-scratch buffer is returned, the caller may only pass a\n  // prefix of it to Append().  That is, it is not correct to pass an\n  // interior pointer of the returned array to Append().\n  //\n  // The default implementation always returns the scratch buffer.\n  virtual char* GetAppendBuffer(size_t length, char* scratch);\n\n  // For higher performance, Sink implementations can provide custom\n  // AppendAndTakeOwnership() and GetAppendBufferVariable() methods.\n  // These methods can reduce the number of copies done during\n  // compression/decompression.\n\n  // Append \"bytes[0,n-1] to the sink. Takes ownership of \"bytes\"\n  // and calls the deleter function as (*deleter)(void*, const char*, size_t)\n  // to free the buffer. deleter function must be non NULL.\n  //\n  // The default implementation just calls Append and frees \"bytes\".\n  // Other implementations may avoid a copy while appending the buffer.\n  virtual void AppendAndTakeOwnership(\n      char* bytes, size_t n, void (*deleter)(void*, const char*, size_t),\n      void *deleter_arg);\n\n  // Returns a writable buffer for appending and writes the buffer's capacity to\n  // *allocated_size. Guarantees *allocated_size >= min_size.\n  // May return a pointer to the caller-owned scratch buffer which must have\n  // scratch_size >= min_size.\n  //\n  // The returned buffer is only valid until the next operation\n  // on this ByteSink.\n  //\n  // After writing at most *allocated_size bytes, call Append() with the\n  // pointer returned from this function and the number of bytes written.\n  // Many Append() implementations will avoid copying bytes if this function\n  // returned an internal buffer.\n  //\n  // If the sink implementation allocates or reallocates an internal buffer,\n  // it should use the desired_size_hint if appropriate. If a caller cannot\n  // provide a reasonable guess at the desired capacity, it should set\n  // desired_size_hint = 0.\n  //\n  // If a non-scratch buffer is returned, the caller may only pass\n  // a prefix to it to Append(). That is, it is not correct to pass an\n  // interior pointer to Append().\n  //\n  // The default implementation always returns the scratch buffer.\n  virtual char* GetAppendBufferVariable(\n      size_t min_size, size_t desired_size_hint, char* scratch,\n      size_t scratch_size, size_t* allocated_size);\n\n private:\n  // No copying\n  Sink(const Sink&);\n  void operator=(const Sink&);\n};\n\n}  // namespace snappy",
+      "description": "Abstract byte sink interface in snappy namespace. Provides virtual Append plus buffer acquisition helpers for efficient appends. Non-copyable; ownership and lifetime defined by subclass. Default implementations of buffer helpers may return caller-provided scratch. Destructor is virtual and defined elsewhere.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "snappy::UncheckedByteArraySink *"
+      ]
+    },
+    {
+      "ptr_type": "snappy::Source *",
+      "aliases": [],
+      "definition": "namespace snappy {\n\n// A Source is an interface that yields a sequence of bytes\nclass Source {\n public:\n  Source() { }\n  virtual ~Source();\n\n  // Return the number of bytes left to read from the source\n  virtual size_t Available() const = 0;\n\n  // Peek at the next flat region of the source.  Does not reposition\n  // the source.  The returned region is empty iff Available()==0.\n  //\n  // Returns a pointer to the beginning of the region and store its\n  // length in *len.\n  //\n  // The returned region is valid until the next call to Skip() or\n  // until this object is destroyed, whichever occurs first.\n  //\n  // The returned region may be larger than Available() (for example\n  // if this ByteSource is a view on a substring of a larger source).\n  // The caller is responsible for ensuring that it only reads the\n  // Available() bytes.\n  virtual const char* Peek(size_t* len) = 0;\n\n  // Skip the next n bytes.  Invalidates any buffer returned by\n  // a previous call to Peek().\n  // REQUIRES: Available() >= n\n  virtual void Skip(size_t n) = 0;\n\n private:\n  // No copying\n  Source(const Source&);\n  void operator=(const Source&);\n};\n\n}  // namespace snappy",
+      "description": "Abstract byte source interface in snappy namespace. Supports querying available bytes, peeking a contiguous region without advancing, and skipping bytes. Non-copyable. Destructor is virtual and defined elsewhere.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "snappy::ByteArraySource *"
+      ]
+    },
+    {
+      "ptr_type": "snappy::ByteArraySource *",
+      "aliases": [],
+      "definition": "namespace snappy {\n\n// A Source implementation that yields the contents of a flat array\nclass ByteArraySource : public Source {\n public:\n  ByteArraySource(const char* p, size_t n) : ptr_(p), left_(n) { }\n  ~ByteArraySource() override;\n  size_t Available() const override;\n  const char* Peek(size_t* len) override;\n  void Skip(size_t n) override;\n private:\n  const char* ptr_;\n  size_t left_;\n};\n\n}  // namespace snappy",
+      "description": "Concrete Source that reads from a contiguous byte array. Maintains a pointer and remaining-length counter. No bounds checks beyond contract; user must ensure buffer lifetime exceeds this object’s lifetime.",
+      "direct_api_constructors": [
+        "snappy::ByteArraySource::ByteArraySource(const char*, size_t)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "snappy::UncheckedByteArraySink *",
+      "aliases": [],
+      "definition": "namespace snappy {\n\n// A Sink implementation that writes to a flat array without any bound checks.\nclass UncheckedByteArraySink : public Sink {\n public:\n  explicit UncheckedByteArraySink(char* dest) : dest_(dest) { }\n  ~UncheckedByteArraySink() override;\n  void Append(const char* data, size_t n) override;\n  char* GetAppendBuffer(size_t len, char* scratch) override;\n  char* GetAppendBufferVariable(\n      size_t min_size, size_t desired_size_hint, char* scratch,\n      size_t scratch_size, size_t* allocated_size) override;\n  void AppendAndTakeOwnership(\n      char* bytes, size_t n, void (*deleter)(void*, const char*, size_t),\n      void *deleter_arg) override;\n\n  // Return the current output pointer so that a caller can see how\n  // many bytes were produced.\n  // Note: this is not a Sink method.\n  char* CurrentDestination() const { return dest_; }\n private:\n  char* dest_;\n};\n\n}  // namespace snappy",
+      "description": "Concrete Sink that writes sequentially to a caller-provided flat buffer without bounds checking. Caller must ensure sufficient capacity and that dest_ remains valid. Provides fast append and buffer acquisition; exposes CurrentDestination() to inspect write pointer.",
+      "direct_api_constructors": [
+        "snappy::UncheckedByteArraySink::UncheckedByteArraySink(char*)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "snappy::Source *",
+      "aliases": [],
+      "definition": "namespace snappy {\n  class Source;\n}",
+      "description": "Forward declaration of an abstract byte source used by the snappy APIs to read compressed or uncompressed data. Only a forward declaration is present in this header; the actual definition is elsewhere.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "snappy::Sink *",
+      "aliases": [],
+      "definition": "namespace snappy {\n  class Sink;\n}",
+      "description": "Forward declaration of an abstract byte sink used by the snappy APIs to receive compressed or uncompressed data. Only a forward declaration is present in this header; the actual definition is elsewhere.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "snappy::CompressionOptions *",
+      "aliases": [],
+      "definition": "namespace snappy {\n  struct CompressionOptions {\n    // Compression level.\n    // Level 1 is the fastest\n    // Level 2 is a little slower but provides better compression. Level 2 is\n    // **EXPERIMENTAL** for the time being. It might happen that we decide to\n    // fall back to level 1 in the future.\n    // Levels 3+ are currently not supported. We plan to support levels up to\n    // 9 in the future.\n    // If you played with other compression algorithms, level 1 is equivalent to\n    // fast mode (level 1) of LZ4, level 2 is equivalent to LZ4's level 2 mode\n    // and compresses somewhere around zstd:-3 and zstd:-2 but generally with\n    // faster decompression speeds than snappy:1 and zstd:-3.\n    int level = DefaultCompressionLevel();\n\n    constexpr CompressionOptions() = default;\n    constexpr CompressionOptions(int compression_level)\n        : level(compression_level) {}\n    static constexpr int MinCompressionLevel() { return 1; }\n    static constexpr int MaxCompressionLevel() { return 2; }\n    static constexpr int DefaultCompressionLevel() { return 1; }\n  };\n}",
+      "description": "Options controlling snappy compression behavior. Currently only exposes a compression level (1 or 2). Provides constexpr ctor, range helpers, and default level. Fully defined here and used by several overloads of Compress/RawCompress APIs.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "snappy_status *",
+      "aliases": [],
+      "definition": "typedef enum {\n  SNAPPY_OK = 0,\n  SNAPPY_INVALID_INPUT = 1,\n  SNAPPY_BUFFER_TOO_SMALL = 2\n} snappy_status;",
+      "description": "Enumeration of return statuses for the Snappy C API. Values indicate success, invalid/corrupt input, or insufficient output buffer size. Used as the return type of all functions in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "snappy::Sink::Sink",
+      "signature": "snappy::Sink::Sink()",
+      "description": "Constructs a Sink interface object. This base class consumes a sequence of bytes via Append and related helpers. Intended to be subclassed.",
+      "requirements": [
+        "Must only be instantiated directly if providing a concrete subclass (Sink is abstract due to at least one pure virtual function)."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Sink::~Sink",
+      "signature": "snappy::Sink::~Sink()",
+      "description": "Virtual destructor for Sink. Enables safe deletion via a base-class pointer.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "snappy::Sink::Append",
+      "signature": "void snappy::Sink::Append(const char* bytes, size_t n) = 0",
+      "description": "Pure virtual: append bytes[0..n-1] to the sink. Implemented by concrete Sink subclasses.",
+      "requirements": [
+        "bytes must point to a buffer containing at least n bytes.",
+        "May be called with n == 0; behavior for bytes == nullptr is unknown if n > 0 (not documented).",
+        "Must only be called on a valid, initialized Sink instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Sink::GetAppendBuffer",
+      "signature": "char* snappy::Sink::GetAppendBuffer(size_t length, char* scratch)",
+      "description": "Returns a writable buffer of the requested length for appending. The returned buffer is valid only until the next operation on this Sink. After writing at most length bytes, the caller must invoke Append() with the same pointer and the number of bytes actually written. Default implementation always returns the scratch buffer; implementations may return an internal buffer to avoid copies. If a non-scratch buffer is returned, only a prefix may be passed to Append (no interior pointers).",
+      "requirements": [
+        "scratch must point to a caller-owned buffer of at least length bytes.",
+        "Caller must write no more than length bytes to the returned buffer.",
+        "Caller must subsequently call Append(returned_pointer, bytes_written) with bytes_written <= length before any other Sink operation.",
+        "If a non-scratch buffer is returned, the caller may only pass a prefix of that buffer to Append (must not pass an interior pointer).",
+        "Returned buffer becomes invalid after the next operation on this Sink."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Sink::AppendAndTakeOwnership",
+      "signature": "void snappy::Sink::AppendAndTakeOwnership(char* bytes, size_t n, void (*deleter)(void*, const char*, size_t), void* deleter_arg)",
+      "description": "Appends bytes[0..n-1] to the sink, taking ownership of the buffer and freeing it by calling deleter(deleter_arg, bytes, n). Default implementation calls Append() then frees bytes; optimized sinks may avoid a copy.",
+      "requirements": [
+        "deleter must be non-null.",
+        "bytes must point to a buffer of at least n bytes that can be released using the provided deleter.",
+        "Ownership of bytes transfers to the sink; the caller must not read or free bytes after calling this function.",
+        "Must only be called on a valid, initialized Sink instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Sink::GetAppendBufferVariable",
+      "signature": "char* snappy::Sink::GetAppendBufferVariable(size_t min_size, size_t desired_size_hint, char* scratch, size_t scratch_size, size_t* allocated_size)",
+      "description": "Returns a writable buffer for appending and writes its capacity to *allocated_size (guaranteed >= min_size). May return scratch (caller-owned) or an internal buffer. The returned buffer is valid only until the next operation on this Sink. After writing at most *allocated_size bytes, the caller must invoke Append with the same pointer and number of bytes written. If a non-scratch buffer is returned, only a prefix may be passed to Append. desired_size_hint may be 0 if unknown; implementations may use it to size allocations.",
+      "requirements": [
+        "scratch must point to a caller-owned buffer with scratch_size >= min_size if it is to be used.",
+        "allocated_size must be non-null and writable; on return, *allocated_size >= min_size.",
+        "Caller must write no more than *allocated_size bytes to the returned buffer.",
+        "Caller must subsequently call Append(returned_pointer, bytes_written) with bytes_written <= *allocated_size before any other Sink operation.",
+        "If a non-scratch buffer is returned, the caller may only pass a prefix of that buffer to Append (must not pass an interior pointer).",
+        "Returned buffer becomes invalid after the next operation on this Sink.",
+        "desired_size_hint may be 0 if the caller cannot provide a reasonable guess."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Source::Source",
+      "signature": "snappy::Source::Source()",
+      "description": "Constructs a Source interface object. This base class yields a sequence of bytes via Peek and Skip. Intended to be subclassed.",
+      "requirements": [
+        "Must only be instantiated directly if providing a concrete subclass (Source is abstract due to pure virtual functions)."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Source::~Source",
+      "signature": "snappy::Source::~Source()",
+      "description": "Virtual destructor for Source. Enables safe deletion via a base-class pointer.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "snappy::Source::Available",
+      "signature": "size_t snappy::Source::Available() const = 0",
+      "description": "Pure virtual: returns the number of bytes left to read from the source.",
+      "requirements": [
+        "Must only be called on a valid Source instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Source::Peek",
+      "signature": "const char* snappy::Source::Peek(size_t* len) = 0",
+      "description": "Pure virtual: peek at the next flat region without advancing. Returns a pointer to the beginning of the region and stores its length in *len. The region is valid until the next call to Skip() or until the object is destroyed. The region size may exceed Available(); the caller must only read Available() bytes.",
+      "requirements": [
+        "len must be a non-null pointer to writable memory.",
+        "Caller must not read more than Available() bytes from the returned region.",
+        "Any buffer returned by a previous Peek() is invalidated after Skip() or destruction of the Source."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Source::Skip",
+      "signature": "void snappy::Source::Skip(size_t n) = 0",
+      "description": "Pure virtual: skip the next n bytes and invalidate any buffer returned by a previous Peek().",
+      "requirements": [
+        "Requires Available() >= n at the time of the call.",
+        "Invalidates any buffer previously returned by Peek().",
+        "Must only be called on a valid Source instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::ByteArraySource::ByteArraySource",
+      "signature": "snappy::ByteArraySource::ByteArraySource(const char* p, size_t n)",
+      "description": "Constructs a Source that yields the contents of a flat byte array p of length n.",
+      "requirements": [
+        "p should point to a contiguous array containing at least n bytes (inferred from the class purpose).",
+        "The memory referenced by p must remain valid and unchanged for the lifetime of the ByteArraySource (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::ByteArraySource::~ByteArraySource",
+      "signature": "snappy::ByteArraySource::~ByteArraySource()",
+      "description": "Destructor for ByteArraySource.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "snappy::ByteArraySource::Available",
+      "signature": "size_t snappy::ByteArraySource::Available() const",
+      "description": "Returns the number of bytes remaining in the underlying array.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "snappy::ByteArraySource::Peek",
+      "signature": "const char* snappy::ByteArraySource::Peek(size_t* len)",
+      "description": "Returns a pointer to the next contiguous region in the underlying array and stores its available length in *len without advancing. Region remains valid until Skip() or destruction. May return a region larger than Available(); callers must only read Available() bytes.",
+      "requirements": [
+        "len must be non-null and writable.",
+        "Caller must not read more than Available() bytes from the returned region.",
+        "Any buffer returned is invalidated by a subsequent call to Skip() or object destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::ByteArraySource::Skip",
+      "signature": "void snappy::ByteArraySource::Skip(size_t n)",
+      "description": "Skips the next n bytes in the underlying array and invalidates any region returned by a previous Peek().",
+      "requirements": [
+        "Requires Available() >= n at the time of the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::UncheckedByteArraySink",
+      "signature": "snappy::UncheckedByteArraySink::UncheckedByteArraySink(char* dest)",
+      "description": "Constructs a Sink that writes to a caller-provided flat array starting at dest without performing any bound checks.",
+      "requirements": [
+        "dest must be a valid, writable pointer to sufficient storage for all data that will be appended (no bounds are checked).",
+        "The memory pointed to by dest must remain valid and writable for the lifetime of the sink or until writing is complete."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::~UncheckedByteArraySink",
+      "signature": "snappy::UncheckedByteArraySink::~UncheckedByteArraySink()",
+      "description": "Destructor for UncheckedByteArraySink.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::Append",
+      "signature": "void snappy::UncheckedByteArraySink::Append(const char* data, size_t n)",
+      "description": "Appends data[0..n-1] to the destination array without performing bound checks.",
+      "requirements": [
+        "data must point to at least n bytes.",
+        "The destination buffer must have at least n bytes of remaining capacity; the sink does not check bounds."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::GetAppendBuffer",
+      "signature": "char* snappy::UncheckedByteArraySink::GetAppendBuffer(size_t len, char* scratch)",
+      "description": "Returns a writable buffer for appending. For this sink, the buffer will typically be the internal destination pointer. Valid until the next operation. After writing at most len bytes, the caller must call Append() with the same pointer and the number of bytes written. If a non-scratch buffer is returned, only a prefix may be passed to Append.",
+      "requirements": [
+        "scratch must point to a caller-owned buffer of at least len bytes if used.",
+        "Caller must write no more than len bytes to the returned buffer.",
+        "Caller must call Append(returned_pointer, bytes_written) with bytes_written <= len before any other Sink operation.",
+        "If a non-scratch buffer is returned, the caller may only pass a prefix of that buffer to Append (must not pass an interior pointer).",
+        "Returned buffer becomes invalid after the next operation on this Sink.",
+        "The destination buffer must have sufficient remaining capacity; no bound checks are performed."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::GetAppendBufferVariable",
+      "signature": "char* snappy::UncheckedByteArraySink::GetAppendBufferVariable(size_t min_size, size_t desired_size_hint, char* scratch, size_t scratch_size, size_t* allocated_size)",
+      "description": "Returns a writable buffer for appending and writes its capacity to *allocated_size (>= min_size). Valid until the next operation. After writing at most *allocated_size bytes, the caller must call Append() with the same pointer and the number of bytes written. If a non-scratch buffer is returned, only a prefix may be passed to Append.",
+      "requirements": [
+        "scratch must have scratch_size >= min_size if used.",
+        "allocated_size must be non-null and writable; on return, *allocated_size >= min_size.",
+        "Caller must write no more than *allocated_size bytes to the returned buffer.",
+        "Caller must call Append(returned_pointer, bytes_written) with bytes_written <= *allocated_size before any other Sink operation.",
+        "If a non-scratch buffer is returned, the caller may only pass a prefix of that buffer to Append (must not pass an interior pointer).",
+        "Returned buffer becomes invalid after the next operation on this Sink.",
+        "The destination buffer must have sufficient remaining capacity; no bound checks are performed.",
+        "desired_size_hint may be 0 if the caller cannot provide a reasonable guess."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::AppendAndTakeOwnership",
+      "signature": "void snappy::UncheckedByteArraySink::AppendAndTakeOwnership(char* bytes, size_t n, void (*deleter)(void*, const char*, size_t), void* deleter_arg)",
+      "description": "Appends bytes[0..n-1] to the destination without bound checks, taking ownership of the buffer and freeing it via deleter(deleter_arg, bytes, n).",
+      "requirements": [
+        "deleter must be non-null.",
+        "bytes must point to a buffer of at least n bytes that can be released using the provided deleter.",
+        "Ownership of bytes transfers to the sink; the caller must not read or free bytes after calling this function.",
+        "The destination buffer must have sufficient remaining capacity; no bound checks are performed."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::CurrentDestination",
+      "signature": "char* snappy::UncheckedByteArraySink::CurrentDestination() const",
+      "description": "Returns the current output pointer so a caller can determine how many bytes have been produced (by comparing against the start pointer it supplied). Not part of the Sink interface.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "snappy::Compress",
+      "signature": "size_t snappy::Compress(snappy::Source* reader, snappy::Sink* writer);",
+      "description": "Reads uncompressed bytes from reader and writes the compressed stream to writer, returning the number of bytes written. Intended for streaming I/O using Snappy’s Source/Sink abstractions. Preserves ABI as the basic overload without options.",
+      "requirements": [
+        "reader must be a valid, readable snappy::Source.",
+        "writer must be a valid, writable snappy::Sink.",
+        "On success the return value is the number of compressed bytes appended to writer; callers should not assume any minimum compression ratio.",
+        "reader will be consumed as needed; if the same data must be reused, arrange for rewinding or recreating the Source."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Compress",
+      "signature": "size_t snappy::Compress(snappy::Source* reader, snappy::Sink* writer, snappy::CompressionOptions options);",
+      "description": "Same as the Source/Sink overload above, but allows selecting compression options (e.g., compression level). Returns the number of bytes written to writer.",
+      "requirements": [
+        "reader must be a valid, readable snappy::Source.",
+        "writer must be a valid, writable snappy::Sink.",
+        "options.level should be within the supported range [snappy::CompressionOptions::MinCompressionLevel(), snappy::CompressionOptions::MaxCompressionLevel()] (currently 1–2).",
+        "reader will be consumed as needed; if the same data must be reused, arrange for rewinding or recreating the Source."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::GetUncompressedLength",
+      "signature": "bool snappy::GetUncompressedLength(snappy::Source* source, uint32_t* result);",
+      "description": "Parses the header of a compressed stream from source and writes the uncompressed length to *result. The true length could deviate (e.g., if the stream is truncated). Leaves source in a state unsuitable for further operations; callers must rewind or recreate the Source before further use.",
+      "requirements": [
+        "source must be a valid, readable snappy::Source.",
+        "result must be a non-null pointer to uint32_t for receiving the length.",
+        "After calling, source is not suitable for subsequent operations without rewinding or recreating it (as documented).",
+        "Caller must check the boolean return value; false indicates failure to read/parse the length."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::GetUncompressedLength",
+      "signature": "bool snappy::GetUncompressedLength(const char* compressed, size_t compressed_length, size_t* result);",
+      "description": "Parses compressed[0..compressed_length-1] (produced by RawCompress/Compress) and stores the uncompressed length in *result. Runs in O(1) time. Returns false on parsing error.",
+      "requirements": [
+        "compressed must point to at least compressed_length readable bytes.",
+        "result must be a non-null pointer to size_t for receiving the length.",
+        "Caller must check the boolean return value to detect parsing errors.",
+        "The buffer must have been produced by snappy::RawCompress() or snappy::Compress()."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::CompressFromIOVec",
+      "signature": "size_t snappy::CompressFromIOVec(const struct iovec* iov, size_t iov_cnt, std::string* compressed);",
+      "description": "Compresses the concatenation of iov[0..iov_cnt-1] and replaces *compressed with the compressed data. Returns the number of bytes written. This overload precomputes the total uncompressed length by summing iov[i].iov_len.",
+      "requirements": [
+        "iov must point to an array of at least iov_cnt elements; each iovec must reference readable memory of length iov_len.",
+        "compressed must be a valid pointer to a std::string.",
+        "On return, *compressed is replaced with the compressed output.",
+        "This function preprocesses inputs to compute the total length; if that is undesirable, use RawCompressFromIOVec instead."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::CompressFromIOVec",
+      "signature": "size_t snappy::CompressFromIOVec(const struct iovec* iov, size_t iov_cnt, std::string* compressed, snappy::CompressionOptions options);",
+      "description": "Same as the iovec overload above but allows passing compression options (e.g., compression level). Returns the number of bytes written.",
+      "requirements": [
+        "iov must point to an array of at least iov_cnt elements; each iovec must reference readable memory of length iov_len.",
+        "compressed must be a valid pointer to a std::string.",
+        "options.level should be within [snappy::CompressionOptions::MinCompressionLevel(), snappy::CompressionOptions::MaxCompressionLevel()] (currently 1–2).",
+        "This function preprocesses inputs to compute the total length; if that is undesirable, use RawCompressFromIOVec instead."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Uncompress",
+      "signature": "bool snappy::Uncompress(const char* compressed, size_t compressed_length, std::string* uncompressed);",
+      "description": "Decompresses compressed[0..compressed_length-1] into *uncompressed. Returns false if the input is corrupted and cannot be decompressed. On success, *uncompressed is replaced with the decompressed data.",
+      "requirements": [
+        "uncompressed must be a valid pointer to a std::string.",
+        "compressed and *uncompressed must not alias (REQUIRES).",
+        "compressed must point to at least compressed_length readable bytes.",
+        "Caller must check the boolean return value to detect corruption/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::Uncompress",
+      "signature": "bool snappy::Uncompress(snappy::Source* compressed, snappy::Sink* uncompressed);",
+      "description": "Decompresses from the given compressed Source into the uncompressed Sink. Returns false if the input is corrupted and cannot be decompressed.",
+      "requirements": [
+        "compressed must be a valid, readable snappy::Source.",
+        "uncompressed must be a valid, writable snappy::Sink.",
+        "Caller must check the boolean return value to detect corruption/failure.",
+        "On success, the implementation may consume all data from compressed; if the Source needs to be reused, be prepared to rewind/reset it externally."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::UncompressAsMuchAsPossible",
+      "signature": "size_t snappy::UncompressAsMuchAsPossible(snappy::Source* compressed, snappy::Sink* uncompressed);",
+      "description": "Attempts to decompress as much as possible from compressed into uncompressed. Returns the number of valid bytes added to the sink. Extra invalid bytes may be emitted due to errors; callers should ignore those. Output is typically the full uncompressed length but may be shorter if an error occurs.",
+      "requirements": [
+        "compressed must be a valid, readable snappy::Source.",
+        "uncompressed must be a valid, writable snappy::Sink.",
+        "Caller must treat the return value as the count of valid bytes and ignore any excess data written to the sink due to errors.",
+        "The Source may be consumed up to where decompression failed; prepare to reset/rewind if needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawCompress",
+      "signature": "void snappy::RawCompress(const char* input, size_t input_length, char* compressed, size_t* compressed_length);",
+      "description": "Low-level API that compresses input[0..input_length-1] into the provided output buffer. Writes the compressed size to *compressed_length. Caller manages output buffer allocation.",
+      "requirements": [
+        "compressed must point to a writable buffer of at least snappy::MaxCompressedLength(input_length) bytes (REQUIRES).",
+        "compressed_length must be a non-null pointer to size_t for receiving the output size.",
+        "input must point to at least input_length readable bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawCompress",
+      "signature": "void snappy::RawCompress(const char* input, size_t input_length, char* compressed, size_t* compressed_length, snappy::CompressionOptions options);",
+      "description": "Same as the RawCompress overload above but accepts compression options (e.g., compression level). Writes the compressed size to *compressed_length.",
+      "requirements": [
+        "compressed must point to a writable buffer of at least snappy::MaxCompressedLength(input_length) bytes (REQUIRES).",
+        "compressed_length must be a non-null pointer to size_t for receiving the output size.",
+        "input must point to at least input_length readable bytes.",
+        "options.level should be within [snappy::CompressionOptions::MinCompressionLevel(), snappy::CompressionOptions::MaxCompressionLevel()] (currently 1–2)."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawCompressFromIOVec",
+      "signature": "void snappy::RawCompressFromIOVec(const struct iovec* iov, size_t uncompressed_length, char* compressed, size_t* compressed_length);",
+      "description": "Low-level API that compresses the concatenation of iov elements. uncompressed_length is the total number of bytes to read from the iovec array (not the element count). Writes compressed data into compressed and the size to *compressed_length.",
+      "requirements": [
+        "iov must point to a valid array of iovec elements whose concatenated data contains at least uncompressed_length bytes.",
+        "uncompressed_length is the total number of bytes to be read from the iovec elements (not the number of elements).",
+        "compressed must point to a writable buffer large enough to hold the worst-case size (at least snappy::MaxCompressedLength(uncompressed_length) is recommended).",
+        "compressed_length must be a non-null pointer to size_t for receiving the output size."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawCompressFromIOVec",
+      "signature": "void snappy::RawCompressFromIOVec(const struct iovec* iov, size_t uncompressed_length, char* compressed, size_t* compressed_length, snappy::CompressionOptions options);",
+      "description": "Same as the RawCompressFromIOVec overload above but accepts compression options (e.g., compression level).",
+      "requirements": [
+        "iov must point to a valid array of iovec elements whose concatenated data contains at least uncompressed_length bytes.",
+        "uncompressed_length is the total number of bytes to be read from the iovec elements (not the number of elements).",
+        "compressed must point to a writable buffer large enough to hold the worst-case size (at least snappy::MaxCompressedLength(uncompressed_length) is recommended).",
+        "compressed_length must be a non-null pointer to size_t for receiving the output size.",
+        "options.level should be within [snappy::CompressionOptions::MinCompressionLevel(), snappy::CompressionOptions::MaxCompressionLevel()] (currently 1–2)."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawUncompress",
+      "signature": "bool snappy::RawUncompress(const char* compressed, size_t compressed_length, char* uncompressed);",
+      "description": "Low-level API that decompresses compressed[0..compressed_length-1] into the caller-provided uncompressed buffer, which must be large enough for the entire output. Returns false if the input is corrupted and cannot be decompressed.",
+      "requirements": [
+        "compressed must point to at least compressed_length readable bytes.",
+        "uncompressed must point to a writable buffer large enough to hold the full uncompressed output (typically obtained via GetUncompressedLength).",
+        "Caller must check the boolean return value to detect corruption/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawUncompress",
+      "signature": "bool snappy::RawUncompress(snappy::Source* compressed, char* uncompressed);",
+      "description": "Low-level API that decompresses from a Source into the caller-provided uncompressed buffer (which must be large enough). Returns false if the input is corrupted and cannot be decompressed.",
+      "requirements": [
+        "compressed must be a valid, readable snappy::Source.",
+        "uncompressed must point to a writable buffer large enough to hold the entire uncompressed output (typically determined via GetUncompressedLength).",
+        "Caller must check the boolean return value to detect corruption/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawUncompressToIOVec",
+      "signature": "bool snappy::RawUncompressToIOVec(const char* compressed, size_t compressed_length, const struct iovec* iov, size_t iov_cnt);",
+      "description": "Decompresses compressed[0..compressed_length-1] and scatters the uncompressed bytes across the iovec array. Returns false if the input is corrupted and cannot be decompressed.",
+      "requirements": [
+        "iov must point to an array of at least iov_cnt elements.",
+        "The cumulative size of the iovec buffers must be at least the full uncompressed size of the stream (typically GetUncompressedLength).",
+        "The individual buffers in iov must not overlap with each other.",
+        "Caller must check the boolean return value to detect corruption/failure.",
+        "compressed must point to at least compressed_length readable bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::RawUncompressToIOVec",
+      "signature": "bool snappy::RawUncompressToIOVec(snappy::Source* compressed, const struct iovec* iov, size_t iov_cnt);",
+      "description": "Decompresses from a Source and scatters the uncompressed bytes across the provided iovec array. Returns false if the input is corrupted and cannot be decompressed.",
+      "requirements": [
+        "compressed must be a valid, readable snappy::Source.",
+        "iov must point to an array of at least iov_cnt elements.",
+        "The cumulative size of the iovec buffers must be at least the full uncompressed size of the stream (typically GetUncompressedLength).",
+        "The individual buffers in iov must not overlap with each other.",
+        "Caller must check the boolean return value to detect corruption/failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::MaxCompressedLength",
+      "signature": "size_t snappy::MaxCompressedLength(size_t source_bytes);",
+      "description": "Returns the maximum number of bytes that Snappy could produce when compressing source_bytes of input. Use this to size output buffers for RawCompress-style APIs.",
+      "requirements": [
+        "source_bytes should reflect the actual uncompressed input size to ensure the returned bound is sufficient for allocation."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::IsValidCompressedBuffer",
+      "signature": "bool snappy::IsValidCompressedBuffer(const char* compressed, size_t compressed_length);",
+      "description": "Returns true iff the contents of compressed[0..compressed_length-1] can be successfully decompressed. Does not return the uncompressed data. Typically at least 4× faster than actual decompression.",
+      "requirements": [
+        "compressed must point to at least compressed_length readable bytes.",
+        "Caller should not expect any output—this only validates.",
+        "Time cost is proportional to compressed_length."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy::IsValidCompressed",
+      "signature": "bool snappy::IsValidCompressed(snappy::Source* compressed);",
+      "description": "Returns true iff the contents of the compressed Source can be successfully decompressed. Does not return the uncompressed data. Typically at least 4× faster than actual decompression. On success, consumes all of the Source; on failure, consumes an unspecified prefix.",
+      "requirements": [
+        "compressed must be a valid, readable snappy::Source.",
+        "On success the entire Source is consumed; on failure an unspecified prefix is consumed—callers that need to reuse the Source must arrange to clone/reset/rewind it beforehand.",
+        "This function produces no output; it only validates the stream."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy_compress",
+      "signature": "snappy_status snappy_compress(const char* input, size_t input_length, char* compressed, size_t* compressed_length);",
+      "description": "Compresses input[0..input_length-1] into the buffer compressed, using Snappy. The caller must set *compressed_length to the available space in compressed before the call; on success, it is updated to the actual compressed size and SNAPPY_OK is returned. If the provided buffer is too small (less than snappy_max_compressed_length(input_length)), the function returns SNAPPY_BUFFER_TOO_SMALL. Intended for fast, general-purpose compression where the output buffer is caller-managed.",
+      "requirements": [
+        "input must point to at least input_length readable bytes.",
+        "compressed must point to a writable buffer whose size is provided in *compressed_length prior to the call.",
+        "*compressed_length must be initialized by the caller to the available size of compressed.",
+        "For successful compression, the available size in compressed must be at least snappy_max_compressed_length(input_length); otherwise the function returns SNAPPY_BUFFER_TOO_SMALL.",
+        "compressed_length must be a valid, non-null pointer; on success it will be updated to the exact number of bytes written.",
+        "Function returns SNAPPY_OK on success; callers should check the return value for SNAPPY_BUFFER_TOO_SMALL or other errors."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy_uncompress",
+      "signature": "snappy_status snappy_uncompress(const char* compressed, size_t compressed_length, char* uncompressed, size_t* uncompressed_length);",
+      "description": "Decompresses a buffer produced by snappy_compress. Reads compressed[0..compressed_length-1] and writes the uncompressed data into uncompressed, up to the size provided via *uncompressed_length. On success, writes the exact decompressed size to *uncompressed_length and returns SNAPPY_OK. If the compressed data is invalid/corrupted, returns a failure status (not SNAPPY_OK, e.g., SNAPPY_INVALID_INPUT). If the destination buffer is too small (less than the size reported by snappy_uncompressed_length for this stream), returns SNAPPY_BUFFER_TOO_SMALL.",
+      "requirements": [
+        "compressed must point to a buffer of length compressed_length bytes that was produced by snappy_compress().",
+        "uncompressed must point to a writable buffer with at least the capacity specified by *uncompressed_length on entry.",
+        "Before calling, the caller must either size the output buffer to at least the length returned by snappy_uncompressed_length(compressed, compressed_length, &len) or be prepared to handle SNAPPY_BUFFER_TOO_SMALL.",
+        "uncompressed_length must be a valid, non-null pointer; on entry it must contain the available capacity; on success it is updated to the actual decompressed size.",
+        "Callers must check the return value for SNAPPY_OK, SNAPPY_BUFFER_TOO_SMALL, or invalid input errors before using the output."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy_max_compressed_length",
+      "signature": "size_t snappy_max_compressed_length(size_t source_length);",
+      "description": "Returns the maximum possible size of the compressed representation of an input buffer of length source_length. Use this to allocate a sufficiently large destination buffer before calling snappy_compress.",
+      "requirements": [
+        "source_length must be the exact size (in bytes) of the input that will be compressed.",
+        "The return value can be used as an upper bound for the compressed buffer size when calling snappy_compress."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy_uncompressed_length",
+      "signature": "snappy_status snappy_uncompressed_length(const char* compressed, size_t compressed_length, size_t* result);",
+      "description": "Returns (in *result) the length of the data that would be produced by decompressing the given compressed buffer, assuming it was created by snappy_compress. Runs in O(1) time. Returns SNAPPY_OK on success, or SNAPPY_INVALID_INPUT if the compressed stream cannot be parsed.",
+      "requirements": [
+        "compressed must point to data that was produced by snappy_compress().",
+        "compressed_length must be the exact size in bytes of the compressed data.",
+        "result must be a valid, non-null pointer where the uncompressed length will be stored on success.",
+        "Callers must check the return value for SNAPPY_OK or SNAPPY_INVALID_INPUT before using *result."
+      ],
+      "error": null
+    },
+    {
+      "name": "snappy_validate_compressed_buffer",
+      "signature": "snappy_status snappy_validate_compressed_buffer(const char* compressed, size_t compressed_length);",
+      "description": "Validates whether the given compressed buffer can be successfully decompressed. Does not produce the uncompressed data. Returns SNAPPY_OK if valid, otherwise SNAPPY_INVALID_INPUT. Typically runs in time proportional to compressed_length and is usually at least 4x faster than full decompression.",
+      "requirements": [
+        "compressed must point to compressed_length readable bytes.",
+        "compressed_length must be the size in bytes of the compressed buffer to validate.",
+        "Callers must check the return value for SNAPPY_OK or SNAPPY_INVALID_INPUT before proceeding (e.g., before allocating and decompressing)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "snappy::Sink::Sink",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "code": "// Exercise base snappy::Sink constructor via a concrete subclass (UncheckedByteArraySink)\n// Allocate a writable destination buffer with bounded size and track ownership/capacity.\nsize_t cap = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u; // 1..1024\nchar* dest = new char[cap];\nsnappy::UncheckedByteArraySink* concrete = new snappy::UncheckedByteArraySink(dest);\n// Upcast to base type for output; the base ctor is exercised during construction above.\nsnappy::Sink* sink = static_cast<snappy::Sink*>(concrete);\n// Track capacity and how many bytes have been appended so far.\nFUZZ_SET_ATTR_PTR(sink, \"buf\", dest);\nFUZZ_SET_ATTR_INT(sink, \"cap\", (int)cap);\nFUZZ_SET_ATTR_INT(sink, \"written\", 0);\n// Mark that this sink's backing buffer should be freed by our harness when destroyed via base dtor.\nFUZZ_SET_ATTR_INT(sink, \"owns_buf\", 1);\n// Validation: constructed a valid concrete sink, attributes established to enforce bounds later.\n"
+    },
+    {
+      "name": "snappy::Sink::~Sink",
+      "inputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "outputs": [],
+      "code": "// If this sink was created by our harness, a backing buffer may have been attached.\nvoid* p = FUZZ_GET_ATTR_PTR(sink, \"buf\");\nint owns = FUZZ_GET_ATTR_INT(sink, \"owns_buf\");\nif (p && owns) {\n    delete[] static_cast<char*>(p);\n}\n// Destroy via base-class pointer (virtual dtor ensures correct deletion).\ndelete sink;\n// Validation: avoids leaks for harness-allocated buffers; safe virtual deletion.\n"
+    },
+    {
+      "name": "snappy::Sink::Append",
+      "inputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "code": "// Enforce destination capacity tracked on the sink object.\nint cap = FUZZ_GET_ATTR_INT(sink, \"cap\");\nint written = FUZZ_GET_ATTR_INT(sink, \"written\");\nint remaining = cap - written;\nif (remaining < 0) { FUZZ_BAIL(); }\nstd::string payload = FUZZ_PARAM_STR();\nsize_t n = remaining > 0 ? (payload.size() % (size_t)remaining) : 0u;\n// n bytes from payload are valid; pass a non-null pointer even when n==0.\nsink->Append(payload.data(), n);\nFUZZ_SET_ATTR_INT(sink, \"written\", written + (int)n);\n// Validation: never overflows backing buffer; preserves sink for further use.\n"
+    },
+    {
+      "name": "snappy::Sink::GetAppendBuffer",
+      "inputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "code": "// Request an append buffer with length constrained by remaining capacity.\nint cap = FUZZ_GET_ATTR_INT(sink, \"cap\");\nint written = FUZZ_GET_ATTR_INT(sink, \"written\");\nint remaining = cap - written;\nif (remaining < 0) { FUZZ_BAIL(); }\nsize_t req_len = remaining > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (size_t)remaining + 1u) : 0u;\nif (remaining == 0) { req_len = 0; }\nchar scratch[256];\nchar* buf = sink->GetAppendBuffer(req_len, scratch);\n// Choose how much we actually \"write\" into the returned buffer (<= req_len and <= remaining)\nsize_t max_write = req_len;\nif ((size_t)remaining < max_write) max_write = (size_t)remaining;\nsize_t used = max_write > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (max_write + 1u)) : 0u;\n// Fill the buffer (if non-scratch internal buffer was returned, we still only write a prefix).\nif (used > 0) {\n    std::string data = FUZZ_PARAM_STR();\n    // Copy up to 'used' bytes from data into the returned buffer.\n    size_t to_copy = data.size() < used ? data.size() : used;\n    if (to_copy > 0) { memcpy(buf, data.data(), to_copy); }\n    if (to_copy < used) { memset(buf + to_copy, 0, used - to_copy); }\n}\n// Must append with the same pointer and the number of bytes written.\nsink->Append(buf, used);\nFUZZ_SET_ATTR_INT(sink, \"written\", written + (int)used);\n// Validation: respects API contract (write <= length, append with same pointer), tracks capacity.\n"
+    },
+    {
+      "name": "snappy::Sink::GetAppendBufferVariable",
+      "inputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "code": "// Determine remaining capacity and request a variable-size buffer accordingly.\nint cap = FUZZ_GET_ATTR_INT(sink, \"cap\");\nint written = FUZZ_GET_ATTR_INT(sink, \"written\");\nint remaining = cap - written;\nif (remaining < 0) { FUZZ_BAIL(); }\nsize_t min_size = remaining > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (size_t)remaining + 1u) : 0u;\nif (remaining == 0) { min_size = 0; }\nsize_t hint = (size_t)(*FUZZ_PARAM(unsigned int) % (size_t)(remaining + 1));\nchar scratch[512];\nsize_t allocated = 0;\nchar* buf = sink->GetAppendBufferVariable(min_size, hint, scratch, sizeof(scratch), &allocated);\n// Ensure we never write or append more than allocated and remaining.\nsize_t max_write = allocated;\nif ((size_t)remaining < max_write) max_write = (size_t)remaining;\nsize_t used = max_write > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (max_write + 1u)) : 0u;\nif (used > 0) {\n    std::string data = FUZZ_PARAM_STR();\n    size_t to_copy = data.size() < used ? data.size() : used;\n    if (to_copy > 0) { memcpy(buf, data.data(), to_copy); }\n    if (to_copy < used) { memset(buf + to_copy, 0, used - to_copy); }\n}\nsink->Append(buf, used);\nFUZZ_SET_ATTR_INT(sink, \"written\", written + (int)used);\n// Validation: honors allocated_size and sink capacity; appends with the same buffer pointer.\n"
+    },
+    {
+      "name": "snappy::Source::Source",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "code": "// Exercise base snappy::Source constructor via a concrete subclass (ByteArraySource).\n// Allocate a stable backing buffer and fill with fuzz data.\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u; // 1..1024\nchar* buf = new char[len];\nstd::string seed = FUZZ_PARAM_STR();\nfor (size_t i = 0; i < len; ++i) buf[i] = seed[i % seed.size()];\nsnappy::ByteArraySource* concrete = new snappy::ByteArraySource(buf, len);\nsnappy::Source* source = static_cast<snappy::Source*>(concrete);\n// Track ownership of the backing buffer for cleanup at destruction time.\nFUZZ_SET_ATTR_PTR(source, \"buf\", buf);\nFUZZ_SET_ATTR_INT(source, \"len\", (int)len);\nFUZZ_SET_ATTR_INT(source, \"owns_buf\", 1);\n// Validation: constructed a valid concrete source; attributes track external buffer lifetime.\n"
+    },
+    {
+      "name": "snappy::Source::~Source",
+      "inputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free harness-allocated backing buffer if present, then delete via base.\nvoid* p = FUZZ_GET_ATTR_PTR(source, \"buf\");\nint owns = FUZZ_GET_ATTR_INT(source, \"owns_buf\");\nif (p && owns) {\n    delete[] static_cast<char*>(p);\n}\ndelete source;\n// Validation: safe virtual deletion; avoids leaks for harness-owned buffers.\n"
+    },
+    {
+      "name": "snappy::Source::Available",
+      "inputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "code": "// Simply query available; ensure it is not negative by definition (size_t).\nsize_t avail = source->Available();\n// Property: available cannot exceed initial length attribute if present.\nint len_attr = FUZZ_GET_ATTR_INT(source, \"len\");\nif (len_attr > 0 && avail > (size_t)len_attr) { FUZZ_BAIL(); }\n// Validation: calls the API and performs a sanity check; source remains usable.\n"
+    },
+    {
+      "name": "snappy::Source::Peek",
+      "inputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "code": "size_t len = 0;\nconst char* p = source->Peek(&len);\n// Do not read from p; contract says region may exceed Available(); we only validate pointer invariants.\n(void)p;\n// Validation: ensures len pointer is non-null and populated; source kept for further operations.\n"
+    },
+    {
+      "name": "snappy::Source::Skip",
+      "inputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "code": "// Skip must satisfy Available() >= n at call time.\nsize_t avail = source->Available();\nsize_t n = avail > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (avail + 1u)) : 0u;\nsource->Skip(n);\n// Validation: n chosen within available; previous Peek regions (if any) invalidated by API semantics.\n"
+    },
+    {
+      "name": "snappy::ByteArraySource::ByteArraySource",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        },
+        {
+          "name": "source",
+          "type": "snappy::Source *"
+        }
+      ],
+      "code": "// Create a stable backing buffer and construct a ByteArraySource over it.\nsize_t len = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\nchar* buf = new char[len];\nstd::string seed = FUZZ_PARAM_STR();\nfor (size_t i = 0; i < len; ++i) buf[i] = seed[i % seed.size()];\nsnappy::ByteArraySource* bas = new snappy::ByteArraySource(buf, len);\nsnappy::Source* source = static_cast<snappy::Source*>(bas);\n// Track buffer ownership on both the concrete and base pointer views for safe cleanup.\nFUZZ_SET_ATTR_PTR(bas, \"buf\", buf);\nFUZZ_SET_ATTR_INT(bas, \"len\", (int)len);\nFUZZ_SET_ATTR_INT(bas, \"owns_buf\", 1);\nFUZZ_SET_ATTR_PTR(source, \"buf\", buf);\nFUZZ_SET_ATTR_INT(source, \"len\", (int)len);\nFUZZ_SET_ATTR_INT(source, \"owns_buf\", 1);\n// Validation: constructed object with valid lifetime-managed buffer; base view exported too.\n"
+    },
+    {
+      "name": "snappy::ByteArraySource::~ByteArraySource",
+      "inputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free harness-allocated backing buffer if present, then delete.\nvoid* p = FUZZ_GET_ATTR_PTR(bas, \"buf\");\nint owns = FUZZ_GET_ATTR_INT(bas, \"owns_buf\");\nif (p && owns) {\n    delete[] static_cast<char*>(p);\n}\ndelete bas;\n// Validation: cleans up external buffer allocated by harness; prevents leaks.\n"
+    },
+    {
+      "name": "snappy::ByteArraySource::Available",
+      "inputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        }
+      ],
+      "code": "size_t avail = bas->Available();\nint len_attr = FUZZ_GET_ATTR_INT(bas, \"len\");\nif (len_attr > 0 && avail > (size_t)len_attr) { FUZZ_BAIL(); }\n// Validation: queries API and checks against initial length attribute.\n"
+    },
+    {
+      "name": "snappy::ByteArraySource::Peek",
+      "inputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        }
+      ],
+      "code": "size_t len = 0;\nconst char* p = bas->Peek(&len);\n(void)p; // Do not dereference; contract-managed lifetime only.\n// Validation: len pointer is honored; object remains valid.\n"
+    },
+    {
+      "name": "snappy::ByteArraySource::Skip",
+      "inputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "bas",
+          "type": "snappy::ByteArraySource *"
+        }
+      ],
+      "code": "size_t avail = bas->Available();\nsize_t n = avail > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (avail + 1u)) : 0u;\nbas->Skip(n);\n// Validation: Skip argument constrained by available bytes per API contract.\n"
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::UncheckedByteArraySink",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        },
+        {
+          "name": "sink",
+          "type": "snappy::Sink *"
+        }
+      ],
+      "code": "// Allocate destination buffer for unchecked sink and construct instance.\nsize_t cap = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\nchar* dest = new char[cap];\nsnappy::UncheckedByteArraySink* usink = new snappy::UncheckedByteArraySink(dest);\nsnappy::Sink* sink = static_cast<snappy::Sink*>(usink);\n// Track capacity and ownership on both concrete and base views for safe bounded appends and cleanup.\nFUZZ_SET_ATTR_PTR(usink, \"buf\", dest);\nFUZZ_SET_ATTR_INT(usink, \"cap\", (int)cap);\nFUZZ_SET_ATTR_INT(usink, \"written\", 0);\nFUZZ_SET_ATTR_INT(usink, \"owns_buf\", 1);\nFUZZ_SET_ATTR_PTR(sink, \"buf\", dest);\nFUZZ_SET_ATTR_INT(sink, \"cap\", (int)cap);\nFUZZ_SET_ATTR_INT(sink, \"written\", 0);\nFUZZ_SET_ATTR_INT(sink, \"owns_buf\", 1);\n// Validation: constructed sink with managed backing store; both pointer types exported.\n"
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::~UncheckedByteArraySink",
+      "inputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free harness-allocated buffer (UncheckedByteArraySink does not own it per API).\nvoid* p = FUZZ_GET_ATTR_PTR(usink, \"buf\");\nint owns = FUZZ_GET_ATTR_INT(usink, \"owns_buf\");\nif (p && owns) {\n    delete[] static_cast<char*>(p);\n}\ndelete usink;\n// Validation: prevents memory leak; concrete dtor invoked.\n"
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::Append",
+      "inputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "code": "int cap = FUZZ_GET_ATTR_INT(usink, \"cap\");\nint written = FUZZ_GET_ATTR_INT(usink, \"written\");\nint remaining = cap - written;\nif (remaining < 0) { FUZZ_BAIL(); }\nstd::string payload = FUZZ_PARAM_STR();\nsize_t n = remaining > 0 ? (payload.size() % (size_t)remaining) : 0u;\nusink->Append(payload.data(), n);\nFUZZ_SET_ATTR_INT(usink, \"written\", written + (int)n);\n// Validation: ensures no overflow of unchecked sink by constraining n.\n"
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::GetAppendBuffer",
+      "inputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "code": "int cap = FUZZ_GET_ATTR_INT(usink, \"cap\");\nint written = FUZZ_GET_ATTR_INT(usink, \"written\");\nint remaining = cap - written;\nif (remaining < 0) { FUZZ_BAIL(); }\nsize_t req_len = remaining > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (size_t)remaining + 1u) : 0u;\nif (remaining == 0) { req_len = 0; }\nchar scratch[256];\nchar* buf = usink->GetAppendBuffer(req_len, scratch);\nsize_t max_write = req_len;\nif ((size_t)remaining < max_write) max_write = (size_t)remaining;\nsize_t used = max_write > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (max_write + 1u)) : 0u;\nif (used > 0) {\n    std::string data = FUZZ_PARAM_STR();\n    size_t to_copy = data.size() < used ? data.size() : used;\n    if (to_copy > 0) { memcpy(buf, data.data(), to_copy); }\n    if (to_copy < used) { memset(buf + to_copy, 0, used - to_copy); }\n}\nusink->Append(buf, used);\nFUZZ_SET_ATTR_INT(usink, \"written\", written + (int)used);\n// Validation: respects capacity and API requirement to Append the exact returned pointer.\n"
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::GetAppendBufferVariable",
+      "inputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "code": "// Determine remaining capacity on the destination buffer and request a variable-size buffer.\nint cap = FUZZ_GET_ATTR_INT(usink, \"cap\");\nint written = FUZZ_GET_ATTR_INT(usink, \"written\");\nint remaining = cap - written;\nif (remaining < 0) { FUZZ_BAIL(); }\n// min_size must be <= remaining to avoid overrun on this unchecked sink.\nsize_t min_size = remaining > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % ((size_t)remaining) + 1u) : 0u;\nif (remaining == 0) { min_size = 0; }\nsize_t desired_hint = (size_t)(*FUZZ_PARAM(unsigned int) % (size_t)(remaining + 1));\nchar scratch[512];\nsize_t allocated = 0;\nchar* buf = usink->GetAppendBufferVariable(min_size, desired_hint, scratch, sizeof(scratch), &allocated);\n// Only write up to allocated and remaining.\nsize_t max_write = allocated;\nif ((size_t)remaining < max_write) max_write = (size_t)remaining;\nsize_t used = max_write > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (max_write + 1u)) : 0u;\nif (used > 0) {\n    std::string data = FUZZ_PARAM_STR();\n    size_t to_copy = data.size() < used ? data.size() : used;\n    if (to_copy > 0) { memcpy(buf, data.data(), to_copy); }\n    if (to_copy < used) { memset(buf + to_copy, 0, used - to_copy); }\n}\n// Must Append with the exact pointer returned and the number of bytes written (<= allocated).\nusink->Append(buf, used);\nFUZZ_SET_ATTR_INT(usink, \"written\", written + (int)used);\n// Validation: respects allocated_size and remaining capacity; Append called with same pointer and <= used bytes."
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::AppendAndTakeOwnership",
+      "inputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "code": "// Compute remaining capacity to avoid overflow on this unchecked sink.\nint cap = FUZZ_GET_ATTR_INT(usink, \"cap\");\nint written = FUZZ_GET_ATTR_INT(usink, \"written\");\nint remaining = cap - written;\nif (remaining < 0) { FUZZ_BAIL(); }\n// Choose n within remaining; allow zero.\nsize_t n = remaining > 0 ? (size_t)(*FUZZ_PARAM(unsigned int) % (size_t)(remaining + 1)) : 0u;\n// Allocate a buffer of at least n bytes and fill it with fuzz data.\nchar* bytes = nullptr;\nif (n > 0) {\n    bytes = new char[n];\n    std::string payload = FUZZ_PARAM_STR();\n    size_t to_copy = payload.size() < n ? payload.size() : n;\n    if (to_copy > 0) { memcpy(bytes, payload.data(), to_copy); }\n    if (to_copy < n) { memset(bytes + to_copy, 0, n - to_copy); }\n} else {\n    // Provide a non-null pointer for n==0 not required, but allocate minimal safe buffer.\n    bytes = new char[1];\n}\n// Provide a non-null deleter that matches the required signature and frees the buffer.\nvoid (*deleter)(void*, const char*, size_t) = +[](void*, const char* p, size_t){ delete[] const_cast<char*>(p); };\nvoid* deleter_arg = nullptr;\n// Transfer ownership of bytes to the sink; do not access \"bytes\" after this call.\nusink->AppendAndTakeOwnership(bytes, n, deleter, deleter_arg);\n// Track written count to maintain capacity invariants downstream.\nFUZZ_SET_ATTR_INT(usink, \"written\", written + (int)n);\n// Validation: deleter is non-null; n constrained by remaining; ownership transferred; capacity tracking updated."
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::CurrentDestination",
+      "inputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "usink",
+          "type": "snappy::UncheckedByteArraySink *"
+        }
+      ],
+      "code": "// Retrieve current output pointer and, if we know the base and offset, assert the invariant.\nchar* cur = usink->CurrentDestination();\nvoid* base_ptr = FUZZ_GET_ATTR_PTR(usink, \"buf\");\nint written = FUZZ_GET_ATTR_INT(usink, \"written\");\nif (base_ptr) {\n    char* expected = static_cast<char*>(base_ptr) + (written > 0 ? written : 0);\n    // Property: For UncheckedByteArraySink, CurrentDestination() should equal base + written.\n    FUZZ_ASSERT(cur == expected, \"CurrentDestination must equal base pointer plus written bytes\");\n}\n// Validation: exercises the method; when attributes are present, checks the pointer arithmetic property."
+    },
+    {
+      "name": "snappy::Compress",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: size_t snappy::Compress(snappy::Source* reader, snappy::Sink* writer)\n// Strategy: Build a controlled ByteArraySource from random data and provide\n// an UncheckedByteArraySink backed by a sufficiently large buffer sized via\n// MaxCompressedLength. This guarantees no overflow on the sink.\n{\n  // Generate input up to 1500 bytes (keep under 2KB for performance)\n  std::string in = FUZZ_PARAM_STR();\n  if (in.size() > 1500) in.resize(1500);\n\n  // Construct Source on the fuzzed input\n  snappy::ByteArraySource src(in.data(), in.size());\n\n  // Allocate destination buffer with worst-case size\n  size_t max_out = snappy::MaxCompressedLength(in.size());\n  if (max_out > 2048) max_out = 2048; // cap for fuzzer perf; still >= in.size() for small in\n  // Ensure at least 1 byte of capacity\n  if (max_out == 0) max_out = 1;\n  char* out_buf = new char[max_out];\n  snappy::UncheckedByteArraySink sink(out_buf);\n\n  // Invoke target\n  size_t written = snappy::Compress(&src, &sink);\n\n  // Validate that written never exceeds our buffer (API guarantee when sized via MaxCompressedLength)\n  FUZZ_ASSERT(written <= max_out, \"snappy::Compress wrote past provided sink capacity\");\n\n  // Cleanup of local buffer\n  delete[] out_buf;\n}"
+    },
+    {
+      "name": "snappy::GetUncompressedLength",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: bool snappy::GetUncompressedLength(snappy::Source* source, uint32_t* result)\n// Strategy: Sometimes provide a valid compressed stream (positive path), otherwise random bytes (negative path).\n{\n  // Decide whether to craft a valid stream\n  bool make_valid = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\n  std::string payload = FUZZ_PARAM_STR();\n  if (payload.size() > 1500) payload.resize(1500);\n\n  std::string compressed;\n  if (make_valid) {\n    // Size compressed buffer conservatively\n    size_t max_out = snappy::MaxCompressedLength(payload.size());\n    compressed.resize(max_out);\n    size_t out_len = 0;\n    snappy::RawCompress(payload.data(), payload.size(), &compressed[0], &out_len);\n    compressed.resize(out_len);\n  } else {\n    compressed = FUZZ_PARAM_STR();\n    if (compressed.size() > 1500) compressed.resize(1500);\n  }\n\n  snappy::ByteArraySource src(compressed.data(), compressed.size());\n  uint32_t out_len32 = 0;\n\n  bool ok = snappy::GetUncompressedLength(&src, &out_len32);\n  (void)ok; // caller checks; we just exercise paths\n}"
+    },
+    {
+      "name": "snappy::Uncompress",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: bool snappy::Uncompress(const char* compressed, size_t compressed_length, std::string* uncompressed)\n// Strategy: Provide valid or random compressed input. Ensure aliasing rules are respected by using distinct buffers.\n{\n  bool make_valid = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\n  std::string src = FUZZ_PARAM_STR();\n  if (src.size() > 1500) src.resize(1500);\n\n  std::string compressed;\n  if (make_valid) {\n    size_t max_out = snappy::MaxCompressedLength(src.size());\n    compressed.resize(max_out);\n    size_t out_len = 0;\n    snappy::RawCompress(src.data(), src.size(), &compressed[0], &out_len);\n    compressed.resize(out_len);\n  } else {\n    compressed = FUZZ_PARAM_STR();\n    if (compressed.size() > 1500) compressed.resize(1500);\n  }\n\n  std::string out;\n  bool ok = snappy::Uncompress(compressed.data(), compressed.size(), &out);\n  (void)ok;\n}"
+    },
+    {
+      "name": "snappy::UncompressAsMuchAsPossible",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: size_t snappy::UncompressAsMuchAsPossible(snappy::Source* compressed, snappy::Sink* uncompressed)\n// Strategy: Provide a valid compressed stream and a sink large enough (original size) to avoid overflow.\n{\n  std::string payload = FUZZ_PARAM_STR();\n  if (payload.size() > 1500) payload.resize(1500);\n\n  size_t max_c = snappy::MaxCompressedLength(payload.size());\n  std::string compressed(max_c, '\\0');\n  size_t comp_len = 0;\n  snappy::RawCompress(payload.data(), payload.size(), &compressed[0], &comp_len);\n  compressed.resize(comp_len);\n\n  snappy::ByteArraySource src(compressed.data(), compressed.size());\n\n  size_t out_len = payload.size();\n  if (out_len == 0) out_len = 1;\n  char* out_buf = new char[out_len];\n  snappy::UncheckedByteArraySink sink(out_buf);\n\n  size_t valid_bytes = snappy::UncompressAsMuchAsPossible(&src, &sink);\n  (void)valid_bytes;\n\n  delete[] out_buf;\n}"
+    },
+    {
+      "name": "snappy::RawCompress",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: void snappy::RawCompress(const char* input, size_t input_length, char* compressed, size_t* compressed_length)\n// Strategy: Provide input and allocate an output buffer of MaxCompressedLength(input_length).\n{\n  std::string in = FUZZ_PARAM_STR();\n  if (in.size() > 1500) in.resize(1500);\n\n  size_t max_out = snappy::MaxCompressedLength(in.size());\n  if (max_out == 0) max_out = 1;\n  char* out_buf = new char[max_out];\n\n  size_t out_len = 0;\n  snappy::RawCompress(in.data(), in.size(), out_buf, &out_len);\n  FUZZ_ASSERT(out_len <= max_out, \"RawCompress wrote past provided buffer\");\n\n  delete[] out_buf;\n}"
+    },
+    {
+      "name": "snappy::RawUncompress",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: bool snappy::RawUncompress(const char* compressed, size_t compressed_length, char* uncompressed)\n// Strategy: Always provide a valid compressed buffer and allocate uncompressed buffer as the original size.\n{\n  std::string payload = FUZZ_PARAM_STR();\n  if (payload.size() > 1500) payload.resize(1500);\n\n  size_t max_c = snappy::MaxCompressedLength(payload.size());\n  std::string compressed(max_c, '\\0');\n  size_t comp_len = 0;\n  snappy::RawCompress(payload.data(), payload.size(), &compressed[0], &comp_len);\n  compressed.resize(comp_len);\n\n  size_t out_len = payload.size();\n  if (out_len == 0) out_len = 1;\n  char* out_buf = new char[out_len];\n\n  bool ok = snappy::RawUncompress(compressed.data(), compressed.size(), out_buf);\n  (void)ok;\n\n  delete[] out_buf;\n}"
+    },
+    {
+      "name": "snappy::MaxCompressedLength",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: size_t snappy::MaxCompressedLength(size_t source_bytes)\n// Strategy: Query with a bounded random size and assert monotonic-ish sanity when compared to input.\n{\n  size_t n = (size_t)(*FUZZ_PARAM(unsigned int) % 1501); // 0..1500\n  size_t max_len = snappy::MaxCompressedLength(n);\n  // At minimum, max_len should be >= n for non-expanding bound (snappy guarantees an upper bound >= input)\n  FUZZ_ASSERT(max_len >= n, \"MaxCompressedLength returned value smaller than input size\");\n  (void)max_len;\n}"
+    },
+    {
+      "name": "snappy::IsValidCompressedBuffer",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: bool snappy::IsValidCompressedBuffer(const char* compressed, size_t compressed_length)\n// Strategy: Test both synthetically valid compressed data and random bytes.\n{\n  bool make_valid = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\n  std::string payload = FUZZ_PARAM_STR();\n  if (payload.size() > 1500) payload.resize(1500);\n\n  std::string compressed;\n  if (make_valid) {\n    size_t max_c = snappy::MaxCompressedLength(payload.size());\n    compressed.resize(max_c);\n    size_t comp_len = 0;\n    snappy::RawCompress(payload.data(), payload.size(), &compressed[0], &comp_len);\n    compressed.resize(comp_len);\n  } else {\n    compressed = FUZZ_PARAM_STR();\n    if (compressed.size() > 1500) compressed.resize(1500);\n  }\n\n  bool ok = snappy::IsValidCompressedBuffer(compressed.data(), compressed.size());\n  (void)ok;\n}"
+    },
+    {
+      "name": "snappy::IsValidCompressed",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: bool snappy::IsValidCompressed(snappy::Source* compressed)\n// Strategy: Provide either a valid compressed stream or random bytes via ByteArraySource.\n{\n  bool make_valid = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\n  std::string payload = FUZZ_PARAM_STR();\n  if (payload.size() > 1500) payload.resize(1500);\n\n  std::string compressed;\n  if (make_valid) {\n    size_t max_c = snappy::MaxCompressedLength(payload.size());\n    compressed.resize(max_c);\n    size_t comp_len = 0;\n    snappy::RawCompress(payload.data(), payload.size(), &compressed[0], &comp_len);\n    compressed.resize(comp_len);\n  } else {\n    compressed = FUZZ_PARAM_STR();\n    if (compressed.size() > 1500) compressed.resize(1500);\n  }\n\n  snappy::ByteArraySource src(compressed.data(), compressed.size());\n  bool ok = snappy::IsValidCompressed(&src);\n  (void)ok;\n}"
+    },
+    {
+      "name": "snappy::CompressFromIOVec",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: size_t snappy::CompressFromIOVec(const struct iovec* iov, size_t iov_cnt, std::string* compressed)\n// and:         size_t snappy::CompressFromIOVec(const struct iovec* iov, size_t iov_cnt, std::string* compressed, snappy::CompressionOptions options)\n// Strategy: Build an iovec array that spans a single backing buffer. Exercise both overloads\n// (with and without CompressionOptions). Ensure iov elements reference readable memory.\n{\n  // Create backing data (<=1500 bytes for performance)\n  std::string backing = FUZZ_PARAM_STR();\n  if (backing.size() > 1500) backing.resize(1500);\n\n  // Choose 1..4 iov elements\n  size_t n_iov = ((*FUZZ_PARAM(unsigned int)) % 4) + 1; // 1..4\n\n  // Prepare iovec array referencing non-overlapping slices of backing\n  struct iovec iov[4];\n  size_t offset = 0;\n  for (size_t i = 0; i < n_iov; ++i) {\n    size_t remain = (backing.size() > offset) ? (backing.size() - offset) : 0;\n    size_t take = (i + 1 == n_iov) ? remain\n                                   : (remain == 0 ? 0 : (size_t)(*FUZZ_PARAM(unsigned int) % (remain + 1)));\n    iov[i].iov_base = (void*)(backing.data() + offset); // readable memory\n    iov[i].iov_len = take;\n    offset += take;\n  }\n\n  // Call overload without options\n  std::string out1;\n  size_t written1 = snappy::CompressFromIOVec(iov, n_iov, &out1);\n  (void)written1;\n\n  // Prepare options within supported range [1,2]\n  snappy::CompressionOptions opts;\n  int lvl_span = snappy::CompressionOptions::MaxCompressionLevel() - snappy::CompressionOptions::MinCompressionLevel() + 1;\n  int lvl = (int)(*FUZZ_PARAM(unsigned int) % (unsigned)lvl_span) + snappy::CompressionOptions::MinCompressionLevel();\n  opts.level = lvl;\n\n  // Call overload with options\n  std::string out2;\n  size_t written2 = snappy::CompressFromIOVec(iov, n_iov, &out2, opts);\n  (void)written2;\n\n  // Validation: iov memory is readable slices of backing; options level constrained; outputs are owned by std::string.\n}"
+    },
+    {
+      "name": "snappy::RawCompressFromIOVec",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: void snappy::RawCompressFromIOVec(const struct iovec* iov, size_t uncompressed_length,\n//                                                      char* compressed, size_t* compressed_length)\n// and:         void snappy::RawCompressFromIOVec(const struct iovec* iov, size_t uncompressed_length,\n//                                               char* compressed, size_t* compressed_length,\n//                                               snappy::CompressionOptions options)\n// Strategy: Build iovec array over a backing buffer, compute the total uncompressed_length,\n// allocate output buffer using MaxCompressedLength(total), and exercise both overloads.\n{\n  // Backing input data (<=1500 bytes)\n  std::string backing = FUZZ_PARAM_STR();\n  if (backing.size() > 1500) backing.resize(1500);\n\n  // Choose 1..4 iov elements\n  size_t n_iov = ((*FUZZ_PARAM(unsigned int)) % 4) + 1;\n\n  // Partition backing across iov entries\n  struct iovec iov[4];\n  size_t offset = 0;\n  for (size_t i = 0; i < n_iov; ++i) {\n    size_t remain = (backing.size() > offset) ? (backing.size() - offset) : 0;\n    size_t take = (i + 1 == n_iov) ? remain\n                                   : (remain == 0 ? 0 : (size_t)(*FUZZ_PARAM(unsigned int) % (remain + 1)));\n    iov[i].iov_base = (void*)(backing.data() + offset); // readable\n    iov[i].iov_len = take;\n    offset += take;\n  }\n\n  // Total uncompressed length is the sum of iov_len\n  size_t total = 0;\n  for (size_t i = 0; i < n_iov; ++i) total += iov[i].iov_len;\n\n  // Allocate output buffer sized by worst-case bound\n  size_t max_out = snappy::MaxCompressedLength(total);\n  if (max_out == 0) max_out = 1;\n  if (max_out > 2048) max_out = 2048; // cap for perf\n  char* out_buf = new char[max_out];\n\n  // Overload without options\n  size_t out_len1 = 0;\n  snappy::RawCompressFromIOVec(iov, total, out_buf, &out_len1);\n  FUZZ_ASSERT(out_len1 <= max_out, \"RawCompressFromIOVec wrote past provided buffer\");\n\n  // Overload with options (level in [1,2])\n  snappy::CompressionOptions opts;\n  int lvl_span = snappy::CompressionOptions::MaxCompressionLevel() - snappy::CompressionOptions::MinCompressionLevel() + 1;\n  int lvl = (int)(*FUZZ_PARAM(unsigned int) % (unsigned)lvl_span) + snappy::CompressionOptions::MinCompressionLevel();\n  opts.level = lvl;\n\n  size_t out_len2 = 0;\n  snappy::RawCompressFromIOVec(iov, total, out_buf, &out_len2, opts);\n  FUZZ_ASSERT(out_len2 <= max_out, \"RawCompressFromIOVec(options) wrote past provided buffer\");\n\n  delete[] out_buf;\n  // Validation: iov covers readable memory, uncompressed_length equals sum, buffer sized via MaxCompressedLength; options constrained.\n}"
+    },
+    {
+      "name": "snappy::RawUncompressToIOVec",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz harness for: bool snappy::RawUncompressToIOVec(const char* compressed, size_t compressed_length,\n//                                                      const struct iovec* iov, size_t iov_cnt)\n// and:         bool snappy::RawUncompressToIOVec(snappy::Source* compressed,\n//                                               const struct iovec* iov, size_t iov_cnt)\n// Strategy: Generate a valid compressed buffer from a random payload. Build an iovec array of\n// disjoint writable buffers whose total capacity >= payload size. Exercise both overloads.\n{\n  // Create payload (<=1500 bytes)\n  std::string payload = FUZZ_PARAM_STR();\n  if (payload.size() > 1500) payload.resize(1500);\n\n  // Compress payload to produce a valid compressed stream\n  size_t max_c = snappy::MaxCompressedLength(payload.size());\n  std::string compressed(max_c, '\\0');\n  size_t comp_len = 0;\n  snappy::RawCompress(payload.data(), payload.size(), &compressed[0], &comp_len);\n  compressed.resize(comp_len);\n\n  // Build destination iovec array with total capacity >= payload.size()\n  size_t n_iov = ((*FUZZ_PARAM(unsigned int)) % 4) + 1; // 1..4\n  struct iovec iov[4];\n\n  size_t remaining = payload.size();\n  // Separate backing buffers to avoid overlap\n  std::string b0, b1, b2, b3;\n  for (size_t i = 0; i < n_iov; ++i) {\n    size_t take = (i + 1 == n_iov) ? remaining\n                                   : (remaining == 0 ? 0 : (size_t)(*FUZZ_PARAM(unsigned int) % (remaining + 1)));\n    // Ensure allocated size is exactly 'take' (may be zero)\n    std::string* slot = (i==0?&b0:(i==1?&b1:(i==2?&b2:&b3)));\n    slot->assign(take, '\\0');\n    iov[i].iov_base = (void*)slot->data(); // writable memory\n    iov[i].iov_len = take;\n    if (remaining >= take) remaining -= take; else remaining = 0;\n  }\n\n  // Overload taking raw buffer\n  bool ok1 = snappy::RawUncompressToIOVec(compressed.data(), compressed.size(), iov, n_iov);\n  (void)ok1;\n\n  // Overload taking Source\n  snappy::ByteArraySource src(compressed.data(), compressed.size());\n  bool ok2 = snappy::RawUncompressToIOVec(&src, iov, n_iov);\n  (void)ok2;\n\n  // Validation: iov buffers are disjoint strings with total capacity >= payload size (exact in our split),\n  // and compressed data is produced by RawCompress ensuring well-formed input.\n}"
+    },
+    {
+      "name": "snappy_compress",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random input buffer\nstd::string in = FUZZ_PARAM_STR();\nconst char* input = in.data();\nsize_t input_length = in.size();\n\n// Compute the maximum compressed size and choose a capacity\nsize_t max_out = snappy_max_compressed_length(input_length);\n// Optionally make the buffer intentionally too small to exercise SNAPPY_BUFFER_TOO_SMALL\nbool make_small = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\nsize_t capacity = max_out;\nif (make_small && max_out > 0) {\n  // Reduce capacity to a smaller positive size\n  unsigned int r = *FUZZ_PARAM(unsigned int);\n  size_t shrink = static_cast<size_t>(r % max_out);\n  capacity = max_out - shrink;\n}\n// Ensure at least 1 byte so that buffer pointer is valid even if capacity=0\nif (capacity == 0) capacity = 1;\n\n// Allocate destination buffer\nstd::vector<char> out(capacity);\nsize_t out_len = capacity; // per API: caller initializes available size\n\n// Call the target function\nsnappy_status st = snappy_compress(input, input_length, out.data(), &out_len);\n\n// Validate basic properties\nif (st == SNAPPY_OK) {\n  // On success, out_len must be <= capacity\n  FUZZ_ASSERT(out_len <= capacity, \"snappy_compress wrote past provided capacity\");\n} else if (st == SNAPPY_BUFFER_TOO_SMALL) {\n  // Expected when we intentionally shrank the buffer\n  // No further assertion; API may leave out_len unspecified on failure\n} else {\n  // Any other status is unexpected for valid inputs; bail to avoid UB in downstream use\n  FUZZ_BAIL();\n}\n"
+    },
+    {
+      "name": "snappy_uncompress",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a valid compressed buffer first to exercise the API meaningfully\nstd::string original = FUZZ_PARAM_STR();\nconst char* orig_ptr = original.data();\nsize_t orig_len = original.size();\n\nsize_t max_comp = snappy_max_compressed_length(orig_len);\nif (max_comp == 0) max_comp = 1; // ensure non-zero allocation\nstd::vector<char> comp(max_comp);\nsize_t comp_len = max_comp; // capacity on entry\nsnappy_status cst = snappy_compress(orig_ptr, orig_len, comp.data(), &comp_len);\nif (cst != SNAPPY_OK || comp_len == 0) { FUZZ_BAIL(); }\n\n// Query expected uncompressed length from the stream header (O(1))\nsize_t expected_uncomp = 0;\nsnappy_status lst = snappy_uncompressed_length(comp.data(), comp_len, &expected_uncomp);\nif (lst != SNAPPY_OK || expected_uncomp != orig_len) { FUZZ_BAIL(); }\n\n// Choose whether to provide an exact or intentionally too-small output buffer\nbool provide_small = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\nsize_t capacity = expected_uncomp;\nif (provide_small && capacity > 0) {\n  unsigned int r = *FUZZ_PARAM(unsigned int);\n  size_t shrink = static_cast<size_t>(r % capacity);\n  capacity = capacity - shrink; // maybe zero; fix below\n}\nif (capacity == 0) capacity = 1; // ensure writable pointer\n\nstd::vector<char> out(capacity);\nsize_t out_len = capacity; // per API contract\n\n// Call the target function under test\nsnappy_status ust = snappy_uncompress(comp.data(), comp_len, out.data(), &out_len);\n\nif (!provide_small) {\n  // With sufficient capacity, must succeed and match original\n  FUZZ_ASSERT(ust == SNAPPY_OK, \"snappy_uncompress failed with sufficient capacity\");\n  FUZZ_ASSERT(out_len == expected_uncomp, \"unexpected uncompressed length\");\n  // Verify round-trip content for additional safety\n  bool equal = (out_len == original.size()) && (memcmp(out.data(), original.data(), out_len) == 0);\n  FUZZ_ASSERT(equal, \"round-trip content mismatch\");\n} else {\n  // With insufficient capacity, must not report success\n  if (ust == SNAPPY_OK) { FUZZ_BAIL(); }\n}\n"
+    },
+    {
+      "name": "snappy_max_compressed_length",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a bounded source length to keep allocations small\nsize_t source_length = static_cast<size_t>(*FUZZ_PARAM(unsigned int)) % 2048u;\n// Call the target function\nsize_t max_len = snappy_max_compressed_length(source_length);\n// Basic property: maximum compressed length must be at least the input length\nFUZZ_ASSERT(max_len >= source_length, \"max compressed length must be >= input length\");\n// Optionally, allocate a buffer of that size to ensure it is usable in real calls\nif (max_len == 0) { FUZZ_BAIL(); }\nstd::vector<char> tmp(max_len);\n(void)tmp;\n"
+    },
+    {
+      "name": "snappy_uncompressed_length",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Decide whether to supply valid compressed data or random bytes\nbool use_valid = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\nif (use_valid) {\n  // Create a valid compressed buffer from random input\n  std::string src = FUZZ_PARAM_STR();\n  size_t max_comp = snappy_max_compressed_length(src.size());\n  if (max_comp == 0) max_comp = 1;\n  std::vector<char> comp(max_comp);\n  size_t comp_len = max_comp;\n  snappy_status cst = snappy_compress(src.data(), src.size(), comp.data(), &comp_len);\n  if (cst != SNAPPY_OK || comp_len == 0) { FUZZ_BAIL(); }\n\n  // Query uncompressed length (target function)\n  size_t result = 0;\n  snappy_status st = snappy_uncompressed_length(comp.data(), comp_len, &result);\n  FUZZ_ASSERT(st == SNAPPY_OK, \"expected OK for valid compressed buffer\");\n  FUZZ_ASSERT(result == src.size(), \"reported uncompressed length mismatch\");\n} else {\n  // Feed random bytes; may be invalid or (rarely) valid\n  std::string randbuf = FUZZ_PARAM_STR();\n  size_t result = 0;\n  snappy_status st = snappy_uncompressed_length(randbuf.data(), randbuf.size(), &result);\n  // No strict assertion here: random input can be invalid (common) or occasionally valid\n  (void)st; (void)result;\n}\n"
+    },
+    {
+      "name": "snappy_validate_compressed_buffer",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose between valid compressed input and random bytes to hit both paths\nbool use_valid = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\nif (use_valid) {\n  // Build a valid compressed stream\n  std::string src = FUZZ_PARAM_STR();\n  size_t max_comp = snappy_max_compressed_length(src.size());\n  if (max_comp == 0) max_comp = 1;\n  std::vector<char> comp(max_comp);\n  size_t comp_len = max_comp;\n  snappy_status cst = snappy_compress(src.data(), src.size(), comp.data(), &comp_len);\n  if (cst != SNAPPY_OK || comp_len == 0) { FUZZ_BAIL(); }\n\n  // Target function: validation should succeed\n  snappy_status vst = snappy_validate_compressed_buffer(comp.data(), comp_len);\n  FUZZ_ASSERT(vst == SNAPPY_OK, \"validation failed for a valid compressed buffer\");\n} else {\n  // Random buffer: likely invalid; accept either result without strong assertion\n  std::string randbuf = FUZZ_PARAM_STR();\n  snappy_status vst = snappy_validate_compressed_buffer(randbuf.data(), randbuf.size());\n  (void)vst;\n}\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "snappy::Sink::AppendAndTakeOwnership",
+      "reason": "Requires a deleter function pointer with a specific signature; defining such a function is disallowed by the harness constraints (no new top-level functions)."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "snappy::Sink::Sink",
+      "data_types": []
+    },
+    {
+      "name": "snappy::Sink::~Sink",
+      "data_types": []
+    },
+    {
+      "name": "snappy::Source::~Source",
+      "data_types": []
+    },
+    {
+      "name": "snappy::Source::Available",
+      "data_types": []
+    },
+    {
+      "name": "snappy::Source::Peek",
+      "data_types": []
+    },
+    {
+      "name": "snappy::Source::Skip",
+      "data_types": []
+    },
+    {
+      "name": "snappy::ByteArraySource::~ByteArraySource",
+      "data_types": []
+    },
+    {
+      "name": "snappy::ByteArraySource::Available",
+      "data_types": []
+    },
+    {
+      "name": "snappy::ByteArraySource::Peek",
+      "data_types": []
+    },
+    {
+      "name": "snappy::ByteArraySource::Skip",
+      "data_types": []
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::UncheckedByteArraySink",
+      "data_types": []
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::~UncheckedByteArraySink",
+      "data_types": []
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::CurrentDestination",
+      "data_types": []
+    },
+    {
+      "name": "snappy::MaxCompressedLength",
+      "data_types": []
+    },
+    {
+      "name": "snappy_max_compressed_length",
+      "data_types": []
+    },
+    {
+      "name": "snappy::Sink::Append",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::Sink::GetAppendBuffer",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::Sink::GetAppendBufferVariable",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::Source::Source",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::ByteArraySource::ByteArraySource",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::Append",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::GetAppendBuffer",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::GetAppendBufferVariable",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::UncheckedByteArraySink::AppendAndTakeOwnership",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::Compress",
+      "data_types": [
+        "arbitrary binary data",
+        "snappy-compressed data"
+      ]
+    },
+    {
+      "name": "snappy::GetUncompressedLength",
+      "data_types": [
+        "snappy-compressed data",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::Uncompress",
+      "data_types": [
+        "snappy-compressed data",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::UncompressAsMuchAsPossible",
+      "data_types": [
+        "arbitrary binary data",
+        "snappy-compressed data"
+      ]
+    },
+    {
+      "name": "snappy::RawCompress",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::RawUncompress",
+      "data_types": [
+        "snappy-compressed data"
+      ]
+    },
+    {
+      "name": "snappy::IsValidCompressedBuffer",
+      "data_types": [
+        "snappy-compressed data",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::IsValidCompressed",
+      "data_types": [
+        "snappy-compressed data",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::CompressFromIOVec",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::RawCompressFromIOVec",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy::RawUncompressToIOVec",
+      "data_types": [
+        "snappy-compressed data"
+      ]
+    },
+    {
+      "name": "snappy_compress",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "snappy_uncompress",
+      "data_types": [
+        "arbitrary binary data",
+        "snappy-compressed data"
+      ]
+    },
+    {
+      "name": "snappy_uncompressed_length",
+      "data_types": [
+        "arbitrary binary data",
+        "snappy-compressed data"
+      ]
+    },
+    {
+      "name": "snappy_validate_compressed_buffer",
+      "data_types": [
+        "arbitrary binary data",
+        "snappy-compressed data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A byte buffer with no required format or encoding. May contain any sequence of bytes including NULs; length is determined by the surrounding API. Used as generic uncompressed input or generic payload to write into sinks/buffers."
+    },
+    {
+      "data_type": "snappy-compressed data",
+      "description": "A byte buffer containing a stream formatted according to the Snappy compression format, as produced by snappy::RawCompress/snappy::Compress. Intended to be parsed or decompressed by Snappy APIs; random bytes generally do not satisfy this format."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# This generator produces arbitrary binary data that is particularly\n# useful for exercising Snappy Source/Sink and (de)compression paths.\n# It biases towards realistic text/binary segments, repeated patterns,\n# varying lengths, and includes some edge-case constructs like runs of\n# zeros, small alphabets (to compress well), and high-entropy blocks.\n\n_MAX_OUTPUT = 4096\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\ndef _repeated_block(rng: random.Random, alphabet: bytes, min_len: int, max_len: int) -> bytes:\n    # Build a block from a small alphabet to encourage high compressibility.\n    size = rng.randint(min_len, max_len)\n    if not alphabet:\n        alphabet = b\"\\x00\"\n    return bytes(alphabet[rng.randrange(len(alphabet))] for _ in range(size))\n\ndef _pattern_block(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    size = rng.randint(min_len, max_len)\n    # Choose a short pattern and repeat with some noise\n    pat_len = rng.randint(1, min(64, max(1, size // 8 or 1)))\n    pat = _rand_bytes(rng, pat_len)\n    out = bytearray()\n    while len(out) < size:\n        # Mostly repeat the pattern, sometimes mutate a byte\n        chunk = bytearray(pat)\n        if rng.random() < 0.2 and len(chunk) > 0:\n            idx = rng.randrange(len(chunk))\n            chunk[idx] = rng.randrange(256)\n        take = min(len(chunk), size - len(out))\n        out.extend(chunk[:take])\n    return bytes(out)\n\ndef _text_block(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    size = rng.randint(min_len, max_len)\n    # Mix ASCII text with whitespace and newlines\n    letters = b\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\" \\\n              b\" .,_-:/\\\\n\\r\\t()[]{}<>!@#$%^&*?=+\";\n    # Create sentences with some repetition\n    words = [b\"lorem\", b\"ipsum\", b\"dolor\", b\"sit\", b\"amet\", b\"snappy\", b\"compress\", b\"decompress\"]\n    out = bytearray()\n    while len(out) < size:\n        if rng.random() < 0.6:\n            w = rng.choice(words)\n            out.extend(w)\n        else:\n            out.append(letters[rng.randrange(len(letters))])\n        if rng.random() < 0.15:\n            out.append(ord('\\n'))\n        if rng.random() < 0.1:\n            out.extend(b\" \")\n        if rng.random() < 0.05:\n            # add a short repeated sequence\n            rep = rng.choice(words)\n            out.extend(rep * rng.randint(1, 3))\n    return bytes(out[:size])\n\ndef _numeric_block(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    # Mixture of little/big-endian integers to simulate binary structs.\n    target = rng.randint(min_len, max_len)\n    out = bytearray()\n    while len(out) + 8 <= target:\n        if rng.random() < 0.5:\n            out.extend(struct.pack('<I', rng.getrandbits(32)))\n        else:\n            out.extend(struct.pack('>I', rng.getrandbits(32)))\n        if rng.random() < 0.3:\n            out.extend(struct.pack('<H', rng.getrandbits(16)))\n        if rng.random() < 0.2:\n            out.extend(struct.pack('>Q', rng.getrandbits(64)))\n        if len(out) > target:\n            break\n    # Fill remainder with random bytes\n    rem = target - len(out)\n    if rem > 0:\n        out.extend(_rand_bytes(rng, rem))\n    return bytes(out[:target])\n\ndef _high_entropy_block(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    return _rand_bytes(rng, rng.randint(min_len, max_len))\n\ndef _zero_block(rng: random.Random, min_len: int, max_len: int) -> bytes:\n    return bytes(rng.randint(min_len, max_len))\n\ndef _small_alphabet(rng: random.Random) -> bytes:\n    # Create a tiny alphabet (1..6 unique bytes), often very compressible when repeated.\n    k = rng.randint(1, 6)\n    # Bias to ascii letters and some control bytes\n    pool = list(b\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\\x00\\x01\\x02\\xff\")\n    rng.shuffle(pool)\n    return bytes(pool[:k])\n\ndef _assemble(rng: random.Random, target_len: int) -> bytes:\n    # Build a sequence of varied blocks until reaching target length.\n    blocks: List[bytes] = []\n    remain = target_len\n    # Start with a header-like prelude of varied bytes to exercise Peek/Skip regions\n    if remain > 0:\n        pre = _numeric_block(rng, 0, min(32, remain))\n        blocks.append(pre)\n        remain -= len(pre)\n\n    while remain > 0:\n        kind = rng.random()\n        max_chunk = max(1, min(remain, 512))\n        min_chunk = 1\n        if kind < 0.18:\n            blocks.append(_zero_block(rng, min_chunk, max_chunk))\n        elif kind < 0.36:\n            blocks.append(_high_entropy_block(rng, min_chunk, max_chunk))\n        elif kind < 0.54:\n            blocks.append(_pattern_block(rng, min_chunk, max_chunk))\n        elif kind < 0.72:\n            blocks.append(_text_block(rng, min_chunk, max_chunk))\n        elif kind < 0.90:\n            alpha = _small_alphabet(rng)\n            blocks.append(_repeated_block(rng, alpha, min_chunk, max_chunk))\n        else:\n            blocks.append(_numeric_block(rng, min_chunk, max_chunk))\n        remain = target_len - sum(len(b) for b in blocks)\n\n    data = b\"\".join(blocks)\n    # Trim to exactly target_len\n    if len(data) > target_len:\n        data = data[:target_len]\n    return data\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a total length with a distribution covering small and larger buffers\n    roll = rng.random()\n    if roll < 0.15:\n        total = rng.randint(0, 32)   # tiny, including empty\n    elif roll < 0.60:\n        total = rng.randint(33, 512) # small/medium\n    elif roll < 0.90:\n        total = rng.randint(513, 2048)\n    else:\n        total = rng.randint(2049, _MAX_OUTPUT)\n\n    # Assemble diversified content of the chosen size\n    data = _assemble(rng, total)\n\n    # Occasionally prepend or append small segments to vary boundaries\n    if len(data) < _MAX_OUTPUT and rng.random() < 0.3:\n        pad = _rand_bytes(rng, rng.randint(1, min(32, _MAX_OUTPUT - len(data))))\n        if rng.random() < 0.5:\n            data = pad + data\n        else:\n            data = data + pad\n        if len(data) > _MAX_OUTPUT:\n            data = data[:_MAX_OUTPUT]\n\n    return data\n"
+    },
+    {
+      "data_type": "snappy-compressed data",
+      "generator": "import random\nimport struct\nimport zlib\n\n# Although the target is Snappy, we cannot import snappy. We therefore craft\n# uncompressed payloads that, when the harness chooses to compress using the\n# library under test, will exercise diverse behaviors. For negative paths, the\n# harness already feeds random bytes. Our job is to provide bytes that are good\n# uncompressed payload candidates and sometimes already-compressed data patterns\n# that are known to compress well or poorly, include edge cases, etc.\n#\n# FUZZ_PARAM_STR in the harness is fed our single returned bytes buffer. The\n# harness often uses that buffer as the uncompressed payload which it then\n# compresses using snappy::RawCompress. Therefore we focus on generating a wide\n# variety of uncompressed inputs that are interesting for Snappy:\n# - Highly repetitive runs (good compression)\n# - Slightly noisy repetitions (match finding, copy literals)\n# - Small inputs (including empty)\n# - Inputs around internal block boundaries (Snappy uses 32KB window; we cap\n#   sizes per harness to <=1500, but we still vary sizes and patterns)\n# - ASCII text, UTF-8, binary, zero bytes, incremental bytes, random bytes\n# - Mixtures of segments to trigger both literal and copy emissions\n#\n# The result must be <= 4096 bytes.\n\nMAX_OUT = 4096\n\ndef _rand_ascii(rng: random.Random, n: int) -> bytes:\n    alphabet = (b\" \\t\\n\\r\" +\n                b\"0123456789\" +\n                b\"abcdefghijklmnopqrstuvwxyz\" +\n                b\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\" +\n                b\".,;:-_!?/\\\\'\\\"()[]{}<>@#$%^&*+=|\")\n    return bytes(rng.choice(alphabet) for _ in range(n))\n\ndef _repetitive(rng: random.Random, n: int) -> bytes:\n    if n == 0:\n        return b\"\"\n    token_len = rng.randint(1, min(32, max(1, n)))\n    token = bytes(rng.getrandbits(8) for _ in range(token_len))\n    return (token * (n // token_len + 1))[:n]\n\ndef _sliding_repeats(rng: random.Random, n: int) -> bytes:\n    if n == 0:\n        return b\"\"\n    base = bytearray(_repetitive(rng, max(16, n // 4)))\n    out = bytearray()\n    while len(out) < n:\n        # Copy a windowed slice with some mutations\n        start = rng.randint(0, max(0, len(base) - 1))\n        length = rng.randint(8, 64)\n        chunk = bytes(base[start:start+length])\n        if not chunk:\n            chunk = bytes([rng.getrandbits(8)])\n        # Randomly flip a few bytes to create near-matches\n        b = bytearray(chunk)\n        flips = rng.randint(0, max(1, len(b)//16))\n        for _ in range(flips):\n            idx = rng.randrange(len(b))\n            b[idx] ^= 1 << rng.randrange(8)\n        out.extend(b)\n    return bytes(out[:n])\n\ndef _incrementing(n: int, start: int = 0) -> bytes:\n    return bytes((start + i) & 0xFF for i in range(n))\n\ndef _zeros(n: int) -> bytes:\n    return b\"\\x00\" * n\n\ndef _ones(n: int) -> bytes:\n    return b\"\\xFF\" * n\n\ndef _utf8_text(rng: random.Random, n: int) -> bytes:\n    # Build plausible UTF-8 by mixing ASCII and some multi-byte sequences\n    out = bytearray()\n    while len(out) < n:\n        choice = rng.random()\n        if choice < 0.75:\n            out.append(rng.randint(0x20, 0x7E))  # printable ASCII\n        elif choice < 0.9:\n            # 2-byte sequence\n            cp = rng.randint(0x80, 0x7FF)\n            out.extend(chr(cp).encode('utf-8'))\n        else:\n            # 3-byte sequence\n            cp = rng.randint(0x800, 0xFFFF)\n            if 0xD800 <= cp <= 0xDFFF:\n                cp = 0x20\n            out.extend(chr(cp).encode('utf-8'))\n    return bytes(out[:n])\n\ndef _mix_segments(rng: random.Random, total: int) -> bytes:\n    makers = [\n        lambda m: _zeros(m),\n        lambda m: _ones(m),\n        lambda m: _incrementing(m, rng.randrange(256)),\n        lambda m: _repetitive(rng, m),\n        lambda m: _sliding_repeats(rng, m),\n        lambda m: _rand_ascii(rng, m),\n        lambda m: _utf8_text(rng, m),\n        lambda m: rng.randbytes(m) if m > 0 else b\"\",\n    ]\n    parts = []\n    remaining = total\n    # Aim for 3-10 segments\n    segs = rng.randint(3, 10)\n    for i in range(segs):\n        if i == segs - 1:\n            m = remaining\n        else:\n            m = rng.randint(0, remaining)\n        parts.append(rng.choice(makers)(m))\n        remaining -= m\n        if remaining <= 0:\n            break\n    # Occasionally duplicate previous data to create back-references\n    if parts and rng.random() < 0.6:\n        dup_src = b\"\".join(parts)\n        if dup_src:\n            rep_len = rng.randint(1, min(128, len(dup_src)))\n            rep_off = rng.randint(0, max(0, len(dup_src) - rep_len))\n            parts.append(dup_src[rep_off:rep_off+rep_len] * rng.randint(1, 8))\n    out = b\"\".join(parts)[:total]\n    return out\n\ndef _around_sizes(rng: random.Random) -> int:\n    # Harness caps to <=1500 for many paths; choose diverse sizes including 0.\n    choices = [0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 512, 1024, 1500]\n    if rng.random() < 0.6:\n        return rng.choice(choices)\n    return rng.randint(0, 1500)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide an overall strategy\n    strat = rng.random()\n    size = _around_sizes(rng)\n\n    if strat < 0.1:\n        data = _zeros(size)\n    elif strat < 0.2:\n        data = _ones(size)\n    elif strat < 0.32:\n        data = _incrementing(size, rng.randrange(256))\n    elif strat < 0.45:\n        data = _repetitive(rng, size)\n    elif strat < 0.6:\n        data = _sliding_repeats(rng, size)\n    elif strat < 0.75:\n        data = _rand_ascii(rng, size)\n    elif strat < 0.9:\n        data = _utf8_text(rng, size)\n    else:\n        data = _mix_segments(rng, size)\n\n    # Occasionally prefix with known file headers or structured patterns that\n    # may influence compression ratios and parsing behaviors when treated as raw bytes.\n    if data and rng.random() < 0.25:\n        headers = [\n            b\"\\x1F\\x8B\\x08\\x00\",  # gzip magic + method/flags\n            b\"PK\\x03\\x04\",          # ZIP local header magic\n            b\"\\x89PNG\\r\\n\\x1A\\n\", # PNG signature\n            b\"%PDF-\",                # PDF header\n            b\"{\\n\\t\\\"k\\\": \",         # JSON-like start\n        ]\n        h = rng.choice(headers)\n        remain = max(0, MAX_OUT - len(h))\n        data = (h + data)[:min(len(h) + len(data), remain)]\n\n    # Ensure cap\n    return bytes(data[:MAX_OUT])\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8841,
+            "output_tokens": 2650,
+            "total_tokens": 11491
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7153,
+            "output_tokens": 459,
+            "total_tokens": 7612
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9314,
+            "output_tokens": 11585,
+            "total_tokens": 20899
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 54351,
+            "output_tokens": 27533,
+            "total_tokens": 81884
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 31985,
+            "output_tokens": 680,
+            "total_tokens": 32665
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 328.33461689949036,
+    "scan_objects": 17.29045796394348,
+    "validate_objects": 0.7859504222869873,
+    "scan_functions": 0,
+    "synthesis": 269.31747555732727,
+    "fill": 0,
+    "classify": 10.408470869064331,
+    "build_generators": 30.530510902404785
+  }
+}

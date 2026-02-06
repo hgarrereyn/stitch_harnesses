@@ -1,0 +1,650 @@
+{
+  "objects": [
+    {
+      "ptr_type": "http_parser *",
+      "aliases": [],
+      "definition": "struct http_parser {\n  /** PRIVATE **/\n  unsigned int type : 2;         /* enum http_parser_type */\n  unsigned int flags : 8;       /* F_* values from 'flags' enum; semi-public */\n  unsigned int state : 7;        /* enum state from http_parser.c */\n  unsigned int header_state : 7; /* enum header_state from http_parser.c */\n  unsigned int index : 5;        /* index into current matcher */\n  unsigned int uses_transfer_encoding : 1; /* Transfer-Encoding header is present */\n  unsigned int allow_chunked_length : 1; /* Allow headers with both\n                                          * `Content-Length` and\n                                          * `Transfer-Encoding: chunked` set */\n  unsigned int lenient_http_headers : 1;\n\n  uint32_t nread;          /* # bytes read in various scenarios */\n  uint64_t content_length; /* # bytes in body. `(uint64_t) -1` (all bits one)\n                            * if no Content-Length header.\n                            */\n\n  /** READ-ONLY **/\n  unsigned short http_major;\n  unsigned short http_minor;\n  unsigned int status_code : 16; /* responses only */\n  unsigned int method : 8;       /* requests only */\n  unsigned int http_errno : 7;\n\n  /* 1 = Upgrade header was present and the parser has exited because of that.\n   * 0 = No upgrade header present.\n   * Should be checked when http_parser_execute() returns in addition to\n   * error checking.\n   */\n  unsigned int upgrade : 1;\n\n  /** PUBLIC **/\n  void *data; /* A pointer to get hook to the \"connection\" or \"socket\" object */\n};",
+      "description": "Main HTTP message parser state machine object. Holds current parse state, flags, counters, version, method/status, last error, and a user data pointer. Initialize with http_parser_init(). Reused across messages as needed; consult http_should_keep_alive() and upgrade flag to manage connection lifecycle.",
+      "direct_api_constructors": [
+        "http_parser_init"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "http_parser_settings *",
+      "aliases": [],
+      "definition": "struct http_parser_settings {\n  http_cb      on_message_begin;\n  http_data_cb on_url;\n  http_data_cb on_status;\n  http_data_cb on_header_field;\n  http_data_cb on_header_value;\n  http_cb      on_headers_complete;\n  http_data_cb on_body;\n  http_cb      on_message_complete;\n  /* When on_chunk_header is called, the current chunk length is stored\n   * in parser->content_length.\n   */\n  http_cb      on_chunk_header;\n  http_cb      on_chunk_complete;\n};",
+      "description": "Callback vtable configuring how the parser reports parsed events. Zero-initialize or call http_parser_settings_init() before use, then set desired callbacks. Used with http_parser_execute().",
+      "direct_api_constructors": [
+        "http_parser_settings_init"
+      ],
+      "owned_by": [
+        "http_parser *"
+      ]
+    },
+    {
+      "ptr_type": "http_data_cb *",
+      "aliases": [],
+      "definition": "typedef int (*http_data_cb) (http_parser*, const char *at, size_t length);",
+      "description": "Function pointer type for data callbacks (e.g., URL, status, header field/value, body). Return non-zero to signal error; may be called multiple times per field with partial data.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "http_parser_settings *"
+      ]
+    },
+    {
+      "ptr_type": "http_cb *",
+      "aliases": [],
+      "definition": "typedef int (*http_cb) (http_parser*);",
+      "description": "Function pointer type for simple event callbacks without a data buffer (e.g., message begin/complete, headers complete, chunk events). Return non-zero to signal error.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "http_parser_settings *"
+      ]
+    },
+    {
+      "ptr_type": "enum http_status *",
+      "aliases": [],
+      "definition": "enum http_status\n  {\n#define XX(num, name, string) HTTP_STATUS_##name = num,\n  HTTP_STATUS_MAP(XX)\n#undef XX\n  };",
+      "description": "Enumeration of HTTP status codes (e.g., HTTP_STATUS_OK=200). Use with http_status_str() for human-readable strings.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum http_method *",
+      "aliases": [],
+      "definition": "enum http_method\n  {\n#define XX(num, name, string) HTTP_##name = num,\n  HTTP_METHOD_MAP(XX)\n#undef XX\n  };",
+      "description": "Enumeration of HTTP request methods (e.g., HTTP_GET, HTTP_POST, including WebDAV/other extensions). Use with http_method_str() for names.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "http_parser *"
+      ]
+    },
+    {
+      "ptr_type": "enum http_parser_type *",
+      "aliases": [],
+      "definition": "enum http_parser_type { HTTP_REQUEST, HTTP_RESPONSE, HTTP_BOTH };",
+      "description": "Parser operating mode: parse requests, responses, or both (HTTP/1.x). Supplied to http_parser_init().",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "http_parser *"
+      ]
+    },
+    {
+      "ptr_type": "enum flags *",
+      "aliases": [],
+      "definition": "enum flags\n  { F_CHUNKED               = 1 << 0\n  , F_CONNECTION_KEEP_ALIVE = 1 << 1\n  , F_CONNECTION_CLOSE      = 1 << 2\n  , F_CONNECTION_UPGRADE    = 1 << 3\n  , F_TRAILING              = 1 << 4\n  , F_UPGRADE               = 1 << 5\n  , F_SKIPBODY              = 1 << 6\n  , F_CONTENTLENGTH         = 1 << 7\n  };",
+      "description": "Bit flags used in http_parser.flags to track message properties and parser behavior (e.g., chunked, keep-alive, upgrade). Internal/semi-public; read via parser->flags.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "http_parser *"
+      ]
+    },
+    {
+      "ptr_type": "enum http_errno *",
+      "aliases": [],
+      "definition": "#define HTTP_ERRNO_GEN(n, s) HPE_##n,\nenum http_errno {\n  HTTP_ERRNO_MAP(HTTP_ERRNO_GEN)\n};\n#undef HTTP_ERRNO_GEN",
+      "description": "Enumeration of parser error codes (HPE_*). Obtain current value via HTTP_PARSER_ERRNO(p). Use http_errno_name()/http_errno_description() for diagnostics.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "http_parser *"
+      ]
+    },
+    {
+      "ptr_type": "enum http_parser_url_fields *",
+      "aliases": [],
+      "definition": "enum http_parser_url_fields\n  { UF_SCHEMA           = 0\n  , UF_HOST             = 1\n  , UF_PORT             = 2\n  , UF_PATH             = 3\n  , UF_QUERY            = 4\n  , UF_FRAGMENT         = 5\n  , UF_USERINFO         = 6\n  , UF_MAX              = 7\n  };",
+      "description": "Enumeration of URL component indices for http_parser_url.field_data and field_set bitmask.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "http_parser_url *"
+      ]
+    },
+    {
+      "ptr_type": "struct http_parser_url *",
+      "aliases": [
+        "http_parser_url *"
+      ],
+      "definition": "struct http_parser_url {\n  uint16_t field_set;           /* Bitmask of (1 << UF_*) values */\n  uint16_t port;                /* Converted UF_PORT string */\n\n  struct {\n    uint16_t off;               /* Offset into buffer in which field starts */\n    uint16_t len;               /* Length of run in buffer */\n  } field_data[UF_MAX];\n};",
+      "description": "Result container for http_parser_parse_url(). field_set indicates which fields are present; port holds parsed numeric port; field_data provides offsets/lengths into the original buffer. Initialize with http_parser_url_init().",
+      "direct_api_constructors": [
+        "http_parser_url_init"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "http_parser_version",
+      "signature": "unsigned long http_parser_version(void);",
+      "description": "Returns the library version encoded into a single unsigned long. Bits 16–23 are the major version, bits 8–15 the minor version, and bits 0–7 the patch level. Useful for feature checks and logging.",
+      "requirements": [
+        "No inputs; callable at any time.",
+        "Interpret the returned value by bit-shifting as documented if you need components."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_parser_init",
+      "signature": "void http_parser_init(http_parser *parser, enum http_parser_type type);",
+      "description": "Initializes an http_parser instance to parse either HTTP requests, responses, or both, according to type. Use before the first call to http_parser_execute, and typically before reusing a parser for a new message stream.",
+      "requirements": [
+        "parser must be a valid, writable pointer.",
+        "type must be one of HTTP_REQUEST, HTTP_RESPONSE, or HTTP_BOTH.",
+        "Call before first use of parser with http_parser_execute, and before reuse for a new message stream.",
+        "The caller owns and maintains the lifetime of the parser struct storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_parser_settings_init",
+      "signature": "void http_parser_settings_init(http_parser_settings *settings);",
+      "description": "Zero-initializes an http_parser_settings structure so all callbacks are set to NULL/0. Set the callbacks you need after calling this, then pass it to http_parser_execute.",
+      "requirements": [
+        "settings must be a valid, writable pointer.",
+        "After initialization, set any desired callback function pointers to valid functions matching http_cb/http_data_cb signatures before use with http_parser_execute."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_parser_execute",
+      "signature": "size_t http_parser_execute(http_parser *parser, const http_parser_settings *settings, const char *data, size_t len);",
+      "description": "Feeds a buffer of len bytes to the HTTP parser. Drives the state machine and invokes callbacks from settings as parsing progresses. Returns the number of bytes successfully parsed; on error it sets parser->http_errno and stops (callbacks returning non-zero also stop parsing). Designed for streaming: can be called repeatedly with subsequent data chunks.",
+      "requirements": [
+        "parser must be a valid pointer to a parser previously initialized with http_parser_init.",
+        "settings must be a valid pointer; its callback members may be NULL (in which case those events are ignored) or valid function pointers with the declared signatures.",
+        "data must point to a readable buffer of at least len bytes; data may be NULL only if len == 0.",
+        "Callbacks must return 0 to continue parsing; returning non-zero indicates an error and halts parsing.",
+        "In a HTTP_RESPONSE parser, on_headers_complete may return 1 to indicate no body is expected (e.g., HEAD response) or 2 to indicate no body and no further responses (e.g., CONNECT).",
+        "http_data_cb callbacks can be invoked multiple times for a single logical field; do not assume chunk boundaries map to complete strings.",
+        "When on_chunk_header is called, the current chunk length is available in parser->content_length.",
+        "After http_parser_execute returns, check both the return value and parser->http_errno; also check parser->upgrade if you need to detect Upgrade semantics.",
+        "Do not read beyond the returned parsed byte count from the input when advancing your input pointer for the next call."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_should_keep_alive",
+      "signature": "int http_should_keep_alive(const http_parser *parser);",
+      "description": "Determines whether the connection should be kept alive based on the parsed message and headers (e.g., Connection and HTTP version semantics). Intended to be called in on_headers_complete or on_message_complete.",
+      "requirements": [
+        "parser must be a valid pointer to a parser that has parsed at least message headers.",
+        "If this returns 0 in on_headers_complete or on_message_complete, treat the message as the last on the connection (server: send Connection: close; client: close the connection)."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_method_str",
+      "signature": "const char *http_method_str(enum http_method m);",
+      "description": "Returns the symbolic string name of an HTTP method (e.g., \"GET\", \"POST\") for a given enum http_method value. Useful for logging or diagnostics.",
+      "requirements": [
+        "m should be a valid enum http_method value (e.g., HTTP_GET).",
+        "Behavior for invalid/unknown enum values is unspecified; callers should not pass out-of-range values."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_status_str",
+      "signature": "const char *http_status_str(enum http_status s);",
+      "description": "Returns the standard reason-phrase string for an HTTP status code enum (e.g., \"OK\", \"Not Found\"). Useful for formatting responses or logs.",
+      "requirements": [
+        "s should be a valid enum http_status value (e.g., HTTP_STATUS_OK).",
+        "Behavior for invalid/unknown enum values is unspecified; callers should not pass out-of-range values."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_errno_name",
+      "signature": "const char *http_errno_name(enum http_errno err);",
+      "description": "Returns the symbolic name string (e.g., \"HPE_INVALID_METHOD\") corresponding to an http-parser error code. Useful for error reporting.",
+      "requirements": [
+        "err should be a valid enum http_errno value, typically obtained via HTTP_PARSER_ERRNO(parser).",
+        "Behavior for invalid/unknown enum values is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_errno_description",
+      "signature": "const char *http_errno_description(enum http_errno err);",
+      "description": "Returns a human-readable description string for an http-parser error code (e.g., \"invalid HTTP method\"). Useful for diagnostics and logging.",
+      "requirements": [
+        "err should be a valid enum http_errno value, typically obtained via HTTP_PARSER_ERRNO(parser).",
+        "Behavior for invalid/unknown enum values is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_parser_url_init",
+      "signature": "void http_parser_url_init(struct http_parser_url *u);",
+      "description": "Zero-initializes an http_parser_url result structure. After initialization, pass it to http_parser_parse_url; then consult field_set and field_data to extract parsed components.",
+      "requirements": [
+        "u must be a valid, writable pointer.",
+        "Call this before parsing a URL to clear prior contents, or ensure the struct is otherwise zero-initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_parser_parse_url",
+      "signature": "int http_parser_parse_url(const char *buf, size_t buflen, int is_connect, struct http_parser_url *u);",
+      "description": "Parses an absolute or relative URL from buf of length buflen into the result structure u. On success, populates u->field_set bitmask and field_data offsets/lengths; converts the port (if present) to u->port. Returns nonzero on failure.",
+      "requirements": [
+        "buf must point to a readable buffer of at least buflen bytes; it need not be NUL-terminated.",
+        "buflen is the exact length of the URL in bytes.",
+        "u must be a valid, writable pointer; to avoid stale data, initialize u to zero using http_parser_url_init before calling.",
+        "is_connect should be nonzero when parsing the authority form typically used with CONNECT (affects URL grammar).",
+        "After a successful parse, only index u->field_data[UF_*] when the corresponding bit is set in u->field_set; otherwise the offsets/lengths are undefined."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_parser_pause",
+      "signature": "void http_parser_pause(http_parser *parser, int paused);",
+      "description": "Pauses or unpauses the parser. When paused is nonzero, http_parser_execute will enter the paused state and return with HPE_PAUSED set; pass 0 to resume normal parsing on subsequent calls.",
+      "requirements": [
+        "parser must be a valid pointer.",
+        "Pass a nonzero paused to pause, or 0 to unpause. The precise timing of pause effects depends on when invoked relative to http_parser_execute and callbacks."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_body_is_final",
+      "signature": "int http_body_is_final(const http_parser *parser);",
+      "description": "Checks whether the parser is currently at the final chunk of the message body (useful for chunked transfer-encoding). Returns nonzero if the current body chunk is final.",
+      "requirements": [
+        "parser must be a valid pointer.",
+        "Meaningful primarily when parsing message bodies, especially in chunked transfer scenarios."
+      ],
+      "error": null
+    },
+    {
+      "name": "http_parser_set_max_header_size",
+      "signature": "void http_parser_set_max_header_size(uint32_t size);",
+      "description": "Overrides the maximum header size limit used by the parser, replacing the compile-time default (HTTP_MAX_HEADER_SIZE). Affects how much header data will be accepted before signaling overflow.",
+      "requirements": [
+        "Callable at any time; applies process-wide/global to the parser implementation. Exact thread-safety and when the new limit takes effect relative to in-flight parsers are not specified in this header.",
+        "size is the new maximum in bytes; very large values effectively remove the limit."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "http_parser_version",
+      "inputs": [],
+      "outputs": [],
+      "code": "// No inputs; simple version query for coverage\nunsigned long v = http_parser_version();\n// Decode components to exercise bit math paths\nunsigned int major = (unsigned int)((v >> 16) & 0xFF);\nunsigned int minor = (unsigned int)((v >> 8) & 0xFF);\nunsigned int patch = (unsigned int)(v & 0xFF);\n// Basic sanity assertions about semantic version fields (non-negative and within byte range)\nFUZZ_ASSERT(major <= 255 && minor <= 255 && patch <= 255, \"version fields out of range\");\n// Validation: Trivially safe, no inputs or outputs. Covered version extraction logic."
+    },
+    {
+      "name": "http_parser_init",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "code": "// Enforce writable parser pointer (runtime guarantees non-null). Choose a valid parser type.\nunsigned int t = *FUZZ_PARAM(unsigned int) % 3; // 0..2 maps to HTTP_REQUEST/HTTP_RESPONSE/HTTP_BOTH\nenum http_parser_type type = (enum http_parser_type)t;\n\n// Initialize the parser\nhttp_parser_init(parser, type);\n\n// Track initialization and type for later stubs\nFUZZ_SET_ATTR_INT(parser, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(parser, \"type\", (int)t);\nFUZZ_SET_ATTR_INT(parser, \"executed\", 0);\nFUZZ_SET_ATTR_INT(parser, \"headers_complete\", 0);\nFUZZ_SET_ATTR_INT(parser, \"message_complete\", 0);\n// Validation: Parser is initialized with a valid type; attributes recorded for downstream checks."
+    },
+    {
+      "name": "http_parser_settings_init",
+      "inputs": [
+        {
+          "name": "settings",
+          "type": "http_parser_settings *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "settings",
+          "type": "http_parser_settings *"
+        }
+      ],
+      "code": "// Initialize settings to zeroed callbacks as required by API\nhttp_parser_settings_init(settings);\n// Mark as initialized; callbacks may be configured by other stubs prior to execute\nFUZZ_SET_ATTR_INT(settings, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(settings, \"callbacks_set\", 0);\n// Validation: Safe zero-init; settings returned for reuse/configuration."
+    },
+    {
+      "name": "http_parser_execute",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        },
+        {
+          "name": "settings",
+          "type": "http_parser_settings *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        },
+        {
+          "name": "settings",
+          "type": "http_parser_settings *"
+        }
+      ],
+      "code": "// Ensure parser was initialized\nif (FUZZ_GET_ATTR_INT(parser, \"initialized\") != 1) { FUZZ_BAIL(); }\n// Ensure settings are initialized; if not, initialize them here to be safe per API\nif (FUZZ_GET_ATTR_INT(settings, \"initialized\") != 1) {\n  http_parser_settings_init(settings);\n  FUZZ_SET_ATTR_INT(settings, \"initialized\", 1);\n  FUZZ_SET_ATTR_INT(settings, \"callbacks_set\", 0);\n}\n\n// If callbacks not yet set, install minimal non-capturing callbacks to exercise event paths\nif (FUZZ_GET_ATTR_INT(settings, \"callbacks_set\") == 0) {\n  settings->on_message_begin = +[](http_parser* p) -> int {\n    FUZZ_SET_ATTR_INT(p, \"in_message\", 1);\n    return 0; // continue\n  };\n  settings->on_url = +[](http_parser* p, const char* at, size_t length) -> int {\n    (void)at; (void)length; // exercise callback path without heavy work\n    return 0;\n  };\n  settings->on_status = +[](http_parser* p, const char* at, size_t length) -> int {\n    (void)p; (void)at; (void)length; return 0;\n  };\n  settings->on_header_field = +[](http_parser* p, const char* at, size_t length) -> int {\n    (void)p; (void)at; (void)length; return 0;\n  };\n  settings->on_header_value = +[](http_parser* p, const char* at, size_t length) -> int {\n    (void)p; (void)at; (void)length; return 0;\n  };\n  settings->on_headers_complete = +[](http_parser* p) -> int {\n    // Mark that headers were reached; return 0 to indicate continue with normal semantics\n    FUZZ_SET_ATTR_INT(p, \"headers_complete\", 1);\n    return 0;\n  };\n  settings->on_body = +[](http_parser* p, const char* at, size_t length) -> int {\n    (void)p; (void)at; (void)length; return 0;\n  };\n  settings->on_message_complete = +[](http_parser* p) -> int {\n    FUZZ_SET_ATTR_INT(p, \"message_complete\", 1);\n    FUZZ_SET_ATTR_INT(p, \"in_message\", 0);\n    return 0;\n  };\n  settings->on_chunk_header = +[](http_parser* p) -> int { (void)p; return 0; };\n  settings->on_chunk_complete = +[](http_parser* p) -> int { (void)p; return 0; };\n  FUZZ_SET_ATTR_INT(settings, \"callbacks_set\", 1);\n}\n\n// Prepare input buffer\nstd::string buf = FUZZ_PARAM_STR();\nsize_t max_len = buf.size();\n// Choose a length within the buffer bounds\nsize_t len = (max_len == 0) ? 0 : (*FUZZ_PARAM(unsigned int) % (max_len + 1));\n// Exercise API allowance: data may be NULL iff len == 0\nconst char* data_ptr = (len == 0 && ((*FUZZ_PARAM(unsigned int) % 2) == 0)) ? nullptr : buf.data();\n\nsize_t nparsed = http_parser_execute(parser, settings, data_ptr, len);\n// Property: parser must not claim to have parsed more than len bytes\nFUZZ_ASSERT(nparsed <= len, \"nparsed exceeds input length\");\n\n// Record that execute ran at least once\nFUZZ_SET_ATTR_INT(parser, \"executed\", 1);\n// Validation: Ensures parser/settings are properly initialized, installs safe callbacks, and checks basic postconditions."
+    },
+    {
+      "name": "http_should_keep_alive",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Require that the parser has at least reached headers to make this meaningful\nif (FUZZ_GET_ATTR_INT(parser, \"headers_complete\") == 0 && FUZZ_GET_ATTR_INT(parser, \"message_complete\") == 0) {\n  FUZZ_BAIL();\n}\nint ka = http_should_keep_alive(parser);\n(void)ka; // Value is advisory; just exercising the path\n// Validation: Only called after headers/message completion as tracked via attributes."
+    },
+    {
+      "name": "http_method_str",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Derive a valid enum http_method from a previously used parser (requests only)\nif (FUZZ_GET_ATTR_INT(parser, \"executed\") != 1) { FUZZ_BAIL(); }\n// If parser is not in request mode, result may be unspecified; enforce request or both\nint ptype = FUZZ_GET_ATTR_INT(parser, \"type\");\nif (!(ptype == 0 /*HTTP_REQUEST*/ || ptype == 2 /*HTTP_BOTH*/)) { FUZZ_BAIL(); }\n// Use the parser's method field which the library sets during parsing\nenum http_method m = (enum http_method)parser->method;\nconst char* name = http_method_str(m);\n(void)name;\n// Validation: Uses library-provided method value to avoid out-of-range enums."
+    },
+    {
+      "name": "http_status_str",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Derive a valid enum http_status from a previously used parser (responses only)\nif (FUZZ_GET_ATTR_INT(parser, \"executed\") != 1) { FUZZ_BAIL(); }\nint ptype = FUZZ_GET_ATTR_INT(parser, \"type\");\nif (!(ptype == 1 /*HTTP_RESPONSE*/ || ptype == 2 /*HTTP_BOTH*/)) { FUZZ_BAIL(); }\n// Use parser's status_code which is a 16-bit field in the struct\nenum http_status s = (enum http_status)parser->status_code;\nconst char* reason = http_status_str(s);\n(void)reason;\n// Validation: Avoids guessing status values by sourcing from the parser state."
+    },
+    {
+      "name": "http_errno_name",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Use current parser error code as a valid enum http_errno\nif (FUZZ_GET_ATTR_INT(parser, \"executed\") != 1) { FUZZ_BAIL(); }\nenum http_errno err = (enum http_errno)parser->http_errno;\nconst char* n = http_errno_name(err);\n(void)n;\n// Validation: Calls with a library-generated error code, avoiding undefined ranges."
+    },
+    {
+      "name": "http_errno_description",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Use current parser error code as a valid enum http_errno\nif (FUZZ_GET_ATTR_INT(parser, \"executed\") != 1) { FUZZ_BAIL(); }\nenum http_errno err = (enum http_errno)parser->http_errno;\nconst char* d = http_errno_description(err);\n(void)d;\n// Validation: Same safety as errno_name; ensures valid enum values."
+    },
+    {
+      "name": "http_parser_pause",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "code": "// Pause or unpause based on fuzzed bit\nint paused = (int)(*FUZZ_PARAM(unsigned int) & 1u);\nhttp_parser_pause(parser, paused);\n// Record paused state to help future logic (optional)\nFUZZ_SET_ATTR_INT(parser, \"paused\", paused);\n// Validation: Simple state toggle; parser returned for continued use."
+    },
+    {
+      "name": "http_body_is_final",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Meaningful primarily during/after body parsing; require at least an execute\nif (FUZZ_GET_ATTR_INT(parser, \"executed\") != 1) { FUZZ_BAIL(); }\nint fin = http_body_is_final(parser);\n(void)fin;\n// Validation: Called only on a parser that has processed data."
+    },
+    {
+      "name": "http_parser_set_max_header_size",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Set a global/process-wide header size limit. Keep within a small bound for fuzzer performance.\nuint32_t size = (uint32_t)(*FUZZ_PARAM(unsigned int) % 2048u);\nhttp_parser_set_max_header_size(size);\n// Track globally for potential diagnostics\nFUZZ_SET_ATTR_INT_GLOBAL(\"max_header_size\", (int)size);\n// Validation: Safe global setter with bounded value for performance."
+    },
+    {
+      "name": "http_parser_url_init",
+      "inputs": [
+        {
+          "name": "u",
+          "type": "struct http_parser_url *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "u",
+          "type": "struct http_parser_url *"
+        }
+      ],
+      "code": "// Zero-initialize the URL parser result struct per API\nhttp_parser_url_init(u);\n// Track init for downstream parse_url\nFUZZ_SET_ATTR_INT(u, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(u, \"url_parsed\", 0);\n// Validation: Safe zero-init of caller-owned storage; returns u for reuse."
+    },
+    {
+      "name": "http_parser_parse_url",
+      "inputs": [
+        {
+          "name": "u",
+          "type": "struct http_parser_url *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "u",
+          "type": "struct http_parser_url *"
+        }
+      ],
+      "code": "// Ensure the result struct is initialized (avoid stale data)\nif (FUZZ_GET_ATTR_INT(u, \"initialized\") != 1) {\n  http_parser_url_init(u);\n  FUZZ_SET_ATTR_INT(u, \"initialized\", 1);\n  FUZZ_SET_ATTR_INT(u, \"url_parsed\", 0);\n}\n// Generate candidate URL buffer (may contain NULs); truncate length for performance\nstd::string s = FUZZ_PARAM_STR();\nsize_t max_len = s.size();\nsize_t cap = max_len < 1024 ? max_len : (size_t)1024; // cap work per call\nsize_t buflen = (cap == 0) ? 0 : (*FUZZ_PARAM(unsigned int) % (cap + 1));\n// Choose CONNECT authority-form flag randomly\nint is_connect = (int)(*FUZZ_PARAM(unsigned int) & 1u);\n// Parse; buffer does not need to be NUL-terminated and may include NULs\nint rc = http_parser_parse_url(s.data(), buflen, is_connect, u);\n// Mark success/failure in attributes for later consumers\nFUZZ_SET_ATTR_INT(u, \"url_parsed\", rc == 0 ? 1 : 0);\nFUZZ_SET_ATTR_INT(u, \"is_connect\", is_connect);\n// Validation: Initializes as needed, respects exact-length semantics, and records parse result for downstream checks."
+    },
+    {
+      "name": "http_parser_settings *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "settings",
+          "type": "http_parser_settings *"
+        }
+      ],
+      "code": "// Allocate settings and initialize via API, ensuring non-null output\nhttp_parser_settings *settings = new (std::nothrow) http_parser_settings();\nif (!settings) { FUZZ_BAIL(); }\nhttp_parser_settings_init(settings);\n\n// Optionally install some callbacks to broaden coverage; use no-capture lambdas so they decay to C function pointers\nunsigned int mask = *FUZZ_PARAM(unsigned int);\nint callbacks_installed = 0;\nif (mask & 1u) { settings->on_message_begin = +[](http_parser* p) -> int { FUZZ_SET_ATTR_INT(p, \"in_message\", 1); return 0; }; callbacks_installed = 1; }\nif (mask & 2u) { settings->on_url = +[](http_parser* p, const char* at, size_t len) -> int { (void)p; (void)at; (void)len; return 0; }; callbacks_installed = 1; }\nif (mask & 4u) { settings->on_status = +[](http_parser* p, const char* at, size_t len) -> int { (void)p; (void)at; (void)len; return 0; }; callbacks_installed = 1; }\nif (mask & 8u) { settings->on_header_field = +[](http_parser* p, const char* at, size_t len) -> int { (void)p; (void)at; (void)len; return 0; }; callbacks_installed = 1; }\nif (mask & 16u) { settings->on_header_value = +[](http_parser* p, const char* at, size_t len) -> int { (void)p; (void)at; (void)len; return 0; }; callbacks_installed = 1; }\nif (mask & 32u) { settings->on_headers_complete = +[](http_parser* p) -> int { FUZZ_SET_ATTR_INT(p, \"headers_complete\", 1); return 0; }; callbacks_installed = 1; }\nif (mask & 64u) { settings->on_body = +[](http_parser* p, const char* at, size_t len) -> int { (void)p; (void)at; (void)len; return 0; }; callbacks_installed = 1; }\nif (mask & 128u) { settings->on_message_complete = +[](http_parser* p) -> int { FUZZ_SET_ATTR_INT(p, \"message_complete\", 1); FUZZ_SET_ATTR_INT(p, \"in_message\", 0); return 0; }; callbacks_installed = 1; }\nif (mask & 256u) { settings->on_chunk_header = +[](http_parser* p) -> int { (void)p; return 0; }; callbacks_installed = 1; }\nif (mask & 512u) { settings->on_chunk_complete = +[](http_parser* p) -> int { (void)p; return 0; }; callbacks_installed = 1; }\n\n// Track initialization and whether callbacks were set for downstream stubs\nFUZZ_SET_ATTR_INT(settings, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(settings, \"callbacks_set\", callbacks_installed);\n\n// Validation: Ensures non-null allocated settings, zero-inits per API, and safely installs optional callbacks."
+    },
+    {
+      "name": "struct http_parser_url *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "u",
+          "type": "struct http_parser_url *"
+        }
+      ],
+      "code": "// Allocate URL result object and initialize per API\nstruct http_parser_url *u = new (std::nothrow) http_parser_url();\nif (!u) { FUZZ_BAIL(); }\nhttp_parser_url_init(u);\n\n// Attribute tracking for downstream parse_url usage\nFUZZ_SET_ATTR_INT(u, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(u, \"url_parsed\", 0);\n\n// Validation: Provides a fresh, zero-initialized http_parser_url suitable for parsing."
+    },
+    {
+      "name": "http_parser *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "http_parser *"
+        }
+      ],
+      "code": "// Allocate parser storage and initialize with a valid type\nhttp_parser *parser = new (std::nothrow) http_parser();\nif (!parser) { FUZZ_BAIL(); }\nunsigned int t = *FUZZ_PARAM(unsigned int) % 3; // HTTP_REQUEST=0, HTTP_RESPONSE=1, HTTP_BOTH=2\nenum http_parser_type type = (enum http_parser_type)t;\nhttp_parser_init(parser, type);\n\n// Record lifecycle and mode attributes for downstream API usage\nFUZZ_SET_ATTR_INT(parser, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(parser, \"type\", (int)t);\nFUZZ_SET_ATTR_INT(parser, \"executed\", 0);\nFUZZ_SET_ATTR_INT(parser, \"headers_complete\", 0);\nFUZZ_SET_ATTR_INT(parser, \"message_complete\", 0);\nFUZZ_SET_ATTR_INT(parser, \"paused\", 0);\n\n// Validation: Allocates and properly initializes an http_parser, annotating state for subsequent stubs."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "http_parser_version",
+      "data_types": []
+    },
+    {
+      "name": "http_parser_init",
+      "data_types": []
+    },
+    {
+      "name": "http_parser_settings_init",
+      "data_types": []
+    },
+    {
+      "name": "http_should_keep_alive",
+      "data_types": []
+    },
+    {
+      "name": "http_method_str",
+      "data_types": []
+    },
+    {
+      "name": "http_status_str",
+      "data_types": []
+    },
+    {
+      "name": "http_errno_name",
+      "data_types": []
+    },
+    {
+      "name": "http_errno_description",
+      "data_types": []
+    },
+    {
+      "name": "http_parser_pause",
+      "data_types": []
+    },
+    {
+      "name": "http_body_is_final",
+      "data_types": []
+    },
+    {
+      "name": "http_parser_set_max_header_size",
+      "data_types": []
+    },
+    {
+      "name": "http_parser_url_init",
+      "data_types": []
+    },
+    {
+      "name": "http_parser_settings *",
+      "data_types": []
+    },
+    {
+      "name": "struct http_parser_url *",
+      "data_types": []
+    },
+    {
+      "name": "http_parser *",
+      "data_types": []
+    },
+    {
+      "name": "http_parser_execute",
+      "data_types": [
+        "HTTP/1.x message bytes"
+      ]
+    },
+    {
+      "name": "http_parser_parse_url",
+      "data_types": [
+        "URL string bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "HTTP/1.x message bytes",
+      "description": "Arbitrary byte buffer interpreted as an HTTP/1.x request/response stream for http_parser_execute. May contain any printable or binary bytes, including CRLF-delimited start-line, headers, optional chunked body, and can include NULs. Not required to be NUL-terminated; length is provided explicitly."
+    },
+    {
+      "data_type": "URL string bytes",
+      "description": "A byte buffer treated as a URL according to RFC 3986/HTTP parser rules. May be absolute or relative, may include authority, path, query, fragment, and can include NULs. Not required to be NUL-terminated; exact length is specified separately."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "HTTP/1.x message bytes",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for valid HTTP/1.x messages and fragments tailored for http_parser_execute\n# Goals:\n# - Produce syntactically valid start-lines (request/response)\n# - Cover headers: Content-Length, Transfer-Encoding: chunked, Connection, Upgrade, Host, custom headers\n# - Produce bodies consistent with headers (fixed length, chunked, none)\n# - Include variations: absolute-form, origin-form, authority-form (CONNECT), asterisk-form (OPTIONS *),\n#   responses with/without body (1xx, 204, 304, HEAD), chunk extensions and trailers\n# - Allow partial buffers (prefixes) since the fuzzer may pass a shorter len than full buffer\n# - Keep under 4096 bytes\n\nCRLF = b\"\\r\\n\"\n\nMETHODS = [\n    \"GET\", \"POST\", \"PUT\", \"DELETE\", \"HEAD\", \"OPTIONS\", \"TRACE\", \"CONNECT\", \"PATCH\",\n    # some WebDAV/ext methods the parser recognizes\n    \"PROPFIND\", \"MKCOL\", \"COPY\", \"MOVE\", \"LOCK\", \"UNLOCK\", \"SEARCH\", \"REPORT\"\n]\n\nHTTP_VERS = [\"HTTP/1.0\", \"HTTP/1.1\"]\n\nREASONS = {\n    100: \"Continue\", 101: \"Switching Protocols\", 102: \"Processing\",\n    200: \"OK\", 201: \"Created\", 202: \"Accepted\", 204: \"No Content\",\n    206: \"Partial Content\",\n    300: \"Multiple Choices\", 301: \"Moved Permanently\", 302: \"Found\", 304: \"Not Modified\",\n    307: \"Temporary Redirect\", 308: \"Permanent Redirect\",\n    400: \"Bad Request\", 401: \"Unauthorized\", 403: \"Forbidden\", 404: \"Not Found\",\n    405: \"Method Not Allowed\", 408: \"Request Timeout\",\n    411: \"Length Required\", 413: \"Payload Too Large\", 414: \"URI Too Long\",\n    415: \"Unsupported Media Type\", 418: \"I'm a teapot\",\n    426: \"Upgrade Required\",\n    500: \"Internal Server Error\", 501: \"Not Implemented\", 502: \"Bad Gateway\",\n    503: \"Service Unavailable\", 504: \"Gateway Timeout\"\n}\n\nSC_NO_BODY = {100, 101, 102, 204, 304}\n\n# Small corpus for paths, queries, hosts\nPATHS = [\"/\", \"/index.html\", \"/api/v1/resource\", \"/a/b/c\", \"/长路径/テスト\", \"/spaces here\", \"/%2Fencoded%20space\"]\nQUERIES = [\"\", \"?q=test\", \"?a=1&b=2\", \"?empty=\", \"?weird=%00%FF\", \"?x=1; y=2\"]\nSCHEMES = [\"http\", \"https\"]\nHOSTS = [\"example.com\", \"localhost\", \"127.0.0.1\", \"[::1]\", \"xn--exmple-cua.com\"]\nPORTS = [\"\", \":80\", \":443\", \":8080\"]\n\nCONTENT_TYPES = [\n    \"text/plain; charset=utf-8\",\n    \"application/json\",\n    \"application/octet-stream\",\n    \"application/x-www-form-urlencoded\",\n]\n\nUPGRADES = [\"websocket\", \"h2c\", \"TLS/1.0\", \"TLS/1.2\"]\n\nTRAILER_FIELDS = [\"ETag\", \"Expires\", \"X-Trailer\", \"Checksum\"]\n\n# Utilities\n\ndef rand_token(r: random.Random, min_len=3, max_len=12) -> str:\n    tchars = string.ascii_letters + string.digits + \"!#$%&'*+-.^_`|~\"\n    n = r.randint(min_len, max_len)\n    return \"\".join(r.choice(tchars) for _ in range(n))\n\n\ndef rand_header_value(r: random.Random, min_len=0, max_len=20) -> str:\n    # RFC allows obs-text; include some UTF-8 and spaces\n    choices = string.ascii_letters + string.digits + \" -_/;,:.=()[]{}\" + \"\\t\"\n    # sprinkle some unicode\n    extra = [\"µ\", \"✓\", \"§\", \"Ω\", \"Ž\", \"漢\"]\n    n = r.randint(min_len, max_len)\n    s = \"\".join(r.choice(choices) for _ in range(max(0, n - 1)))\n    if n > 0 and r.random() < 0.3:\n        s += r.choice(extra)\n    return s\n\n\ndef make_body(r: random.Random, min_len=0, max_len=512) -> bytes:\n    # compose body with mix of text and binary\n    n = r.randint(min_len, max_len)\n    parts: List[bytes] = []\n    while sum(len(p) for p in parts) < n:\n        choice = r.random()\n        if choice < 0.5:\n            # ascii text\n            seg = (\"Lorem ipsum dolor sit amet, consectetur adipiscing elit. \").encode(\"utf-8\")\n        elif choice < 0.8:\n            # json-like\n            seg = (\"{\\\"k\\\":\\\"v\\\",\\\"n\\\":\" + str(r.randint(0, 1000)) + \"}\").encode(\"utf-8\")\n        else:\n            # random bytes\n            seg = bytes(r.getrandbits(8) for _ in range(r.randint(8, 64)))\n        parts.append(seg)\n    data = b\"\".join(parts)[:n]\n    return data\n\n\ndef chunk_encode(body: bytes, r: random.Random, with_trailers=True) -> bytes:\n    out = bytearray()\n    i = 0\n    L = len(body)\n    # split into chunks of random sizes\n    while i < L:\n        sz = r.randint(1, min(64, L - i))\n        # Optional chunk extension\n        if r.random() < 0.3:\n            ext = \";\" + rand_token(r, 2, 6) + \"=\" + rand_token(r, 1, 4)\n        else:\n            ext = \"\"\n        out.extend((f\"{sz:x}{ext}\").encode(\"ascii\"))\n        out.extend(CRLF)\n        out.extend(body[i:i+sz])\n        out.extend(CRLF)\n        i += sz\n    # final zero chunk\n    out.extend(b\"0\")\n    # maybe extension on final chunk\n    if r.random() < 0.3:\n        out.extend((\";\" + rand_token(r, 2, 6)).encode(\"ascii\"))\n    out.extend(CRLF)\n    # optional trailers\n    if with_trailers and r.random() < 0.7:\n        ntrail = r.randint(1, 3)\n        for _ in range(ntrail):\n            name = r.choice(TRAILER_FIELDS)\n            val = rand_header_value(r, 0, 16)\n            out.extend((f\"{name}: {val}\").encode(\"utf-8\"))\n            out.extend(CRLF)\n    # end trailers\n    out.extend(CRLF)\n    return bytes(out)\n\n\ndef build_request(r: random.Random) -> bytes:\n    method = r.choice(METHODS)\n    version = r.choice(HTTP_VERS)\n\n    # Choose request-target form\n    form_choice = r.random()\n    if method == \"CONNECT\" and form_choice < 0.7:\n        # authority-form\n        host = r.choice(HOSTS)\n        port = r.choice([\":443\", \":80\", f\":{r.randint(1,65535)}\"])\n        target = f\"{host}{port}\"\n    elif method == \"OPTIONS\" and form_choice < 0.4:\n        target = \"*\"\n    elif form_choice < 0.5:\n        # absolute-form\n        scheme = r.choice(SCHEMES)\n        host = r.choice(HOSTS)\n        port = r.choice(PORTS)\n        path = r.choice(PATHS) + r.choice(QUERIES)\n        target = f\"{scheme}://{host}{port}{path}\"\n    else:\n        # origin-form\n        target = r.choice(PATHS) + r.choice(QUERIES)\n\n    start_line = f\"{method} {target} {version}\".encode(\"utf-8\") + CRLF\n\n    headers: List[Tuple[str, str]] = []\n\n    # Required Host for HTTP/1.1 (good to add often)\n    if version == \"HTTP/1.1\" and method != \"CONNECT\":\n        host_val = r.choice(HOSTS) + (r.choice(PORTS) if r.random() < 0.5 else \"\")\n        headers.append((\"Host\", host_val))\n\n    # Connection header variations\n    conn_vals = [\"keep-alive\", \"close\"]\n    if method != \"CONNECT\":\n        conn_vals.append(\"upgrade\")\n    if r.random() < 0.7:\n        headers.append((\"Connection\", r.choice(conn_vals)))\n\n    # User-Agent and Accept\n    if r.random() < 0.7:\n        headers.append((\"User-Agent\", \"fuzzgen/1.0\"))\n    if r.random() < 0.5:\n        headers.append((\"Accept\", \"*/*\"))\n\n    # Content and upgrade decisions\n    send_body = method in (\"POST\", \"PUT\", \"PATCH\") and r.random() < 0.9\n    use_chunked = send_body and r.random() < 0.5\n\n    # Upgrade header scenario\n    if r.random() < 0.2 and method in (\"GET\", \"POST\"):\n        headers.append((\"Upgrade\", r.choice(UPGRADES)))\n        if not any(h[0].lower() == \"connection\" for h in headers):\n            headers.append((\"Connection\", \"Upgrade\"))\n\n    if send_body:\n        if r.random() < 0.6:\n            headers.append((\"Content-Type\", r.choice(CONTENT_TYPES)))\n        if use_chunked:\n            headers.append((\"Transfer-Encoding\", \"chunked\"))\n            body = make_body(r, 0, 256)\n            payload = chunk_encode(body, r)\n        else:\n            body = make_body(r, 0, 256)\n            headers.append((\"Content-Length\", str(len(body))))\n            payload = body\n    else:\n        # no body\n        payload = b\"\"\n        # sometimes explicitly set Content-Length: 0\n        if r.random() < 0.4 and method in (\"GET\", \"HEAD\", \"DELETE\", \"OPTIONS\"):\n            headers.append((\"Content-Length\", \"0\"))\n\n    # Add a few random headers\n    for _ in range(r.randint(0, 4)):\n        headers.append((rand_token(r), rand_header_value(r)))\n\n    # Build header section\n    head = bytearray(start_line)\n    for k, v in headers:\n        # Optional folding via obs-fold is obsolete; avoid to keep validity\n        head.extend((f\"{k}: {v}\").encode(\"utf-8\"))\n        head.extend(CRLF)\n    head.extend(CRLF)\n\n    return bytes(head) + payload\n\n\ndef build_response(r: random.Random) -> bytes:\n    version = r.choice(HTTP_VERS)\n    status = r.choice(list(REASONS.keys()))\n    reason = REASONS[status]\n\n    start_line = f\"{version} {status} {reason}\".encode(\"utf-8\") + CRLF\n\n    headers: List[Tuple[str, str]] = []\n\n    # Date and Server common\n    if r.random() < 0.8:\n        headers.append((\"Server\", \"fuzzsrv/1.0\"))\n    if r.random() < 0.6:\n        headers.append((\"Date\", \"Tue, 15 Nov 1994 08:12:31 GMT\"))\n\n    # HEAD responses have no body even with Content-Length\n    is_head_semantics = r.random() < 0.2\n\n    # Decide body presence\n    has_body = (status not in SC_NO_BODY) and not is_head_semantics\n\n    # Connection header\n    if r.random() < 0.7:\n        headers.append((\"Connection\", r.choice([\"keep-alive\", \"close\"])) )\n\n    # Upgrade scenario for 101 Switching Protocols\n    if status == 101 and r.random() < 0.7:\n        headers.append((\"Upgrade\", r.choice(UPGRADES)))\n        if not any(h[0].lower() == \"connection\" for h in headers):\n            headers.append((\"Connection\", \"Upgrade\"))\n\n    if has_body:\n        use_chunked = r.random() < 0.5 and version == \"HTTP/1.1\"\n        if r.random() < 0.5:\n            headers.append((\"Content-Type\", r.choice(CONTENT_TYPES)))\n        if use_chunked:\n            headers.append((\"Transfer-Encoding\", \"chunked\"))\n            body = make_body(r, 0, 256)\n            payload = chunk_encode(body, r)\n        else:\n            body = make_body(r, 0, 256)\n            headers.append((\"Content-Length\", str(len(body))))\n            payload = body\n    else:\n        payload = b\"\"\n        # Sometimes include Content-Length: 0\n        if r.random() < 0.5:\n            headers.append((\"Content-Length\", \"0\"))\n\n    # Random extra headers\n    for _ in range(r.randint(0, 4)):\n        headers.append((rand_token(r), rand_header_value(r)))\n\n    head = bytearray(start_line)\n    for k, v in headers:\n        head.extend((f\"{k}: {v}\").encode(\"utf-8\"))\n        head.extend(CRLF)\n    head.extend(CRLF)\n\n    return bytes(head) + payload\n\n\ndef maybe_multiple_messages(r: random.Random) -> bytes:\n    # Build a sequence of 1..3 messages back-to-back to exercise keep-alive and streaming\n    msgs: List[bytes] = []\n    n = r.randint(1, 3)\n    for i in range(n):\n        # Mix requests and responses to target HTTP_BOTH\n        if r.random() < 0.5:\n            msgs.append(build_request(r))\n        else:\n            msgs.append(build_response(r))\n        # Optionally insert extraneous CRLF between messages like some servers do\n        if i < n - 1 and r.random() < 0.4:\n            msgs.append(CRLF)\n    data = b\"\".join(msgs)\n    if len(data) > 4096:\n        data = data[:4096]\n    return data\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Choose a scenario profile\n    profile = r.random()\n    if profile < 0.25:\n        buf = build_request(r)\n    elif profile < 0.5:\n        buf = build_response(r)\n    else:\n        buf = maybe_multiple_messages(r)\n\n    # Ensure within size limit\n    if len(buf) > 4096:\n        buf = buf[:4096]\n\n    return buf\n"
+    },
+    {
+      "data_type": "URL string bytes",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# URL generator for http_parser_parse_url fuzzer\n# Produces valid and diverse URL byte sequences (not NUL-terminated) up to 1024 bytes\n# Seeded randomness for reproducibility.\n\nSAFE_PCHAR = string.ascii_letters + string.digits + \"-._~\"\nSUBDELIMS = \"!$&'()*+,;=\"\nUNRESERVED = SAFE_PCHAR\nPCHAR_SAFE = UNRESERVED + SUBDELIMS + \":@\"  # pchar without pct-encoded (we add %XX separately)\nHEX = \"0123456789ABCDEF\"\n\nSCHEMES = [\n    \"http\", \"https\", \"ws\", \"wss\", \"ftp\", \"file\", \"gopher\", \"mailto\", \"urn\"\n]\nUSERINFO_SPECIAL = \":;=+$,\"\nHOST_LABEL_CHARS = string.ascii_letters + string.digits + \"-\"\nPATH_SEGMENT_SPECIAL = \";@\"  # allowed in pchar\nQUERY_FRAGMENT_EXTRA = \"/?\"\n\nCOMMON_PATHS = [\n    \"/\", \"/index.html\", \"/api/v1/resource\", \"/a/b/c\", \"/%s/%s\",\n    \"/search\", \"/robots.txt\", \"/.well-known/security.txt\"\n]\n\nCOMMON_QUERIES = [\n    \"q=parser\", \"a=1&b=2\", \"x=%s\", \"token=abc123\", \"empty=\", \"arr=1&arr=2\",\n]\n\nCOMMON_FRAGMENTS = [\"top\", \"section-1\", \"⚑\", \"frag\", \"line=10\"]\n\nPORTS = [\"\", \":80\", \":443\", \":8080\", \":65535\", \":1\"]\n\n\ndef rand_pct_encoded(r: random.Random) -> str:\n    b = r.randrange(0, 256)\n    return \"%\" + HEX[(b >> 4) & 0xF] + HEX[b & 0xF]\n\n\ndef rand_label(r: random.Random, min_len=1, max_len=10) -> str:\n    # DNS label: start/end alnum, may contain '-'\n    n = r.randint(min_len, max_len)\n    if n == 1:\n        return r.choice(string.ascii_lowercase + string.digits)\n    s = [r.choice(string.ascii_lowercase + string.digits)]\n    for _ in range(n - 2):\n        s.append(r.choice(HOST_LABEL_CHARS))\n    s.append(r.choice(string.ascii_lowercase + string.digits))\n    return \"\".join(s)\n\n\ndef rand_host(r: random.Random) -> str:\n    choice = r.random()\n    if choice < 0.15:\n        # IPv4\n        return \".\".join(str(r.randint(0, 255)) for _ in range(4))\n    if choice < 0.25:\n        # Simple bracketed IPv6 samples\n        return r.choice([\"[::1]\", \"[2001:db8::1]\", \"[::ffff:192.0.2.1]\"])\n    # Domain with 1-4 labels, optionally punycode-like token\n    labels = [rand_label(r) for _ in range(r.randint(1, 4))]\n    if r.random() < 0.2:\n        labels[-1] = \"xn--\" + rand_label(r, 3, 8)\n    return \".\".join(labels)\n\n\ndef rand_userinfo(r: random.Random) -> str:\n    if r.random() < 0.6:\n        user = ''.join(r.choice(SAFE_PCHAR + USERINFO_SPECIAL) for _ in range(r.randint(1, 8)))\n        if r.random() < 0.7:\n            pwd = ''.join(r.choice(SAFE_PCHAR + USERINFO_SPECIAL) for _ in range(r.randint(0, 6)))\n            return f\"{user}:{pwd}@\"\n        return user + \"@\"\n    return \"\"\n\n\ndef rand_port(r: random.Random) -> str:\n    if r.random() < 0.5:\n        return r.choice(PORTS)\n    return \":\" + str(r.randint(1, 65535))\n\n\ndef rand_pct_or_char(r: random.Random, extra: str = \"\") -> str:\n    if r.random() < 0.15:\n        return rand_pct_encoded(r)\n    return r.choice(PCHAR_SAFE + extra)\n\n\ndef rand_segment(r: random.Random, min_len=0, max_len=12) -> str:\n    n = r.randint(min_len, max_len)\n    return ''.join(rand_pct_or_char(r, PATH_SEGMENT_SPECIAL) for _ in range(n))\n\n\ndef _choose_common_path(r: random.Random) -> str:\n    # Pick a template once and use consistently to avoid mismatched formatting\n    tmpl = r.choice(COMMON_PATHS)\n    if \"%s\" in tmpl:\n        return tmpl % (rand_label(r), rand_label(r))\n    return tmpl\n\n\ndef rand_path(r: random.Random) -> str:\n    if r.random() < 0.4:\n        return _choose_common_path(r)\n    depth = r.randint(0, 6)\n    segs = [rand_segment(r) for _ in range(depth)]\n    return \"/\" + \"/\".join(segs) if segs else \"/\"\n\n\ndef rand_query(r: random.Random) -> str:\n    if r.random() < 0.5:\n        base = r.choice(COMMON_QUERIES)\n        if \"%s\" in base:\n            base = base % (rand_pct_or_char(r))\n        return \"?\" + base\n    # Build k=v pairs\n    pairs = []\n    for _ in range(r.randint(1, 4)):\n        k = ''.join(r.choice(UNRESERVED) for _ in range(r.randint(1, 6)))\n        v_len = r.randint(0, 8)\n        v = ''.join(rand_pct_or_char(r, QUERY_FRAGMENT_EXTRA) for _ in range(v_len))\n        pairs.append(f\"{k}={v}\")\n    s = \"&\".join(pairs)\n    return \"?\" + s\n\n\ndef rand_fragment(r: random.Random) -> str:\n    if r.random() < 0.5:\n        return \"#\" + r.choice(COMMON_FRAGMENTS)\n    n = r.randint(1, 12)\n    s = ''.join(rand_pct_or_char(r, QUERY_FRAGMENT_EXTRA) for _ in range(n))\n    return \"#\" + s\n\n\ndef build_absolute_uri(r: random.Random) -> str:\n    scheme = r.choice(SCHEMES)\n    auth = \"//\" + rand_userinfo(r) + rand_host(r) + rand_port(r)\n    path = rand_path(r)\n    q = rand_query(r) if r.random() < 0.7 else \"\"\n    f = rand_fragment(r) if r.random() < 0.4 else \"\"\n    return f\"{scheme}:{auth}{path}{q}{f}\"\n\n\ndef build_authority_form(r: random.Random) -> str:\n    # For CONNECT: authority form host[:port]\n    return rand_host(r) + (rand_port(r) if r.random() < 0.9 else \"\")\n\n\ndef build_origin_form(r: random.Random) -> str:\n    # Typical request-target in Request-Line without scheme/authority\n    path = rand_path(r)\n    q = rand_query(r) if r.random() < 0.6 else \"\"\n    f = rand_fragment(r) if r.random() < 0.3 else \"\"\n    return f\"{path}{q}{f}\"\n\n\ndef build_asterisk_form() -> str:\n    return \"*\"\n\n\ndef build_relative_ref(r: random.Random) -> str:\n    # e.g., ./a/../b?x#y\n    parts = []\n    if r.random() < 0.6:\n        parts.append(\"./\")\n    if r.random() < 0.4:\n        parts.append(\"../\")\n    parts.append(rand_path(r))\n    if r.random() < 0.5:\n        parts.append(rand_query(r))\n    if r.random() < 0.3:\n        parts.append(rand_fragment(r))\n    return ''.join(parts)\n\n\ndef maybe_embed_nuls(r: random.Random, s: bytes) -> bytes:\n    # http_parser_parse_url accepts NULs; fuzzers pass explicit length.\n    if not s:\n        return s\n    if r.random() < 0.15:\n        # Insert a small number of NULs at random positions\n        b = bytearray(s)\n        for _ in range(r.randint(1, 3)):\n            pos = r.randrange(0, len(b))\n            b.insert(pos, 0)\n        return bytes(b)\n    return s\n\n\ndef clamp_size(b: bytes, max_len: int = 1024) -> bytes:\n    return b[:max_len]\n\n\ndef build_url_bytes(r: random.Random) -> bytes:\n    pick = r.random()\n    if pick < 0.30:\n        s = build_absolute_uri(r)\n    elif pick < 0.45:\n        s = build_authority_form(r)\n    elif pick < 0.85:\n        s = build_origin_form(r)\n    elif pick < 0.95:\n        s = build_relative_ref(r)\n    else:\n        s = build_asterisk_form()\n\n    # Occasionally produce upper-case scheme or mixed case paths to test case-insensitivity where applicable\n    if r.random() < 0.2 and \":\" in s:\n        scheme, rest = s.split(\":\", 1)\n        scheme = scheme.upper() if r.random() < 0.5 else scheme.capitalize()\n        s = scheme + \":\" + rest\n\n    # Encode to bytes (utf-8), keep non-ASCII fragments as UTF-8 which many clients emit\n    b = s.encode('utf-8', errors='strict')\n\n    # Occasionally add trailing spaces or tabs which are technically not part of URL but parser takes exact len\n    if r.random() < 0.1:\n        tail = r.choice([\"\", \" \", \"\\t\"]) * r.randint(1, 3)\n        b += tail.encode('ascii')\n\n    b = maybe_embed_nuls(r, b)\n    b = clamp_size(b)\n    return b\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Mix additional entropy so same seed across runs still gives variety per call site\n    for _ in range(3):\n        r.random()\n    return build_url_bytes(r)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5138,
+            "output_tokens": 1697,
+            "total_tokens": 6835
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4716,
+            "output_tokens": 79,
+            "total_tokens": 4795
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5223,
+            "output_tokens": 2779,
+            "total_tokens": 8002
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 18111,
+            "output_tokens": 7239,
+            "total_tokens": 25350
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9129,
+            "output_tokens": 2182,
+            "total_tokens": 11311
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6112,
+            "output_tokens": 197,
+            "total_tokens": 6309
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 448.1322371959686,
+    "scan_objects": 28.0708270072937,
+    "validate_objects": 1.100813388824463,
+    "scan_functions": 58.3550283908844,
+    "synthesis": 176.38522696495056,
+    "fill": 44.188589334487915,
+    "classify": 7.757692337036133,
+    "build_generators": 132.27306008338928
+  }
+}

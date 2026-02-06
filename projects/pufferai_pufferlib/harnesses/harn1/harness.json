@@ -1,0 +1,249 @@
+{
+  "objects": [
+    {
+      "ptr_type": "Arena *",
+      "aliases": [],
+      "definition": "typedef struct {\n    void* data;\n    size_t capacity;\n    size_t used;\n} Arena;",
+      "description": "Simple bump/arena allocator state holding a backing buffer pointer (data), total capacity in bytes, and the number of bytes currently used. Intended to be passed to alloc for linear allocations; there is no deallocation for individual blocks implied here.",
+      "direct_api_constructors": [
+        "make_allocator"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "make_allocator",
+      "signature": "Arena* make_allocator(size_t total_size);",
+      "description": "Creates and returns a new Arena-style allocator with a total backing capacity of total_size bytes. Intended to be used with alloc() to obtain monotonically-allocated blocks from the arena. Details about ownership and deallocation are not provided in this header; freeing semantics are unknown.",
+      "requirements": [
+        "total_size is a size in bytes; valid size_t value is required",
+        "Return value may be NULL on allocation failure (inferred); callers should check for NULL",
+        "The returned Arena* must be passed to alloc() to obtain memory from the arena (inferred from naming)",
+        "Lifetime/cleanup mechanism for the Arena is unknown; callers should treat deallocation as unspecified"
+      ],
+      "error": null
+    },
+    {
+      "name": "alloc",
+      "signature": "void* alloc(Arena* allocator, size_t size);",
+      "description": "Allocates size bytes from the provided Arena allocator and returns a pointer to the allocated block. Typical arena semantics suggest monotonic allocation from a fixed-capacity buffer without per-block free, but only the function name and types are given; exact behavior on overflow or alignment is unknown.",
+      "requirements": [
+        "allocator must be a valid, initialized Arena* as returned by make_allocator() (inferred)",
+        "allocator must not be NULL",
+        "size is a size in bytes; valid size_t value is required",
+        "Behavior when requested size exceeds the arena's remaining capacity is unspecified; callers should not assume success and should handle a possible NULL return (inferred)",
+        "No guarantee of specific alignment is stated; alignment requirements are unknown"
+      ],
+      "error": null
+    },
+    {
+      "name": "_relu",
+      "signature": "void _relu(float* input, float* output, int size);",
+      "description": "Applies the elementwise ReLU activation to input and writes results to output for size elements: output[i] = max(0, input[i]). Intended for array-based inference or tensor ops.",
+      "requirements": [
+        "input must point to an array of at least size floats (inferred)",
+        "output must point to an array of at least size floats (inferred)",
+        "input and output must not be NULL",
+        "size must be non-negative; behavior for negative values is undefined/unknown (inferred)",
+        "In-place operation (input == output) is not documented; safety of overlapping buffers is unknown"
+      ],
+      "error": null
+    },
+    {
+      "name": "_gelu",
+      "signature": "void _gelu(float* input, float* output, int size);",
+      "description": "Applies the elementwise GELU activation to input and writes results to output for size elements. Exact approximation variant (e.g., tanh-based) is not specified.",
+      "requirements": [
+        "input must point to an array of at least size floats (inferred)",
+        "output must point to an array of at least size floats (inferred)",
+        "input and output must not be NULL",
+        "size must be non-negative; behavior for negative values is undefined/unknown (inferred)",
+        "In-place operation (input == output) is not documented; safety of overlapping buffers is unknown"
+      ],
+      "error": null
+    },
+    {
+      "name": "_sigmoid",
+      "signature": "float _sigmoid(float x);",
+      "description": "Computes and returns the sigmoid activation 1/(1+exp(-x)) for the scalar x. No side effects.",
+      "requirements": [
+        "Input is a finite float; behavior for NaN/Inf is library/implementation-defined and not specified"
+      ],
+      "error": null
+    },
+    {
+      "name": "_linear",
+      "signature": "void _linear(float* input, float* weights, float* bias, float* output, int batch_size, int input_dim, int output_dim);",
+      "description": "Performs a batched linear transform: for each batch b, computes output[b, j] = sum_i input[b, i] * weights[i, j] + bias[j]. Intended for dense layer forward passes. Memory layout is assumed to be contiguous row-major vectors per the parameter naming; exact strides are not specified.",
+      "requirements": [
+        "input must point to at least batch_size * input_dim floats, laid out contiguously (inferred)",
+        "weights must point to at least input_dim * output_dim floats, laid out contiguously (inferred)",
+        "bias must point to at least output_dim floats (inferred)",
+        "output must point to at least batch_size * output_dim floats (inferred)",
+        "All pointers (input, weights, bias, output) must not be NULL",
+        "batch_size, input_dim, and output_dim should be non-negative integers; behavior for negative values is undefined/unknown (inferred)",
+        "No broadcasting semantics are documented; inputs must exactly match the required sizes (inferred)",
+        "In-place usage where output aliases any of input/weights/bias is not documented; overlapping buffers are unsafe/unknown"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "make_allocator",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "arena",
+          "type": "Arena *"
+        }
+      ],
+      "code": "// Generate a small, positive capacity to keep allocations bounded (<2048 bytes)\nsize_t total_size = (size_t)(*FUZZ_PARAM(unsigned int) % 2048) + 1;\n\n// Create the arena allocator\nArena *arena = make_allocator(total_size);\n\n// Enforce non-null on creation so we never return a null output object\nif (!arena) { FUZZ_BAIL(); }\n\n// Track arena metadata for downstream functions\nFUZZ_SET_ATTR_INT(arena, \"capacity\", (int)total_size);\nFUZZ_SET_ATTR_INT(arena, \"used\", 0);\nFUZZ_SET_ATTR_STR(arena, \"state\", \"valid\");\n\n// Validation: returns a non-null Arena* and annotates capacity/used for later alloc() calls."
+    },
+    {
+      "name": "alloc",
+      "inputs": [
+        {
+          "name": "allocator",
+          "type": "Arena *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "allocator",
+          "type": "Arena *"
+        }
+      ],
+      "code": "// Validate allocator input and attributes set by make_allocator\nconst char *state = FUZZ_GET_ATTR_STR(allocator, \"state\");\nint cap = FUZZ_GET_ATTR_INT(allocator, \"capacity\");\nint used = FUZZ_GET_ATTR_INT(allocator, \"used\");\nif (!state || state[0] == '\\0') { FUZZ_BAIL(); }\nint is_valid = (state[0]=='v' && state[1]=='a' && state[2]=='l');\nif (!is_valid) { FUZZ_BAIL(); }\nif (cap <= 0) { FUZZ_BAIL(); }\nif (used < 0) { used = 0; }\nif (used > cap) { used = cap; }\n\n// Pick a requested size. Sometimes request within remaining capacity, sometimes over to explore failure.\nunsigned base = *FUZZ_PARAM(unsigned int);\nsize_t remaining = (size_t)(cap - used);\nbool request_within = (base & 1) != 0;\nsize_t req = 0;\nif (request_within) {\n    size_t max_within = remaining > 0 ? remaining : 1;\n    size_t slice = ((size_t)(base >> 1) % 512) + 1; // 1..512\n    req = slice <= max_within ? slice : max_within;\n} else {\n    size_t over = ((size_t)(base >> 9) % 256) + 1; // 1..256\n    req = remaining + over;\n}\nif (req == 0) { req = 1; }\n\n// Perform the allocation\nvoid *blk = alloc(allocator, (size_t)req);\n\n// If allocation succeeded, update bookkeeping; otherwise, leave as-is\nif (blk) {\n    size_t new_used = (size_t)used + req;\n    if (new_used > (size_t)cap) { new_used = (size_t)cap; }\n    FUZZ_SET_ATTR_INT(allocator, \"used\", (int)new_used);\n}\n\n// Note: we intentionally do not return the allocated block as an output because it may be NULL and has\n// unspecified lifetime semantics; the allocator remains in outputs for continued fuzzing.\n// Validation: ensures allocator is a valid Arena, requests a bounded size, and updates used only on success."
+    },
+    {
+      "name": "_relu",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Derive input data and size from a fuzz string; ensure non-negative size and separate output buffer\nstd::string bytes = FUZZ_PARAM_STR();\nsize_t n = bytes.size() / sizeof(float);\nif (n > 256) n = 256; // keep work bounded\nif (n == 0) { FUZZ_BAIL(); }\n\nstd::vector<float> in(n);\n// Fill input floats from bytes deterministically\nfor (size_t i = 0; i < n; ++i) {\n    float v = 0.0f;\n    memcpy(&v, bytes.data() + i * sizeof(float), sizeof(float));\n    in[i] = v;\n}\nstd::vector<float> out(n, 0.0f);\n\n// Call target\n_relu(in.data(), out.data(), (int)n);\n\n// Property: ReLU output must be non-negative\nfor (size_t i = 0; i < n; ++i) {\n    if (!(out[i] >= 0.0f)) { FUZZ_ASSERT(false, \"ReLU output must be non-negative\"); }\n}\n// Validation: constructs valid non-overlapping buffers and enforces basic ReLU property (out >= 0)."
+    },
+    {
+      "name": "_gelu",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare input/output buffers similarly to _relu\nstd::string bytes = FUZZ_PARAM_STR();\nsize_t n = bytes.size() / sizeof(float);\nif (n > 256) n = 256;\nif (n == 0) { FUZZ_BAIL(); }\n\nstd::vector<float> in(n);\nfor (size_t i = 0; i < n; ++i) {\n    float v = 0.0f;\n    memcpy(&v, bytes.data() + i * sizeof(float), sizeof(float));\n    in[i] = v;\n}\nstd::vector<float> out(n, 0.0f);\n\n_gelu(in.data(), out.data(), (int)n);\n\n// Property: outputs should be finite numbers for finite inputs\nfor (size_t i = 0; i < n; ++i) {\n    if (std::isfinite(in[i])) {\n        if (!std::isfinite(out[i])) { FUZZ_ASSERT(false, \"GELU output must be finite for finite input\"); }\n    }\n}\n// Validation: uses distinct buffers, size-bounded, and asserts finiteness for finite inputs."
+    },
+    {
+      "name": "_sigmoid",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a finite input\nfloat x = *FUZZ_PARAM(float);\nif (!std::isfinite(x)) { x = 0.0f; }\n\nfloat y = _sigmoid(x);\n\n// Property: sigmoid outputs are in (0,1) for finite inputs; allow endpoints for extreme inputs due to precision\nif (!(y >= 0.0f && y <= 1.0f) || !std::isfinite(y)) {\n    FUZZ_ASSERT(false, \"Sigmoid output must be finite and within [0,1]\");\n}\n// Validation: constrains input to finite and asserts standard sigmoid range."
+    },
+    {
+      "name": "_linear",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Use fuzz bytes to derive dimensions and data; ensure sizes are small and non-negative\nstd::string seed = FUZZ_PARAM_STR();\nsize_t ssz = seed.size();\nif (ssz < 16) { FUZZ_BAIL(); }\n\nauto rd32 = [&](size_t off){ uint32_t v=0; memcpy(&v, seed.data() + (off % (ssz-3)), 4); return v; };\nuint32_t r1 = rd32(0), r2 = rd32(4), r3 = rd32(8);\n\nint batch_size = (int)(r1 % 8) + 1;   // 1..8\nint input_dim  = (int)(r2 % 16) + 1;  // 1..16\nint output_dim = (int)(r3 % 16) + 1;  // 1..16\n\n// Bound total buffer sizes to keep < 2048 bytes per buffer\nsize_t in_elems  = (size_t)batch_size * (size_t)input_dim;\nsize_t w_elems   = (size_t)input_dim * (size_t)output_dim;\nsize_t out_elems = (size_t)batch_size * (size_t)output_dim;\nif (in_elems > 512 || w_elems > 512 || out_elems > 512) { FUZZ_BAIL(); }\n\n// Allocate and fill inputs from seed bytes (cycle if needed)\nauto fill_floats = [&](std::vector<float>& v){\n    size_t need = v.size() * sizeof(float);\n    for (size_t i = 0; i < v.size(); ++i) {\n        float f = 0.0f;\n        size_t off = (i * sizeof(float)) % ssz;\n        if (off + sizeof(float) <= ssz) {\n            memcpy(&f, seed.data() + off, sizeof(float));\n        } else {\n            // wrap-around copy\n            unsigned char tmp[4] = {0,0,0,0};\n            size_t first = ssz - off;\n            memcpy(tmp, seed.data() + off, first);\n            memcpy(tmp + first, seed.data(), sizeof(float) - first);\n            memcpy(&f, tmp, sizeof(float));\n        }\n        v[i] = f;\n    }\n};\n\nstd::vector<float> input(in_elems);\nstd::vector<float> weights(w_elems);\nstd::vector<float> bias(output_dim);\nstd::vector<float> output(out_elems, 0.0f);\nfill_floats(input);\nfill_floats(weights);\nfill_floats(bias);\n\n// Call target\n_linear(input.data(), weights.data(), bias.data(), output.data(), batch_size, input_dim, output_dim);\n\n// Basic sanity: outputs should be finite if all inputs are finite\nbool all_in_finite = true;\nfor (size_t i = 0; i < input.size(); ++i) { if (!std::isfinite(input[i])) { all_in_finite = false; break; } }\nif (all_in_finite) {\n    for (size_t i = 0; i < weights.size(); ++i) { if (!std::isfinite(weights[i])) { all_in_finite = false; break; } }\n}\nif (all_in_finite) {\n    for (size_t i = 0; i < bias.size(); ++i) { if (!std::isfinite(bias[i])) { all_in_finite = false; break; } }\n}\nif (all_in_finite) {\n    for (size_t i = 0; i < output.size(); ++i) {\n        if (!std::isfinite(output[i])) { FUZZ_ASSERT(false, \"Linear output must be finite for finite inputs\"); }\n    }\n}\n// Validation: constructs size-consistent, non-overlapping buffers and asserts finiteness under finite inputs."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "make_allocator",
+      "data_types": []
+    },
+    {
+      "name": "alloc",
+      "data_types": []
+    },
+    {
+      "name": "_sigmoid",
+      "data_types": []
+    },
+    {
+      "name": "_relu",
+      "data_types": [
+        "raw bytes to float array"
+      ]
+    },
+    {
+      "name": "_gelu",
+      "data_types": [
+        "raw bytes to float array"
+      ]
+    },
+    {
+      "name": "_linear",
+      "data_types": [
+        "raw bytes to float array"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "raw bytes to float array",
+      "description": "An arbitrary byte buffer interpreted as a sequence of IEEE-754 32-bit floats by copying 4-byte chunks into float values (endianness depends on platform memcpy semantics). The number of floats is derived from the buffer length divided by 4, optionally with wrap-around to reuse bytes when filling arrays. Suitable for generating arbitrary float arrays (including NaN/Inf patterns) from fuzz data."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "raw bytes to float array",
+      "generator": "import struct\nimport random\nimport math\nfrom typing import List\n\n# This generator produces byte buffers that, when interpreted in the fuzz stubs,\n# yield interesting float arrays and dimension seeds. It targets three stubs:\n# - _relu: bytes interpreted as consecutive float32 values\n# - _gelu: same as _relu\n# - _linear: first 16+ bytes determine dims via rd32; remaining bytes are used to fill input/weights/bias\n# We craft patterns to cover: negatives/positives/zeros, denormals, NaN/Inf, large/small magnitudes,\n# alternating signs, and deterministic seeds producing varied dimensions.\n\nMAX_BYTES = 4096\n\n# Helpers to pack float32 and uint32 in little-endian; the fuzz stubs use memcpy and host endianness,\n# but little-endian is dominant and sufficient to produce diverse patterns.\ndef f32(x: float) -> bytes:\n    return struct.pack('<f', x)\n\ndef u32(x: int) -> bytes:\n    return struct.pack('<I', x & 0xFFFFFFFF)\n\n# Bit-pattern floats (including NaNs/Infs/denormals)\ndef f32_bits(bits: int) -> bytes:\n    return struct.pack('<I', bits & 0xFFFFFFFF)\n\n# Common interesting float values\nINTERESTING_FLOATS = [\n    0.0, -0.0, 1.0, -1.0, 0.5, -0.5, 2.0, -2.0, 10.0, -10.0,\n    1e-38, -1e-38, 1e-45, -1e-45, 3.4028235e+38, -3.4028235e+38,  # min subnormal, extremes\n]\n# Bit patterns for NaN/Inf/denormals\nINTERESTING_BITS = [\n    0x7F800000,  # +Inf\n    0xFF800000,  # -Inf\n    0x7FC00000,  # quiet NaN\n    0x7FA00001,  # another NaN-ish\n    0x00000001,  # smallest subnormal\n    0x80000001,  # negative smallest subnormal\n    0x00000000,  # +0\n    0x80000000,  # -0\n]\n\n# Build a seed segment that the _linear stub will use to derive dims.\n# It reads three uint32 words r1,r2,r3 from the first 12+ bytes (any offsets due to modulo wrap),\n# then maps to batch 1..8, input 1..16, output 1..16 via modulo. We randomize but bias toward\n# small and larger ranges to vary buffer sizes. Ensure total size remains bounded.\ndef make_dim_seed(rng: random.Random) -> bytes:\n    # Choose dimensions explicitly, then back-compute r1..r3 values that produce them.\n    batch = rng.randint(1, 8)\n    inp = rng.randint(1, 16)\n    out = rng.randint(1, 16)\n    # Create r values with the chosen modulo result. For modulo m, choose k*m + (val-1)\n    r1 = rng.randrange(0, 1 << 32)\n    r1 = (r1 // 8) * 8 + (batch - 1)\n    r2 = rng.randrange(0, 1 << 32)\n    r2 = (r2 // 16) * 16 + (inp - 1)\n    r3 = rng.randrange(0, 1 << 32)\n    r3 = (r3 // 16) * 16 + (out - 1)\n    # Provide at least 16 bytes so the stub passes its ssz < 16 check.\n    seed = u32(r1) + u32(r2) + u32(r3) + u32(rng.getrandbits(32))\n    return seed\n\ndef make_float_block(rng: random.Random, count: int) -> bytes:\n    out = bytearray()\n    # Mix patterns to probe various numeric regions\n    patterns: List[bytes] = []\n    # Deterministic set\n    for v in INTERESTING_FLOATS:\n        patterns.append(f32(v))\n    for b in INTERESTING_BITS:\n        patterns.append(f32_bits(b))\n    # Some random normals with wide exponent range\n    for _ in range(16):\n        sign = -1.0 if rng.random() < 0.5 else 1.0\n        # Exponent roughly uniform over [-38, 38]\n        exp10 = rng.randint(-38, 38)\n        mant = rng.uniform(0.1, 0.999999)\n        val = sign * mant * (10.0 ** exp10)\n        # Clip to float32 range by converting through struct\n        patterns.append(f32(val))\n    # Alternating small numbers\n    for k in range(8):\n        val = ((-1.0) ** k) * (10.0 ** (-k - 1))\n        patterns.append(f32(val))\n    # Shuffle and repeat to reach count\n    rng.shuffle(patterns)\n    i = 0\n    while len(out) < count * 4:\n        out += patterns[i % len(patterns)]\n        i += 1\n    return bytes(out[: count * 4])\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Strategy selection: choose one of several shapes to exercise different code paths\n    mode = rng.choice([\n        'relu_short',     # small number of floats for _relu/_gelu\n        'relu_mixed',     # mixture including NaNs/Infs\n        'gelu_long',      # longer input (bounded)\n        'linear_small',   # small linear dims\n        'linear_medium',  # medium linear dims\n        'linear_edge',    # dims near upper bounds to stress fill\n    ])\n\n    buf = bytearray()\n\n    if mode in ('relu_short', 'relu_mixed', 'gelu_long'):\n        # Make a float array length between 1 and 256 so stub doesn't bail and stays bounded\n        n = {'relu_short': rng.randint(1, 16),\n             'relu_mixed': rng.randint(8, 64),\n             'gelu_long': rng.randint(128, 256)}[mode]\n        buf += make_float_block(rng, n)\n    else:\n        # Linear modes: first seed bytes (>=16), then enough data to fill input/weights/bias\n        dim_seed = make_dim_seed(rng)\n        # Decode chosen dims similarly to stub logic for sizing the remaining payload\n        r1, r2, r3, _ = struct.unpack('<IIII', dim_seed[:16])\n        batch = (r1 % 8) + 1\n        inp = (r2 % 16) + 1\n        out = (r3 % 16) + 1\n        in_elems = batch * inp\n        w_elems = inp * out\n        b_elems = out\n        # Bias sizes per mode\n        scale = {'linear_small': 1.0, 'linear_medium': 1.0, 'linear_edge': 1.0}[mode]\n        # Compose: dim seed + floats for all tensors. The stub will wrap/cycle bytes if needed,\n        # but we try to provide at least exact sizes for strong signal.\n        payload_elems = in_elems + w_elems + b_elems\n        # Bound overall size\n        max_elems = min(payload_elems, (MAX_BYTES - len(dim_seed)) // 4)\n        # Ensure at least some payload even if dims are big\n        want_elems = max(1, max_elems)\n        floats = make_float_block(rng, want_elems)\n        buf += dim_seed\n        buf += floats\n\n    # Final safety bound\n    return bytes(buf[:MAX_BYTES])\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 834,
+            "output_tokens": 115,
+            "total_tokens": 949
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 412,
+            "output_tokens": 34,
+            "total_tokens": 446
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 862,
+            "output_tokens": 1423,
+            "total_tokens": 2285
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4760,
+            "output_tokens": 5391,
+            "total_tokens": 10151
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3649,
+            "output_tokens": 159,
+            "total_tokens": 3808
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 189.9984381198883,
+    "scan_objects": 3.951840877532959,
+    "validate_objects": 0.194047212600708,
+    "scan_functions": 31.039642810821533,
+    "synthesis": 103.42173933982849,
+    "fill": 0,
+    "classify": 3.3752875328063965,
+    "build_generators": 48.01524066925049
+  }
+}

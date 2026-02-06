@@ -1,0 +1,234 @@
+{
+  "objects": [
+    {
+      "ptr_type": "nebula::MurmurHash2 *",
+      "aliases": [],
+      "definition": "namespace nebula {\n\n/**\n * This is an implementation of MurmurHash2,\n * which is identical to `std::hash'(at least until GCC 8.1).\n * This one is more performant on short strings, because:\n *  1. It could be inlined.\n *  2. It utilizes the loop unrolling trick.\n * Besides, it works with the plain old raw bytes array!\n */\nclass MurmurHash2 {\n  template <typename T>\n  static constexpr bool is_char_v =\n      std::is_same<T, char>::value || std::is_same<T, signed char>::value ||\n      std::is_same<T, unsigned char>::value;\n\n public:\n  // std::string\n  size_t operator()(const std::string &str) const noexcept {\n    return this->operator()(str.data(), str.length());\n  }\n\n  // null-terminated C-style string\n  template <typename T, typename = std::enable_if_t<is_char_v<T>>>\n  size_t operator()(const T *&str) const noexcept {\n    return this->operator()(str, ::strlen(str));\n  }\n\n  // raw bytes array\n  template <typename T, typename = std::enable_if_t<is_char_v<T>>>\n  size_t operator()(const T *str, size_t size) const noexcept {\n    uint64_t seed = 0xc70f6907UL;\n    const uint64_t m = 0xc6a4a7935bd1e995;\n    const uint32_t r = 47;\n    uint64_t h = seed ^ (size * m);\n    const uint64_t *data = (const uint64_t *)str;\n    const uint64_t *end = data + (size / 8);\n    while (data != end) {\n      uint64_t k = *data++;\n\n      k *= m;\n      k ^= k >> r;\n      k *= m;\n\n      h ^= k;\n      h *= m;\n    }\n\n    const unsigned char *data2 = (const unsigned char *)data;\n    switch (size & 7) {\n      case 7:\n        h ^= uint64_t(data2[6]) << 48;  // fallthrough\n      case 6:\n        h ^= uint64_t(data2[5]) << 40;  // fallthrough\n      case 5:\n        h ^= uint64_t(data2[4]) << 32;  // fallthrough\n      case 4:\n        h ^= uint64_t(data2[3]) << 24;  // fallthrough\n      case 3:\n        h ^= uint64_t(data2[2]) << 16;  // fallthrough\n      case 2:\n        h ^= uint64_t(data2[1]) << 8;  // fallthrough\n      case 1:\n        h ^= uint64_t(data2[0]);\n        h *= m;  // fallthrough\n    }\n    h ^= h >> r;\n    h *= m;\n    h ^= h >> r;\n\n    return h;\n  }\n\n  // std::thread::id\n  size_t operator()(std::thread::id id) const noexcept {\n    return std::hash<std::thread::id>()(id);\n  }\n\n  // literal string(without decay)\n  template <size_t N, typename T, typename = std::enable_if_t<is_char_v<T>>>\n  size_t operator()(const T (&str)[N]) const noexcept {\n    return this->operator()(str, N - 1);\n  }\n\n  // integer\n  template <typename T>\n  std::enable_if_t<std::is_integral<T>::value, size_t> operator()(T key) const noexcept {\n    return static_cast<size_t>(key);\n  }\n\n  // pointers\n  template <typename T>\n  std::enable_if_t<!is_char_v<T>, size_t> operator()(const T *ptr) const noexcept {\n    return reinterpret_cast<size_t>(ptr);\n  }\n\n  // std::shared_ptr\n  template <typename T>\n  size_t operator()(const std::shared_ptr<T> &ptr) const noexcept {\n    return reinterpret_cast<size_t>(ptr.get());\n  }\n\n  // std::unique_ptr\n  template <typename T, typename Deleter>\n  size_t operator()(const std::unique_ptr<T, Deleter> &ptr) const noexcept {\n    return reinterpret_cast<size_t>(ptr.get());\n  }\n};\n\n}  // namespace nebula",
+      "description": "Stateless functor implementing MurmurHash2 hashing. Provides overloaded operator() for strings, C-style strings, raw byte arrays, integral types, pointers, thread IDs, and smart pointers. Optimized for short inputs via inlining and loop unrolling. No constructors or state; safe to copy and use as a hasher in associative containers. Destruction has no special requirements. Template helper is_char_v is an internal detail.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "size_t nebula::MurmurHash2::operator()(const std::string& str) const noexcept",
+      "description": "Hashes a std::string using a MurmurHash2-based implementation. Optimized for short strings and inlinable. Intended as a fast general-purpose hash for string keys.",
+      "requirements": [
+        "str.data() must point to at least str.length() readable bytes.",
+        "Function is noexcept and does not throw.",
+        "May be called from multiple threads; the functor is stateless."
+      ],
+      "error": null
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "template <typename T, typename = std::enable_if_t<is_char_v<T>>> size_t nebula::MurmurHash2::operator()(const T*& str) const noexcept",
+      "description": "Hashes a null-terminated C-style string (pointer passed by reference) of character type using MurmurHash2. The pointer itself is not modified; the reference allows overload resolution to prefer null-terminated strings.",
+      "requirements": [
+        "T must be one of char, signed char, or unsigned char.",
+        "str must be non-null and point to a null-terminated byte string; memory must be readable up to and including the terminating '\\0'.",
+        "Function is noexcept and does not throw."
+      ],
+      "error": null
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "template <typename T, typename = std::enable_if_t<is_char_v<T>>> size_t nebula::MurmurHash2::operator()(const T* str, size_t size) const noexcept",
+      "description": "Hashes a raw byte buffer of character type with explicit size using a MurmurHash2 64-bit style mix (fixed seed). Suitable for hashing arbitrary bytes.",
+      "requirements": [
+        "T must be one of char, signed char, or unsigned char.",
+        "str may be null only if size == 0; otherwise str must point to at least size readable bytes.",
+        "The function reads the buffer as 64-bit chunks internally; the provided memory must be valid and accessible for the given size.",
+        "Function is noexcept and does not throw."
+      ],
+      "error": null
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "size_t nebula::MurmurHash2::operator()(std::thread::id id) const noexcept",
+      "description": "Hashes a std::thread::id by delegating to std::hash<std::thread::id>(). Useful for using thread IDs as keys in hash-based containers.",
+      "requirements": [
+        "No preconditions on id; any valid std::thread::id is accepted.",
+        "Function is noexcept and does not throw."
+      ],
+      "error": null
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "template <size_t N, typename T, typename = std::enable_if_t<is_char_v<T>>> size_t nebula::MurmurHash2::operator()(const T (&str)[N]) const noexcept",
+      "description": "Hashes a character array (e.g., string literal) without decay, treating it as a null-terminated string of length N-1. This avoids a runtime strlen for literals.",
+      "requirements": [
+        "T must be one of char, signed char, or unsigned char.",
+        "str must reference an array of size N whose last element is the null terminator when used as a C string; the function hashes the first N-1 elements.",
+        "Function is noexcept and does not throw."
+      ],
+      "error": null
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "template <typename T> std::enable_if_t<std::is_integral<T>::value, size_t> nebula::MurmurHash2::operator()(T key) const noexcept",
+      "description": "Hashes an integral value by casting it to size_t. Intended for quickly hashing integer keys without additional mixing.",
+      "requirements": [
+        "T must be an integral type (std::is_integral<T>::value == true).",
+        "Be aware that negative values (for signed T) will be converted to size_t by implementation-defined unsigned conversion.",
+        "Function is noexcept and does not throw."
+      ],
+      "error": null
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "template <typename T> std::enable_if_t<!is_char_v<T>, size_t> nebula::MurmurHash2::operator()(const T* ptr) const noexcept",
+      "description": "Hashes a non-character typed pointer by reinterpreting the address as size_t. The pointed-to data is not read.",
+      "requirements": [
+        "T must not be a character type (char, signed char, unsigned char).",
+        "ptr may be null; only the pointer value is used.",
+        "No alignment or lifetime requirements beyond having a representable pointer value; the object is not dereferenced.",
+        "Function is noexcept and does not throw."
+      ],
+      "error": null
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "signature": "template <typename T> size_t nebula::MurmurHash2::operator()(const std::shared_ptr<T>& ptr) const noexcept",
+      "description": "Hashes a std::shared_ptr by hashing its underlying raw pointer address (ptr.get()). The managed object is not inspected.",
+      "requirements": [
+        "ptr may be empty (null); only ptr.get() is used.",
+        "Hash equality follows pointer identity, not object value semantics.",
+        "Function is noexcept and does not throw."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "inputs": [
+        {
+          "name": "hasher",
+          "type": "nebula::MurmurHash2 *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hasher",
+          "type": "nebula::MurmurHash2 *"
+        }
+      ],
+      "code": "// Exercise multiple operator() overloads on a stateless hasher instance.\n// Input object \"hasher\" is provided by the runtime and is non-null.\n\n// 1) std::string overload: use bounded-size strings to control allocation.\nstd::string s1 = FUZZ_PARAM_STR();\nif (s1.size() > 1024) { s1.resize(1024); }\nsize_t h1 = hasher->operator()(s1);\nsize_t h1b = hasher->operator()(s1);\n// Determinism: hashing the same string twice should yield identical results.\nFUZZ_ASSERT(h1 == h1b, \"Deterministic hash for identical std::string input\");\n\n// 2) C-string overload (const T*&): provide a null-terminated string pointer reference.\n// Use s1.c_str(), which is guaranteed to be null-terminated and readable.\nconst char *cptr = s1.c_str();\nconst char *&cptr_ref = cptr;  // bind lvalue reference to pointer as required by the API\nsize_t h2 = hasher->operator()(cptr_ref);\nFUZZ_ASSERT(h2 == hasher->operator()(cptr_ref), \"Deterministic hash for identical C-string input\");\n\n// 3) Raw bytes overload (const T* buf, size_t size): may pass null only when size==0.\nstd::string s2 = FUZZ_PARAM_STR();\nif (s2.size() > 1024) { s2.resize(1024); }\nbool use_null_buf = ((*FUZZ_PARAM(unsigned int)) % 4) == 0;  // occasionally test (nullptr, 0)\nconst char *raw = use_null_buf ? nullptr : s2.data();\nsize_t raw_sz = use_null_buf ? 0 : s2.size();\n// Enforce API precondition: if size != 0 then buffer must be non-null.\nif (raw_sz != 0 && raw == nullptr) { FUZZ_BAIL(); }\nsize_t h3 = hasher->operator()(raw, raw_sz);\nFUZZ_ASSERT(h3 == hasher->operator()(raw, raw_sz), \"Deterministic hash for identical raw buffer input\");\n\n// 4) std::thread::id overload: any valid id accepted; use the current thread id.\nstd::thread::id tid = std::this_thread::get_id();\n( void )hasher->operator()(tid);\n\n// 5) Literal array overload: call with a compile-time literal to hit this path.\n( void )hasher->operator()(\"lit\");\n\n// 6) Integral overload: exercise both signed and unsigned integral types.\nlong long sval = *FUZZ_PARAM(long long);\n( void )hasher->operator()(sval);\nunsigned int uval = *FUZZ_PARAM(unsigned int);\n( void )hasher->operator()(uval);\n\n// 7) Non-char pointer overload: pass a non-char typed pointer; the pointee is not dereferenced.\nint dummy = 0;\nconst int *ip = &dummy;  // T = int, which is not a character type\n( void )hasher->operator()(ip);\n\n// 8) std::shared_ptr overload: test both empty and non-empty shared_ptr.\nbool make_empty_sp = ((*FUZZ_PARAM(unsigned int)) % 2) == 0;\nstd::shared_ptr<int> sp = make_empty_sp ? std::shared_ptr<int>() : std::make_shared<int>(*FUZZ_PARAM(int));\n( void )hasher->operator()(sp);\n\n// The hasher is stateless; return it to the pool as an output.\n"
+    },
+    {
+      "name": "nebula::MurmurHash2 *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "hasher",
+          "type": "nebula::MurmurHash2 *"
+        }
+      ],
+      "code": "// Construct a stateless nebula::MurmurHash2 functor.\n// This type is trivially default-constructible and user-managed.\n\nnebula::MurmurHash2 *hasher = new (std::nothrow) nebula::MurmurHash2();\nif (!hasher) { FUZZ_BAIL(); }\n\n// Optional: mark as stateless; useful for downstream stubs if needed.\nFUZZ_SET_ATTR_INT(hasher, \"stateless\", 1);\n\n// Quick smoke test to ensure the instance is usable without violating API constraints.\n// Use the raw-bytes overload with (nullptr, 0), which is explicitly allowed.\nconst char *null_buf = nullptr;\n( void )hasher->operator()(null_buf, 0);\n\n// Validation summary:\n// - hasher is heap-allocated and non-null (checked), ownership returned via outputs.\n// - No inputs consumed; object is ready for downstream operator() invocations.\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "nebula::MurmurHash2 *",
+      "data_types": []
+    },
+    {
+      "name": "nebula::MurmurHash2::operator()",
+      "data_types": [
+        "arbitrary binary data",
+        "null-terminated string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A buffer of raw bytes with an explicit length. May contain any values including NUL bytes and is not required to be valid text or encoded content. Suitable for APIs that take (ptr, size) and treat input as opaque bytes."
+    },
+    {
+      "data_type": "null-terminated string",
+      "description": "A C-style string terminated by a NUL byte. Memory must be readable up to and including the terminating NUL; contents may be any byte sequence that includes a terminating NUL, typically used via const char* or similar."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator targets inputs used by the MurmurHash2 fuzzer stub.\n# The stub consumes FUZZ_PARAM_STR for s1 and s2, plus integral parameters\n# via FUZZ_PARAM(unsigned int), FUZZ_PARAM(long long), FUZZ_PARAM(int).\n# Our buffer will be interpreted by the harness to sequentially satisfy\n# these FUZZ_PARAM calls. We therefore craft a byte stream that contains:\n# - Two interesting strings (for s1 and s2), each length-prefixed to help the\n#   harness split them if it uses typical length-prefix semantics, or separated\n#   with NUL so c_str() and data() are coherent and varied.\n# - A few integers to feed FUZZ_PARAM integral requests. We provide enough bytes\n#   so repeated integer pulls succeed. Endianness-agnostic harnesses typically\n#   read little-endian; we emit little-endian.\n#\n# Design goals:\n# - Strings cover diverse lengths and character classes, including NUL inside,\n#   ASCII, extended bytes, and edge sizes (0, small, near 1024 cap).\n# - Raw buffer case sometimes uses null buffer via use_null_buf decision; we\n#   bias integers so that occasionally (mod 4 == 0) happens.\n# - Keep total under 4096 bytes.\n\nMAX_TOTAL = 4096\n\nASCII_SETS = [\n    string.ascii_lowercase,\n    string.ascii_uppercase,\n    string.digits,\n    string.punctuation,\n]\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_interesting_string(rng: random.Random, target_max: int) -> bytes:\n    # Choose a pattern\n    patterns = [\n        \"empty\",\n        \"ascii_word\",\n        \"mixed_ascii\",\n        \"with_nuls\",\n        \"repeated_block\",\n        \"utf8_like\",\n        \"binary\",\n        \"edge_1024\",\n    ]\n    p = rng.choice(patterns)\n\n    if p == \"empty\":\n        payload = b\"\"\n    elif p == \"ascii_word\":\n        # simple lowercase\n        n = rng.randint(1, min(64, target_max))\n        payload = ''.join(rng.choice(string.ascii_lowercase) for _ in range(n)).encode()\n    elif p == \"mixed_ascii\":\n        # mix of classes\n        pool = ''.join(ASCII_SETS)\n        n = rng.randint(1, min(256, target_max))\n        payload = ''.join(rng.choice(pool) for _ in range(n)).encode()\n    elif p == \"with_nuls\":\n        # include embedded NULs\n        n = rng.randint(1, min(128, target_max))\n        parts: List[bytes] = []\n        remaining = n\n        while remaining > 0:\n            chunk = rng.randint(0, min(16, remaining))\n            parts.append(_rand_bytes(rng, chunk))\n            remaining -= chunk\n            if remaining > 0:\n                # insert a NUL\n                parts.append(b\"\\x00\")\n                remaining -= 1\n        payload = b\"\".join(parts)\n    elif p == \"repeated_block\":\n        # exercise loop-unrolling by hitting multiples of 8\n        block = _rand_bytes(rng, rng.choice([1, 2, 4, 8, 16]))\n        reps = rng.randint(1, max(1, min(128, target_max // max(1, len(block)))))\n        payload = (block * reps)[:target_max]\n    elif p == \"utf8_like\":\n        # generate valid-looking UTF-8 sequences of various lengths\n        chunks: List[bytes] = []\n        total = rng.randint(1, min(512, target_max))\n        while len(chunks) < total:\n            t = rng.random()\n            if t < 0.5:\n                chunks.append(bytes([rng.randint(0x20, 0x7E)]))\n            elif t < 0.7:\n                # 2-byte\n                b1 = rng.randint(0xC2, 0xDF)\n                b2 = rng.randint(0x80, 0xBF)\n                chunks.append(bytes([b1, b2]))\n            elif t < 0.9:\n                # 3-byte\n                b1 = rng.randint(0xE0, 0xEF)\n                b2 = rng.randint(0x80, 0xBF)\n                b3 = rng.randint(0x80, 0xBF)\n                chunks.append(bytes([b1, b2, b3]))\n            else:\n                # 4-byte\n                b1 = rng.randint(0xF0, 0xF4)\n                b2 = rng.randint(0x80, 0xBF)\n                b3 = rng.randint(0x80, 0xBF)\n                b4 = rng.randint(0x80, 0xBF)\n                chunks.append(bytes([b1, b2, b3, b4]))\n            if sum(len(c) for c in chunks) > target_max:\n                break\n        payload = b\"\".join(chunks)[:target_max]\n    elif p == \"binary\":\n        n = rng.randint(1, min(512, target_max))\n        payload = _rand_bytes(rng, n)\n    else:  # edge_1024\n        # make size near boundary 1024 where stub truncates\n        n = rng.choice([1024, 1023, 1025, 1000])\n        n = min(n, target_max)\n        payload = _rand_bytes(rng, n)\n\n    # Ensure within limit\n    if len(payload) > target_max:\n        payload = payload[:target_max]\n\n    return payload\n\n\ndef _le32(x: int) -> bytes:\n    return int(x & 0xFFFFFFFF).to_bytes(4, 'little', signed=False)\n\n\ndef _le64(x: int) -> bytes:\n    return int(x & 0xFFFFFFFFFFFFFFFF).to_bytes(8, 'little', signed=False)\n\n\ndef _encode_len_prefixed(b: bytes) -> bytes:\n    return len(b).to_bytes(4, 'little') + b\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build s1 and s2 with diversity; fuzzer stub caps at 1024 so we target <= 1100\n    s1 = _make_interesting_string(rng, 1100)\n    s2 = _make_interesting_string(rng, 1100)\n\n    # Provide integers for FUZZ_PARAM(unsigned int), FUZZ_PARAM(long long), FUZZ_PARAM(unsigned int),\n    # FUZZ_PARAM(unsigned int), FUZZ_PARAM(int) in the stub order. We'll pack a pool of several.\n    # Bias some values to trigger use_null_buf (mod 4 == 0) occasionally and other branches.\n    uints: List[int] = []\n    # First unsigned int: used for deciding use_null_buf\n    # Make it divisible by 4 with decent probability.\n    base = rng.getrandbits(32)\n    if rng.random() < 0.5:\n        base = (base & ~0x3)\n    uints.append(base)\n    # Additional unsigned ints used later (determinism asserts unaffected)\n    for _ in range(4):\n        v = rng.getrandbits(32)\n        uints.append(v)\n\n    # Signed long long\n    sll = rng.getrandbits(64)\n    if rng.random() < 0.5:\n        # make negative by setting high bit if environment treats as signed when read\n        sll |= (1 << 63)\n\n    # Signed int\n    sint = rng.getrandbits(32)\n    if rng.random() < 0.5:\n        sint |= (1 << 31)\n\n    # Assemble buffer. We choose a simple layout understood by many fuzz harnesses:\n    # [len32][s1][NUL][len32][s2][NUL][uint32 * N][int64][uint32 * M][int32]\n    # Even if the harness does not use length prefixes, the presence of NUL ensures\n    # c_str() works and truncation points are available.\n\n    parts: List[bytes] = []\n\n    # s1 with explicit length and a trailing NUL to ensure C-string path is valid\n    parts.append(_encode_len_prefixed(s1))\n    parts.append(b\"\\x00\")\n\n    # s2 similarly\n    parts.append(_encode_len_prefixed(s2))\n    parts.append(b\"\\x00\")\n\n    # Pack several unsigned ints\n    for v in uints:\n        parts.append(_le32(v))\n\n    # Pack signed long long as 64-bit two's complement (consumer may read as bytes)\n    parts.append(_le64(sll))\n\n    # Another unsigned int (already provided a pool; include a couple extra)\n    parts.append(_le32(rng.getrandbits(32)))\n    parts.append(_le32(rng.getrandbits(32)))\n\n    # Signed int\n    parts.append(_le32(sint))\n\n    buf = b\"\".join(parts)\n\n    # Cap to MAX_TOTAL\n    if len(buf) > MAX_TOTAL:\n        buf = buf[:MAX_TOTAL]\n\n    return buf\n"
+    },
+    {
+      "data_type": "null-terminated string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces buffers intended to be consumed by FUZZ_PARAM_STR and\n# FUZZ_PARAM_FILENAME in the fuzzer. The target uses a variety of MurmurHash2\n# overloads, primarily hashing strings, C-strings, and raw buffers. We therefore\n# craft a byte stream that contains several interesting, valid, NUL-terminated\n# strings and raw byte segments. The fuzzer framework will slice these bytes to\n# feed FUZZ_PARAM_STR/FILENAME; ensuring embedded NULs and varying lengths\n# increases path coverage while remaining valid.\n\nMAX_TOTAL = 4096\n\nASCII_WORDS = [\n    b\"\", b\"a\", b\"A\", b\"0\", b\" \", b\"abc\", b\"xyz\", b\"hello\", b\"world\", b\"test\",\n    b\"murmur\", b\"hash\", b\"short\", b\"long\", b\"edge\", b\"case\", b\"repeat\",\n]\n\n# Interesting lengths to tickle 64-bit chunking and switch(size & 7)\nINTERESTING_SIZES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 31, 32, 63, 64, 65, 127, 128, 255, 256, 511, 512, 1023, 1024]\n\n# Some byte classes\nBYTES_CLASSES = [\n    b\"\\x00\", b\"\\x01\", b\"\\x7f\", b\"\\x80\", b\"\\xff\",\n]\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\ndef _make_cstring(rng: random.Random, target_len: int) -> bytes:\n    # Produce a NUL-terminated string with content length up to target_len.\n    # Ensure it is valid C-string by appending a single NUL terminator.\n    if target_len <= 0:\n        return b\"\\x00\"  # empty string\n    # Choose content variety\n    modes = [\"ascii\", \"digits\", \"mixed\", \"binary\", \"utf8\"]\n    mode = rng.choice(modes)\n    if mode == \"ascii\":\n        chunk = rng.choice(ASCII_WORDS)\n        rep = max(1, target_len // (len(chunk) or 1))\n        data = (chunk * rep)[:target_len]\n    elif mode == \"digits\":\n        data = (b\"0123456789\" * ((target_len // 10) + 1))[:target_len]\n    elif mode == \"mixed\":\n        pool = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-/.:\\\\\"\n        data = bytes(pool[rng.randrange(len(pool))] for _ in range(target_len))\n    elif mode == \"binary\":\n        # Include some zeros inside too; still valid because we append final NUL\n        data = bytearray(_rand_bytes(rng, target_len))\n        # sprinkle internal NULs\n        for _ in range(rng.randrange(0, max(1, target_len // 16) + 1)):\n            if target_len:\n                data[rng.randrange(target_len)] = 0\n        data = bytes(data)\n    else:  # utf8-ish\n        # Compose from valid UTF-8 ranges plus ASCII\n        def rand_utf8_char() -> bytes:\n            choice = rng.random()\n            if choice < 0.6:\n                return bytes([rng.randrange(0x20, 0x7F)])\n            elif choice < 0.8:\n                # 2-byte\n                cp = rng.randrange(0x80, 0x7FF)\n            elif choice < 0.95:\n                cp = rng.randrange(0x800, 0xFFFF)\n            else:\n                cp = rng.randrange(0x10000, 0x10FFFF)\n            # avoid surrogates\n            if 0xD800 <= cp <= 0xDFFF:\n                cp = 0x20\n            return chr(cp).encode('utf-8')\n        buf = bytearray()\n        while len(buf) < target_len:\n            ch = rand_utf8_char()\n            if len(buf) + len(ch) > target_len:\n                break\n            buf.extend(ch)\n        # pad with ASCII if short\n        while len(buf) < target_len:\n            buf.append(rng.randrange(0x20, 0x7F))\n        data = bytes(buf)\n    return data + b\"\\x00\"\n\ndef _make_raw_segment(rng: random.Random, size: int) -> bytes:\n    # Construct raw bytes that exercise size&7 tail handling.\n    if size == 0:\n        return b\"\"\n    pattern = rng.randrange(5)\n    if pattern == 0:\n        # repeating byte\n        bval = rng.randrange(256)\n        return bytes([bval]) * size\n    elif pattern == 1:\n        # incremental\n        return bytes((i & 0xFF) for i in range(size))\n    elif pattern == 2:\n        # alternating classes\n        cls = rng.choice(BYTES_CLASSES)\n        return (cls * ((size // len(cls)) + 1))[:size]\n    elif pattern == 3:\n        # 64-bit words with specific values to hit k==0 paths etc.\n        out = bytearray()\n        words = [0, 1, 0xFFFFFFFFFFFFFFFF, 0x0123456789ABCDEF]\n        while len(out) + 8 <= size:\n            out.extend(struct.pack('<Q', rng.choice(words)))\n        # tail\n        tail = _rand_bytes(rng, size - len(out))\n        out.extend(tail)\n        return bytes(out)\n    else:\n        # random\n        return _rand_bytes(rng, size)\n\ndef _pick_sizes(rng: random.Random) -> List[int]:\n    # Choose a set of sizes emphasizing boundaries, capped to total size budget.\n    sizes = []\n    budget = 3000  # leave room for headers/extra strings, keep under 4096\n    # Start with some interesting fixed sizes\n    base = rng.sample(INTERESTING_SIZES, k=min(8, len(INTERESTING_SIZES)))\n    for sz in base:\n        if sz <= budget:\n            sizes.append(sz)\n            budget -= sz\n    # Add a few random sizes\n    for _ in range(rng.randrange(3, 8)):\n        sz = rng.randrange(0, min(1024, budget + 1))\n        if sz <= budget:\n            sizes.append(sz)\n            budget -= sz\n    rng.shuffle(sizes)\n    return sizes\n\ndef _assemble_sections(rng: random.Random) -> bytes:\n    out = bytearray()\n\n    # Header: magic to help any potential format sniffers, though not required\n    out.extend(b\"NH2\\x01\")\n\n    # Section 1: Several NUL-terminated strings to be used by FUZZ_PARAM_STR and C-string\n    count_cstr = rng.randrange(5, 12)\n    for _ in range(count_cstr):\n        target_len = rng.choice(INTERESTING_SIZES)\n        if target_len > 1024:\n            target_len = 1024\n        cstr = _make_cstring(rng, target_len)\n        out.extend(cstr)\n\n    # Section 2: Raw byte segments concatenated with length prefixes so a consumer\n    # can slice valid buffers. Even if the fuzzer doesn't use these lengths, the\n    # bytes remain valid for string extraction.\n    sizes = _pick_sizes(rng)\n    # Write number of segments (2 bytes LE), then segments as [len32][data]\n    out.extend(struct.pack('<H', len(sizes)))\n    for sz in sizes:\n        seg = _make_raw_segment(rng, sz)\n        out.extend(struct.pack('<I', len(seg)))\n        out.extend(seg)\n\n    # Section 3: Include specific literal strings that the stub calls, to\n    # reinforce determinism comparisons.\n    for lit in [b\"lit\\x00\", b\"\", b\"abcdefgh\\x00\", b\"0123456789abcdef0123\\x00\"]:\n        out.extend(lit)\n\n    # Clamp to the maximum allowed size\n    return bytes(out[:MAX_TOTAL])\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    return _assemble_sections(rng)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1715,
+            "output_tokens": 1173,
+            "total_tokens": 2888
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1293,
+            "output_tokens": 111,
+            "total_tokens": 1404
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1819,
+            "output_tokens": 2452,
+            "total_tokens": 4271
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5981,
+            "output_tokens": 3585,
+            "total_tokens": 9566
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5551,
+            "output_tokens": 1103,
+            "total_tokens": 6654
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4325,
+            "output_tokens": 165,
+            "total_tokens": 4490
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 292.2477650642395,
+    "scan_objects": 17.933789253234863,
+    "validate_objects": 0.4094095230102539,
+    "scan_functions": 69.74695062637329,
+    "synthesis": 113.81830739974976,
+    "fill": 32.353137254714966,
+    "classify": 4.134194374084473,
+    "build_generators": 53.851231813430786
+  }
+}

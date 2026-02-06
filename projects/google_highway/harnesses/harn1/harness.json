@@ -1,0 +1,2494 @@
+{
+  "objects": [
+    {
+      "ptr_type": "hwy::detail::TypeInfo *",
+      "aliases": [],
+      "definition": "struct TypeInfo {\n  size_t sizeof_t;\n  bool is_float;\n  bool is_signed;\n  bool is_bf16;\n};",
+      "description": "Type-erased metadata describing a scalar element type. Holds size in bytes and flags indicating whether the type is floating-point, signed integer, or bfloat16. Used by helper functions to format values and type names without templated specialization bloat.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::Timestamp *",
+      "aliases": [],
+      "definition": "struct Timestamp {\n  Timestamp() { t = platform::Now(); }\n  double t;\n};",
+      "description": "Lightweight timestamp value holding seconds since an unspecified origin. Default constructor initializes t using hwy::platform::Now(). Intended for simple wall-time delta measurement via SecondsSince.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::timer::Ticks *",
+      "aliases": [
+        "uint64_t *"
+      ],
+      "definition": "// Ticks := platform-specific timer values (CPU cycles on x86). Must be\n// unsigned to guarantee wraparound on overflow.\nusing Ticks = uint64_t;",
+      "description": "Alias for a 64-bit unsigned tick counter representing platform-specific timer units (e.g., TSC cycles on x86). Unsigned to allow wraparound semantics. Use hwy::platform::InvariantTicksPerSecond() to convert to seconds. Note: this is a type alias with no separate storage semantics.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "hwy::Timer",
+        "hwy::Stopwatch"
+      ]
+    },
+    {
+      "ptr_type": "hwy::Timer *",
+      "aliases": [],
+      "definition": "// Wrapper around Start/Stop that checks whether the CPU supports Stop.\nclass Timer {\n public:\n  Timer() {\n    char cpu100[100];\n    have_timer_stop_ = platform::HaveTimerStop(cpu100);\n  }\n\n  // Before/After have fences to prevent the measured code 'leaking out'.\n  timer::Ticks Before() const { return timer::Start(); }\n  timer::Ticks After() const {\n    return have_timer_stop_ ? timer::Stop() : timer::Start();\n  }\n\n private:\n  bool have_timer_stop_;\n};",
+      "description": "High-level timer facade around low-level fenced Start/Stop tick capture. Constructor probes CPU support for Stop; After() will fall back to Start() if unsupported. Use Before()/After() to bracket measured code with appropriate fences.",
+      "direct_api_constructors": [
+        "hwy::Timer::Timer()"
+      ],
+      "owned_by": [
+        "hwy::Stopwatch"
+      ]
+    },
+    {
+      "ptr_type": "hwy::Stopwatch *",
+      "aliases": [],
+      "definition": "// Measures elapsed time since construction, with automatic reset.\nclass Stopwatch {\n public:\n  explicit Stopwatch(const Timer& timestamps) : timer_(timestamps) { Reset(); }\n\n  timer::Ticks Origin() const { return t0_; }\n  void Reset() { t0_ = timer_.Before(); }\n\n  // Also resets the start time to the current time to enable reuse without a\n  // second call to the timer.\n  timer::Ticks Elapsed() {\n    const timer::Ticks t1 = timer_.After();\n    const timer::Ticks elapsed = t1 - t0_;\n    t0_ = t1;\n    return elapsed;\n  }\n\n private:\n  const Timer& timer_;\n  timer::Ticks t0_;\n};",
+      "description": "Utility for measuring elapsed ticks between calls. Construct with a Timer reference; Reset() sets the origin to the current fenced timestamp. Elapsed() returns ticks since the last origin and updates the origin for reuse.",
+      "direct_api_constructors": [
+        "hwy::Stopwatch::Stopwatch(const hwy::Timer&)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::ProfilerFlags *",
+      "aliases": [],
+      "definition": "enum class ProfilerFlags : uint32_t {\n  kDefault = 0,\n  // The zone should report cumulative time, including all child zones. If not\n  // specified, zones report self-time, excluding child zones.\n  kInclusive = 1\n};",
+      "description": "Strongly-typed bitflag enum controlling profiler zone behavior (currently supports kInclusive to report inclusive time). Backed by uint32_t for safe casting.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::profiler::ZoneHandle *",
+      "aliases": [],
+      "definition": "class ZoneHandle {\n public:\n  ZoneHandle() : bits_(0) {}\n\n  ZoneHandle(size_t zone_idx, ProfilerFlags flags) {\n    HWY_DASSERT(0 != zone_idx && zone_idx < kMaxZones);\n    const uint32_t flags_u = static_cast<uint32_t>(flags);\n    HWY_DASSERT(flags_u < (1u << kNumFlags));\n    bits_ = (static_cast<uint32_t>(zone_idx) << kNumFlags) | flags_u;\n    HWY_DASSERT(ZoneIdx() == zone_idx);\n  }\n\n  ZoneHandle(const ZoneHandle& other) = default;\n  ZoneHandle& operator=(const ZoneHandle& other) = default;\n\n  bool operator==(const ZoneHandle other) const { return bits_ == other.bits_; }\n  bool operator!=(const ZoneHandle other) const { return bits_ != other.bits_; }\n\n  size_t ZoneIdx() const {\n    HWY_DASSERT(bits_ != 0);\n    const size_t zone_idx = bits_ >> kNumFlags;\n    HWY_DASSERT(0 != zone_idx && zone_idx < kMaxZones);\n    return zone_idx;\n  }\n\n  bool IsInclusive() const {\n    HWY_DASSERT(bits_ != 0);\n    return (bits_ & static_cast<uint32_t>(ProfilerFlags::kInclusive)) != 0;\n  }\n\n  uint64_t ChildTotalMask() const {\n    const uint32_t bit =\n        bits_ & static_cast<uint32_t>(ProfilerFlags::kInclusive);\n    return uint64_t{bit} - 1;\n  }\n\n private:\n  uint32_t bits_;\n};",
+      "description": "Type-safe handle encoding a profiler zone index and flags within a compact 32-bit field. Used to identify zones and check inclusive behavior.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "hwy::profiler::Accumulator",
+        "hwy::profiler::Zones",
+        "hwy::Profiler",
+        "hwy::profiler::Zone"
+      ]
+    },
+    {
+      "ptr_type": "hwy::Profiler *",
+      "aliases": [],
+      "definition": "class Profiler {\n public:\n  static HWY_DLLEXPORT Profiler& Get();\n  static size_t Thread() { return s_global_idx; }\n  static size_t GlobalIdx() { return s_global_idx; }\n  static void SetGlobalIdx(size_t global_idx) { s_global_idx = global_idx; }\n\n  void ReserveWorker(size_t global_idx) {\n    HWY_ASSERT(!workers_reserved_.Get(global_idx));\n    workers_reserved_.Set(global_idx);\n  }\n\n  void FreeWorker(size_t global_idx) {\n    HWY_ASSERT(workers_reserved_.Get(global_idx));\n    workers_reserved_.Clear(global_idx);\n  }\n\n  void Enter(uint64_t t_enter, size_t global_idx) {\n    GetWorker(global_idx).Enter(t_enter);\n  }\n\n  void Exit(uint64_t t_exit, size_t global_idx, profiler::ZoneHandle zone) {\n    GetWorker(global_idx).Exit(t_exit, global_idx, zone, accumulators_);\n  }\n\n  uint64_t GetFirstDurationAndReset(size_t global_idx) {\n    return GetWorker(global_idx)\n        .GetFirstDurationAndReset(global_idx, accumulators_);\n  }\n\n  const char* Name(profiler::ZoneHandle zone) const {\n    return zones_.Name(zone);\n  }\n\n  profiler::ZoneHandle AddZone(const char* name,\n                               ProfilerFlags flags = ProfilerFlags::kDefault) {\n    return zones_.AddZone(name, flags);\n  }\n\n  void AddFunc(void* owner, ProfilerFunc func) {\n    funcs_.Add(reinterpret_cast<intptr_t>(owner), func);\n  }\n  void RemoveFunc(void* owner) {\n    funcs_.Remove(reinterpret_cast<intptr_t>(owner));\n  }\n\n  bool IsRootRun() {\n    return !run_active_.test_and_set(std::memory_order_acquire);\n  }\n\n  void EndRootRun() {\n    UpdateResults();\n    results_.CountWorkersAndReset();\n\n    run_active_.clear(std::memory_order_release);\n  }\n\n  void PrintResults() {\n    UpdateResults();\n    results_.PrintAndReset(zones_);\n    funcs_.CallAll();\n  }\n\n  void SetMaxThreads(size_t) {}\n\n private:\n  Profiler();\n\n  profiler::PerWorker& GetWorker(size_t global_idx) {\n    HWY_DASSERT(workers_reserved_.Get(global_idx));\n    return workers_[global_idx];\n  }\n\n  void UpdateResults() {\n    std::atomic_thread_fence(std::memory_order_acquire);\n\n    workers_reserved_.Foreach([&](size_t global_idx) {\n      workers_[global_idx].MoveTo(global_idx, accumulators_, results_);\n    });\n  }\n\n  static thread_local size_t s_global_idx;\n\n  profiler::AtomicWorkerSet workers_reserved_;\n\n  std::atomic_flag run_active_ = ATOMIC_FLAG_INIT;\n\n  profiler::Funcs funcs_;\n\n  profiler::PerWorker workers_[profiler::kMaxWorkers];\n\n  profiler::Accumulators accumulators_;\n\n  profiler::Results results_;\n\n  profiler::Zones zones_;\n};",
+      "description": "Primary profiler singleton managing per-worker state, zone registry, accumulation, callbacks, and reporting. Provides thread index management and zone entry/exit API.",
+      "direct_api_constructors": [
+        "hwy::Profiler::Get"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::profiler::Zone *",
+      "aliases": [],
+      "definition": "class Zone {\n public:\n  Zone(Profiler& profiler, size_t global_idx, ZoneHandle zone)\n      : profiler_(profiler) {\n    HWY_FENCE;\n    const uint64_t t_enter = timer::Start();\n    HWY_FENCE;\n    global_idx_ = static_cast<uint32_t>(global_idx);\n    zone_ = zone;\n    profiler.Enter(t_enter, global_idx);\n    HWY_FENCE;\n  }\n\n  ~Zone() {\n    HWY_FENCE;\n    const uint64_t t_exit = timer::Stop();\n    profiler_.Exit(t_exit, static_cast<size_t>(global_idx_), zone_);\n    HWY_FENCE;\n  }\n\n private:\n  Profiler& profiler_;\n  uint32_t global_idx_;\n  ZoneHandle zone_;\n};",
+      "description": "RAII helper that records a zone’s begin/end timestamps and notifies Profiler for the given worker and zone handle. Construct on scope entry to time that scope.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "hwy::Profiler"
+      ]
+    },
+    {
+      "ptr_type": "hwy::profiler::ZoneHandle *",
+      "aliases": [],
+      "definition": "#else   // profiler disabled: stub implementation\n\nnamespace profiler {\nstruct ZoneHandle {};\n}  // namespace profiler\n",
+      "description": "Stub empty ZoneHandle definition used when PROFILER_ENABLED == 0. Carries no data; acts only to satisfy interfaces.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::Profiler *",
+      "aliases": [],
+      "definition": "struct Profiler {\n  static HWY_DLLEXPORT Profiler& Get();\n\n  static size_t Thread() { return 0; }\n  static size_t GlobalIdx() { return 0; }\n  static void SetGlobalIdx(size_t) {}\n  void ReserveWorker(size_t) {}\n  void FreeWorker(size_t) {}\n  void Enter(uint64_t, size_t) {}\n  void Exit(uint64_t, size_t, profiler::ZoneHandle) {}\n  uint64_t GetFirstDurationAndReset(size_t) { return 0; }\n\n  const char* Name(profiler::ZoneHandle) const { return nullptr; }\n  profiler::ZoneHandle AddZone(const char*,\n                               ProfilerFlags = ProfilerFlags::kDefault) {\n    return profiler::ZoneHandle();\n  }\n\n  void AddFunc(void*, ProfilerFunc) {}\n  void RemoveFunc(void*) {}\n\n  bool IsRootRun() { return false; }\n  void EndRootRun() {}\n  void PrintResults() {}\n\n  void SetMaxThreads(size_t) {}\n};",
+      "description": "Stub Profiler definition when profiling is disabled. Provides no-op methods and static Get() declaration for link compatibility.",
+      "direct_api_constructors": [
+        "hwy::Profiler::Get"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::profiler::Zone *",
+      "aliases": [],
+      "definition": "namespace profiler {\nstruct Zone {\n  Zone(Profiler&, size_t, ZoneHandle) {}\n};\n\n}  // namespace profiler",
+      "description": "Stub Zone with no timing behavior, compiled when profiling is disabled.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::Params *",
+      "aliases": [],
+      "definition": "struct Params {\n  // Best-case precision, expressed as a divisor of the timer resolution.\n  // Larger => more calls to Func and higher precision.\n  size_t precision_divisor = 1024;\n\n  // Ratio between full and subset input distribution sizes. Cannot be less\n  // than 2; larger values increase measurement time but more faithfully\n  // model the given input distribution.\n  size_t subset_ratio = 2;\n\n  // Together with the estimated Func duration, determines how many times to\n  // call Func before checking the sample variability. Larger values increase\n  // measurement time, memory/cache use and precision.\n  double seconds_per_eval = 4E-3;\n\n  // The minimum number of samples before estimating the central tendency.\n  size_t min_samples_per_eval = 7;\n\n  // The mode is better than median for estimating the central tendency of\n  // skewed/fat-tailed distributions, but it requires sufficient samples\n  // relative to the width of half-ranges.\n  size_t min_mode_samples = 64;\n\n  // Maximum permissible variability (= median absolute deviation / center).\n  double target_rel_mad = 0.002;\n\n  // Abort after this many evals without reaching target_rel_mad. This\n  // prevents infinite loops.\n  size_t max_evals = 9;\n\n  // Whether to print additional statistics to stdout.\n  bool verbose = true;\n};",
+      "description": "Internal tuning parameters for the nanobenchmark measurement procedure, determining precision, sample sizes, stopping criteria, and verbosity. Fields are initialized with reasonable defaults.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::Result *",
+      "aliases": [],
+      "definition": "struct Result {\n  FuncInput input;\n\n  // Robust estimate (mode or median) of duration.\n  float ticks;\n\n  // Measure of variability (median absolute deviation relative to \"ticks\").\n  float variability;\n};",
+      "description": "Per-input measurement summary returned by Measure/MeasureClosure, including the input value, estimated duration in timer ticks, and relative variability.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::FuncInput *",
+      "aliases": [],
+      "definition": "using FuncInput = size_t;",
+      "description": "Alias for the input type passed to the function under test; represents the varying argument (e.g., byte count).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::FuncOutput *",
+      "aliases": [],
+      "definition": "using FuncOutput = uint64_t;",
+      "description": "Alias for the return type of the function under test; acts as a proof-of-work to prevent elision by the compiler.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::Func *",
+      "aliases": [],
+      "definition": "using Func = FuncOutput (*)(const void*, FuncInput);",
+      "description": "Function pointer type for measured functions. The first const void* parameter is either a user argument or an internal pointer to a closure; the second is the varying input. Returns a proof-of-work value.",
+      "direct_api_constructors": [
+        "hwy::Measure",
+        "hwy::MeasureClosure"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::AlignedDeleter *",
+      "aliases": [],
+      "definition": "class AlignedDeleter {\n public:\n  AlignedDeleter() : free_(nullptr), opaque_ptr_(nullptr) {}\n  AlignedDeleter(FreePtr free_ptr, void* opaque_ptr)\n      : free_(free_ptr), opaque_ptr_(opaque_ptr) {}\n\n  template <typename T>\n  void operator()(T* aligned_pointer) const {\n    return DeleteAlignedArray(aligned_pointer, free_, opaque_ptr_,\n                              TypedArrayDeleter<T>);\n  }\n\n private:\n  template <typename T>\n  static void TypedArrayDeleter(void* ptr, size_t size_in_bytes) {\n    size_t elems = size_in_bytes / sizeof(T);\n    for (size_t i = 0; i < elems; i++) {\n      (static_cast<T*>(ptr) + i)->~T();\n    }\n  }\n\n  using ArrayDeleter = void (*)(void* t_ptr, size_t t_size);\n\n  HWY_DLLEXPORT static void DeleteAlignedArray(void* aligned_pointer,\n                                               FreePtr free_ptr,\n                                               void* opaque_ptr,\n                                               ArrayDeleter deleter);\n\n  FreePtr free_;\n  void* opaque_ptr_;\n};",
+      "description": "Custom deleter for aligned objects/arrays that explicitly invokes element destructors and then frees memory via provided FreePtr/opaque context.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::AlignedFreer *",
+      "aliases": [],
+      "definition": "class AlignedFreer {\n public:\n  static void DoNothing(void* /*opaque*/, void* /*aligned_pointer*/) {}\n\n  AlignedFreer() : free_(nullptr), opaque_ptr_(nullptr) {}\n  AlignedFreer(FreePtr free_ptr, void* opaque_ptr)\n      : free_(free_ptr), opaque_ptr_(opaque_ptr) {}\n\n  template <typename T>\n  void operator()(T* aligned_pointer) const {\n    FreeAlignedBytes(aligned_pointer, free_, opaque_ptr_);\n  }\n\n private:\n  FreePtr free_;\n  void* opaque_ptr_;\n};",
+      "description": "Custom deleter for aligned memory that simply frees the memory using FreeAlignedBytes; intended for trivially destructible types (POD).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "hwy::ChosenTarget *",
+      "aliases": [],
+      "definition": "struct ChosenTarget {\n public:\n  // Reset bits according to `targets` (typically the return value of\n  // SupportedTargets()). Postcondition: IsInitialized() == true.\n  void Update(int64_t targets) {\n    // These are `targets` shifted downwards, see above. Also include SCALAR\n    // (corresponds to the last entry in the function table) as fallback.\n    StoreMask(HWY_CHOSEN_TARGET_SHIFT(targets) | HWY_CHOSEN_TARGET_MASK_SCALAR);\n  }\n\n  // Reset to the uninitialized state, so that FunctionCache will call Update\n  // during the next HWY_DYNAMIC_DISPATCH, and IsInitialized returns false.\n  void DeInit() { StoreMask(1); }\n\n  // Whether Update was called. This indicates whether any HWY_DYNAMIC_DISPATCH\n  // function was called, which we check in tests.\n  bool IsInitialized() const { return LoadMask() != 1; }\n\n  // Return the index in the dynamic dispatch table to be used by the current\n  // CPU. Note that this method must be in the header file so it uses the value\n  // of HWY_CHOSEN_TARGET_MASK_TARGETS defined in the translation unit that\n  // calls it, which may be different from others. This means we only enable\n  // those targets that were actually compiled in this module.\n  size_t HWY_INLINE GetIndex() const {\n    return hwy::Num0BitsBelowLS1Bit_Nonzero64(\n        static_cast<uint64_t>(LoadMask() & HWY_CHOSEN_TARGET_MASK_TARGETS));\n  }\n\n private:\n#if defined(HWY_NO_LIBCXX)\n  int64_t LoadMask() const { return mask_; }\n  void StoreMask(int64_t mask) { mask_ = mask; }\n\n  int64_t mask_{1};  // Initialized to 1 so GetIndex() returns 0.\n#else\n  int64_t LoadMask() const { return mask_.load(); }\n  void StoreMask(int64_t mask) { mask_.store(mask); }\n\n  std::atomic<int64_t> mask_{1};  // Initialized to 1 so GetIndex() returns 0.\n#endif  // HWY_ARCH_RISCV\n};",
+      "description": "Thread-safe (except when HWY_NO_LIBCXX is defined) small state object storing a bitmask representing the currently chosen/eligible SIMD targets for dynamic dispatch within Highway. Provides methods to update/reset initialization state and to compute the dispatch table index for the active target set.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "This header defines no custom types. It is an empty compatibility header; all Abort/Warn functionality lives elsewhere (base.h). No structs, enums, typedefs, or classes are introduced here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "hwy::DeduceFunctionCache",
+      "signature": "template <typename RetType, typename... Args>\nFunctionCache<RetType, Args...> hwy::DeduceFunctionCache(RetType (*)(Args...));",
+      "description": "Helper template function that deduces the return type and parameter types from a function pointer and returns the corresponding FunctionCache<RetType, Args...> type. Used internally to obtain the correct FunctionCache specialization for building and invoking dispatch tables. Typical usage is passing a function pointer (e.g., &HWY_STATIC_DISPATCH(FUNC_NAME)) so that its type can be used in compile-time expressions/macros.",
+      "requirements": [
+        "Argument must be a function pointer of type RetType (*)(Args...).",
+        "The function pointer must not be an ambiguous overload; ensure the pointer refers to a specific function signature.",
+        "Intended for type deduction; the returned FunctionCache object is a lightweight value used in compile-time context."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::FNV",
+      "signature": "static constexpr uint64_t hwy::FNV(const char* name);",
+      "description": "Computes a 64-bit FNV-1a-like hash of a null-terminated C string. Used to hash dispatch table names for mapping functions to tables when building dynamic dispatch structures. constexpr enables compile-time evaluation when given a compile-time string.",
+      "requirements": [
+        "Input must be a valid, null-terminated C string pointer.",
+        "The function is available only when HWY_DISPATCH_MAP is enabled in this build configuration.",
+        "For compile-time evaluation, pass a string literal or otherwise constant expression; otherwise it may be evaluated at runtime."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::detail::TypeName",
+      "signature": "HWY_DLLEXPORT void hwy::detail::TypeName(const hwy::detail::TypeInfo& info, size_t N, char* string100);",
+      "description": "Formats a human-readable name for the type described by info, potentially including vector length N, and writes it into the provided output buffer string100. Intended for internal printing/utilities to reduce template bloat.",
+      "requirements": [
+        "info must describe a valid C++ type (e.g., produced by hwy::detail::MakeTypeInfo<T>())",
+        "string100 must be a non-null pointer to a writable character buffer with capacity for at least 100 bytes (including the terminating null)",
+        "The contents of string100 are overwritten; caller should not assume prior contents are preserved",
+        "N is used for formatting; valid ranges are unknown, but it should be a sensible non-negative size_t"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::detail::ToString",
+      "signature": "HWY_DLLEXPORT void hwy::detail::ToString(const hwy::detail::TypeInfo& info, const void* ptr, char* string100);",
+      "description": "Converts the value pointed to by ptr, interpreted as the type described by info, into a textual representation and writes it into string100. Used by higher-level helpers to print single values in a type-erased manner.",
+      "requirements": [
+        "info must correspond to the actual dynamic type of the object pointed to by ptr (e.g., constructed via hwy::detail::MakeTypeInfo<T>() for the same T as *ptr)",
+        "ptr must be non-null and point to a valid, fully initialized object of the type described by info",
+        "string100 must be a non-null pointer to a writable character buffer with capacity for at least 100 bytes (including the terminating null)",
+        "The function writes a null-terminated C string into string100; previous contents are overwritten"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::detail::PrintArray",
+      "signature": "HWY_DLLEXPORT void hwy::detail::PrintArray(const hwy::detail::TypeInfo& info, const char* caption, const void* array_void, size_t N, size_t lane_u = 0, size_t max_lanes = 7);",
+      "description": "Prints up to max_lanes elements from an array of N values whose element type is described by info. The output may include the optional caption and may highlight or offset by lane_u. Intended for internal/debug printing of vector lanes or arrays using type-erased element access.",
+      "requirements": [
+        "info must describe the element type of the array (e.g., produced by hwy::detail::MakeTypeInfo<T>() for the same T as the array elements)",
+        "caption should be a valid null-terminated C string pointer (may be an empty string)",
+        "array_void must be non-null if N > 0 and must point to an array of at least N elements of the type described by info",
+        "N is the number of elements available at array_void; it should not exceed the actual array length",
+        "If provided, lane_u should be within the range [0, N) to avoid out-of-bounds access or undefined behavior (exact semantics unknown)",
+        "max_lanes should be a positive value; behavior for 0 is unknown",
+        "Output destination/format is not specified here (likely standard error); callers should not rely on a particular stream or format without checking implementation"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::PrintValue",
+      "signature": "template <typename T>\nHWY_NOINLINE void hwy::PrintValue(T value);",
+      "description": "Formats value of type T to a string and writes it to the process’s error stream followed by a comma. This thin wrapper constructs type information for T and delegates formatting to hwy::detail::ToString.",
+      "requirements": [
+        "T must be supported by hwy::detail::MakeTypeInfo<T>() and hwy::detail::ToString (i.e., ToString must understand the type)",
+        "The function writes to stderr via fprintf; callers should ensure this is acceptable in their environment",
+        "Value is passed by value; if T is large or non-trivially copyable, consider costs",
+        "Thread-safety of concurrent printing is unspecified; interleaving with other output may occur"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::PrintArray",
+      "signature": "template <typename T>\nHWY_NOINLINE void hwy::PrintArray(const T* value, size_t count);",
+      "description": "Prints count elements from the array value using type-erased formatting, delegating to hwy::detail::PrintArray with an empty caption. Intended for debugging or inspecting arrays/vectors of T.",
+      "requirements": [
+        "value must be non-null if count > 0 and must point to an array of at least count elements of type T",
+        "count specifies the number of elements to print; it should not exceed the actual array length",
+        "T must be supported by hwy::detail::MakeTypeInfo<T>() and hwy::detail::PrintArray",
+        "The function likely writes to stderr; output ordering with other threads is unspecified"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::platform::Now",
+      "signature": "double hwy::platform::Now();",
+      "description": "Returns the current monotonic, steady, high-resolution timestamp in seconds relative to an unspecified origin. Intended for measuring elapsed wall-clock time independent of system time changes.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "hwy::platform::HaveTimerStop",
+      "signature": "bool hwy::platform::HaveTimerStop(char* cpu100);",
+      "description": "Reports whether it is safe to call hwy::timer::Stop on the current CPU without triggering an illegal instruction. If it returns false, it fills the provided buffer with a descriptive CPU string via GetCpuString.",
+      "requirements": [
+        "cpu100 must be a non-null pointer to a writable buffer of at least 100 bytes to hold a NUL-terminated string.",
+        "Callers should check the return value; if false, do not call hwy::timer::Stop on x86.",
+        "On success (true), the buffer may be left unused."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::platform::InvariantTicksPerSecond",
+      "signature": "double hwy::platform::InvariantTicksPerSecond();",
+      "description": "Returns the frequency (ticks per second) of the underlying invariant tick counter, suitable for converting hwy::timer::Ticks to seconds. The rate is intended to be independent of CPU throttling or sleep.",
+      "requirements": [
+        "This call may be expensive; callers should cache the returned value for reuse."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::platform::TimerResolution",
+      "signature": "uint64_t hwy::platform::TimerResolution();",
+      "description": "Estimates the timer’s resolution/overhead by returning the ticks elapsed between back-to-back timer calls. Useful for understanding minimum measurable intervals.",
+      "requirements": [
+        "This call is expensive; callers should cache the returned value for reuse."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::platform::GetCpuString",
+      "signature": "bool hwy::platform::GetCpuString(char* cpu100);",
+      "description": "Fills up to 100 characters (including the terminating NUL) with a human-readable CPU model/identifier string if available. Returns false if a detailed description is not available.",
+      "requirements": [
+        "cpu100 must be a non-null pointer to a writable buffer of at least 100 bytes.",
+        "Callers should check the return value; if false, the buffer may not contain a detailed CPU description."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::SecondsSince",
+      "signature": "double hwy::SecondsSince(const hwy::Timestamp& t0);",
+      "description": "Returns the elapsed seconds since the provided Timestamp, computed as Now() - t0. Intended for simple wall-clock interval measurement using hwy::Timestamp.",
+      "requirements": [
+        "t0 must be a valid hwy::Timestamp initialized from the same clock (constructed via its default constructor or otherwise holding a value from hwy::platform::Now)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::timer::Start",
+      "signature": "hwy::timer::Ticks hwy::timer::Start();",
+      "description": "Returns an absolute timestamp in platform-specific ticks, placing fences to prevent instructions from the surrounding code from leaking into the measured region. Use immediately before the code region to measure and pair with hwy::timer::Stop (preferred) or another Start to compute elapsed ticks by subtraction.",
+      "requirements": [
+        "Must be called immediately before the region to measure to ensure accurate fencing.",
+        "Returned value is an absolute tick count; compute elapsed time as (end - start).",
+        "Ticks may wrap around; subtraction of unsigned ticks handles wraparound semantics."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::timer::Stop",
+      "signature": "hwy::timer::Ticks hwy::timer::Stop();",
+      "description": "Returns an absolute timestamp in platform-specific ticks using RDTSCP+LFENCE (or platform equivalents) to prevent subsequent instructions from leaking into the measured region. Intended to be called immediately after the measured region and paired with hwy::timer::Start.",
+      "requirements": [
+        "On x86, callers must first check hwy::platform::HaveTimerStop and only call Stop if it returns true; otherwise calling Stop may execute an illegal instruction.",
+        "Must be called immediately after the region to measure to ensure accurate fencing.",
+        "Returned value is an absolute tick count; compute elapsed time as (end - start)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Timer::Before",
+      "signature": "hwy::timer::Ticks hwy::Timer::Before() const;",
+      "description": "Wrapper around hwy::timer::Start that provides the pre-region timestamp with appropriate fences. Use Immediately before the code under test when using hwy::Timer.",
+      "requirements": [
+        "Call immediately before the measured region.",
+        "A hwy::Timer instance must have been constructed; it internally determines Stop availability."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Timer::After",
+      "signature": "hwy::timer::Ticks hwy::Timer::After() const;",
+      "description": "Wrapper that returns the post-region timestamp. Uses hwy::timer::Stop when supported by the CPU; otherwise falls back to hwy::timer::Start, ensuring safe usage on platforms where Stop is unavailable.",
+      "requirements": [
+        "Call immediately after the measured region.",
+        "Relies on the hwy::Timer instance having been constructed so that Stop support was probed."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Seconds",
+      "signature": "double hwy::Seconds(hwy::timer::Ticks ticks);",
+      "description": "Converts platform-specific ticks to seconds using hwy::platform::InvariantTicksPerSecond. Useful for obtaining wall-clock seconds from Start/Stop tick differences.",
+      "requirements": [
+        "Callers should ensure the tick values originate from the same clock/frequency as returned by InvariantTicksPerSecond."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Stopwatch::Origin",
+      "signature": "hwy::timer::Ticks hwy::Stopwatch::Origin() const;",
+      "description": "Returns the current start tick (origin) of the Stopwatch. Useful for diagnostics or custom elapsed computations.",
+      "requirements": [
+        "The hwy::Stopwatch must have been constructed with a valid hwy::Timer reference that outlives the Stopwatch object."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Stopwatch::Reset",
+      "signature": "void hwy::Stopwatch::Reset();",
+      "description": "Resets the Stopwatch’s origin to the current pre-region timestamp by calling timer.Before(). Use to start a new measurement interval.",
+      "requirements": [
+        "The hwy::Stopwatch must have been constructed with a valid hwy::Timer reference that outlives the Stopwatch object."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Stopwatch::Elapsed",
+      "signature": "hwy::timer::Ticks hwy::Stopwatch::Elapsed();",
+      "description": "Returns the ticks elapsed since the last origin and resets the origin to the current post-region timestamp, enabling repeated interval measurements with a single Stopwatch instance.",
+      "requirements": [
+        "Call only on a hwy::Stopwatch constructed with a valid hwy::Timer reference that outlives the Stopwatch object.",
+        "Must be paired with the same clock source as provided by the Timer; the method assumes Before/After use the same tick source."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::DispatchedTarget",
+      "signature": "HWY_DLLEXPORT int64_t DispatchedTarget();",
+      "description": "Returns the HWY_TARGET value that HWY_DYNAMIC_DISPATCH selected for the current call site. Use this to inspect which target was chosen at runtime. Details of the HWY_TARGET encoding are not documented here and are unknown from this header.",
+      "requirements": [
+        "No arguments required.",
+        "Intended as a query; may be called at any time to obtain the dispatched target.",
+        "Return value encoding of HWY_TARGET is unspecified in this header; callers must not assume a particular encoding without consulting Highway docs."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::VectorBytes",
+      "signature": "HWY_DLLEXPORT size_t VectorBytes();",
+      "description": "Returns the current vector size in bytes (equivalent to Lanes(ScalableTag<uint8_t>())). This can change at runtime (e.g., after DisableTargets or when entering/exiting SME streaming mode). The call involves an indirect call; avoid calling it more often than necessary.",
+      "requirements": [
+        "Do not cache the result across calls that might change the vector size (e.g., after calling DisableTargets or across SME streaming mode transitions).",
+        "Call this immediately before code that depends on the vector size, with no intervening DisableTargets calls or SME transitions.",
+        "Avoid calling frequently or unnecessarily due to the indirect call overhead."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::HaveInteger64",
+      "signature": "HWY_DLLEXPORT bool HaveInteger64();",
+      "description": "Returns whether 64-bit integer lanes are supported for the currently dispatched target. Intended as a capability query before using 64-bit integer operations with Highway.",
+      "requirements": [
+        "No arguments required.",
+        "Intended as a pure capability query; can be called at any time to check support."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::HaveFloat16",
+      "signature": "HWY_DLLEXPORT bool HaveFloat16();",
+      "description": "Returns whether 16-bit floating-point lanes are supported for the currently dispatched target. Intended as a capability query before using float16 lanes with Highway.",
+      "requirements": [
+        "No arguments required.",
+        "Intended as a pure capability query; can be called at any time to check support."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::HaveFloat64",
+      "signature": "HWY_DLLEXPORT bool HaveFloat64();",
+      "description": "Returns whether 64-bit floating-point lanes are supported for the currently dispatched target. Intended as a capability query before using double-precision lanes with Highway.",
+      "requirements": [
+        "No arguments required.",
+        "Intended as a pure capability query; can be called at any time to check support."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::StringTable<kMaxStrings>::Name",
+      "signature": "const char* hwy::StringTable<kMaxStrings>::Name(size_t idx) const",
+      "description": "Returns the interned string pointer previously stored at the given index. Intended to retrieve a name that was earlier inserted via Add and whose index was returned to the caller. Thread-safe for concurrent readers.",
+      "requirements": [
+        "idx must be less than the table capacity kMaxStrings (0 < idx < kMaxStrings).",
+        "The index must refer to a string previously added via Add; otherwise behavior is undefined (internal asserts assume a valid, previously published entry).",
+        "The returned pointer remains valid for the lifetime of the StringTable instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::StringTable<kMaxStrings>::Add",
+      "signature": "size_t hwy::StringTable<kMaxStrings>::Add(const char* name)",
+      "description": "Adds (interns) a NUL-terminated string into the table if not already present and returns its stable index. If the same name is added multiple times, all calls return the same index. Safe for concurrent calls from multiple threads.",
+      "requirements": [
+        "name must be a non-null, NUL-terminated C string.",
+        "The number of unique strings added must be less than kMaxStrings.",
+        "Average string length must be short enough that the internal character buffer (kMaxStrings * 55 bytes) is not exhausted; extremely long or too many unique names can overflow in debug builds (asserts).",
+        "May be called concurrently by multiple threads; identical names from different threads are deduplicated."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::profiler::Zones::Name",
+      "signature": "const char* hwy::profiler::Zones::Name(hwy::profiler::ZoneHandle zone) const",
+      "description": "Returns the zone name previously registered via AddZone for the given ZoneHandle. Wrapper around the underlying StringTable.",
+      "requirements": [
+        "zone must be a valid ZoneHandle previously returned by AddZone.",
+        "The ZoneHandle must have a non-zero index within the supported range (< kMaxZones)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::profiler::Zones::AddZone",
+      "signature": "hwy::profiler::ZoneHandle hwy::profiler::Zones::AddZone(const char* name, hwy::ProfilerFlags flags)",
+      "description": "Registers a zone name with optional flags and returns a type-safe ZoneHandle encoding the zone index and flags. Multiple calls with the same name return equivalent handles (same index). Safe to call concurrently.",
+      "requirements": [
+        "name must be a non-null, NUL-terminated C string.",
+        "The total number of unique zone names must be less than kMaxZones.",
+        "flags must be a valid ProfilerFlags value (currently kDefault or kInclusive)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::Get",
+      "signature": "static hwy::Profiler& hwy::Profiler::Get()",
+      "description": "Returns the process-wide Profiler singleton. Use this to register zones and control profiling (IsRootRun/EndRootRun/PrintResults).",
+      "requirements": [
+        "Must be called before using other non-static Profiler APIs.",
+        "Thread-safe to obtain the reference; subsequent usage must respect each API’s threading requirements."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::Thread",
+      "signature": "static size_t hwy::Profiler::Thread()",
+      "description": "Deprecated alias for GlobalIdx. Returns the calling thread’s global worker index (0 for main thread).",
+      "requirements": [
+        "Deprecated: prefer GlobalIdx. Returns 0 if not explicitly set via SetGlobalIdx in disabled build or main thread in enabled build."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::GlobalIdx",
+      "signature": "static size_t hwy::Profiler::GlobalIdx()",
+      "description": "Returns the calling thread’s global worker index (0 for main thread). Used by legacy PROFILER_ZONE/PROFILER_FUNC macros when a global index is not explicitly passed.",
+      "requirements": [
+        "Must have been previously set via SetGlobalIdx on each worker thread and once on the main thread before using macros that rely on it when the profiler is enabled."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::SetGlobalIdx",
+      "signature": "static void hwy::Profiler::SetGlobalIdx(size_t global_idx)",
+      "description": "Sets the calling thread’s global worker index to be used by profiling zones that don’t explicitly pass an index.",
+      "requirements": [
+        "Must be called on all worker threads and once on the main thread before using PROFILER_ZONE/PROFILER_FUNC when relying on implicit index.",
+        "global_idx should be less than the maximum supported workers (kMaxWorkers) and unique per concurrently active worker thread."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::ReserveWorker",
+      "signature": "void hwy::Profiler::ReserveWorker(size_t global_idx)",
+      "description": "Marks a worker index as reserved/active for profiling. Used by thread pool integrations to announce a worker’s participation so its data can be collected.",
+      "requirements": [
+        "global_idx must be less than kMaxWorkers.",
+        "Must not be called for an index that is already reserved (debug assertions enforce).",
+        "Each reserved index should later be released via FreeWorker(global_idx).",
+        "Should be called before entering any zones with that global_idx."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::FreeWorker",
+      "signature": "void hwy::Profiler::FreeWorker(size_t global_idx)",
+      "description": "Marks a previously reserved worker index as free/inactive, stopping further result collection for that worker.",
+      "requirements": [
+        "global_idx must be less than kMaxWorkers.",
+        "Must be called only for an index that is currently reserved (debug assertions enforce).",
+        "Should be paired with a prior ReserveWorker(global_idx) call."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::Enter",
+      "signature": "void hwy::Profiler::Enter(uint64_t t_enter, size_t global_idx)",
+      "description": "Notifies the profiler that a zone has been entered at time t_enter for the specified worker. Typically called by the profiler::Zone RAII object, not directly by users.",
+      "requirements": [
+        "global_idx must correspond to a currently reserved worker index.",
+        "t_enter must be a timestamp obtained from the profiler’s timer (timer::Start).",
+        "May be called from any thread as long as calls for a given global_idx are not concurrent."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::Exit",
+      "signature": "void hwy::Profiler::Exit(uint64_t t_exit, size_t global_idx, hwy::profiler::ZoneHandle zone)",
+      "description": "Notifies the profiler that a zone has been exited at time t_exit for the specified worker and zone. Computes and accumulates self time (or inclusive time if flagged). Typically called by the profiler::Zone destructor.",
+      "requirements": [
+        "global_idx must correspond to a currently reserved worker index.",
+        "zone must be a valid ZoneHandle for the zone being exited.",
+        "t_exit must be a timestamp obtained from the profiler’s timer (timer::Stop).",
+        "Enter/Exit calls for the same global_idx must be properly nested; no concurrent usage with the same global_idx."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::GetFirstDurationAndReset",
+      "signature": "uint64_t hwy::Profiler::GetFirstDurationAndReset(size_t global_idx)",
+      "description": "Returns the measured duration of the first recorded enter/exit pair for the given worker and resets associated state. Used internally for overhead detection/initialization.",
+      "requirements": [
+        "global_idx must correspond to a reserved worker index with exactly one zone recorded as per the internal expectations (used during self-overhead detection).",
+        "Intended for internal use; callers should avoid using this unless implementing profiler internals."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::Name",
+      "signature": "const char* hwy::Profiler::Name(hwy::profiler::ZoneHandle zone) const",
+      "description": "Returns the zone name associated with the given ZoneHandle. Convenience wrapper around internal storage.",
+      "requirements": [
+        "zone must be a valid ZoneHandle previously returned by AddZone.",
+        "Returned pointer remains valid while the profiler is alive."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::AddZone",
+      "signature": "hwy::profiler::ZoneHandle hwy::Profiler::AddZone(const char* name, hwy::ProfilerFlags flags = hwy::ProfilerFlags::kDefault)",
+      "description": "Registers a zone name with optional flags and returns a ZoneHandle to use when creating profiler::Zone scopes. Can be invoked during static initialization and is safe across threads.",
+      "requirements": [
+        "name must be a non-null, NUL-terminated C string.",
+        "The total number of unique zones must be less than kMaxZones.",
+        "flags must be a valid ProfilerFlags value (kDefault or kInclusive)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::AddFunc",
+      "signature": "void hwy::Profiler::AddFunc(void* owner, hwy::ProfilerFunc func)",
+      "description": "Registers a callback function to be invoked during PrintResults. Used by other modules (e.g., thread pools) to contribute additional data. Thread-safe.",
+      "requirements": [
+        "owner must be a non-null unique key pointer identifying the registrant.",
+        "func must be a valid callable (non-empty).",
+        "Each owner should register at most one function at a time; duplicate keys are not allowed.",
+        "Must later call RemoveFunc with the same owner to unregister."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::RemoveFunc",
+      "signature": "void hwy::Profiler::RemoveFunc(void* owner)",
+      "description": "Unregisters a previously added callback identified by owner. Thread-safe.",
+      "requirements": [
+        "owner must be the same non-null key used in a prior AddFunc call.",
+        "There must have been a prior AddFunc for this owner; removing a non-existent key is an error (internal abort).",
+        "Expected usage is to remove exactly once, typically from the same thread that added it (per internal comment)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::IsRootRun",
+      "signature": "bool hwy::Profiler::IsRootRun()",
+      "description": "Indicates whether a new root ThreadPool::Run section is starting. Returns true exactly for the first call that marks a root run since the last EndRootRun, and false while a run is active. Used to gate EndRootRun calls and aggregate concurrency statistics.",
+      "requirements": [
+        "Should be called on the main thread that orchestrates runs.",
+        "If this returns true, the caller must later invoke EndRootRun().",
+        "Not reentrant; concurrent root runs are not supported."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::EndRootRun",
+      "signature": "void hwy::Profiler::EndRootRun()",
+      "description": "Ends a root run previously acknowledged by IsRootRun(), moves per-worker accumulators into global results, updates concurrency stats, and allows the next IsRootRun() to return true.",
+      "requirements": [
+        "Must be called only if a preceding IsRootRun() call returned true.",
+        "Should be called from the main thread.",
+        "Some zones may still be active; the function accounts for that when results are later printed."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::PrintResults",
+      "signature": "void hwy::Profiler::PrintResults()",
+      "description": "Aggregates remaining per-worker data, prints sorted zone statistics to stdout, resets internal totals, and invokes any registered callbacks via AddFunc. Intended to be called after all threads have exited zones.",
+      "requirements": [
+        "Should be called from the main thread after all threads have exited all zones to ensure final, consistent results.",
+        "Safe to call multiple times; internal state is reset between calls.",
+        "If concurrency is tracked via IsRootRun/EndRootRun, those should bracket runs appropriately for meaningful concurrency figures."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Profiler::SetMaxThreads",
+      "signature": "void hwy::Profiler::SetMaxThreads(size_t)",
+      "description": "Deprecated/no-op placeholder retained for compatibility. Does not affect behavior.",
+      "requirements": [
+        "No specific requirements; parameter is ignored."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::profiler::Zone::Zone",
+      "signature": "hwy::profiler::Zone::Zone(hwy::Profiler& profiler, size_t global_idx, hwy::profiler::ZoneHandle zone)",
+      "description": "RAII scope object that records entry time on construction and exit time on destruction, attributing time to the given zone and worker. Creates a profiling region spanning the Zone object’s lifetime.",
+      "requirements": [
+        "profiler must be a valid Profiler instance (typically hwy::Profiler::Get()).",
+        "global_idx must be the caller’s global worker index; calls for the same global_idx must not overlap/concurrently execute.",
+        "zone must be a valid ZoneHandle previously obtained from Profiler::AddZone.",
+        "Construction/destruction should occur on the same thread; rely on the timer functions to obtain t_enter/t_exit."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::profiler::Zone::~Zone",
+      "signature": "hwy::profiler::Zone::~Zone()",
+      "description": "Destructor that closes the profiling scope started by the constructor, records the exit timestamp, and submits accumulated time to the profiler.",
+      "requirements": [
+        "Must correspond to a previously constructed Zone object; should run on the same thread as the constructor to preserve nesting correctness.",
+        "No explicit caller action required; triggered automatically at end of scope."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Unpredictable1",
+      "signature": "HWY_DLLEXPORT int hwy::Unpredictable1();",
+      "description": "Returns the integer value 1 in a way that prevents the compiler from predicting or optimizing around the value. Useful for inhibiting constant-folding and branch prediction during benchmarks or tests.",
+      "requirements": [
+        "No arguments required.",
+        "May be called at any time; has no side effects and no preconditions.",
+        "Return value is always 1; callers can use it in expressions to prevent compile-time optimization."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Measure",
+      "signature": "HWY_DLLEXPORT size_t hwy::Measure(hwy::Func func, const uint8_t* arg, const hwy::FuncInput* inputs, size_t num_inputs, hwy::Result* results, const hwy::Params& p = hwy::Params());",
+      "description": "Measures, with high precision, the elapsed timer ticks for calling a function (Func) across a distribution of inputs, shuffled to yield realistic branch prediction hit rates. Writes one Result per unique input value and returns the number of results written, or 0 on failure (an error message is printed to stderr). Intended for microbenchmarking functions that take (const void*, FuncInput) and return a 64-bit proof-of-work value.",
+      "requirements": [
+        "func must be a valid function pointer matching FuncOutput (*)(const void*, FuncInput).",
+        "arg is passed as the first parameter to func (or reserved internally when using MeasureClosure). If func expects to use it, arg must point to valid memory for the duration of the call(s).",
+        "inputs must point to an array of length num_inputs. The array may contain duplicates to represent a distribution; order does not matter.",
+        "num_inputs can be zero or more. If zero, behavior/result count is implementation-defined; typically no measurements will be produced.",
+        "results must point to writable storage large enough for at least the number of unique values present in inputs; one Result is written per unique input value.",
+        "The return value is the number of Result entries written; callers should check for 0 to detect failure (error details are sent to stderr).",
+        "When providing a custom Params p: p.subset_ratio must be >= 2 (per documentation). Other fields influence precision and runtime but impose no additional functional constraints.",
+        "func should be safe to call repeatedly and reentrantly across the provided input distribution, and must not rely on global state that would make repeated calls invalid or unsafe.",
+        "func must tolerate every value present in inputs; passing values outside func’s supported domain is a caller error."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::MeasureClosure",
+      "signature": "template <class Closure>\nstatic inline size_t hwy::MeasureClosure(const Closure& closure, const hwy::FuncInput* inputs, const size_t num_inputs, hwy::Result* results, const hwy::Params& p = hwy::Params());",
+      "description": "Convenience wrapper around Measure for callable objects (typically lambdas with captures) whose operator() has signature FuncOutput(FuncInput). Internally forwards to Measure by passing a trampoline (CallClosure) and the address of the closure object. Returns the number of Result entries written (one per unique input), or 0 on failure (error to stderr).",
+      "requirements": [
+        "Closure must be callable as FuncOutput operator()(FuncInput) const (compatible with being invoked via a const pointer).",
+        "closure must remain valid for the duration of the call; it is passed by const reference and its address is used internally during measurement.",
+        "inputs must point to an array of length num_inputs; may contain duplicates to represent a distribution; order does not matter.",
+        "results must point to writable storage sufficient for at least the number of unique values in inputs.",
+        "Callers should check the return value; 0 indicates failure (error details printed to stderr).",
+        "When providing a custom Params p: p.subset_ratio must be >= 2 (per documentation). Other fields only affect precision/runtime.",
+        "The closure’s operator() should be safe to call repeatedly and reentrantly for all provided input values and must not have side effects that make repeated measurements invalid.",
+        "The closure must accept and correctly handle every value present in inputs; providing unsupported values is a caller error."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::IsAligned",
+      "signature": "template <typename T>\nconstexpr bool hwy::IsAligned(T* ptr, size_t align = HWY_ALIGNMENT)",
+      "description": "Checks whether ptr is aligned to the specified byte boundary (default HWY_ALIGNMENT, 128). Returns true if the pointer address modulo align is zero. Useful before using SIMD assumptions that require literal alignment.",
+      "requirements": [
+        "ptr may be null; the function will still compute alignment on the address value.",
+        "align is a byte count; behavior is meaningful for non-zero powers of two, but the function does not validate align."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AllocateAlignedBytes",
+      "signature": "HWY_DLLEXPORT void* hwy::AllocateAlignedBytes(size_t payload_size,\n                                                AllocPtr alloc_ptr = nullptr,\n                                                void* opaque_ptr = nullptr)",
+      "description": "Allocates at least payload_size bytes of new memory aligned to max(HWY_ALIGNMENT, the platform vector size). Uses alloc_ptr(opaque_ptr, bytes) if provided, otherwise falls back to malloc(). Returns nullptr on allocation failure.",
+      "requirements": [
+        "payload_size may be zero; the function may return a valid aligned pointer or nullptr.",
+        "If alloc_ptr is provided, it must follow malloc-like semantics: return a pointer aligned appropriately and freeable by the matching free_ptr used with FreeAlignedBytes.",
+        "Returned memory must later be released via hwy::FreeAlignedBytes with the matching free_ptr/opaque_ptr pairing."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::FreeAlignedBytes",
+      "signature": "HWY_DLLEXPORT void hwy::FreeAlignedBytes(const void* aligned_pointer,\n                                          FreePtr free_ptr,\n                                          void* opaque_ptr)",
+      "description": "Frees memory previously allocated by AllocateAlignedBytes. If aligned_pointer is nullptr, it does nothing. Uses free_ptr(opaque_ptr, memory) if provided; otherwise uses the default free().",
+      "requirements": [
+        "aligned_pointer must be a pointer previously returned by hwy::AllocateAlignedBytes (or nullptr).",
+        "free_ptr, if non-null, must be the matching deallocator corresponding to the allocator used to obtain the memory.",
+        "opaque_ptr must be the same opaque value originally passed to the allocator/deallocator pair, if used."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedDeleter::operator()",
+      "signature": "template <typename T>\nvoid hwy::AlignedDeleter::operator()(T* aligned_pointer) const",
+      "description": "Custom deleter for aligned objects/arrays used with AlignedUniquePtr. Calls the element destructors and then frees the aligned memory via the stored FreePtr/opaque pair (or defaults).",
+      "requirements": [
+        "aligned_pointer must either be nullptr or point to memory allocated for aligned storage compatible with hwy::FreeAlignedBytes.",
+        "The pointed-to object(s) must be of type T constructed in-place so that calling their destructors is valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedAllocator<T>::allocate",
+      "signature": "template <class T>\ntemplate <class V>\nT* hwy::AlignedAllocator<T>::allocate(V n)",
+      "description": "Allocates aligned storage for n elements of T using AllocateAlignedBytes. Intended for use as a custom allocator in standard containers.",
+      "requirements": [
+        "V must be an integral type (enforced by static_assert).",
+        "sizeof(V) <= sizeof(size_t) (enforced by static_assert) to avoid overflow.",
+        "Returns nullptr on failure; callers (e.g., containers) must handle allocation failure per usual C++ allocator semantics.",
+        "Result must be deallocated with the same allocator’s deallocate()."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedAllocator<T>::deallocate",
+      "signature": "template <class T>\ntemplate <class V>\nvoid hwy::AlignedAllocator<T>::deallocate(T* p, V n)",
+      "description": "Deallocates memory previously obtained via AlignedAllocator::allocate by forwarding to FreeAlignedBytes. The element count parameter n is ignored.",
+      "requirements": [
+        "p must be a pointer previously returned by hwy::AlignedAllocator<T>::allocate (or nullptr).",
+        "It is safe to pass any value for n; it is unused."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::operator==",
+      "signature": "template <class T, class V>\nconstexpr bool hwy::operator==(const AlignedAllocator<T>&,\n                               const AlignedAllocator<V>&) noexcept",
+      "description": "Equality comparison for AlignedAllocator instances. Always returns true, meaning all AlignedAllocator instances are interchangeable.",
+      "requirements": [
+        "None; comparison is noexcept and does not depend on allocator state."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::operator!=",
+      "signature": "template <class T, class V>\nconstexpr bool hwy::operator!=(const AlignedAllocator<T>&,\n                               const AlignedAllocator<V>&) noexcept",
+      "description": "Inequality comparison for AlignedAllocator instances. Always returns false, consistent with operator== always returning true.",
+      "requirements": [
+        "None; comparison is noexcept and does not depend on allocator state."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::detail::ShiftCount",
+      "signature": "constexpr size_t hwy::detail::ShiftCount(size_t n)",
+      "description": "Returns x such that (1u << x) == n when n is a power of two. Computed recursively at compile time for constant n.",
+      "requirements": [
+        "For the documented relation to hold, n should be a power of two. For other n values the return value is not specified by the comment."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::detail::AllocateAlignedItems",
+      "signature": "template <typename T>\nT* hwy::detail::AllocateAlignedItems(size_t items,\n                                     AllocPtr alloc_ptr,\n                                     void* opaque_ptr)",
+      "description": "Allocates aligned storage for an array of items elements of T. Uses shift-based multiplication when sizeof(T) is a power of two to avoid overflow; returns nullptr on overflow or allocation failure. Forwards to AllocateAlignedBytes for the underlying allocation.",
+      "requirements": [
+        "items is the number of T elements requested; must be such that items * sizeof(T) does not overflow size_t, otherwise nullptr is returned.",
+        "If alloc_ptr is provided, it must be compatible with FreeAlignedBytes via the corresponding free_ptr."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedWithAlloc",
+      "signature": "template <typename T, typename... Args>\nhwy::AlignedUniquePtr<T> hwy::MakeUniqueAlignedWithAlloc(AllocPtr alloc,\n                                                         FreePtr free,\n                                                         void* opaque,\n                                                         Args&&... args)",
+      "description": "Allocates aligned storage for a single T with the provided allocator, constructs T in-place with args..., and returns an AlignedUniquePtr<T> that will destroy T and free the memory with the provided free/opaque when it goes out of scope.",
+      "requirements": [
+        "T must be constructible from Args...",
+        "alloc/free must be a compatible pair if provided; alloc must supply at least sizeof(T) bytes with required alignment and free must release it.",
+        "On allocation failure, behavior depends on AllocateAlignedBytes; if it returns nullptr, placement new on nullptr is undefined, but the code directly invokes placement new without null check. Callers should assume allocation should succeed or risk undefined behavior."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::MakeUniqueAligned",
+      "signature": "template <typename T, typename... Args>\nhwy::AlignedUniquePtr<T> hwy::MakeUniqueAligned(Args&&... args)",
+      "description": "Allocates aligned storage for a single T using the default allocator, constructs T in-place with args..., and returns an AlignedUniquePtr<T> that will destroy T and free the memory with the default deleter.",
+      "requirements": [
+        "T must be constructible from Args...",
+        "Allocation must succeed to avoid undefined behavior from placement new on a null pointer (the function does not check for nullptr)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedArrayWithAlloc",
+      "signature": "template <typename T, typename... Args>\nhwy::AlignedUniquePtr<T[]> hwy::MakeUniqueAlignedArrayWithAlloc(size_t items,\n                                                                AllocPtr alloc,\n                                                                FreePtr free,\n                                                                void* opaque,\n                                                                Args&&... args)",
+      "description": "Allocates aligned storage for an array of items elements of T with the provided allocator. Constructs each element with args... and returns an AlignedUniquePtr<T[]> that will destroy elements and free the memory with the provided free/opaque. If allocation fails, returns an empty unique_ptr without constructing elements.",
+      "requirements": [
+        "T must be constructible from Args...",
+        "items is the number of elements to create; construction is skipped if allocation returns nullptr.",
+        "alloc/free must be a compatible pair if provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedArray",
+      "signature": "template <typename T, typename... Args>\nhwy::AlignedUniquePtr<T[]> hwy::MakeUniqueAlignedArray(size_t items,\n                                                       Args&&... args)",
+      "description": "Convenience wrapper over MakeUniqueAlignedArrayWithAlloc using default allocation. Allocates aligned storage for items elements of T, constructs each with args..., and returns an AlignedUniquePtr<T[]> that will destroy elements and free the memory with the default deleter.",
+      "requirements": [
+        "T must be constructible from Args...",
+        "items specifies the number of elements."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedFreer::DoNothing",
+      "signature": "static void hwy::AlignedFreer::DoNothing(void* /*opaque*/, void* /*aligned_pointer*/)",
+      "description": "No-op function intended to be used where a deleter is required but the memory is externally owned and must not be freed.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedFreer::operator()",
+      "signature": "template <typename T>\nvoid hwy::AlignedFreer::operator()(T* aligned_pointer) const",
+      "description": "Custom deleter that frees aligned memory using FreeAlignedBytes with the stored FreePtr/opaque pair (or defaults). Suitable for POD arrays allocated by AllocateAligned.",
+      "requirements": [
+        "aligned_pointer must be nullptr or point to memory allocated via hwy allocation routines compatible with FreeAlignedBytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AllocateAligned",
+      "signature": "template <typename T>\nhwy::AlignedFreeUniquePtr<T[]> hwy::AllocateAligned(const size_t items,\n                                                    AllocPtr alloc,\n                                                    FreePtr free,\n                                                    void* opaque)",
+      "description": "Allocates an aligned, uninitialized array of items POD elements using the provided allocator and returns a unique_ptr with AlignedFreer deleter. Intended for trivially copyable and trivially destructible T.",
+      "requirements": [
+        "T must be trivially copyable (enforced by static_assert).",
+        "T must be trivially destructible (enforced by static_assert).",
+        "items is the number of elements to allocate; allocation may return nullptr on failure.",
+        "alloc/free must be a compatible pair if provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::operator=",
+      "signature": "template <typename T>\nhwy::Span<T>& hwy::Span<T>::operator=(std::initializer_list<const T> v)",
+      "description": "Copies elements from the initializer list v into the span’s buffer. In debug builds, asserts that sizes match; otherwise copies up to min(size_, v.size()).",
+      "requirements": [
+        "The span must point to valid writable storage of at least size() elements.",
+        "In debug builds, v.size() must equal size_ (HWY_DASSERT).",
+        "If v.size() differs from size_, only min(size_, v.size()) elements are copied; excess elements are ignored or remaining span elements left unchanged."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::size",
+      "signature": "template <typename T>\nsize_t hwy::Span<T>::size() const",
+      "description": "Returns the number of elements in the span.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::data",
+      "signature": "template <typename T>\nT* hwy::Span<T>::data()\n\ntemplate <typename T>\nT* hwy::Span<T>::data() const",
+      "description": "Returns a pointer to the underlying buffer. Note: the const-qualified overload also returns a non-const T*, as defined in the header.",
+      "requirements": [
+        "The span may be empty; returned pointer may be nullptr.",
+        "Callers should be aware that the const overload returning T* is unusual and may allow modification through a const reference to Span."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::operator[]",
+      "signature": "template <typename T>\nT& hwy::Span<T>::operator[](size_t index) const",
+      "description": "Returns a reference to the element at the given index without bounds checking.",
+      "requirements": [
+        "index must be within [0, size()). No bounds checks are performed."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::begin",
+      "signature": "template <typename T>\nT* hwy::Span<T>::begin()",
+      "description": "Returns an iterator (pointer) to the first element.",
+      "requirements": [
+        "The span may be empty; returned pointer may equal end()."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::cbegin",
+      "signature": "template <typename T>\nconstexpr const T* hwy::Span<T>::cbegin() const",
+      "description": "Returns a const iterator (pointer) to the first element.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::end",
+      "signature": "template <typename T>\nT* hwy::Span<T>::end()",
+      "description": "Returns an iterator (pointer) one past the last element.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Span<T>::cend",
+      "signature": "template <typename T>\nconstexpr const T* hwy::Span<T>::cend() const",
+      "description": "Returns a const iterator (pointer) one past the last element.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::operator=",
+      "signature": "template <typename T, size_t axes>\nhwy::AlignedNDArray<T, axes>& hwy::AlignedNDArray<T, axes>::operator=(hwy::AlignedNDArray<T, axes>&& other) = default",
+      "description": "Move assignment operator. Transfers ownership of the underlying aligned buffer and metadata from other to this instance.",
+      "requirements": [
+        "other must be an rvalue (i.e., being moved from). After move, other’s state is valid but unspecified, per standard C++ move semantics."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::operator[]",
+      "signature": "template <typename T, size_t axes>\nhwy::Span<T> hwy::AlignedNDArray<T, axes>::operator[](std::array<const size_t, axes - 1> indices)\n\ntemplate <typename T, size_t axes>\nhwy::Span<const T> hwy::AlignedNDArray<T, axes>::operator[](std::array<const size_t, axes - 1> indices) const",
+      "description": "Returns a Span over the innermost contiguous array at the specified outer indices. The non-const overload returns Span<T>; the const overload returns Span<const T>.",
+      "requirements": [
+        "indices must have length axes - 1.",
+        "Each index must be within the bounds of the corresponding axis; no runtime bounds checking is performed.",
+        "Returned span length equals the logical size of the last axis (may be smaller than the padded memory_shape last axis)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::shape",
+      "signature": "template <typename T, size_t axes>\nconst std::array<size_t, axes>& hwy::AlignedNDArray<T, axes>::shape() const",
+      "description": "Returns the logical shape of the array (may be smaller than the padded memory shape).",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::memory_shape",
+      "signature": "template <typename T, size_t axes>\nconst std::array<size_t, axes>& hwy::AlignedNDArray<T, axes>::memory_shape() const",
+      "description": "Returns the padded shape actually allocated in memory, where the innermost axis may be rounded up to a SIMD-friendly multiple.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::size",
+      "signature": "template <typename T, size_t axes>\nsize_t hwy::AlignedNDArray<T, axes>::size() const",
+      "description": "Returns the total number of elements in the logical array (product of shape).",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::memory_size",
+      "signature": "template <typename T, size_t axes>\nsize_t hwy::AlignedNDArray<T, axes>::memory_size() const",
+      "description": "Returns the total number of elements allocated (product of memory_shape), which may exceed size() due to padding.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::data",
+      "signature": "template <typename T, size_t axes>\nT* hwy::AlignedNDArray<T, axes>::data()\n\ntemplate <typename T, size_t axes>\nconst T* hwy::AlignedNDArray<T, axes>::data() const",
+      "description": "Returns a pointer to the beginning of the allocated buffer. The const overload returns a const-qualified pointer.",
+      "requirements": [
+        "The array may be empty; returned pointer may be nullptr."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::truncate",
+      "signature": "template <typename T, size_t axes>\nvoid hwy::AlignedNDArray<T, axes>::truncate(const std::array<size_t, axes>& new_shape)",
+      "description": "Updates the logical shape to new_shape without changing the underlying memory. Intended to logically truncate along any axes while preserving allocation and alignment.",
+      "requirements": [
+        "In debug builds, each new_shape[i] must be <= the current shape()[i] (asserted).",
+        "new_shape must have exactly axes elements."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::SupportedTargets",
+      "signature": "HWY_DLLEXPORT int64_t hwy::SupportedTargets();",
+      "description": "Returns a bitfield mask of enabled SIMD targets supported on the current CPU. The value is never 0; if all targets would otherwise be disabled, a fallback target (e.g., HWY_STATIC_TARGET) is returned. The set may change after calls to DisableTargets or SetSupportedTargetsForTest. Always defined; callers may use the HWY_SUPPORTED_TARGETS macro to elide the call when only a single target is enabled.",
+      "requirements": [
+        "No arguments required.",
+        "Return is a non-zero 64-bit bitmask composed of HWY_* target bits.",
+        "The returned mask may change across calls if DisableTargets or SetSupportedTargetsForTest have been used.",
+        "No explicit thread-safety guarantees are documented for calling this function; treat as unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::DisableTargets",
+      "signature": "HWY_DLLEXPORT void hwy::DisableTargets(int64_t disabled_targets);",
+      "description": "Globally disables a set of targets so that subsequent SupportedTargets() calls will not include those targets. Useful to avoid buggy or undesirable targets. If disabling all would make SupportedTargets return 0, a fallback target will be returned instead to ensure there is always at least one callable target.",
+      "requirements": [
+        "disabled_targets is a bitmask of HWY_* target bits to disable.",
+        "Affects global target selection used by SupportedTargets().",
+        "For testing multiple specific targets iteratively, prefer SetSupportedTargetsForTest instead (per documentation).",
+        "Thread-safety and lifetime effects are not documented; treat as unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::SetSupportedTargetsForTest",
+      "signature": "HWY_DLLEXPORT void hwy::SetSupportedTargetsForTest(int64_t targets);",
+      "description": "Overrides the set of targets returned by SupportedTargets() with the provided bitmask (still honoring any targets disabled via DisableTargets). Calling with 0 disables the override and restores normal SupportedTargets behavior. Intended for testing across all targets.",
+      "requirements": [
+        "targets is a bitmask of HWY_* target bits representing the desired mock set.",
+        "Passing targets == 0 disables the mock and restores normal behavior.",
+        "This setting influences subsequent SupportedTargets() calls only; it does not re-enable targets disabled by DisableTargets.",
+        "Thread-safety and scope of the override across threads/DSOs are not documented; treat as unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::TargetName",
+      "signature": "static inline HWY_MAYBE_UNUSED const char* hwy::TargetName(int64_t target);",
+      "description": "Returns a stable C string name for a single HWY_* target value (e.g., \"SSE2\", \"AVX2\", \"NEON\"). Intended to produce a gtest IsValidParamName() compatible string. If the value is not recognized, returns \"Unknown\".",
+      "requirements": [
+        "target should be a single HWY_* target macro value (one-bit mask corresponding to a specific target).",
+        "If target is not one of the recognized HWY_* values for any architecture, the function returns \"Unknown\".",
+        "The returned pointer is to a static string literal and remains valid for the lifetime of the program."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::GetChosenTarget",
+      "signature": "HWY_DLLEXPORT hwy::ChosenTarget& hwy::GetChosenTarget();",
+      "description": "Returns a reference to the process-wide ChosenTarget singleton used internally by Highway (e.g., by FunctionCache and DisableTargets) to manage dynamic dispatch state. The returned reference can be used to inspect/update target selection via ChosenTarget’s methods.",
+      "requirements": [
+        "Do not attempt to delete or free the returned reference; it refers to internal static storage.",
+        "On architectures where ChosenTarget is not thread-safe (comment notes: thread-safe except on RVV), callers must avoid data races when using the returned object.",
+        "The validity of the reference is for the lifetime of the process; module/DSO boundary behaviors are not documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::LoadFence",
+      "signature": "void LoadFence();",
+      "description": "Issues a load fence that delays subsequent loads until prior loads become visible. On some architectures (notably Intel x86) it can behave as a full fence. Intended for fine-grained memory-ordering control when coordinating dependent loads.",
+      "requirements": [
+        "May be a no-op on platforms where cache-control is disabled (HWY_DISABLE_CACHE_CONTROL).",
+        "Use only when a load-ordering barrier is required; it does not perform synchronization beyond ordering loads."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::StreamCacheLine",
+      "signature": "void StreamCacheLine(const uint64_t* from, uint64_t* to);",
+      "description": "Streams one cache line worth of data from 'from' to 'to', attempting to bypass the cache (read-for-ownership) when available. Falls back to a regular byte copy if non-temporal stores are unavailable. Intended for writing out a cache line without polluting caches.",
+      "requirements": [
+        "Both 'from' and 'to' must be aligned (intended to HWY_ALIGNMENT).",
+        "Both pointers must be valid for at least HWY_ALIGNMENT bytes starting at the given addresses.",
+        "The function overwrites the destination range unconditionally."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::FlushStream",
+      "signature": "void FlushStream();",
+      "description": "Ensures that values written by previous streaming (non-temporal) stores are made visible on the current core. Acts as a store fence on supported architectures.",
+      "requirements": [
+        "Call after issuing prior streaming writes whose visibility must be ensured on the current core.",
+        "This is not sufficient for inter-core synchronization; if other cores will consume the data, publish availability via proper synchronization (e.g., mutex or atomic) after calling FlushStream.",
+        "May be a no-op on platforms where cache-control is disabled."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Prefetch",
+      "signature": "template <typename T> void Prefetch(const T* p);",
+      "description": "Hints the CPU to begin loading the cache line containing address 'p' to reduce latency of subsequent actual loads. Uses platform intrinsics when available; otherwise may be a no-op.",
+      "requirements": [
+        "Pointer 'p' is not dereferenced by this function; no alignment requirement is specified.",
+        "Effect is advisory and platform-dependent; may be a no-op when cache-control is disabled."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::FlushCacheline",
+      "signature": "void FlushCacheline(const void* p);",
+      "description": "Invalidates and flushes the cache line containing address 'p', if supported by the architecture. On unsupported platforms it does nothing.",
+      "requirements": [
+        "Address 'p' designates the memory whose cache line you intend to flush; no alignment requirement is specified.",
+        "May be a no-op on non-x86 or when cache-control is disabled."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::Pause",
+      "signature": "void Pause();",
+      "description": "Issues a processor hint that the calling thread is in a spin loop, potentially reducing power and coherency traffic and improving forward progress. Uses the best available instruction per architecture; otherwise may be a no-op.",
+      "requirements": [
+        "Call inside busy-wait/spin loops to reduce contention; outside of such loops it provides no benefit.",
+        "May be a no-op on platforms where the hint is unavailable or cache-control is disabled."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::robust_statistics::CountingSort",
+      "signature": "template <class T>\nvoid hwy::robust_statistics::CountingSort(T* values, size_t num_values)",
+      "description": "In-place stable-like counting-style sort for integral-like data. Sorts the input values array in ascending order, optimized for inputs with few unique values. Intended for preparing data for mode estimation, but usable as a general in-place sort when T supports ordering.",
+      "requirements": [
+        "values must point to an array of at least num_values elements",
+        "values may be null only if num_values == 0",
+        "Sorting is in-place and will mutate the contents of values",
+        "T must be equality comparable (operator==) and totally ordered (operator<) to support std::pair<T,int> sorting",
+        "T must be copy-assignable/movable (used by std::vector and std::fill)",
+        "num_values may be zero; the function is a no-op in that case"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::robust_statistics::MinRange",
+      "signature": "template <typename T>\nsize_t hwy::robust_statistics::MinRange(const T* const HWY_RESTRICT sorted, const size_t idx_begin, const size_t half_count)",
+      "description": "Finds the start index i in [idx_begin, idx_begin + half_count) that minimizes the window width sorted[i + half_count] - sorted[i] in a sorted array. Used as a step of the Half Sample Mode estimator.",
+      "requirements": [
+        "sorted must reference a sequence in nondecreasing (ascending) order",
+        "half_count must be > 0 to obtain a meaningful result; if half_count == 0, the loop does not run and the return value is 0",
+        "The valid index range must cover accesses up to sorted[idx_begin + 2*half_count - 1]",
+        "T must support subtraction (operator-) and comparison (operator<) and be compatible with std::numeric_limits<T>::max()",
+        "sorted must not be null for half_count > 0"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::robust_statistics::ModeOfSorted",
+      "signature": "template <typename T>\nT hwy::robust_statistics::ModeOfSorted(const T* const HWY_RESTRICT sorted, const size_t num_values)",
+      "description": "Computes a robust estimate of the mode from a sorted array using the Half Sample Mode (Bickel) by repeatedly selecting the narrowest half-interval. For the final two-point case it returns the rounded average of the two values, assuming an unsigned integer T.",
+      "requirements": [
+        "sorted must point to at least num_values elements",
+        "num_values must be > 0",
+        "sorted must be in nondecreasing (ascending) order",
+        "For the final averaging step, T is assumed to be an unsigned integer type; using signed or non-integer types changes rounding semantics",
+        "T must support indexing, addition, division by 2, subtraction, and comparisons as used by MinRange",
+        "sorted must not be null when num_values > 0"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::robust_statistics::Mode",
+      "signature": "template <typename T>\nT hwy::robust_statistics::Mode(T* values, const size_t num_values)",
+      "description": "Returns the mode estimate of the input by first sorting values in place (CountingSort) and then applying the Half Sample Mode on the sorted data. Intended for unsigned integer types.",
+      "requirements": [
+        "values must point to at least num_values elements",
+        "num_values must be > 0",
+        "values will be sorted in ascending order as a side effect",
+        "T should be an unsigned integer type for the estimator’s final averaging semantics",
+        "values must not be null when num_values > 0"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::robust_statistics::Median",
+      "signature": "template <typename T>\nT hwy::robust_statistics::Median(T* values, const size_t num_values)",
+      "description": "Computes the median in place by sorting the array. For odd counts, returns the middle element. For even counts, returns the rounded average of the two middle elements when T is an integer type, otherwise the arithmetic mean.",
+      "requirements": [
+        "num_values must be != 0",
+        "values must point to at least num_values elements",
+        "values will be sorted in ascending order as a side effect",
+        "T must be totally ordered (operator<) for std::sort",
+        "For even counts, T must support addition and division by 2; rounding-to-nearest is applied for integer T via a +1 bias"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::robust_statistics::MedianAbsoluteDeviation",
+      "signature": "template <typename T>\nT hwy::robust_statistics::MedianAbsoluteDeviation(const T* values, const size_t num_values, const T median)",
+      "description": "Computes the Median Absolute Deviation (MAD), a robust measure of variability, as the median of |values[i] − median|. Deviations are computed via int64_t arithmetic and cast back to T before taking the median.",
+      "requirements": [
+        "num_values must be != 0",
+        "values must point to at least num_values elements and must not be null when num_values > 0",
+        "median should be the median of the same sample (typically from hwy::robust_statistics::Median)",
+        "T must be convertible to and from int64_t without undefined behavior for the value range used (deviations are computed in int64_t)",
+        "T must be supported by Median(T*, size_t) (i.e., sortable, add/divide as required there)"
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::x86::Cpuid",
+      "signature": "static inline void hwy::x86::Cpuid(const uint32_t level, const uint32_t count, uint32_t* HWY_RESTRICT abcd)",
+      "description": "Executes the x86 CPUID instruction for the specified leaf (level) and subleaf (count) and writes the results into abcd as {EAX, EBX, ECX, EDX}. Intended for querying CPU feature bits and vendor/feature information. Use when you need raw CPUID values for a given leaf/subleaf; the caller interprets the returned registers.",
+      "requirements": [
+        "Must be compiled and run on an x86/x86_64 target (guarded by HWY_ARCH_X86).",
+        "abcd must be a non-null pointer to writable storage for at least 4 uint32_t elements.",
+        "If the requested CPUID leaf/subleaf is not supported by the CPU, returned values are CPU-defined; callers expecting specific bits must ensure the leaf is supported (e.g., by checking MaxLevel or equivalent mechanisms)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::x86::IsBitSet",
+      "signature": "static inline bool hwy::x86::IsBitSet(const uint32_t reg, const int index)",
+      "description": "Tests whether the bit at position index is set in reg. Useful for checking individual CPUID feature bits or any 32-bit flag field.",
+      "requirements": [
+        "index must be in the range [0, 31]; shifting by >=32 is undefined behavior in C/C++.",
+        "reg may be any 32-bit value."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::x86::MaxLevel",
+      "signature": "static inline uint32_t hwy::x86::MaxLevel()",
+      "description": "Returns the maximum supported CPUID basic leaf by executing CPUID with EAX=0 and returning EAX. Useful to determine whether a given basic CPUID leaf is supported before querying it.",
+      "requirements": [
+        "Must be compiled and run on an x86/x86_64 target (guarded by HWY_ARCH_X86)."
+      ],
+      "error": null
+    },
+    {
+      "name": "hwy::x86::IsAMD",
+      "signature": "static inline bool hwy::x86::IsAMD()",
+      "description": "Determines whether the current CPU vendor ID matches \"AuthenticAMD\" by reading CPUID leaf 0 and comparing EBX, ECX, and EDX to the AMD vendor string. Use to gate AMD-specific feature handling or workarounds.",
+      "requirements": [
+        "Must be compiled and run on an x86/x86_64 target (guarded by HWY_ARCH_X86).",
+        "Meaningful result assumes CPUID instruction is available; behavior on pre-CPUID-era CPUs is undefined."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "hwy::DeduceFunctionCache",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise template deduction by passing concrete, non-overloaded function pointers.\n// We use captureless lambdas converted to function pointers via unary + to avoid\n// defining global functions while ensuring an unambiguous pointer type.\n// No inputs/outputs are required; the function returns a lightweight value we discard.\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 3;\nif (choice == 0) {\n  using Ret = uint64_t;\n  Ret (*fp)() = +[]() -> Ret { return 42u; };\n  auto cache = hwy::DeduceFunctionCache(fp);\n  (void)cache;  // ensure instantiation and call without relying on the value\n} else if (choice == 1) {\n  using Ret = int;\n  using A0 = int;\n  Ret (*fp)(A0) = +[](A0 a0) -> Ret { return a0; };\n  auto cache = hwy::DeduceFunctionCache(fp);\n  (void)cache;\n} else {\n  using Ret = hwy::FuncOutput;\n  using A0 = const void*;\n  using A1 = hwy::FuncInput;\n  Ret (*fp)(A0, A1) = +[](A0, A1 n) -> Ret { return static_cast<Ret>(n); };\n  auto cache = hwy::DeduceFunctionCache(fp);\n  (void)cache;\n}\n// Requirements enforced:\n// - Argument is an explicit function pointer (non-overloaded, unique type).\n// - Multiple signatures improve coverage of template deduction paths.\n// Validation: Stub compiles without extra dependencies, avoids ambiguity, and does\n// not assume any specific FunctionCache members; no persistent objects to output."
+    },
+    {
+      "name": "hwy::detail::TypeName",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a few valid TypeInfo combinations and exercise formatting into a 100-byte buffer.\n// Requirements enforced: string100 capacity >= 100, sensible non-negative N.\n{\n  char out[100];\n\n  // Choose a vector length N in a reasonable range.\n  size_t N = (size_t)(*FUZZ_PARAM(unsigned int) % 65); // 0..64\n\n  // Exercise several common scalar types to maximize coverage.\n  hwy::detail::TypeInfo ti_u8   {1, /*is_float=*/false, /*is_signed=*/false, /*is_bf16=*/false};\n  hwy::detail::TypeInfo ti_i8   {1, false, true,  false};\n  hwy::detail::TypeInfo ti_u16  {2, false, false, false};\n  hwy::detail::TypeInfo ti_i16  {2, false, true,  false};\n  hwy::detail::TypeInfo ti_bf16 {2, true,  false, true }; // represent bfloat16\n  hwy::detail::TypeInfo ti_f32  {4, true,  false, false};\n  hwy::detail::TypeInfo ti_f64  {8, true,  false, false};\n  hwy::detail::TypeInfo ti_i32  {4, false, true,  false};\n\n  // Call the target with different type infos.\n  hwy::detail::TypeName(ti_u8,  N, out);\n  hwy::detail::TypeName(ti_i8,  N, out);\n  hwy::detail::TypeName(ti_u16, N, out);\n  hwy::detail::TypeName(ti_i16, N, out);\n  hwy::detail::TypeName(ti_bf16,N, out);\n  hwy::detail::TypeName(ti_f32, N, out);\n  hwy::detail::TypeName(ti_f64, N, out);\n  hwy::detail::TypeName(ti_i32, N, out);\n  // No outputs to return; buffer is local and overwritten each call.\n}\n// Validation: Ensures buffer is sized to 100 bytes and N is non-negative; uses plausible TypeInfo combinations."
+    },
+    {
+      "name": "hwy::detail::ToString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Convert values of several types using matching TypeInfo into a 100-byte buffer.\n{\n  char out[100];\n\n  // Select a case 0..6\n  unsigned int which = *FUZZ_PARAM(unsigned int) % 7u;\n\n  if (which == 0) {\n    // uint8_t\n    hwy::detail::TypeInfo ti{1, false, false, false};\n    uint8_t v = *FUZZ_PARAM(uint8_t);\n    hwy::detail::ToString(ti, &v, out);\n  } else if (which == 1) {\n    // int16_t\n    hwy::detail::TypeInfo ti{2, false, true, false};\n    int16_t v = *FUZZ_PARAM(int16_t);\n    hwy::detail::ToString(ti, &v, out);\n  } else if (which == 2) {\n    // bfloat16 represented as uint16_t storage, flagged as float+bf16\n    hwy::detail::TypeInfo ti{2, true, false, true};\n    uint16_t v = *FUZZ_PARAM(uint16_t);\n    hwy::detail::ToString(ti, &v, out);\n  } else if (which == 3) {\n    // float\n    hwy::detail::TypeInfo ti{4, true, false, false};\n    float v = *FUZZ_PARAM(float);\n    hwy::detail::ToString(ti, &v, out);\n  } else if (which == 4) {\n    // double\n    hwy::detail::TypeInfo ti{8, true, false, false};\n    double v = *FUZZ_PARAM(double);\n    hwy::detail::ToString(ti, &v, out);\n  } else if (which == 5) {\n    // int32_t\n    hwy::detail::TypeInfo ti{4, false, true, false};\n    int32_t v = *FUZZ_PARAM(int32_t);\n    hwy::detail::ToString(ti, &v, out);\n  } else {\n    // uint64_t\n    hwy::detail::TypeInfo ti{8, false, false, false};\n    uint64_t v = *FUZZ_PARAM(uint64_t);\n    hwy::detail::ToString(ti, &v, out);\n  }\n}\n// Validation: Buffer is 100 bytes; ptr always points to a live object matching the provided TypeInfo."
+    },
+    {
+      "name": "hwy::detail::PrintArray",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare arrays of various element types and call PrintArray with valid bounds.\n{\n  // Caption: valid C-string (may be empty)\n  std::string caption = FUZZ_PARAM_STR();\n\n  // Choose element type case and element count.\n  unsigned int which = *FUZZ_PARAM(unsigned int) % 6u;\n  size_t N = (size_t)(*FUZZ_PARAM(unsigned int) % 33); // 0..32 elements\n\n  // lane_u must be within [0, N) if N>0, else 0.\n  size_t lane_u = (N == 0) ? 0 : ((size_t)*FUZZ_PARAM(unsigned int) % N);\n  // max_lanes positive; cap to a small bound.\n  size_t max_lanes = ((size_t)*FUZZ_PARAM(unsigned int) % 16) + 1; // 1..16\n\n  if (which == 0) {\n    // uint8_t array\n    hwy::detail::TypeInfo ti{1, false, false, false};\n    uint8_t vals_buf[32];\n    const uint8_t* src = *FUZZ_PARAM(uint8_t[32]);\n    for (size_t i = 0; i < 32; ++i) vals_buf[i] = src[i];\n    const void* array_void = (N == 0) ? (const void*)vals_buf : (const void*)vals_buf;\n    hwy::detail::PrintArray(ti, caption.c_str(), array_void, N, lane_u, max_lanes);\n  } else if (which == 1) {\n    // int16_t array\n    hwy::detail::TypeInfo ti{2, false, true, false};\n    int16_t vals_buf[32];\n    const int16_t* src = *FUZZ_PARAM(int16_t[32]);\n    for (size_t i = 0; i < 32; ++i) vals_buf[i] = src[i];\n    hwy::detail::PrintArray(ti, caption.c_str(), (const void*)vals_buf, N, lane_u, max_lanes);\n  } else if (which == 2) {\n    // bfloat16 as uint16_t storage\n    hwy::detail::TypeInfo ti{2, true, false, true};\n    uint16_t vals_buf[32];\n    const uint16_t* src = *FUZZ_PARAM(uint16_t[32]);\n    for (size_t i = 0; i < 32; ++i) vals_buf[i] = src[i];\n    hwy::detail::PrintArray(ti, caption.c_str(), (const void*)vals_buf, N, lane_u, max_lanes);\n  } else if (which == 3) {\n    // float array\n    hwy::detail::TypeInfo ti{4, true, false, false};\n    float vals_buf[32];\n    const float* src = *FUZZ_PARAM(float[32]);\n    for (size_t i = 0; i < 32; ++i) vals_buf[i] = src[i];\n    hwy::detail::PrintArray(ti, caption.c_str(), (const void*)vals_buf, N, lane_u, max_lanes);\n  } else if (which == 4) {\n    // double array\n    hwy::detail::TypeInfo ti{8, true, false, false};\n    double vals_buf[32];\n    const double* src = *FUZZ_PARAM(double[32]);\n    for (size_t i = 0; i < 32; ++i) vals_buf[i] = src[i];\n    hwy::detail::PrintArray(ti, caption.c_str(), (const void*)vals_buf, N, lane_u, max_lanes);\n  } else {\n    // int32_t array\n    hwy::detail::TypeInfo ti{4, false, true, false};\n    int32_t vals_buf[32];\n    const int32_t* src = *FUZZ_PARAM(int32_t[32]);\n    for (size_t i = 0; i < 32; ++i) vals_buf[i] = src[i];\n    hwy::detail::PrintArray(ti, caption.c_str(), (const void*)vals_buf, N, lane_u, max_lanes);\n  }\n}\n// Validation: Ensures caption is a C-string, N within buffer bounds (0..32), lane_u in [0,N), and max_lanes > 0; array pointer is non-null if N>0."
+    },
+    {
+      "name": "hwy::PrintValue",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate PrintValue for multiple supported types using random values.\n{\n  int32_t  vi32 = *FUZZ_PARAM(int32_t);\n  uint8_t  vu8  = *FUZZ_PARAM(uint8_t);\n  float    vf   = *FUZZ_PARAM(float);\n  double   vd   = *FUZZ_PARAM(double);\n  uint64_t vu64 = *FUZZ_PARAM(uint64_t);\n\n  hwy::PrintValue<int32_t>(vi32);\n  hwy::PrintValue<uint8_t>(vu8);\n  hwy::PrintValue<float>(vf);\n  hwy::PrintValue<double>(vd);\n  hwy::PrintValue<uint64_t>(vu64);\n}\n// Validation: Types chosen are commonly supported by MakeTypeInfo/ToString; values are trivially copyable and passed by value."
+    },
+    {
+      "name": "hwy::PrintArray",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate PrintArray<T> with arrays of several element types, bounded sizes.\n{\n  size_t count = (size_t)(*FUZZ_PARAM(unsigned int) % 33); // 0..32\n\n  // uint8_t\n  {\n    uint8_t buf[32];\n    const uint8_t* src = *FUZZ_PARAM(uint8_t[32]);\n    for (size_t i = 0; i < 32; ++i) buf[i] = src[i];\n    hwy::PrintArray<uint8_t>(buf, count);\n  }\n\n  // int16_t\n  {\n    int16_t buf[32];\n    const int16_t* src = *FUZZ_PARAM(int16_t[32]);\n    for (size_t i = 0; i < 32; ++i) buf[i] = src[i];\n    hwy::PrintArray<int16_t>(buf, count);\n  }\n\n  // float\n  {\n    float buf[32];\n    const float* src = *FUZZ_PARAM(float[32]);\n    for (size_t i = 0; i < 32; ++i) buf[i] = src[i];\n    hwy::PrintArray<float>(buf, count);\n  }\n}\n// Validation: Arrays are non-null, count is within allocated bounds (<=32), and element types are supported."
+    },
+    {
+      "name": "hwy::platform::Now",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call the monotonic wall clock. No inputs or persistent objects required.\nconst double now = hwy::platform::Now();\n// Property: result should be finite and non-negative in typical steady clocks.\n// We only assert finiteness to be portable across platform epochs.\nFUZZ_ASSERT(now == now, \"Now() must be a finite number\");\n// Validation: Stub calls Now() once and asserts a finite result. No objects to manage."
+    },
+    {
+      "name": "hwy::platform::HaveTimerStop",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a writable buffer of at least 100 bytes as required.\nchar cpu100[100];\ncpu100[0] = '\\0';\nconst bool ok = hwy::platform::HaveTimerStop(cpu100);\n// If not supported, buffer will contain a descriptive CPU string; we do not\n// depend on its contents here, only ensure call safety.\nif (!ok) {\n  // Per API, callers should not use timer::Stop if this is false; bail to avoid UB.\n  FUZZ_BAIL();\n}\n// Validation: Ensures buffer size >=100 and bails if Stop is unsafe, honoring API contract."
+    },
+    {
+      "name": "hwy::platform::InvariantTicksPerSecond",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Potentially expensive; call once and sanity-check the return.\nconst double hz = hwy::platform::InvariantTicksPerSecond();\n// Expect a positive frequency.\nFUZZ_ASSERT(hz > 0.0, \"InvariantTicksPerSecond must be positive\");\n// Validation: Calls once, asserts positive frequency. No object lifetimes involved."
+    },
+    {
+      "name": "hwy::platform::TimerResolution",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Potentially expensive; call once.\nconst uint64_t res = hwy::platform::TimerResolution();\n// Resolution (overhead) can be zero on some platforms but must be finite.\n// No strict assertion beyond reading the value.\n(void)res;\n// Validation: Invokes API and accepts any returned tick delta; no objects involved."
+    },
+    {
+      "name": "hwy::platform::GetCpuString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a writable buffer of at least 100 bytes as required.\nchar cpu100[100];\ncpu100[0] = '\\0';\nconst bool has = hwy::platform::GetCpuString(cpu100);\n// If false, buffer may not contain a detailed description; no further action required.\n(void)has;\n// Validation: Supplies required buffer and handles both return paths."
+    },
+    {
+      "name": "hwy::SecondsSince",
+      "inputs": [
+        {
+          "name": "t0",
+          "type": "hwy::Timestamp *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "t0",
+          "type": "hwy::Timestamp *"
+        }
+      ],
+      "code": "// t0 must be a valid Timestamp captured from the same clock.\n// Compute elapsed seconds since t0.\nconst double dt = hwy::SecondsSince(*t0);\n// Elapsed since a recent timestamp should be non-negative and finite.\nFUZZ_ASSERT(dt == dt && dt >= 0.0, \"SecondsSince must be finite and non-negative\");\n// Return t0 to the pool as it remains valid.\n// Validation: Uses provided Timestamp by const ref, asserts sane elapsed, and preserves input."
+    },
+    {
+      "name": "hwy::timer::Start",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Obtain a fenced pre-region absolute tick value. No inputs required.\nconst hwy::timer::Ticks t0 = hwy::timer::Start();\n// Follow-up Start to compute a small elapsed delta (valid even if Stop is unsafe).\nconst hwy::timer::Ticks t1 = hwy::timer::Start();\nvolatile hwy::timer::Ticks elapsed = t1 - t0;  // unsigned wrap-safe\n(void)elapsed;\n// Validation: Captures two timestamps and computes a delta to exercise semantics."
+    },
+    {
+      "name": "hwy::timer::Stop",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Per API, only call Stop if platform reports it is safe.\nchar cpu100[100];\nif (!hwy::platform::HaveTimerStop(cpu100)) { FUZZ_BAIL(); }\n// Safe to call Stop; compute an elapsed interval with a preceding Start.\nconst hwy::timer::Ticks t0 = hwy::timer::Start();\nconst hwy::timer::Ticks t1 = hwy::timer::Stop();\nvolatile hwy::timer::Ticks elapsed = t1 - t0;  // unsigned wrap-safe\n(void)elapsed;\n// Validation: Guards Stop with HaveTimerStop and computes a delta to cover normal usage."
+    },
+    {
+      "name": "hwy::Timer::Before",
+      "inputs": [
+        {
+          "name": "timer",
+          "type": "hwy::Timer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "timer",
+          "type": "hwy::Timer *"
+        }
+      ],
+      "code": "// Call immediately before measured region.\nconst hwy::timer::Ticks t0 = timer->Before();\n// Pair with an After() to compute a delta under the same Timer instance.\nconst hwy::timer::Ticks t1 = timer->After();\nvolatile hwy::timer::Ticks elapsed = t1 - t0;\n(void)elapsed;\n// Preserve the Timer for reuse by returning it.\n// Validation: Exercises Before/After pairing and keeps Timer alive."
+    },
+    {
+      "name": "hwy::Timer::After",
+      "inputs": [
+        {
+          "name": "timer",
+          "type": "hwy::Timer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "timer",
+          "type": "hwy::Timer *"
+        }
+      ],
+      "code": "// Use the same Timer instance around a tiny region to get post timestamp.\nconst hwy::timer::Ticks t0 = timer->Before();\nconst hwy::timer::Ticks t1 = timer->After();\nvolatile hwy::timer::Ticks elapsed = t1 - t0;\n(void)elapsed;\n// Return the Timer to the pool.\n// Validation: Calls After() in its intended pairing and preserves input Timer."
+    },
+    {
+      "name": "hwy::Seconds",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate two Start timestamps from the same clock to form a tick delta.\nconst hwy::timer::Ticks t0 = hwy::timer::Start();\nconst hwy::timer::Ticks t1 = hwy::timer::Start();\nconst hwy::timer::Ticks dt_ticks = t1 - t0;\nconst double secs = hwy::Seconds(dt_ticks);\n// The conversion should yield a finite, non-negative duration.\nFUZZ_ASSERT(secs == secs && secs >= 0.0, \"Seconds must produce finite non-negative time\");\n// Validation: Supplies coherent tick input and sanity-checks the converted seconds."
+    },
+    {
+      "name": "hwy::Stopwatch::Origin",
+      "inputs": [
+        {
+          "name": "sw",
+          "type": "hwy::Stopwatch *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sw",
+          "type": "hwy::Stopwatch *"
+        }
+      ],
+      "code": "// Read the current origin tick; Stopwatch must have been constructed with a valid Timer.\nconst hwy::timer::Ticks t0 = sw->Origin();\n// Exercise Elapsed() relative to the origin to ensure consistency.\nconst hwy::timer::Ticks dt = sw->Elapsed();\nvolatile hwy::timer::Ticks check = dt + t0;  // use values to prevent elision\n(void)check;\n// Return Stopwatch to pool.\n// Validation: Reads origin and performs an elapsed measurement, preserving Stopwatch."
+    },
+    {
+      "name": "hwy::Stopwatch::Reset",
+      "inputs": [
+        {
+          "name": "sw",
+          "type": "hwy::Stopwatch *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sw",
+          "type": "hwy::Stopwatch *"
+        }
+      ],
+      "code": "// Reset origin to current pre-region timestamp.\nsw->Reset();\n// After reset, the next Elapsed() should be small but non-negative.\nconst hwy::timer::Ticks dt = sw->Elapsed();\nvolatile hwy::timer::Ticks use_dt = dt;\n(void)use_dt;\n// Return Stopwatch to pool.\n// Validation: Calls Reset then Elapsed to cover typical usage; Stopwatch remains valid."
+    },
+    {
+      "name": "hwy::Stopwatch::Elapsed",
+      "inputs": [
+        {
+          "name": "sw",
+          "type": "hwy::Stopwatch *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sw",
+          "type": "hwy::Stopwatch *"
+        }
+      ],
+      "code": "// Measure elapsed ticks since the last origin; also updates origin.\nconst hwy::timer::Ticks dt1 = sw->Elapsed();\n// Call again to exercise origin update behavior.\nconst hwy::timer::Ticks dt2 = sw->Elapsed();\nvolatile hwy::timer::Ticks sum = dt1 + dt2;\n(void)sum;\n// Return Stopwatch to pool.\n// Validation: Calls Elapsed twice to test reset-on-read behavior; keeps Stopwatch alive."
+    },
+    {
+      "name": "hwy::DispatchedTarget",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Query-only; no inputs or persistent outputs. Safe any time.\n// Call once and record the value for potential downstream diagnostics.\nvolatile int64_t dt = hwy::DispatchedTarget();\n// Store last seen value (no semantics assumed about encoding).\nFUZZ_SET_ATTR_INT_GLOBAL(\"last_dispatched_target\", static_cast<int>(dt));\n// No outputs to return; this is a pure query."
+    },
+    {
+      "name": "hwy::VectorBytes",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Query current vector size in bytes immediately before hypothetical dependent code.\nsize_t vb1 = hwy::VectorBytes();\n// This should always be positive; assert the property.\nFUZZ_ASSERT(vb1 > 0, \"VectorBytes must be > 0\");\n// Call again with no intervening target changes to exercise path and expect stability.\nsize_t vb2 = hwy::VectorBytes();\nFUZZ_ASSERT(vb2 == vb1, \"VectorBytes should be stable across immediate consecutive calls\");\n// Record for diagnostics; callers must not cache across changes, but global is only for fuzzer introspection.\nFUZZ_SET_ATTR_INT_GLOBAL(\"last_vector_bytes\", static_cast<int>(vb1));\n// No outputs; this is a query-only function."
+    },
+    {
+      "name": "hwy::HaveInteger64",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Capability query; safe to call any time.\nvolatile bool have = hwy::HaveInteger64();\n// Record last observed capability for diagnostics.\nFUZZ_SET_ATTR_INT_GLOBAL(\"cap_int64\", have ? 1 : 0);\n// No outputs; query-only."
+    },
+    {
+      "name": "hwy::HaveFloat16",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Capability query; safe to call any time.\nvolatile bool have = hwy::HaveFloat16();\n// Record last observed capability for diagnostics.\nFUZZ_SET_ATTR_INT_GLOBAL(\"cap_f16\", have ? 1 : 0);\n// No outputs; query-only."
+    },
+    {
+      "name": "hwy::HaveFloat64",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Capability query; safe to call any time.\nvolatile bool have = hwy::HaveFloat64();\n// Record last observed capability for diagnostics.\nFUZZ_SET_ATTR_INT_GLOBAL(\"cap_f64\", have ? 1 : 0);\n// No outputs; query-only."
+    },
+    {
+      "name": "hwy::Profiler::Get",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "profiler",
+          "type": "hwy::Profiler *"
+        }
+      ],
+      "code": "// Obtain the process-wide Profiler singleton reference and hand a pointer to the pool\nhwy::Profiler& ref = hwy::Profiler::Get();\nhwy::Profiler* profiler = &ref;\n// The profiler pointer is non-null by contract; provide it as an output for reuse\n"
+    },
+    {
+      "name": "hwy::Profiler::Thread",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Deprecated alias for GlobalIdx; just invoke to exercise the path\n(void)hwy::Profiler::Thread();\n"
+    },
+    {
+      "name": "hwy::Profiler::GlobalIdx",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Returns the calling thread's global worker index; invoke to exercise the path\n(void)hwy::Profiler::GlobalIdx();\n"
+    },
+    {
+      "name": "hwy::Profiler::SetGlobalIdx",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a small valid global worker index; we standardize on 0 to satisfy bounds\nsize_t idx = 0;\nhwy::Profiler::SetGlobalIdx(idx);\n// Track chosen index in global attrs for other stubs (always 0 here)\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_global_idx\", (int)idx);\n"
+    },
+    {
+      "name": "hwy::Profiler::ReserveWorker",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Standardize on reserving worker index 0; enforce single-reserve via global attrs\nsize_t idx = 0;\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"prof_reserved_0\")) { FUZZ_BAIL(); }\nhwy::Profiler& p = hwy::Profiler::Get();\np.ReserveWorker(idx);\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_reserved_0\", 1);\n// Initialize nesting depth tracking for Enter/Exit on idx 0\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"prof_depth_0\") < 0) { FUZZ_SET_ATTR_INT_GLOBAL(\"prof_depth_0\", 0); }\n"
+    },
+    {
+      "name": "hwy::Profiler::FreeWorker",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Free the previously reserved worker index 0; must have been reserved\nsize_t idx = 0;\nif (!FUZZ_GET_ATTR_INT_GLOBAL(\"prof_reserved_0\")) { FUZZ_BAIL(); }\n// Also require no outstanding Enter without Exit for idx 0\nint depth = FUZZ_GET_ATTR_INT_GLOBAL(\"prof_depth_0\");\nif (depth != 0) { FUZZ_BAIL(); }\nhwy::Profiler& p = hwy::Profiler::Get();\np.FreeWorker(idx);\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_reserved_0\", 0);\n"
+    },
+    {
+      "name": "hwy::Profiler::Enter",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Enter a zone for reserved worker index 0\nif (!FUZZ_GET_ATTR_INT_GLOBAL(\"prof_reserved_0\")) { FUZZ_BAIL(); }\n// Generate a fenced start timestamp via Timer facade\nhwy::Timer timer;\nhwy::timer::Ticks t_enter = timer.Before();\nhwy::Profiler& p = hwy::Profiler::Get();\np.Enter(static_cast<uint64_t>(t_enter), /*global_idx=*/0);\n// Track nesting depth so Exit can validate pairing later\nint depth = FUZZ_GET_ATTR_INT_GLOBAL(\"prof_depth_0\");\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_depth_0\", depth + 1);\n"
+    },
+    {
+      "name": "hwy::Profiler::Exit",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exit a zone for reserved worker index 0; require a prior Enter\nif (!FUZZ_GET_ATTR_INT_GLOBAL(\"prof_reserved_0\")) { FUZZ_BAIL(); }\nint depth = FUZZ_GET_ATTR_INT_GLOBAL(\"prof_depth_0\");\nif (depth <= 0) { FUZZ_BAIL(); }\n// Create a valid ZoneHandle by registering a name\nhwy::Profiler& p = hwy::Profiler::Get();\nstd::string name = FUZZ_PARAM_STR();\n// Constrain name to be NUL-terminated C string\nconst char* c_name = name.c_str();\n// Choose flags deterministically from fuzz input\nhwy::ProfilerFlags flags = ((*FUZZ_PARAM(unsigned int) & 1) != 0)\n                              ? hwy::ProfilerFlags::kInclusive\n                              : hwy::ProfilerFlags::kDefault;\nhwy::profiler::ZoneHandle zh = p.AddZone(c_name, flags);\n// Generate an end timestamp consistent with timer semantics\nhwy::Timer timer;\nuint64_t t_exit = static_cast<uint64_t>(timer.After());\n// Call Exit with the created handle\np.Exit(t_exit, /*global_idx=*/0, zh);\n// Decrement nesting depth\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_depth_0\", depth - 1);\n"
+    },
+    {
+      "name": "hwy::Profiler::GetFirstDurationAndReset",
+      "inputs": [],
+      "outputs": [],
+      "code": "// This requires exactly one recorded enter/exit for worker 0; construct it here\nif (!FUZZ_GET_ATTR_INT_GLOBAL(\"prof_reserved_0\")) { FUZZ_BAIL(); }\n// Ensure there is no outstanding nesting before our synthetic pair\nif (FUZZ_GET_ATTR_INT_GLOBAL(\"prof_depth_0\") != 0) { FUZZ_BAIL(); }\nhwy::Profiler& p = hwy::Profiler::Get();\n// Create a temporary zone to record exactly one duration\nstd::string name = FUZZ_PARAM_STR();\nhwy::profiler::ZoneHandle zh = p.AddZone(name.c_str(), hwy::ProfilerFlags::kDefault);\n{\n  hwy::Timer timer;\n  uint64_t t_enter = static_cast<uint64_t>(timer.Before());\n  p.Enter(t_enter, /*global_idx=*/0);\n  uint64_t t_exit = static_cast<uint64_t>(timer.After());\n  p.Exit(t_exit, /*global_idx=*/0, zh);\n}\n// Now query and reset the first duration\n(void)p.GetFirstDurationAndReset(/*global_idx=*/0);\n"
+    },
+    {
+      "name": "hwy::Profiler::Name",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a valid ZoneHandle through AddZone, then query its name\nhwy::Profiler& p = hwy::Profiler::Get();\nstd::string s = FUZZ_PARAM_STR();\nhwy::profiler::ZoneHandle zh = p.AddZone(s.c_str(), hwy::ProfilerFlags::kDefault);\nconst char* ret = p.Name(zh);\n// The profiler guarantees a stable non-null pointer for known zones\nFUZZ_ASSERT(ret != nullptr, \"Profiler::Name returned null for a valid zone\");\n"
+    },
+    {
+      "name": "hwy::Profiler::AddZone",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "zone",
+          "type": "hwy::profiler::ZoneHandle *"
+        }
+      ],
+      "code": "// Register a zone name with optional flags and return a persistent handle object\nhwy::Profiler& p = hwy::Profiler::Get();\nstd::string s = FUZZ_PARAM_STR();\nconst char* c_name = s.c_str();\n// Choose a valid flags value\nhwy::ProfilerFlags flags = ((*FUZZ_PARAM(unsigned int) & 1) != 0)\n                              ? hwy::ProfilerFlags::kInclusive\n                              : hwy::ProfilerFlags::kDefault;\n// Invoke the target API\nhwy::profiler::ZoneHandle zh = p.AddZone(c_name, flags);\n// Persist the handle in heap storage for reuse across stubs\nhwy::profiler::ZoneHandle* zone = new hwy::profiler::ZoneHandle(zh);\n// Track validity for downstream checks\nFUZZ_SET_ATTR_INT(zone, \"valid\", 1);\nFUZZ_SET_ATTR_STR(zone, \"name\", c_name);\nFUZZ_SET_ATTR_INT(zone, \"inclusive\", flags == hwy::ProfilerFlags::kInclusive ? 1 : 0);\n"
+    },
+    {
+      "name": "hwy::Profiler::IsRootRun",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Probe root-run state; if starting a new root run, record obligation to end it\nhwy::Profiler& p = hwy::Profiler::Get();\nbool is_root = p.IsRootRun();\nif (is_root) { FUZZ_SET_ATTR_INT_GLOBAL(\"prof_need_end_root_run\", 1); }\n"
+    },
+    {
+      "name": "hwy::Profiler::EndRootRun",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Must only be called if a preceding IsRootRun() returned true\nif (!FUZZ_GET_ATTR_INT_GLOBAL(\"prof_need_end_root_run\")) { FUZZ_BAIL(); }\nhwy::Profiler& p = hwy::Profiler::Get();\np.EndRootRun();\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_need_end_root_run\", 0);\n"
+    },
+    {
+      "name": "hwy::Profiler::PrintResults",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Safe to call multiple times; prints and resets internal results and callbacks\nhwy::Profiler& p = hwy::Profiler::Get();\np.PrintResults();\n"
+    },
+    {
+      "name": "hwy::Profiler::SetMaxThreads",
+      "inputs": [],
+      "outputs": [],
+      "code": "// No-op placeholder; just exercise the call with a small value\nsize_t n = (size_t)(*FUZZ_PARAM(unsigned int) % 4);\nhwy::Profiler& p = hwy::Profiler::Get();\np.SetMaxThreads(n);\n"
+    },
+    {
+      "name": "hwy::profiler::Zone::Zone",
+      "inputs": [
+        {
+          "name": "profiler",
+          "type": "hwy::Profiler *"
+        },
+        {
+          "name": "zone",
+          "type": "hwy::profiler::ZoneHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "profiler",
+          "type": "hwy::Profiler *"
+        },
+        {
+          "name": "zone",
+          "type": "hwy::profiler::ZoneHandle *"
+        }
+      ],
+      "code": "// Construct a RAII profiler zone, which will call Enter in the ctor and Exit in the dtor\n// Requirements enforcement:\n// - Use global_idx = 0 as standardized in other stubs; must be reserved\n// - zone must be a previously created valid handle via Profiler::AddZone\nif (!profiler) { FUZZ_BAIL(); }\nif (!zone) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT_GLOBAL(\"prof_reserved_0\")) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(zone, \"valid\") != 1) { FUZZ_BAIL(); }\n\nsize_t global_idx = 0;\n// Track nesting depth so FreeWorker can validate zero outstanding zones later.\nint prior_depth = FUZZ_GET_ATTR_INT_GLOBAL(\"prof_depth_0\");\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_depth_0\", prior_depth + 1);\n\n{\n  // Constructor should fence and call Profiler::Enter with a valid timestamp\n  hwy::profiler::Zone z(*profiler, global_idx, *zone);\n  // z is alive within this scope; upon leaving, the destructor will run\n}\n\n// Destructor ran; decrement nesting depth to reflect the implicit Exit\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_depth_0\", prior_depth);\n"
+    },
+    {
+      "name": "hwy::profiler::Zone::~Zone",
+      "inputs": [
+        {
+          "name": "profiler",
+          "type": "hwy::Profiler *"
+        },
+        {
+          "name": "zone",
+          "type": "hwy::profiler::ZoneHandle *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "profiler",
+          "type": "hwy::Profiler *"
+        },
+        {
+          "name": "zone",
+          "type": "hwy::profiler::ZoneHandle *"
+        }
+      ],
+      "code": "// Explicitly allocate and delete a Zone to target its destructor path\n// Requirements enforcement:\n// - Use reserved worker index 0\n// - Use a valid ZoneHandle previously returned by AddZone\nif (!profiler) { FUZZ_BAIL(); }\nif (!zone) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT_GLOBAL(\"prof_reserved_0\")) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(zone, \"valid\") != 1) { FUZZ_BAIL(); }\n\nsize_t global_idx = 0;\nint prior_depth = FUZZ_GET_ATTR_INT_GLOBAL(\"prof_depth_0\");\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_depth_0\", prior_depth + 1);\n\n// Allocate RAII object on the heap; delete will invoke ~Zone(), which fences,\n// timestamps via timer::Stop, and calls Profiler::Exit.\nhwy::profiler::Zone* z = new hwy::profiler::Zone(*profiler, global_idx, *zone);\n// Perform destruction (calls ~Zone())\ndelete z;\n\n// Balance the implicit Exit\nFUZZ_SET_ATTR_INT_GLOBAL(\"prof_depth_0\", prior_depth);\n"
+    },
+    {
+      "name": "hwy::Unpredictable1",
+      "inputs": [],
+      "outputs": [],
+      "code": "// No inputs required. Call and assert contract: return value is always 1.\nint v = hwy::Unpredictable1();\nFUZZ_ASSERT(v == 1, \"Unpredictable1 must return 1\");\n// Validation: Stub makes a single call and asserts the documented invariant; no outputs to return."
+    },
+    {
+      "name": "hwy::IsAligned",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate with uint8_t to accept arbitrary byte offsets.\n// Allocate a small aligned block, offset into it, and test various alignments.\nsize_t base_size = (*FUZZ_PARAM(unsigned int) % 256) + 128;  // ensure room for offsets\nvoid* base = hwy::AllocateAlignedBytes(base_size);\nif (!base) { FUZZ_BAIL(); }\nuintptr_t base_addr = reinterpret_cast<uintptr_t>(base);\n// Choose an offset within [0, 127] so we stay within the allocation\nsize_t offset = *FUZZ_PARAM(unsigned int) % 128;\nuint8_t* ptr = reinterpret_cast<uint8_t*>(base_addr + offset);\n// Choose alignment as a power of two within [1, 128]\nunsigned pow2 = (*FUZZ_PARAM(unsigned int) % 8); // 2^0..2^7\nsize_t align = size_t{1} << pow2;\n// Exercise the API. This function is pure and has no side effects.\nvolatile bool aligned_default = hwy::IsAligned<uint8_t>(ptr); // default HWY_ALIGNMENT\nvolatile bool aligned_custom  = hwy::IsAligned<uint8_t>(ptr, align);\n(void)aligned_default; (void)aligned_custom;\n// Cleanup base\nhwy::FreeAlignedBytes(base, nullptr, nullptr);\n// Validation: we ensured non-null allocation and bounded offset; no outputs retained."
+    },
+    {
+      "name": "hwy::AllocateAlignedBytes",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Pick a small payload to avoid large allocations; allow zero as well.\nsize_t payload = *FUZZ_PARAM(unsigned int) % 1024; // 0..1023\nvoid* p = hwy::AllocateAlignedBytes(payload, nullptr, nullptr);\n// It is allowed for AllocateAlignedBytes to return nullptr on failure or when payload==0.\n// If non-null, verify alignment for a few common powers of two and then free via matching FreeAlignedBytes.\nif (p) {\n  // Check a few alignments; this is a best-effort sanity check, not a strict requirement here.\n  (void)hwy::IsAligned<uint8_t>(static_cast<uint8_t*>(p), 16);\n  (void)hwy::IsAligned<uint8_t>(static_cast<uint8_t*>(p), 32);\n  (void)hwy::IsAligned<uint8_t>(static_cast<uint8_t*>(p), 64);\n  hwy::FreeAlignedBytes(p, nullptr, nullptr);\n}\n// Also exercise zero-sized allocation explicitly.\nvoid* p0 = hwy::AllocateAlignedBytes(0, nullptr, nullptr);\nif (p0) { hwy::FreeAlignedBytes(p0, nullptr, nullptr); }\n// Validation: any non-null pointer is freed with the matching API; no persistent outputs."
+    },
+    {
+      "name": "hwy::FreeAlignedBytes",
+      "inputs": [],
+      "outputs": [],
+      "code": "// FreeAlignedBytes requires a pointer previously allocated by AllocateAlignedBytes or nullptr.\n// Allocate and then free with matching free_ptr/opaque (nullptrs here imply default allocator/deallocator).\nsize_t payload = (*FUZZ_PARAM(unsigned int) % 512) + 1;\nvoid* p = hwy::AllocateAlignedBytes(payload, nullptr, nullptr);\nif (p) {\n  hwy::FreeAlignedBytes(p, nullptr, nullptr);\n}\n// Also explicitly call with nullptr to cover the no-op case.\nhwy::FreeAlignedBytes(nullptr, nullptr, nullptr);\n// Validation: only frees pointers obtained from AllocateAlignedBytes or nullptr; no outputs retained."
+    },
+    {
+      "name": "hwy::AlignedDeleter::operator()",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Use a non-trivial type so invoking destructors is valid.\nusing T = hwy::Timestamp;\n// Allocate aligned raw storage for N elements and construct them via placement-new.\nsize_t N = (*FUZZ_PARAM(unsigned int) % 16) + 1;\nsize_t bytes = N * sizeof(T);\nvoid* raw = hwy::AllocateAlignedBytes(bytes, nullptr, nullptr);\nif (!raw) { FUZZ_BAIL(); }\nT* arr = static_cast<T*>(raw);\nfor (size_t i = 0; i < N; ++i) {\n  new (&arr[i]) T(); // default-construct each element\n}\n// Default-constructed deleter uses default FreeAlignedBytes via stored nulls.\nhwy::AlignedDeleter deleter;\n// Invoke deleter: must destroy all elements and free the memory.\ndeleter(arr);\n// Validation: memory is allocated, elements constructed, then safely destroyed and freed once; no outputs."
+    },
+    {
+      "name": "hwy::AlignedAllocator<T>::allocate",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Instantiate allocator for a concrete type and allocate a small number of elements.\nhwy::AlignedAllocator<uint64_t> alloc;\nsize_t n = (*FUZZ_PARAM(unsigned int) % 32); // possibly zero\nuint64_t* p = alloc.allocate(n);\n// Deallocate via the same allocator; passing n back even if unused per API.\nalloc.deallocate(p, n);\n// Validation: uses matching allocate/deallocate pair; covers n==0 and small n; no outputs."
+    },
+    {
+      "name": "hwy::AlignedAllocator<T>::deallocate",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Allocate using the allocator, then deallocate (deallocate tolerates any V n value).\nhwy::AlignedAllocator<uint32_t> alloc;\nsize_t n = (*FUZZ_PARAM(unsigned int) % 64) + 1;\nuint32_t* p = alloc.allocate(n);\n// If allocation failed (p==nullptr), deallocate(nullptr, any) is permitted by API semantics of FreeAlignedBytes.\nalloc.deallocate(p, n);\n// Also exercise deallocate with n different from the allocate size (ignored by implementation).\nalloc.deallocate(nullptr, n + 123);\n// Validation: deallocation path covered for both valid pointer and nullptr; no outputs."
+    },
+    {
+      "name": "hwy::operator==",
+      "inputs": [],
+      "outputs": [],
+      "code": "// All AlignedAllocator instances compare equal regardless of type parameters.\nhwy::AlignedAllocator<int> a1;\nhwy::AlignedAllocator<double> a2;\nvolatile bool eq = (a1 == a2);\n(void)eq;\n// Validation: simple equality check; no side effects."
+    },
+    {
+      "name": "hwy::operator!=",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Inequality must always be false for AlignedAllocator instances.\nhwy::AlignedAllocator<char> a1;\nhwy::AlignedAllocator<long> a2;\nvolatile bool neq = (a1 != a2);\n(void)neq;\n// Validation: simple inequality check; no side effects."
+    },
+    {
+      "name": "hwy::detail::ShiftCount",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a power-of-two n to exercise the documented behavior.\nunsigned pow2 = (*FUZZ_PARAM(unsigned int) % 12); // up to 2^11\nsize_t n = size_t{1} << pow2;\nsize_t x = hwy::detail::ShiftCount(n);\n// Property: (1u << x) == n for power-of-two n.\nFUZZ_ASSERT(((size_t{1} << x) == n), \"ShiftCount failed power-of-two identity\");\n// Also call with a non-power-of-two value to exercise the function (no strict property expected).\nsize_t non_p2 = n + 3;\nvolatile size_t x2 = hwy::detail::ShiftCount(non_p2);\n(void)x2;\n// Validation: verifies identity for power-of-two input; accepts unspecified behavior for non-power-of-two."
+    },
+    {
+      "name": "hwy::detail::AllocateAlignedItems",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Allocate items of a trivially copyable type using default allocator.\nsize_t items = (*FUZZ_PARAM(unsigned int) % 64);\nuint32_t* p = hwy::detail::AllocateAlignedItems<uint32_t>(items, nullptr, nullptr);\n// Free if non-null. The API may return nullptr on overflow or allocation failure.\nif (p) {\n  hwy::FreeAlignedBytes(p, nullptr, nullptr);\n}\n// Validation: matching deallocation performed when allocation succeeds; no outputs."
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedWithAlloc",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a unique aligned object using default alloc/free (nullptrs imply defaults).\n// Choose a type with a valid default constructor.\nusing T = hwy::Timestamp;\n{\n  auto uptr = hwy::MakeUniqueAlignedWithAlloc<T>(nullptr, nullptr, nullptr);\n  // uptr will destroy T and free memory upon scope exit.\n}\n// Validation: relies on small allocation success; smart pointer owns and frees memory; no outputs."
+    },
+    {
+      "name": "hwy::MakeUniqueAligned",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Default-allocator variant constructing a default-constructible type.\nusing T = hwy::Timestamp;\n{\n  auto uptr = hwy::MakeUniqueAligned<T>();\n  // uptr cleans up automatically.\n}\n// Validation: constructs and releases a single object via aligned storage; no outputs."
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedArrayWithAlloc",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create an array of default-constructible type via provided alloc/free (nullptr => defaults).\nusing T = hwy::Timestamp;\nsize_t items = (*FUZZ_PARAM(unsigned int) % 16);\n{\n  auto uptr = hwy::MakeUniqueAlignedArrayWithAlloc<T>(items, nullptr, nullptr, nullptr);\n  // If allocation fails, uptr is empty; otherwise elements are constructed and will be destroyed on exit.\n}\n// Validation: covers construction of zero or multiple elements; automatic destruction/freeing; no outputs."
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedArray",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Default-allocator variant creating an array of default-constructible type.\nusing T = hwy::Timestamp;\nsize_t items = (*FUZZ_PARAM(unsigned int) % 32);\n{\n  auto uptr = hwy::MakeUniqueAlignedArray<T>(items);\n  (void)uptr;\n}\n// Validation: memory managed by unique_ptr deleter; no outputs."
+    },
+    {
+      "name": "hwy::AlignedFreer::DoNothing",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simply exercise the no-op static function using nullptrs.\nhwy::AlignedFreer::DoNothing(nullptr, nullptr);\n// Validation: function intentionally does nothing; no outputs."
+    },
+    {
+      "name": "hwy::AlignedFreer::operator()",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Allocate POD storage and free it via AlignedFreer operator().\nusing T = uint32_t;\nsize_t items = (*FUZZ_PARAM(unsigned int) % 64) + 1;\nvoid* raw = hwy::AllocateAlignedBytes(items * sizeof(T), nullptr, nullptr);\nif (!raw) { FUZZ_BAIL(); }\nT* ptr = static_cast<T*>(raw);\n// Default-constructed AlignedFreer will use default FreeAlignedBytes.\nhwy::AlignedFreer freer;\nfreer(ptr);\n// Validation: single free via the custom deleter; no double free; no outputs."
+    },
+    {
+      "name": "hwy::AllocateAligned",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Allocate an array of trivially copyable/destructible type; AlignedFreeUniquePtr will free automatically.\nsize_t items = (*FUZZ_PARAM(unsigned int) % 128);\n{\n  auto uptr = hwy::AllocateAligned<uint32_t>(items, nullptr, nullptr, nullptr);\n  (void)uptr;\n}\n// Validation: respects POD constraints and uses matching deleter; no outputs."
+    },
+    {
+      "name": "hwy::SupportedTargets",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call SupportedTargets and assert its postcondition: non-zero bitmask.\nint64_t mask = hwy::SupportedTargets();\n// The API guarantees a non-zero mask (fallback target exists).\nFUZZ_ASSERT(mask != 0, \"SupportedTargets must never return 0\");\n\n// Validation: Single-call, no inputs/outputs. Asserts documented non-zero invariant."
+    },
+    {
+      "name": "hwy::DisableTargets",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate an arbitrary bitmask of targets to disable.\n// Note: may be zero (disables none), which is valid.\nint64_t disabled = static_cast<int64_t>(*FUZZ_PARAM(uint64_t));\n\n// Apply the disable mask. This influences subsequent SupportedTargets calls.\nhwy::DisableTargets(disabled);\n\n// Validate the API's guarantee that SupportedTargets remains non-zero even if\n// all bits would otherwise be disabled (fallback target is ensured).\nint64_t after = hwy::SupportedTargets();\nFUZZ_ASSERT(after != 0, \"SupportedTargets must remain non-zero after DisableTargets\");\n\n// Validation: Exercises stateful path and checks non-zero guarantee; no objects are leaked or persisted."
+    },
+    {
+      "name": "hwy::SetSupportedTargetsForTest",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose an override bitmask; can be zero to disable the override per docs.\nint64_t override_mask = static_cast<int64_t>(*FUZZ_PARAM(uint64_t));\n\n// Apply the test override (still subject to any previously disabled targets).\nhwy::SetSupportedTargetsForTest(override_mask);\n\n// Regardless of override, SupportedTargets must never be zero due to fallback.\nint64_t effective = hwy::SupportedTargets();\nFUZZ_ASSERT(effective != 0, \"SupportedTargets must remain non-zero under test override\");\n\n// Validation: Covers both override and clear (0) paths and validates non-zero invariant; no persistent objects."
+    },
+    {
+      "name": "hwy::TargetName",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a single-bit target value as required by the API.\n// We pick a bit position in [0, 62] to avoid shifting into the sign bit; the\n// function will return \"Unknown\" for unrecognized bits, which is valid.\nunsigned int bit = *FUZZ_PARAM(unsigned int) % 63u;  // 0..62\nint64_t one_hot = int64_t{1} << bit;\n\n// Call the function under test.\nconst char* name = hwy::TargetName(one_hot);\n\n// Validate basic contract: returned pointer is a stable static C string.\nFUZZ_ASSERT(name != nullptr, \"TargetName must return a non-null static string\");\n// No further constraints: unknown bits may legitimately yield \"Unknown\".\n\n// Validation: Ensures input is single-bit and checks non-null result; no state changes or outputs."
+    },
+    {
+      "name": "hwy::GetChosenTarget",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "chosen",
+          "type": "hwy::ChosenTarget *"
+        }
+      ],
+      "code": "// Obtain reference to the process-wide singleton and expose it as an output.\nhwy::ChosenTarget& ref = hwy::GetChosenTarget();\nhwy::ChosenTarget* chosen = &ref;\n\n// Record whether the dispatch state has been initialized for downstream checks.\n// On first use it might be uninitialized; both states are valid.\nint initialized = ref.IsInitialized() ? 1 : 0;\nFUZZ_SET_ATTR_INT(chosen, \"initialized\", initialized);\n\n// Do not attempt to delete/free; lifetime is process-wide static storage.\n\n// Validation: Returns the stable singleton pointer with an \"initialized\" attribute; no ownership violations."
+    },
+    {
+      "name": "hwy::LoadFence",
+      "inputs": [],
+      "outputs": [],
+      "code": "// hwy::LoadFence has no parameters and may be a no-op on some platforms.\n// Safe to call unconditionally; it enforces ordering of subsequent loads.\nhwy::LoadFence();\n// Validation: nothing to assert; behavior is platform-defined and side-effect free."
+    },
+    {
+      "name": "hwy::FlushStream",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensures visibility of prior streaming stores on supported architectures.\n// Safe to call even if there were no prior streaming stores; may be a no-op.\nhwy::FlushStream();\n// Validation: side-effect is architectural; nothing to assert here."
+    },
+    {
+      "name": "hwy::Pause",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Processor hint for spin-wait loops; safe and may be a no-op on some platforms.\nhwy::Pause();\n// Validation: no arguments, no persistence; side effects are advisory only."
+    },
+    {
+      "name": "hwy::StreamCacheLine",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Requirements: 'from' and 'to' must be aligned and valid for one cache line.\n// Use 64-byte cache line as conventional HWY_ALIGNMENT; alignas(64) enforces alignment.\nalignas(64) uint64_t src[8];  // 8 * 8B = 64B\nalignas(64) uint64_t dst[8];\n\n// Initialize src with a repeating fuzz pattern; dst gets zeroed to observe overwrites.\nstd::string pattern = FUZZ_PARAM_STR();\nsize_t plen = pattern.size();\nif (plen == 0) { FUZZ_BAIL(); }\nuint8_t* src_bytes = reinterpret_cast<uint8_t*>(src);\nuint8_t* dst_bytes = reinterpret_cast<uint8_t*>(dst);\nfor (size_t i = 0; i < 64; ++i) {\n  src_bytes[i] = static_cast<uint8_t>(pattern[i % plen]);\n  dst_bytes[i] = 0;\n}\n\n// Call target API with aligned pointers covering exactly one cache line.\nhwy::StreamCacheLine(reinterpret_cast<const uint64_t*>(src), reinterpret_cast<uint64_t*>(dst));\n\n// Validate: destination must now match source byte-for-byte over one cache line.\nfor (size_t i = 0; i < 64; ++i) {\n  if (dst_bytes[i] != src_bytes[i]) {\n    FUZZ_ASSERT(false, \"StreamCacheLine did not copy exactly one cache line\");\n  }\n}\n// Validation: alignment guaranteed via alignas(64); size is exactly one cache line; content check asserts overwrite."
+    },
+    {
+      "name": "hwy::Prefetch",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prefetch is advisory; supply a valid pointer into an aligned local buffer.\nalignas(64) uint8_t buf[128];\nstd::string data = FUZZ_PARAM_STR();\nsize_t dlen = data.size();\nif (dlen == 0) { FUZZ_BAIL(); }\nfor (size_t i = 0; i < 128; ++i) {\n  buf[i] = static_cast<uint8_t>(data[i % dlen]);\n}\n\n// Choose an in-bounds index; no alignment requirement for Prefetch.\nsize_t idx = static_cast<size_t>(*FUZZ_PARAM(unsigned int)) % 128u;\n\n// Instantiate Prefetch for byte pointers to exercise the template.\nhwy::Prefetch<uint8_t>(buf + idx);\n// Validation: pointer is valid and within bounds; effect is advisory and may be a no-op."
+    },
+    {
+      "name": "hwy::FlushCacheline",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide an address within a local buffer; alignment not required by spec.\nalignas(64) uint8_t area[128];\nstd::string fill = FUZZ_PARAM_STR();\nsize_t flen = fill.size();\nif (flen == 0) { FUZZ_BAIL(); }\nfor (size_t i = 0; i < 128; ++i) {\n  area[i] = static_cast<uint8_t>(fill[i % flen]);\n}\n\n// Pick any position within the buffer and flush its cache line.\nsize_t pos = static_cast<size_t>(*FUZZ_PARAM(unsigned int)) % 128u;\nconst void* p = static_cast<const void*>(area + pos);\nhwy::FlushCacheline(p);\n// Validation: p designates valid memory in our object; operation may be a no-op depending on platform."
+    },
+    {
+      "name": "hwy::robust_statistics::CountingSort",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise CountingSort with unsigned integral T and validate postconditions.\n{\n  // Pick element type: 0=uint8_t, 1=uint16_t, 2=uint32_t\n  unsigned int tsel = *FUZZ_PARAM(unsigned int) % 3u;\n  // Choose size up to 256 for speed; allow zero-sized arrays.\n  size_t n = static_cast<size_t>(*FUZZ_PARAM(unsigned int) % 257u);\n  // Source entropy to populate arrays of any T size.\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.empty()) { FUZZ_BAIL(); }\n\n  if (tsel == 0u) {\n    using T = uint8_t;\n    std::vector<T> vals(n);\n    for (size_t i = 0; i < n; ++i) {\n      vals[i] = static_cast<T>(static_cast<unsigned char>(buf[i % buf.size()]));\n    }\n    // Null is only allowed when n==0.\n    T* ptr = (n == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) ? nullptr : vals.data();\n    hwy::robust_statistics::CountingSort<T>(ptr, n);\n    if (n > 0) {\n      for (size_t i = 1; i < n; ++i) {\n        if (!(vals[i-1] <= vals[i])) { FUZZ_ASSERT(false, \"CountingSort result not nondecreasing\"); }\n      }\n    }\n  } else if (tsel == 1u) {\n    using T = uint16_t;\n    std::vector<T> vals(n);\n    for (size_t i = 0; i < n; ++i) {\n      // Combine two bytes for 16-bit values.\n      unsigned int b0 = static_cast<unsigned char>(buf[i % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i + 1) % buf.size()]);\n      vals[i] = static_cast<T>((b1 << 8) | b0);\n    }\n    T* ptr = (n == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) ? nullptr : vals.data();\n    hwy::robust_statistics::CountingSort<T>(ptr, n);\n    if (n > 0) {\n      for (size_t i = 1; i < n; ++i) {\n        if (!(vals[i-1] <= vals[i])) { FUZZ_ASSERT(false, \"CountingSort result not nondecreasing\"); }\n      }\n    }\n  } else {\n    using T = uint32_t;\n    std::vector<T> vals(n);\n    for (size_t i = 0; i < n; ++i) {\n      // Combine four bytes for 32-bit values.\n      unsigned int b0 = static_cast<unsigned char>(buf[(i + 0) % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i + 1) % buf.size()]);\n      unsigned int b2 = static_cast<unsigned char>(buf[(i + 2) % buf.size()]);\n      unsigned int b3 = static_cast<unsigned char>(buf[(i + 3) % buf.size()]);\n      vals[i] = static_cast<T>((b3 << 24) | (b2 << 16) | (b1 << 8) | b0);\n    }\n    T* ptr = (n == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) ? nullptr : vals.data();\n    hwy::robust_statistics::CountingSort<T>(ptr, n);\n    if (n > 0) {\n      for (size_t i = 1; i < n; ++i) {\n        if (!(vals[i-1] <= vals[i])) { FUZZ_ASSERT(false, \"CountingSort result not nondecreasing\"); }\n      }\n    }\n  }\n  // Validation: Enforces null pointer only for zero count, and asserts nondecreasing order after sort for n>0.\n}"
+    },
+    {
+      "name": "hwy::robust_statistics::MinRange",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a sorted array, choose valid idx_begin/half_count, then call MinRange.\n{\n  // Type selection among unsigned integrals for well-defined subtraction and limits.\n  unsigned int tsel = *FUZZ_PARAM(unsigned int) % 3u; // 0=uint8_t,1=uint16_t,2=uint32_t\n  // Choose size up to 128; allow zero.\n  size_t n = static_cast<size_t>(*FUZZ_PARAM(unsigned int) % 129u);\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.empty()) { FUZZ_BAIL(); }\n\n  if (tsel == 0u) {\n    using T = uint8_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) v[i] = static_cast<T>(static_cast<unsigned char>(buf[i % buf.size()]));\n    std::sort(v.begin(), v.end());\n    size_t half_count = (n == 0) ? 0 : (static_cast<size_t>(*FUZZ_PARAM(unsigned int) % (n/2 + 1)));\n    size_t max_idx_begin = (half_count == 0) ? 0 : (n - 2*half_count);\n    size_t idx_begin = (max_idx_begin == 0) ? 0 : (static_cast<size_t>(*FUZZ_PARAM(unsigned int)) % (max_idx_begin + 1));\n    const T* sorted_ptr = (half_count == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) ? nullptr : v.data();\n    size_t ret = hwy::robust_statistics::MinRange<T>(sorted_ptr, idx_begin, half_count);\n    if (half_count == 0) {\n      if (ret != 0) { FUZZ_ASSERT(false, \"MinRange must return 0 when half_count==0\"); }\n    } else {\n      if (!(ret >= idx_begin && ret < idx_begin + half_count)) { FUZZ_ASSERT(false, \"MinRange returned index out of expected range\"); }\n    }\n  } else if (tsel == 1u) {\n    using T = uint16_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) {\n      unsigned int b0 = static_cast<unsigned char>(buf[i % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i+1) % buf.size()]);\n      v[i] = static_cast<T>((b1 << 8) | b0);\n    }\n    std::sort(v.begin(), v.end());\n    size_t half_count = (n == 0) ? 0 : (static_cast<size_t>(*FUZZ_PARAM(unsigned int) % (n/2 + 1)));\n    size_t max_idx_begin = (half_count == 0) ? 0 : (n - 2*half_count);\n    size_t idx_begin = (max_idx_begin == 0) ? 0 : (static_cast<size_t>(*FUZZ_PARAM(unsigned int)) % (max_idx_begin + 1));\n    const T* sorted_ptr = (half_count == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) ? nullptr : v.data();\n    size_t ret = hwy::robust_statistics::MinRange<T>(sorted_ptr, idx_begin, half_count);\n    if (half_count == 0) {\n      if (ret != 0) { FUZZ_ASSERT(false, \"MinRange must return 0 when half_count==0\"); }\n    } else {\n      if (!(ret >= idx_begin && ret < idx_begin + half_count)) { FUZZ_ASSERT(false, \"MinRange returned index out of expected range\"); }\n    }\n  } else {\n    using T = uint32_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) {\n      unsigned int b0 = static_cast<unsigned char>(buf[(i+0) % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i+1) % buf.size()]);\n      unsigned int b2 = static_cast<unsigned char>(buf[(i+2) % buf.size()]);\n      unsigned int b3 = static_cast<unsigned char>(buf[(i+3) % buf.size()]);\n      v[i] = static_cast<T>((b3<<24)|(b2<<16)|(b1<<8)|b0);\n    }\n    std::sort(v.begin(), v.end());\n    size_t half_count = (n == 0) ? 0 : (static_cast<size_t>(*FUZZ_PARAM(unsigned int) % (n/2 + 1)));\n    size_t max_idx_begin = (half_count == 0) ? 0 : (n - 2*half_count);\n    size_t idx_begin = (max_idx_begin == 0) ? 0 : (static_cast<size_t>(*FUZZ_PARAM(unsigned int)) % (max_idx_begin + 1));\n    const T* sorted_ptr = (half_count == 0 && ((*FUZZ_PARAM(unsigned int) & 1u) != 0u)) ? nullptr : v.data();\n    size_t ret = hwy::robust_statistics::MinRange<T>(sorted_ptr, idx_begin, half_count);\n    if (half_count == 0) {\n      if (ret != 0) { FUZZ_ASSERT(false, \"MinRange must return 0 when half_count==0\"); }\n    } else {\n      if (!(ret >= idx_begin && ret < idx_begin + half_count)) { FUZZ_ASSERT(false, \"MinRange returned index out of expected range\"); }\n    }\n  }\n  // Validation: Ensures sorted input, valid index ranges, and null only allowed for half_count==0. Asserts returned index is within spec range.\n}"
+    },
+    {
+      "name": "hwy::robust_statistics::ModeOfSorted",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a non-empty sorted array of unsigned T and call ModeOfSorted; sanity-check result is in [min,max].\n{\n  unsigned int tsel = *FUZZ_PARAM(unsigned int) % 3u; // 0=uint8_t,1=uint16_t,2=uint32_t\n  // Ensure nonzero count as required.\n  size_t n = 1u + static_cast<size_t>(*FUZZ_PARAM(unsigned int) % 256u);\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.empty()) { FUZZ_BAIL(); }\n\n  if (tsel == 0u) {\n    using T = uint8_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) v[i] = static_cast<T>(static_cast<unsigned char>(buf[i % buf.size()]));\n    std::sort(v.begin(), v.end());\n    const T res = hwy::robust_statistics::ModeOfSorted<T>(v.data(), n);\n    // Res should lie within the data range for unimodal-like distributions.\n    if (!(res >= v.front() && res <= v.back())) { FUZZ_ASSERT(false, \"ModeOfSorted result outside data range\"); }\n  } else if (tsel == 1u) {\n    using T = uint16_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) {\n      unsigned int b0 = static_cast<unsigned char>(buf[i % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i+1) % buf.size()]);\n      v[i] = static_cast<T>((b1<<8)|b0);\n    }\n    std::sort(v.begin(), v.end());\n    const T res = hwy::robust_statistics::ModeOfSorted<T>(v.data(), n);\n    if (!(res >= v.front() && res <= v.back())) { FUZZ_ASSERT(false, \"ModeOfSorted result outside data range\"); }\n  } else {\n    using T = uint32_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) {\n      unsigned int b0 = static_cast<unsigned char>(buf[(i+0) % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i+1) % buf.size()]);\n      unsigned int b2 = static_cast<unsigned char>(buf[(i+2) % buf.size()]);\n      unsigned int b3 = static_cast<unsigned char>(buf[(i+3) % buf.size()]);\n      v[i] = static_cast<T>((b3<<24)|(b2<<16)|(b1<<8)|b0);\n    }\n    std::sort(v.begin(), v.end());\n    const T res = hwy::robust_statistics::ModeOfSorted<T>(v.data(), n);\n    if (!(res >= v.front() && res <= v.back())) { FUZZ_ASSERT(false, \"ModeOfSorted result outside data range\"); }\n  }\n  // Validation: Enforces num_values>0 and sorted input; asserts result within data bounds.\n}"
+    },
+    {
+      "name": "hwy::robust_statistics::Mode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a non-empty array of unsigned T, call Mode (which sorts in place), then validate sortedness and result bounds.\n{\n  unsigned int tsel = *FUZZ_PARAM(unsigned int) % 3u; // 0=uint8_t,1=uint16_t,2=uint32_t\n  size_t n = 1u + static_cast<size_t>(*FUZZ_PARAM(unsigned int) % 256u);\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.empty()) { FUZZ_BAIL(); }\n\n  if (tsel == 0u) {\n    using T = uint8_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) v[i] = static_cast<T>(static_cast<unsigned char>(buf[i % buf.size()]));\n    const T res = hwy::robust_statistics::Mode<T>(v.data(), n);\n    // Verify in-place sort side effect.\n    for (size_t i = 1; i < n; ++i) { if (!(v[i-1] <= v[i])) { FUZZ_ASSERT(false, \"Mode did not leave data sorted\"); } }\n    if (!(res >= v.front() && res <= v.back())) { FUZZ_ASSERT(false, \"Mode result outside data range\"); }\n  } else if (tsel == 1u) {\n    using T = uint16_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) {\n      unsigned int b0 = static_cast<unsigned char>(buf[i % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i+1) % buf.size()]);\n      v[i] = static_cast<T>((b1<<8)|b0);\n    }\n    const T res = hwy::robust_statistics::Mode<T>(v.data(), n);\n    for (size_t i = 1; i < n; ++i) { if (!(v[i-1] <= v[i])) { FUZZ_ASSERT(false, \"Mode did not leave data sorted\"); } }\n    if (!(res >= v.front() && res <= v.back())) { FUZZ_ASSERT(false, \"Mode result outside data range\"); }\n  } else {\n    using T = uint32_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) {\n      unsigned int b0 = static_cast<unsigned char>(buf[(i+0) % buf.size()]);\n      unsigned int b1 = static_cast<unsigned char>(buf[(i+1) % buf.size()]);\n      unsigned int b2 = static_cast<unsigned char>(buf[(i+2) % buf.size()]);\n      unsigned int b3 = static_cast<unsigned char>(buf[(i+3) % buf.size()]);\n      v[i] = static_cast<T>((b3<<24)|(b2<<16)|(b1<<8)|b0);\n    }\n    const T res = hwy::robust_statistics::Mode<T>(v.data(), n);\n    for (size_t i = 1; i < n; ++i) { if (!(v[i-1] <= v[i])) { FUZZ_ASSERT(false, \"Mode did not leave data sorted\"); } }\n    if (!(res >= v.front() && res <= v.back())) { FUZZ_ASSERT(false, \"Mode result outside data range\"); }\n  }\n  // Validation: Enforces non-null for n>0, checks in-place sort and that the returned mode lies within observed range.\n}"
+    },
+    {
+      "name": "hwy::robust_statistics::Median",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a non-empty array (any ordered T), call Median (which sorts), validate result location relative to middle element(s).\n{\n  unsigned int tsel = *FUZZ_PARAM(unsigned int) % 4u; // 0=uint8_t,1=uint16_t,2=uint32_t,3=int32_t\n  size_t n = 1u + static_cast<size_t>(*FUZZ_PARAM(unsigned int) % 257u);\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.empty()) { FUZZ_BAIL(); }\n\n  auto check_even_bounds = [&](auto &vec, auto median_val) {\n    using T = typename std::remove_reference<decltype(vec[0])>::type;\n    const T a = vec[n/2 - 1];\n    const T b = vec[n/2];\n    if (!(median_val >= std::min(a,b) && median_val <= std::max(a,b))) {\n      FUZZ_ASSERT(false, \"Median outside middle pair bounds\");\n    }\n  };\n\n  if (tsel == 0u) {\n    using T = uint8_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) v[i] = static_cast<T>(static_cast<unsigned char>(buf[i % buf.size()]));\n    const T med = hwy::robust_statistics::Median<T>(v.data(), n);\n    for (size_t i = 1; i < n; ++i) { if (!(v[i-1] <= v[i])) { FUZZ_ASSERT(false, \"Median did not leave data sorted\"); } }\n    if ((n & 1u) != 0u) {\n      if (med != v[n/2]) { FUZZ_ASSERT(false, \"Median incorrect for odd N\"); }\n    } else {\n      check_even_bounds(v, med);\n    }\n  } else if (tsel == 1u) {\n    using T = uint16_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) { unsigned int b0 = static_cast<unsigned char>(buf[i % buf.size()]); unsigned int b1 = static_cast<unsigned char>(buf[(i+1)%buf.size()]); v[i] = static_cast<T>((b1<<8)|b0); }\n    const T med = hwy::robust_statistics::Median<T>(v.data(), n);\n    for (size_t i = 1; i < n; ++i) { if (!(v[i-1] <= v[i])) { FUZZ_ASSERT(false, \"Median did not leave data sorted\"); } }\n    if ((n & 1u) != 0u) { if (med != v[n/2]) { FUZZ_ASSERT(false, \"Median incorrect for odd N\"); } } else { check_even_bounds(v, med); }\n  } else if (tsel == 2u) {\n    using T = uint32_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) { unsigned int b0 = static_cast<unsigned char>(buf[(i+0)%buf.size()]); unsigned int b1 = static_cast<unsigned char>(buf[(i+1)%buf.size()]); unsigned int b2 = static_cast<unsigned char>(buf[(i+2)%buf.size()]); unsigned int b3 = static_cast<unsigned char>(buf[(i+3)%buf.size()]); v[i] = static_cast<T>((b3<<24)|(b2<<16)|(b1<<8)|b0); }\n    const T med = hwy::robust_statistics::Median<T>(v.data(), n);\n    for (size_t i = 1; i < n; ++i) { if (!(v[i-1] <= v[i])) { FUZZ_ASSERT(false, \"Median did not leave data sorted\"); } }\n    if ((n & 1u) != 0u) { if (med != v[n/2]) { FUZZ_ASSERT(false, \"Median incorrect for odd N\"); } } else { check_even_bounds(v, med); }\n  } else {\n    using T = int32_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) { int b0 = static_cast<unsigned char>(buf[(i+0)%buf.size()]); int b1 = static_cast<unsigned char>(buf[(i+1)%buf.size()]); int b2 = static_cast<unsigned char>(buf[(i+2)%buf.size()]); int b3 = static_cast<unsigned char>(buf[(i+3)%buf.size()]); v[i] = static_cast<T>((b3<<24)|(b2<<16)|(b1<<8)|b0); }\n    const T med = hwy::robust_statistics::Median<T>(v.data(), n);\n    for (size_t i = 1; i < n; ++i) { if (!(v[i-1] <= v[i])) { FUZZ_ASSERT(false, \"Median did not leave data sorted\"); } }\n    if ((n & 1u) != 0u) { if (med != v[n/2]) { FUZZ_ASSERT(false, \"Median incorrect for odd N\"); } } else { check_even_bounds(v, med); }\n  }\n  // Validation: Enforces n>0, checks in-place sorting, and verifies median is middle element for odd N or within bounds of middle pair for even N.\n}"
+    },
+    {
+      "name": "hwy::robust_statistics::MedianAbsoluteDeviation",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a non-empty array of unsigned T, compute its median, then call MAD and sanity-check range.\n{\n  unsigned int tsel = *FUZZ_PARAM(unsigned int) % 3u; // 0=uint8_t,1=uint16_t,2=uint32_t\n  size_t n = 1u + static_cast<size_t>(*FUZZ_PARAM(unsigned int) % 257u);\n  std::string buf = FUZZ_PARAM_STR();\n  if (buf.empty()) { FUZZ_BAIL(); }\n\n  if (tsel == 0u) {\n    using T = uint8_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) v[i] = static_cast<T>(static_cast<unsigned char>(buf[i % buf.size()]));\n    // Compute the sample median as required by the API.\n    std::vector<T> v_copy = v;\n    T med = hwy::robust_statistics::Median<T>(v_copy.data(), n);\n    const T mad = hwy::robust_statistics::MedianAbsoluteDeviation<T>(v.data(), n, med);\n    // MAD >= 0 and <= max(|x - med|).\n    int64_t max_dev = 0;\n    for (size_t i = 0; i < n; ++i) { int64_t d = static_cast<int64_t>(v[i]) - static_cast<int64_t>(med); if (d < 0) d = -d; if (d > max_dev) max_dev = d; }\n    if (!(static_cast<int64_t>(mad) >= 0 && static_cast<int64_t>(mad) <= max_dev)) { FUZZ_ASSERT(false, \"MAD outside expected range\"); }\n  } else if (tsel == 1u) {\n    using T = uint16_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) { unsigned int b0 = static_cast<unsigned char>(buf[i % buf.size()]); unsigned int b1 = static_cast<unsigned char>(buf[(i+1)%buf.size()]); v[i] = static_cast<T>((b1<<8)|b0); }\n    std::vector<T> v_copy = v;\n    T med = hwy::robust_statistics::Median<T>(v_copy.data(), n);\n    const T mad = hwy::robust_statistics::MedianAbsoluteDeviation<T>(v.data(), n, med);\n    int64_t max_dev = 0;\n    for (size_t i = 0; i < n; ++i) { int64_t d = static_cast<int64_t>(v[i]) - static_cast<int64_t>(med); if (d < 0) d = -d; if (d > max_dev) max_dev = d; }\n    if (!(static_cast<int64_t>(mad) >= 0 && static_cast<int64_t>(mad) <= max_dev)) { FUZZ_ASSERT(false, \"MAD outside expected range\"); }\n  } else {\n    using T = uint32_t;\n    std::vector<T> v(n);\n    for (size_t i = 0; i < n; ++i) { unsigned int b0 = static_cast<unsigned char>(buf[(i+0)%buf.size()]); unsigned int b1 = static_cast<unsigned char>(buf[(i+1)%buf.size()]); unsigned int b2 = static_cast<unsigned char>(buf[(i+2)%buf.size()]); unsigned int b3 = static_cast<unsigned char>(buf[(i+3)%buf.size()]); v[i] = static_cast<T>((b3<<24)|(b2<<16)|(b1<<8)|b0); }\n    std::vector<T> v_copy = v;\n    T med = hwy::robust_statistics::Median<T>(v_copy.data(), n);\n    const T mad = hwy::robust_statistics::MedianAbsoluteDeviation<T>(v.data(), n, med);\n    int64_t max_dev = 0;\n    for (size_t i = 0; i < n; ++i) { int64_t d = static_cast<int64_t>(v[i]) - static_cast<int64_t>(med); if (d < 0) d = -d; if (d > max_dev) max_dev = d; }\n    if (!(static_cast<int64_t>(mad) >= 0 && static_cast<int64_t>(mad) <= max_dev)) { FUZZ_ASSERT(false, \"MAD outside expected range\"); }\n  }\n  // Validation: Ensures n>0, non-null inputs, median computed from same sample, and MAD is within [0, max |x - median|].\n}"
+    },
+    {
+      "name": "hwy::x86::IsBitSet",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate random 32-bit register value\nuint32_t reg = *FUZZ_PARAM(uint32_t);\n// Constrain index to [0, 31] per API requirement\nint idx = static_cast<int>(*FUZZ_PARAM(unsigned int) % 32);\n\n// Invoke target function\nbool got = hwy::x86::IsBitSet(reg, idx);\n\n// Property-based validation: result must equal ((reg >> idx) & 1) != 0\nbool expected = ((reg >> idx) & 1u) != 0u;\nFUZZ_ASSERT(got == expected, \"IsBitSet must match simple bit test\");"
+    },
+    {
+      "name": "hwy::Timestamp *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ts",
+          "type": "hwy::Timestamp *"
+        }
+      ],
+      "code": "// Construct a Timestamp (auto-initializes using platform::Now) and validate it is usable.\nhwy::Timestamp* ts = new hwy::Timestamp();\n// Basic sanity: elapsed since construction should be non-negative and finite.\ndouble dt = hwy::SecondsSince(*ts);\nFUZZ_ASSERT(dt == dt && dt >= 0.0, \"Timestamp must yield finite, non-negative elapsed time\");\n// Provide the timestamp to the pool for reuse.\n// Validation: Constructs via default ctor; asserts SecondsSince contract; returns non-null pointer."
+    },
+    {
+      "name": "hwy::Timer *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "timer",
+          "type": "hwy::Timer *"
+        }
+      ],
+      "code": "// Construct a Timer which probes Stop support in its constructor.\nhwy::Timer* timer = new hwy::Timer();\n// Exercise basic API to ensure the instance is ready and safe.\nconst hwy::timer::Ticks t0 = timer->Before();\nconst hwy::timer::Ticks t1 = timer->After();\nvolatile hwy::timer::Ticks elapsed = t1 - t0;  // unsigned wrap-safe\n(void)elapsed;\n// Return the live Timer for downstream use (e.g., Stopwatch construction).\n// Validation: Uses correct Before/After pairing; keeps object alive and returns non-null."
+    },
+    {
+      "name": "hwy::Stopwatch *",
+      "inputs": [
+        {
+          "name": "timer",
+          "type": "hwy::Timer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sw",
+          "type": "hwy::Stopwatch *"
+        },
+        {
+          "name": "timer",
+          "type": "hwy::Timer *"
+        }
+      ],
+      "code": "// Stopwatch requires a Timer reference that outlives it; use the provided Timer input.\nif (!timer) { FUZZ_BAIL(); }\n// Construct Stopwatch bound to the given Timer.\nhwy::Stopwatch* sw = new hwy::Stopwatch(*timer);\n// Exercise API to ensure it functions and to help downstream nodes.\nconst hwy::timer::Ticks origin = sw->Origin();\n(void)origin;\nsw->Reset();\nconst hwy::timer::Ticks dt = sw->Elapsed();\nvolatile hwy::timer::Ticks use_dt = dt;\n(void)use_dt;\n// Track the associated timer for lifetime reasoning.\nFUZZ_SET_ATTR_PTR(sw, \"timer_ref\", (void*)timer);\n// Return both Stopwatch and Timer (we did not take ownership of timer).\n// Validation: Ensures non-null Timer, constructs Stopwatch correctly, exercises Origin/Reset/Elapsed, and preserves Timer lifetime by returning it as output."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "hwy::FNV",
+      "reason": "This function is only available when HWY_DISPATCH_MAP is enabled; build configuration may exclude it, so it cannot be reliably harnessed."
+    },
+    {
+      "name": "hwy::StringTable<kMaxStrings>::Name",
+      "reason": "Requires an instance of StringTable<kMaxStrings>, which is not available in the provided object types and lacks a constructible API here."
+    },
+    {
+      "name": "hwy::StringTable<kMaxStrings>::Add",
+      "reason": "Requires constructing or accessing a StringTable<kMaxStrings> instance not exposed in the provided objects list."
+    },
+    {
+      "name": "hwy::profiler::Zones::Name",
+      "reason": "Zones instance is not available or constructible from the provided object types; only Profiler wrappers are exposed."
+    },
+    {
+      "name": "hwy::profiler::Zones::AddZone",
+      "reason": "Cannot obtain a hwy::profiler::Zones instance from the provided objects; only the Profiler interface is available."
+    },
+    {
+      "name": "hwy::Profiler::AddFunc",
+      "reason": "The ProfilerFunc type/signature is not defined in the provided context, so a valid callable cannot be safely constructed."
+    },
+    {
+      "name": "hwy::Profiler::RemoveFunc",
+      "reason": "Requires a prior AddFunc registration using an owner key and ProfilerFunc, which cannot be safely created without the ProfilerFunc type."
+    },
+    {
+      "name": "hwy::Span<T>::operator=",
+      "reason": "Insufficient constructor and lifetime APIs provided to safely create a writable hwy::Span<T> instance for testing under the fuzzer model."
+    },
+    {
+      "name": "hwy::Span<T>::size",
+      "reason": "Cannot reliably construct a valid hwy::Span<T> without the class’s constructors or factory APIs, which are not provided."
+    },
+    {
+      "name": "hwy::Span<T>::data",
+      "reason": "Creation of a valid hwy::Span<T> object is unspecified with the given information, so exercising data() cannot be done safely."
+    },
+    {
+      "name": "hwy::Span<T>::operator[]",
+      "reason": "Cannot construct a hwy::Span instance or reference one from the pool because its constructors and concrete type definitions are unavailable in this context."
+    },
+    {
+      "name": "hwy::Span<T>::begin",
+      "reason": "Cannot instantiate or access a hwy::Span without its constructors; the type is not present in the object pool and no factory is available."
+    },
+    {
+      "name": "hwy::Span<T>::cbegin",
+      "reason": "Cannot instantiate or access a hwy::Span without its constructors; the type is not present in the object pool and no factory is available."
+    },
+    {
+      "name": "hwy::Span<T>::end",
+      "reason": "Cannot instantiate or access a hwy::Span without its constructors; the type is not present in the object pool and no factory is available."
+    },
+    {
+      "name": "hwy::Span<T>::cend",
+      "reason": "Cannot instantiate or access a hwy::Span without its constructors; the type is not present in the object pool and no factory is available."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::operator=",
+      "reason": "Cannot construct hwy::AlignedNDArray objects needed for move assignment because constructors and full type definition are not available."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::operator[]",
+      "reason": "Cannot construct hwy::AlignedNDArray instances to index into because constructors and full type definition are not available."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::shape",
+      "reason": "Cannot call methods on hwy::AlignedNDArray because instances cannot be constructed without available constructors/type definition."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::memory_shape",
+      "reason": "Cannot call methods on hwy::AlignedNDArray because instances cannot be constructed without available constructors/type definition."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::size",
+      "reason": "Cannot call methods on hwy::AlignedNDArray because instances cannot be constructed without available constructors/type definition."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::memory_size",
+      "reason": "Cannot call methods on hwy::AlignedNDArray because instances cannot be constructed without available constructors/type definition."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::data",
+      "reason": "Cannot call methods on hwy::AlignedNDArray because instances cannot be constructed without available constructors/type definition."
+    },
+    {
+      "name": "hwy::AlignedNDArray<T, axes>::truncate",
+      "reason": "Cannot call methods on hwy::AlignedNDArray because instances cannot be constructed without available constructors/type definition."
+    },
+    {
+      "name": "hwy::x86::Cpuid",
+      "reason": "Requires x86/x86_64 CPUID instruction and build guards; harness cannot guarantee target architecture without preprocessor controls."
+    },
+    {
+      "name": "hwy::x86::MaxLevel",
+      "reason": "Depends on executing CPUID on x86/x86_64; not portable to non-x86 targets under this harness model."
+    },
+    {
+      "name": "hwy::x86::IsAMD",
+      "reason": "Determines CPU vendor via CPUID which is only available on x86/x86_64; harness cannot ensure such an environment."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "hwy::DeduceFunctionCache",
+      "data_types": []
+    },
+    {
+      "name": "hwy::detail::TypeName",
+      "data_types": []
+    },
+    {
+      "name": "hwy::detail::ToString",
+      "data_types": []
+    },
+    {
+      "name": "hwy::PrintValue",
+      "data_types": []
+    },
+    {
+      "name": "hwy::PrintArray",
+      "data_types": []
+    },
+    {
+      "name": "hwy::platform::Now",
+      "data_types": []
+    },
+    {
+      "name": "hwy::platform::HaveTimerStop",
+      "data_types": []
+    },
+    {
+      "name": "hwy::platform::InvariantTicksPerSecond",
+      "data_types": []
+    },
+    {
+      "name": "hwy::platform::TimerResolution",
+      "data_types": []
+    },
+    {
+      "name": "hwy::platform::GetCpuString",
+      "data_types": []
+    },
+    {
+      "name": "hwy::SecondsSince",
+      "data_types": []
+    },
+    {
+      "name": "hwy::timer::Start",
+      "data_types": []
+    },
+    {
+      "name": "hwy::timer::Stop",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Timer::Before",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Timer::After",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Seconds",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Stopwatch::Origin",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Stopwatch::Reset",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Stopwatch::Elapsed",
+      "data_types": []
+    },
+    {
+      "name": "hwy::DispatchedTarget",
+      "data_types": []
+    },
+    {
+      "name": "hwy::VectorBytes",
+      "data_types": []
+    },
+    {
+      "name": "hwy::HaveInteger64",
+      "data_types": []
+    },
+    {
+      "name": "hwy::HaveFloat16",
+      "data_types": []
+    },
+    {
+      "name": "hwy::HaveFloat64",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::Get",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::Thread",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::GlobalIdx",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::SetGlobalIdx",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::ReserveWorker",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::FreeWorker",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::Enter",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::IsRootRun",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::EndRootRun",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::PrintResults",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Profiler::SetMaxThreads",
+      "data_types": []
+    },
+    {
+      "name": "hwy::profiler::Zone::Zone",
+      "data_types": []
+    },
+    {
+      "name": "hwy::profiler::Zone::~Zone",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Unpredictable1",
+      "data_types": []
+    },
+    {
+      "name": "hwy::IsAligned",
+      "data_types": []
+    },
+    {
+      "name": "hwy::AllocateAlignedBytes",
+      "data_types": []
+    },
+    {
+      "name": "hwy::FreeAlignedBytes",
+      "data_types": []
+    },
+    {
+      "name": "hwy::AlignedDeleter::operator()",
+      "data_types": []
+    },
+    {
+      "name": "hwy::AlignedAllocator<T>::allocate",
+      "data_types": []
+    },
+    {
+      "name": "hwy::AlignedAllocator<T>::deallocate",
+      "data_types": []
+    },
+    {
+      "name": "hwy::operator==",
+      "data_types": []
+    },
+    {
+      "name": "hwy::operator!=",
+      "data_types": []
+    },
+    {
+      "name": "hwy::detail::ShiftCount",
+      "data_types": []
+    },
+    {
+      "name": "hwy::detail::AllocateAlignedItems",
+      "data_types": []
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedWithAlloc",
+      "data_types": []
+    },
+    {
+      "name": "hwy::MakeUniqueAligned",
+      "data_types": []
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedArrayWithAlloc",
+      "data_types": []
+    },
+    {
+      "name": "hwy::MakeUniqueAlignedArray",
+      "data_types": []
+    },
+    {
+      "name": "hwy::AlignedFreer::DoNothing",
+      "data_types": []
+    },
+    {
+      "name": "hwy::AlignedFreer::operator()",
+      "data_types": []
+    },
+    {
+      "name": "hwy::AllocateAligned",
+      "data_types": []
+    },
+    {
+      "name": "hwy::SupportedTargets",
+      "data_types": []
+    },
+    {
+      "name": "hwy::DisableTargets",
+      "data_types": []
+    },
+    {
+      "name": "hwy::SetSupportedTargetsForTest",
+      "data_types": []
+    },
+    {
+      "name": "hwy::TargetName",
+      "data_types": []
+    },
+    {
+      "name": "hwy::GetChosenTarget",
+      "data_types": []
+    },
+    {
+      "name": "hwy::LoadFence",
+      "data_types": []
+    },
+    {
+      "name": "hwy::FlushStream",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Pause",
+      "data_types": []
+    },
+    {
+      "name": "hwy::x86::IsBitSet",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Timestamp *",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Timer *",
+      "data_types": []
+    },
+    {
+      "name": "hwy::Stopwatch *",
+      "data_types": []
+    },
+    {
+      "name": "hwy::detail::PrintArray",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "hwy::Profiler::Exit",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "hwy::Profiler::GetFirstDurationAndReset",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "hwy::Profiler::Name",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "hwy::Profiler::AddZone",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "hwy::StreamCacheLine",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::Prefetch",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::FlushCacheline",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::robust_statistics::CountingSort",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::robust_statistics::MinRange",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::robust_statistics::ModeOfSorted",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::robust_statistics::Mode",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::robust_statistics::Median",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "hwy::robust_statistics::MedianAbsoluteDeviation",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary string",
+      "description": "An unconstrained NUL-terminated text string used directly as a C-style string (via std::string::c_str()). No required format; may contain any bytes including spaces or punctuation. Used for captions, names, or general text fields."
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "description": "Raw byte buffer with no specific encoding, consumed to fill arrays or memory regions. Bytes are interpreted directly (e.g., copied into uint8_t/uint16_t/uint32_t/float/double buffers or used to initialize memory) without requiring any structure or textual format."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# This generator produces interesting C strings (as bytes) for use by fuzz stubs\n# that call FUZZ_PARAM_STR() and pass the result to APIs expecting NUL-terminated\n# C strings (std::string::c_str()). We craft a variety of names/captions including\n# ASCII, unicode (UTF-8), long/short, edge punctuation, repeated patterns, and\n# strings resembling CPU names or profiler zone names.\n\nMAX_BYTES = 4096\n\n_ascii = string.ascii_letters + string.digits\n_sym = \" _-:/\\\\.,;!@#$%^&*()[]{}<>?+=\"\n_hex = string.hexdigits.lower()\n\n_cpu_vendors = [\n    \"GenuineIntel\", \"AuthenticAMD\", \"HygonGenuine\", \"CentaurHauls\",\n    \"GenuineTMx86\", \"CyrixInstead\", \"TransmetaCPU\", \"Genuine  Intel\"\n]\n_cpu_models = [\n    \"Intel(R) Core(TM) i9-13900K\", \"AMD Ryzen 9 7950X\", \"Intel(R) Xeon(R) Gold 6258R\",\n    \"Apple M2\", \"ARM Neoverse N2\", \"Ampere Altra Max\", \"Intel(R) Atom(TM) N5105\"\n]\n_targets = [\n    \"SCALAR\", \"SSE2\", \"SSSE3\", \"SSE4\", \"AVX\", \"AVX2\", \"AVX512\", \"NEON\",\n    \"SVE\", \"SVE2\", \"RVV\", \"WASM\", \"PTX\"\n]\n_zone_prefix = [\n    \"Init\", \"Compute\", \"Finalize\", \"I/O\", \"Decode\", \"Encode\", \"MemCopy\",\n    \"Histogram\", \"Filter\", \"Pipeline\", \"ThreadPool\", \"Scheduler\"\n]\n\n_utf8_samples = [\n    \"Διανύσματα\", \"整数演算\", \"спектр\", \"בִּנְיָן\", \"عناصر\", \"προφίλ\",\n    \"測定\", \"زمان‌سنج\", \"프로파일\", \"解析\", \"数値\", \"可視化\", \"🔧 Profiling\", \"🧪 Bench\"\n]\n\n_patterns = [\n    lambda r: \"\".join(r.choice(_ascii) for _ in range(r.randint(1, 64))),\n    lambda r: \"\".join(r.choice(_ascii + _sym) for _ in range(r.randint(1, 96))),\n    lambda r: (r.choice(_zone_prefix) + \":\" + r.choice(_targets)),\n    lambda r: r.choice(_cpu_vendors),\n    lambda r: r.choice(_cpu_models),\n    lambda r: \"zone_\" + \"\".join(r.choice(_hex) for _ in range(16)),\n    lambda r: \"target=\" + r.choice(_targets) + \"; lanes=\" + str(r.choice([8,16,32,64,128,256])),\n    lambda r: r.choice(_utf8_samples),\n    lambda r: \"A\" * r.randint(1, 200),  # long repeated\n    lambda r: \"\\0\".join([\"part\", \"with\", \"embedded\", \"nuls\"]) + \"\\0end\",  # embedded NULs\n]\n\n_suffixes = [\"\", \" (inclusive)\", \" [self]\", \" @thread0\", \" #1\", \"/core\", \"-fast\", \"_dbg\"]\n\n\ndef _weighted_choices(r: random.Random) -> List[str]:\n    # Build a list of candidate strings; include duplicates and variants to\n    # increase coverage for profiler names and captions.\n    res: List[str] = []\n    # Deterministic mix counts based on seed randomness\n    for _ in range(r.randint(3, 8)):\n        s = r.choice(_patterns)(r)\n        s += r.choice(_suffixes)\n        res.append(s)\n    # Add some captions including empty and whitespace-only\n    res += [\n        \"\", \" \", \"\\t\\t\", \"caption\", \"values\", \"array[lane]\", \"duration (ticks)\",\n        \"inclusive,total\", \"name_with_commas,spaces\", \"path:C:\\\\tmp\\\\file.txt\"\n    ]\n    # A few unicode-rich captions\n    res += [\"Στοιχεία\", \"値の一覧\", \"профиль\", \"Δt=1e-6s\", \"μs\", \"ns\"]\n    return res\n\n\ndef _compose_blob(r: random.Random) -> bytes:\n    # Choose 1-4 strings and join with newlines to form a single buffer from\n    # which FUZZ_PARAM_STR reads. It may read slices, so ensure total size <= 4096.\n    parts = _weighted_choices(r)\n    r.shuffle(parts)\n    take = r.randint(1, min(4, len(parts)))\n    chosen = parts[:take]\n\n    # Join with newlines, sometimes with leading/trailing whitespace\n    joiner = r.choice([\"\\n\", \"\\r\\n\", \"\\0\", \" | \"])\n    blob = joiner.join(chosen)\n\n    # Occasionally prefix/suffix extra context\n    if r.random() < 0.4:\n        blob = (r.choice([\"[ZONE] \", \"CPU=\", \"target:\", \"name=\"]) + blob)\n    if r.random() < 0.4:\n        blob = blob + r.choice([\"\\n\", \"\\0\", \" \", \"\\n\\n\"])\n\n    b = blob.encode(\"utf-8\", errors=\"surrogatepass\")\n\n    # Ensure size cap\n    if len(b) > MAX_BYTES:\n        b = b[:MAX_BYTES]\n    return b\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Mix seed with additional randomness for variability while deterministic per seed\n    r.jumpahead = getattr(r, \"jumpahead\", None)  # Py3.10 has no jumpahead; ignore\n\n    # Build 1-3 concatenated chunks separated by newlines to offer variety\n    chunks = []\n    count = r.randint(1, 3)\n    for _ in range(count):\n        chunks.append(_compose_blob(r))\n    data = b\"\\n\".join(chunks)\n\n    # Guarantee non-empty; include at least one short ASCII token if empty\n    if not data:\n        data = b\"zone_default\"\n\n    # Final size clamp\n    if len(data) > MAX_BYTES:\n        data = data[:MAX_BYTES]\n    return data\n"
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# We generate an arbitrary binary blob used by stubs via FUZZ_PARAM_STR.\n# Goals for interesting valid inputs across provided stubs:\n# - Non-empty buffer is required (many stubs bail on empty).\n# - Include varying lengths to exercise modulo patterns over 64/128 bytes.\n# - Include diverse byte values: ASCII, zeros, 0xFF, increasing/decreasing sequences,\n#   random noise, repeating patterns, primes/step strides, and multi-byte structures\n#   to form varied uint16/uint32 when combined by the stubs.\n# - Keep total size <= 4096 bytes.\n\nMAX_SIZE = 4096\n\ndef _chunk(pattern: bytes, target_len: int) -> bytes:\n    if not pattern:\n        return b\"\\x00\"\n    # Repeat/cycle pattern to target length\n    out = (pattern * (target_len // len(pattern) + 1))[:target_len]\n    return out\n\ndef _make_patterns(rng: random.Random) -> List[bytes]:\n    pats: List[bytes] = []\n\n    # 1) Printable ASCII mix\n    ascii_chars = bytes([rng.randrange(32, 127) for _ in range(rng.randint(8, 64))])\n    pats.append(ascii_chars)\n\n    # 2) All zeros\n    pats.append(b\"\\x00\" * rng.randint(1, 64))\n\n    # 3) All 0xFF\n    pats.append(b\"\\xFF\" * rng.randint(1, 64))\n\n    # 4) Increasing byte sequence\n    start = rng.randrange(0, 256)\n    inc_len = rng.randint(16, 128)\n    pats.append(bytes((start + i) % 256 for i in range(inc_len)))\n\n    # 5) Decreasing byte sequence\n    start = rng.randrange(0, 256)\n    dec_len = rng.randint(16, 128)\n    pats.append(bytes((start - i) % 256 for i in range(dec_len)))\n\n    # 6) Repeating short motif to exercise modulo fill\n    motif_len = rng.choice([1,2,3,4,5,7,8,16])\n    motif = bytes(rng.getrandbits(8) for _ in range(motif_len))\n    pats.append(motif)\n\n    # 7) Structured 16-bit little-endian values spanning range\n    count16 = rng.randint(8, 64)\n    vals16 = [rng.randrange(0, 0x10000) for _ in range(count16)]\n    pats.append(b\"\".join(struct.pack('<H', v) for v in vals16))\n\n    # 8) Structured 32-bit little-endian values spanning range\n    count32 = rng.randint(4, 32)\n    vals32 = [rng.randrange(0, 0x100000000) for _ in range(count32)]\n    pats.append(b\"\".join(struct.pack('<I', v) for v in vals32))\n\n    # 9) Alternating 0x00/0xFF pattern\n    alt_len = rng.randint(32, 128)\n    pats.append(bytes(0xFF if (i & 1) else 0x00 for i in range(alt_len)))\n\n    # 10) Prime-stride sampling over 0..255 to get varied distribution\n    base = rng.randrange(0, 256)\n    step = rng.choice([3,5,7,11,13,17,19,23])\n    plen = rng.randint(32, 128)\n    pats.append(bytes((base + i*step) % 256 for i in range(plen)))\n\n    return pats\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide overall size with bias toward small and cacheline-friendly lengths\n    size_choices = [64, 128, 256, 512, 1024]\n    if rng.random() < 0.4:\n        total_len = rng.choice(size_choices)\n    else:\n        total_len = rng.randint(32, min(1024, MAX_SIZE))\n\n    parts: List[bytes] = []\n\n    # Build a header that helps create varied uint16/uint32 combinations when stubs read bytes:\n    # - Magic bytes, length fields, and some counters (not required by stubs, but provide structure)\n    magic = b\"HWYFZZ\\x00\"\n    parts.append(magic)\n\n    # Insert a small control block with sizes that are not used by the target directly,\n    # but ensure diverse content early in the buffer.\n    ctrl = struct.pack('<IIII', rng.getrandbits(32), rng.getrandbits(32), rng.randrange(1, 257), rng.randrange(0, 129))\n    parts.append(ctrl)\n\n    # Add multiple diverse patterns\n    patterns = _make_patterns(rng)\n\n    # Choose 3-6 patterns to concatenate\n    rng.shuffle(patterns)\n    k = rng.randint(3, 6)\n    for i in range(k):\n        parts.append(patterns[i])\n\n    # Ensure we include content that exactly fills 64 and 128 bytes when cycled\n    parts.append(_chunk(patterns[0], 64))\n    parts.append(_chunk(patterns[1], 128))\n\n    # Add some random noise segment\n    noise_len = rng.randint(32, 192)\n    parts.append(bytes(rng.getrandbits(8) for _ in range(noise_len)))\n\n    # Compose and trim/pad to desired length\n    blob = b\"\".join(parts)\n    if len(blob) < total_len:\n        # Pad with a repeat of a selected pattern to hit target length exactly\n        pad = _chunk(patterns[-1], total_len - len(blob))\n        blob += pad\n    else:\n        blob = blob[:total_len]\n\n    # Guarantee non-empty per stub requirements\n    if not blob:\n        blob = b\"\\x01\"\n\n    # Bound final size to MAX_SIZE\n    return blob[:MAX_SIZE]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 40526,
+            "output_tokens": 13030,
+            "total_tokens": 53556
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 35462,
+            "output_tokens": 1067,
+            "total_tokens": 36529
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 41588,
+            "output_tokens": 27469,
+            "total_tokens": 69057
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 176682,
+            "output_tokens": 51589,
+            "total_tokens": 228271
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 41801,
+            "output_tokens": 1487,
+            "total_tokens": 43288
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 30501,
+            "output_tokens": 418,
+            "total_tokens": 30919
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 577.1823115348816,
+    "scan_objects": 66.9318778514862,
+    "validate_objects": 13.304727554321289,
+    "scan_functions": 0,
+    "synthesis": 407.3127896785736,
+    "fill": 48.56243944168091,
+    "classify": 10.889709949493408,
+    "build_generators": 30.179275512695312
+  }
+}

@@ -1,0 +1,241 @@
+{
+  "objects": [],
+  "functions": [
+    {
+      "name": "CLD2::DetectLanguage",
+      "signature": "CLD2::Language CLD2::DetectLanguage(const char* buffer, int buffer_length, bool is_plain_text, bool* is_reliable)",
+      "description": "Detects the most likely language of the given UTF-8 text. Skips HTML tags and expands entities unless is_plain_text is true. Returns the primary Language; sets is_reliable true if the top choice is sufficiently above alternatives. For empty input returns UNKNOWN_LANGUAGE; for very short indeterminate text defaults to ENGLISH (for backward compatibility).",
+      "requirements": [
+        "buffer must point to interchange-valid UTF-8 bytes; may contain HTML unless is_plain_text is true",
+        "buffer_length must be >= 0 and must not exceed the actual accessible bytes at buffer",
+        "is_plain_text controls whether HTML tags/entities are processed (true = treat as plain text, no tag skipping)",
+        "is_reliable must be a non-null pointer to a bool for the result",
+        "Thread-safe usage is intended by design"
+      ],
+      "error": null
+    },
+    {
+      "name": "CLD2::DetectLanguageSummary",
+      "signature": "CLD2::Language CLD2::DetectLanguageSummary(const char* buffer, int buffer_length, bool is_plain_text, CLD2::Language* language3, int* percent3, int* text_bytes, bool* is_reliable)",
+      "description": "Detects the top three languages present in the given UTF-8 text and their approximate percentages. Skips HTML tags and expands entities unless is_plain_text is true. language3[0] is usually the return value. text_bytes reports the number of non-tag, letters-only bytes analyzed. For very short indeterminate text defaults to ENGLISH (rather than UNKNOWN_LANGUAGE) for compatibility.",
+      "requirements": [
+        "buffer must point to interchange-valid UTF-8 text",
+        "buffer_length must be >= 0 and not exceed the accessible size of buffer",
+        "is_plain_text controls HTML handling (true = no tag/entity processing)",
+        "language3 must be a non-null pointer to an array with capacity for at least 3 CLD2::Language entries",
+        "percent3 must be a non-null pointer to an array with capacity for at least 3 ints; each value will be in the range 0..100",
+        "text_bytes must be a non-null pointer to int to receive the count of analyzed non-tag text bytes",
+        "is_reliable must be a non-null pointer to bool to receive reliability flag"
+      ],
+      "error": null
+    },
+    {
+      "name": "CLD2::ExtDetectLanguageSummary",
+      "signature": "CLD2::Language CLD2::ExtDetectLanguageSummary(const char* buffer, int buffer_length, bool is_plain_text, CLD2::Language* language3, int* percent3, int* text_bytes, bool* is_reliable)",
+      "description": "Detects the top three extended languages (includes additional interface languages and single-language scripts) in the given UTF-8 text. Skips HTML unless is_plain_text is true. language3[0] is usually the return value. Unlike the basic APIs, this extended version may return UNKNOWN_LANGUAGE when confidence is insufficient.",
+      "requirements": [
+        "buffer must point to interchange-valid UTF-8 text",
+        "buffer_length must be >= 0 and not exceed accessible size",
+        "is_plain_text controls HTML handling (true = no tag/entity processing)",
+        "language3 must be a non-null pointer to an array with capacity for at least 3 CLD2::Language entries",
+        "percent3 must be a non-null pointer to an array with capacity for at least 3 ints; values 0..100",
+        "text_bytes must be a non-null pointer to int to receive non-tag text byte count",
+        "is_reliable must be a non-null pointer to bool"
+      ],
+      "error": null
+    },
+    {
+      "name": "CLD2::DetectLanguageVersion",
+      "signature": "const char* CLD2::DetectLanguageVersion()",
+      "description": "Returns a static version string describing the detector code and data, formatted as \"code_version - data_build_date\". Useful for diagnostics and logging.",
+      "requirements": [
+        "No arguments; simply call to obtain a NUL-terminated C string",
+        "Returned pointer refers to immutable storage and must not be freed"
+      ],
+      "error": null
+    },
+    {
+      "name": "CLD2::DumpResultChunkVector",
+      "signature": "void CLD2::DumpResultChunkVector(FILE* f, const char* src, CLD2::ResultChunkVector* resultchunkvector)",
+      "description": "Debug helper that prints the contents of a ResultChunkVector to the given FILE stream, optionally labeled by src. Useful for inspecting chunk boundaries and detected languages.",
+      "requirements": [
+        "f must be a valid FILE* opened for writing",
+        "src may be NULL or a descriptive label for the source buffer",
+        "resultchunkvector must be a non-null pointer to a valid CLD2::ResultChunkVector populated by detection"
+      ],
+      "error": null
+    },
+    {
+      "name": "CLD2::loadData",
+      "signature": "void CLD2::loadData(const char* fileName)",
+      "description": "Dynamic-mode only: Loads detector data from the specified file path. If other data is already loaded, it is discarded and the file is read again. Until data is loaded, language detection will always fail and return UNKNOWN_LANGUAGE.",
+      "requirements": [
+        "Available only when compiled with CLD2_DYNAMIC_MODE defined",
+        "fileName must be a non-null path to a readable data file containing CLD2 model data",
+        "Call this before calling any detection functions in dynamic mode to enable detection",
+        "Subsequent calls replace previously loaded data"
+      ],
+      "error": null
+    },
+    {
+      "name": "CLD2::unloadData",
+      "signature": "void CLD2::unloadData()",
+      "description": "Dynamic-mode only: Unloads previously loaded detector data. After this call, language detection will no longer work and will always return UNKNOWN_LANGUAGE until new data is loaded.",
+      "requirements": [
+        "Available only when compiled with CLD2_DYNAMIC_MODE defined",
+        "Should be called when detector data is no longer needed or before reinitialization steps as desired",
+        "After calling, detection APIs will return UNKNOWN_LANGUAGE until loadData is called again"
+      ],
+      "error": null
+    },
+    {
+      "name": "CLD2::isDataLoaded",
+      "signature": "bool CLD2::isDataLoaded()",
+      "description": "Dynamic-mode only: Returns true if data has been successfully loaded via loadData and not subsequently unloaded. Use to guard detection calls in dynamic mode.",
+      "requirements": [
+        "Available only when compiled with CLD2_DYNAMIC_MODE defined",
+        "No arguments; simply call to query whether detector data is currently loaded"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "CLD2::DetectLanguage",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate interchange-valid UTF-8 by constraining to ASCII subset\nstd::string raw = FUZZ_PARAM_STR();\nstd::string utf8; utf8.reserve(raw.size());\nfor (unsigned char c : raw) {\n    // Map to printable ASCII [0x20..0x7E] plus tab/newline to keep variability\n    if (c == '\\n' || c == '\\t') { utf8.push_back(static_cast<char>(c)); }\n    else { utf8.push_back(static_cast<char>(0x20 + (c % 95))); }\n}\n// Choose a valid buffer_length within accessible size\nint buffer_length = (int)(*FUZZ_PARAM(unsigned int) % (utf8.size() + 1));\nbool is_plain_text = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool is_reliable = false; // must be non-null\n// Invoke target API with constraints satisfied\nCLD2::Language lang = CLD2::DetectLanguage(utf8.data(), buffer_length, is_plain_text, &is_reliable);\n// Property: empty input must yield UNKNOWN_LANGUAGE\nif (buffer_length == 0) { FUZZ_ASSERT(lang == CLD2::UNKNOWN_LANGUAGE, \"DetectLanguage must return UNKNOWN_LANGUAGE for empty input\"); }\n// Nothing to return as persistent outputs"
+    },
+    {
+      "name": "CLD2::DetectLanguageSummary",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Produce interchange-valid UTF-8 by restricting to ASCII subset\nstd::string raw = FUZZ_PARAM_STR();\nstd::string utf8; utf8.reserve(raw.size());\nfor (unsigned char c : raw) {\n    if (c == '\\n' || c == '\\t') { utf8.push_back(static_cast<char>(c)); }\n    else { utf8.push_back(static_cast<char>(0x20 + (c % 95))); }\n}\n// Constrain buffer_length within accessible range\nint buffer_length = (int)(*FUZZ_PARAM(unsigned int) % (utf8.size() + 1));\nbool is_plain_text = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n// Prepare required output buffers (non-null, capacity >= 3)\nCLD2::Language language3[3] = {CLD2::UNKNOWN_LANGUAGE, CLD2::UNKNOWN_LANGUAGE, CLD2::UNKNOWN_LANGUAGE};\nint percent3[3] = {0, 0, 0};\nint text_bytes = 0;\nbool is_reliable = false;\n// Call the API\nCLD2::Language top = CLD2::DetectLanguageSummary(utf8.data(), buffer_length, is_plain_text, language3, percent3, &text_bytes, &is_reliable);\n// Post-conditions guaranteed by API: percentages within 0..100 and text_bytes non-negative\nfor (int i = 0; i < 3; ++i) {\n    FUZZ_ASSERT(percent3[i] >= 0 && percent3[i] <= 100, \"percent3[i] must be in 0..100\");\n}\nFUZZ_ASSERT(text_bytes >= 0, \"text_bytes must be non-negative\");\n(void)top; // silence unused if compiled with NDEBUG"
+    },
+    {
+      "name": "CLD2::ExtDetectLanguageSummary",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate valid UTF-8 by mapping to ASCII subset\nstd::string raw = FUZZ_PARAM_STR();\nstd::string utf8; utf8.reserve(raw.size());\nfor (unsigned char c : raw) {\n    if (c == '\\n' || c == '\\t') { utf8.push_back(static_cast<char>(c)); }\n    else { utf8.push_back(static_cast<char>(0x20 + (c % 95))); }\n}\n// Valid buffer_length within accessible range\nint buffer_length = (int)(*FUZZ_PARAM(unsigned int) % (utf8.size() + 1));\nbool is_plain_text = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\n// Prepare required output buffers\nCLD2::Language language3[3] = {CLD2::UNKNOWN_LANGUAGE, CLD2::UNKNOWN_LANGUAGE, CLD2::UNKNOWN_LANGUAGE};\nint percent3[3] = {0, 0, 0};\nint text_bytes = 0;\nbool is_reliable = false;\n// Invoke extended API (may return UNKNOWN_LANGUAGE when confidence is insufficient)\nCLD2::Language top = CLD2::ExtDetectLanguageSummary(utf8.data(), buffer_length, is_plain_text, language3, percent3, &text_bytes, &is_reliable);\n// Validate documented invariants\nfor (int i = 0; i < 3; ++i) {\n    FUZZ_ASSERT(percent3[i] >= 0 && percent3[i] <= 100, \"percent3[i] must be in 0..100\");\n}\nFUZZ_ASSERT(text_bytes >= 0, \"text_bytes must be non-negative\");\n(void)top;"
+    },
+    {
+      "name": "CLD2::DetectLanguageVersion",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Simple call; returned pointer is immutable static storage\nconst char* ver = CLD2::DetectLanguageVersion();\nFUZZ_ASSERT(ver != nullptr, \"DetectLanguageVersion must return a non-null pointer\");\n// No further action; do not free the returned pointer"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "CLD2::DumpResultChunkVector",
+      "reason": "Requires a valid CLD2::ResultChunkVector instance populated by detection, which cannot be safely constructed or guaranteed under the current object model."
+    },
+    {
+      "name": "CLD2::loadData",
+      "reason": "Only available when compiled with CLD2_DYNAMIC_MODE; calling it unconditionally would fail to link/build under non-dynamic builds."
+    },
+    {
+      "name": "CLD2::unloadData",
+      "reason": "Only available when compiled with CLD2_DYNAMIC_MODE; calling it unconditionally would fail to link/build under non-dynamic builds."
+    },
+    {
+      "name": "CLD2::isDataLoaded",
+      "reason": "Only available when compiled with CLD2_DYNAMIC_MODE; calling it unconditionally would fail to link/build under non-dynamic builds."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "CLD2::DetectLanguageVersion",
+      "data_types": []
+    },
+    {
+      "name": "CLD2::DetectLanguage",
+      "data_types": [
+        "UTF-8 text"
+      ]
+    },
+    {
+      "name": "CLD2::DetectLanguageSummary",
+      "data_types": [
+        "UTF-8 text"
+      ]
+    },
+    {
+      "name": "CLD2::ExtDetectLanguageSummary",
+      "data_types": [
+        "UTF-8 text"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "UTF-8 text",
+      "description": "A byte sequence representing interchange-valid UTF-8 encoded text. May include printable ASCII characters, tabs, and newlines; can also include HTML markup if not treated as plain text. The buffer is consumed as text for language detection."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "UTF-8 text",
+      "generator": "import random\nfrom typing import List\n\n# This generator produces interchange-valid UTF-8 text tailored to exercise\n# CLD2 language-detection fuzzers. It creates varied content including:\n# - Single-language passages (English, Spanish, French, German, Italian)\n# - Non-Latin scripts (Russian, Greek, Arabic, Hebrew, Chinese, Japanese)\n# - Mixed-language documents with proportions\n# - HTML vs plain text variants, including tags, attributes, entities, comments, scripts/styles\n# - Short/empty inputs and boundary-size inputs\n# - Repetitions, punctuation, numbers, whitespace patterns\n# All outputs are valid UTF-8 and <= 4096 bytes.\n\nASCII_WHITESPACE = [\" \", \"\\t\", \"\\n\"]\n\n# Small corpora snippets per language/script to bias detection toward that language.\nLANG_SNIPPETS = {\n    \"en\": [\n        \"The quick brown fox jumps over the lazy dog.\",\n        \"This is a sample English text for language detection.\",\n        \"Numbers 12345 and punctuation, commas, and periods.\",\n    ],\n    \"es\": [\n        \"El zorro marrón rápido salta sobre el perro perezoso.\",\n        \"Este es un texto de ejemplo en español para detección de idioma.\",\n        \"¿Cómo estás? ¡Buenos días!\",\n    ],\n    \"fr\": [\n        \"Le vif renard brun saute par-dessus le chien paresseux.\",\n        \"Ceci est un texte d'exemple en français pour la détection de langue.\",\n        \"À bientôt; merci beaucoup.\",\n    ],\n    \"de\": [\n        \"Falsches Üben von Xylophonmusik quält jeden größeren Zwerg.\",\n        \"Dies ist ein deutscher Beispieltext zur Spracherkennung.\",\n        \"Straßen, Grüße, Größen und Zahlen 9876.\",\n    ],\n    \"it\": [\n        \"Ma la volpe col suo balzo ha raggiunto il quieto Fido.\",\n        \"Questo è un testo di esempio in italiano per il rilevamento della lingua.\",\n        \"Perché? Sì, certo!\",\n    ],\n    \"ru\": [\n        \"Съешь же ещё этих мягких французских булок, да выпей чаю.\",\n        \"Это пример текста на русском языке для определения языка.\",\n    ],\n    \"el\": [\n        \"Ξεσκεπάζω την ψυχοφθόρα βδελυγμία.\",\n        \"Αυτό είναι ένα δείγμα ελληνικού κειμένου για ανίχνευση γλώσσας.\",\n    ],\n    \"ar\": [\n        \"صِفْ خَلْقَ خَوْدٍ كَمِثْلِ الشَّمْسِ إِذْ بَرَزَتْ\",\n        \"هذا نص عربي تجريبي لاختبار كشف اللغة.\",\n    ],\n    \"he\": [\n        \"דג סקרן שט בים מאוכזב ולפתע מצא חבר.\",\n        \"זהו טקסט דוגמה בעברית לצורך זיהוי שפה.\",\n    ],\n    \"zh\": [\n        \"中文示例文本用于语言检测，快速的棕色狐狸跳过了懒狗。\",\n        \"这是一个用于测试的中文段落，其中包含常用汉字。\",\n    ],\n    \"ja\": [\n        \"素早い茶色の狐がのろまな犬を飛び越える。\",\n        \"これは言語検出のための日本語サンプルテキストです。\",\n    ],\n}\n\nHTML_ENTITIES = [\"&amp;\", \"&lt;\", \"&gt;\", \"&quot;\", \"&apos;\", \"&#169;\", \"&#x1F600;\"]\nHTML_TAGS = [\n    (\"p\", True),\n    (\"div\", True),\n    (\"span\", True),\n    (\"b\", False),\n    (\"i\", False),\n    (\"a\", True),\n    (\"script\", True),\n    (\"style\", True),\n    (\"h1\", True),\n    (\"ul\", True),\n    (\"li\", True),\n]\n\ndef _rand(r: random.Random, arr: List[str]):\n    return arr[r.randrange(len(arr))]\n\ndef _make_sentence(r: random.Random, lang: str) -> str:\n    base = _rand(r, LANG_SNIPPETS[lang])\n    # Add some variability: numbers, punctuation, whitespace\n    extras = []\n    if r.random() < 0.5:\n        extras.append(str(r.randint(0, 999999)))\n    if r.random() < 0.5:\n        extras.append(_rand(r, [\",\", \";\", \":\", \".\", \"!\", \"?\", \"—\"]))\n    if r.random() < 0.5:\n        extras.append(_rand(r, ASCII_WHITESPACE))\n    if extras:\n        base = base + \" \" + \" \".join(extras)\n    return base\n\ndef _block_for_lang(r: random.Random, lang: str, min_sent=1, max_sent=5) -> str:\n    n = r.randint(min_sent, max_sent)\n    return \" \".join(_make_sentence(r, lang) for _ in range(n))\n\ndef _wrap_html(r: random.Random, text: str) -> str:\n    # Randomly wrap in nested tags, include attributes and entities, comments, scripts/styles\n    parts = []\n    # Optional doctype and head\n    if r.random() < 0.5:\n        parts.append(\"<!DOCTYPE html>\")\n    parts.append(\"<html>\")\n    if r.random() < 0.7:\n        parts.append(\"<head>\")\n        if r.random() < 0.6:\n            parts.append(\"<meta charset=\\\"UTF-8\\\">\")\n        if r.random() < 0.4:\n            parts.append(\"<title>\" + _rand(r, [\"Test\", \"Título\", \"Titre\", \"Тест\"]) + \"</title>\")\n        # Optional style\n        if r.random() < 0.5:\n            parts.append(\"<style>body{font-family:sans-serif}.c{color:#333}</style>\")\n        parts.append(\"</head>\")\n    parts.append(\"<body>\")\n    # Insert anchor with entity and attribute\n    if r.random() < 0.7:\n        parts.append(\"<a href=\\\"#\\\" title=\\\"link &amp; title\\\">\" + _rand(r, HTML_ENTITIES) + \"</a>\")\n    # Comments and whitespace\n    if r.random() < 0.6:\n        parts.append(\"<!-- comment with entities \" + _rand(r, HTML_ENTITIES) + \" -->\")\n    # Core content split into paragraphs or divs\n    wrapper = _rand(r, [\"p\", \"div\", \"section\"]) if r.random() < 0.8 else None\n    if wrapper:\n        parts.append(f\"<{wrapper} class=\\\"c\\\">\")\n        parts.append(text)\n        # Randomly interleave entities\n        for _ in range(r.randint(0, 3)):\n            insert_pos = r.randrange(len(parts))\n            parts.insert(insert_pos, _rand(r, HTML_ENTITIES))\n        parts.append(f\"</{wrapper}>\")\n    else:\n        parts.append(text)\n    # Optional script/style blocks that should be skipped when is_plain_text=false\n    if r.random() < 0.5:\n        parts.append(\"<script>var x = 1 < 2 && 3 > 2; // entities &lt;&gt;&amp;</script>\")\n    if r.random() < 0.5:\n        parts.append(\"<style>/* ignore me */ .x{display:none}</style>\")\n    # List with items\n    if r.random() < 0.5:\n        parts.append(\"<ul>\")\n        for _ in range(r.randint(1, 3)):\n            parts.append(\"<li>\" + _rand(r, HTML_ENTITIES) + \"</li>\")\n        parts.append(\"</ul>\")\n    parts.append(\"</body>\")\n    parts.append(\"</html>\")\n    return \"\".join(parts)\n\ndef _mixed_text(r: random.Random) -> str:\n    # Compose a document mixing several languages with random proportions\n    langs = list(LANG_SNIPPETS.keys())\n    r.shuffle(langs)\n    count = r.randint(2, min(5, len(langs)))\n    chosen = langs[:count]\n    weights = [r.random() for _ in chosen]\n    total = sum(weights)\n    weights = [w / total for w in weights]\n    blocks = []\n    for lang, w in zip(chosen, weights):\n        # Map weight to number of sentences\n        num = max(1, int(w * 10) + r.randint(0, 2))\n        blocks.append(_block_for_lang(r, lang, min_sent=num, max_sent=num + 2))\n    # Interleave separators and whitespace\n    sep = _rand(r, [\"\\n\\n\", \" \", \"\\t\\n\"])\n    text = sep.join(blocks)\n    # Add a header/footer with different language sometimes\n    if r.random() < 0.4:\n        header_lang = _rand(r, list(LANG_SNIPPETS.keys()))\n        text = _block_for_lang(r, header_lang, 1, 2) + sep + text\n    if r.random() < 0.4:\n        footer_lang = _rand(r, list(LANG_SNIPPETS.keys()))\n        text = text + sep + _block_for_lang(r, footer_lang, 1, 2)\n    return text\n\ndef _single_lang_text(r: random.Random) -> str:\n    lang = _rand(r, list(LANG_SNIPPETS.keys()))\n    return _block_for_lang(r, lang, 2, 7)\n\ndef _short_or_empty(r: random.Random) -> str:\n    # Trigger empty/short-path behavior\n    choice = r.random()\n    if choice < 0.33:\n        return \"\"  # empty -> UNKNOWN_LANGUAGE\n    elif choice < 0.66:\n        return _rand(r, [\"a\", \"I\", \"OK\", \"no\", \"sí\", \"ок\"])  # very short\n    else:\n        return _rand(r, [\"<b>&amp;</b>\", \"<!--x-->\", \"&nbsp;\", \"\\n\\n\"])  # tags/entities\n\ndef _html_or_plain(r: random.Random, core_text: str) -> str:\n    # Sometimes wrap as HTML, sometimes keep plain; include entities optionally\n    if r.random() < 0.55:\n        return _wrap_html(r, core_text)\n    # Plain text with some entities sprinkled\n    s = core_text\n    for _ in range(r.randint(0, 3)):\n        pos = r.randrange(len(s) + 1)\n        s = s[:pos] + _rand(r, HTML_ENTITIES) + s[pos:]\n    return s\n\ndef _truncate_to_limit(s: str, max_bytes: int = 4096) -> str:\n    # Ensure UTF-8 boundary safety by encoding and truncating on codepoint boundary\n    b = s.encode('utf-8')\n    if len(b) <= max_bytes:\n        return s\n    # Truncate safely\n    b = b[:max_bytes]\n    # Back up to the start of a UTF-8 sequence\n    # Continuation bytes are 0b10xxxxxx; find first non-continuation from the end\n    i = len(b)\n    while i > 0 and (b[i-1] & 0xC0) == 0x80:\n        i -= 1\n    # If we ended in the middle of a multi-byte lead that is incomplete, drop the lead too\n    # Validate minimal UTF-8 by attempting decode progressively\n    while i > 0:\n        try:\n            return b[:i].decode('utf-8')\n        except UnicodeDecodeError:\n            i -= 1\n            # skip continuation sequences until a safe boundary\n            while i > 0 and (b[i-1] & 0xC0) == 0x80:\n                i -= 1\n    return \"\"  # fallback\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Choose a scenario\n    scenario = r.random()\n    if scenario < 0.15:\n        core = _short_or_empty(r)\n    elif scenario < 0.5:\n        core = _single_lang_text(r)\n    else:\n        core = _mixed_text(r)\n\n    # Decide HTML vs plain wrapping and add variability\n    text = _html_or_plain(r, core)\n\n    # Add leading/trailing whitespace and punctuation noise\n    if r.random() < 0.6:\n        text = _rand(r, ASCII_WHITESPACE) * r.randint(0, 3) + text\n    if r.random() < 0.6:\n        text = text + _rand(r, ASCII_WHITESPACE) * r.randint(0, 3)\n    if r.random() < 0.4:\n        text = (\"#\" * r.randint(0, 5)) + text\n    if r.random() < 0.4:\n        text = text + (\".\" * r.randint(0, 5))\n\n    # Optionally repeat blocks to increase size while staying under limit\n    if r.random() < 0.4:\n        repeats = r.randint(1, 4)\n        sep = _rand(r, [\"\\n\", \" \", \"\\n\\n\"]) if r.random() < 0.7 else \"\"\n        text = sep.join([text] * repeats)\n\n    # Constrain to 4096 bytes and ensure valid UTF-8\n    text = _truncate_to_limit(text, 4096)\n\n    return text.encode('utf-8')\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5579,
+            "output_tokens": 2312,
+            "total_tokens": 7891
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5157,
+            "output_tokens": 79,
+            "total_tokens": 5236
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5658,
+            "output_tokens": 3467,
+            "total_tokens": 9125
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5073,
+            "output_tokens": 3099,
+            "total_tokens": 8172
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3503,
+            "output_tokens": 136,
+            "total_tokens": 3639
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 228.58816862106323,
+    "scan_objects": 34.955915451049805,
+    "validate_objects": 0.13443827629089355,
+    "scan_functions": 57.114256143569946,
+    "synthesis": 67.35211563110352,
+    "fill": 0,
+    "classify": 2.7891247272491455,
+    "build_generators": 66.24164867401123
+  }
+}

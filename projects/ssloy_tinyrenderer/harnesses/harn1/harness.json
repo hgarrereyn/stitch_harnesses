@@ -1,0 +1,1401 @@
+{
+  "objects": [
+    {
+      "ptr_type": "TGAHeader *",
+      "aliases": [],
+      "definition": "#pragma pack(push,1)\nstruct TGAHeader {\n    std::uint8_t  idlength = 0;\n    std::uint8_t  colormaptype = 0;\n    std::uint8_t  datatypecode = 0;\n    std::uint16_t colormaporigin = 0;\n    std::uint16_t colormaplength = 0;\n    std::uint8_t  colormapdepth = 0;\n    std::uint16_t x_origin = 0;\n    std::uint16_t y_origin = 0;\n    std::uint16_t width = 0;\n    std::uint16_t height = 0;\n    std::uint8_t  bitsperpixel = 0;\n    std::uint8_t  imagedescriptor = 0;\n};\n#pragma pack(pop)",
+      "description": "Packed-on-1-byte struct representing the 18-byte Truevision TGA file header, with fields for color map, image origin, dimensions, pixel depth, and descriptor. Defaults initialize all fields to zero. Used for reading/writing TGA files with exact on-disk layout.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "TGAColor *",
+      "aliases": [],
+      "definition": "struct TGAColor {\n    std::uint8_t bgra[4] = {0,0,0,0};\n    std::uint8_t bytespp = 4;\n    std::uint8_t& operator[](const int i) { return bgra[i]; }\n    const std::uint8_t& operator[](const int i) const { return bgra[i]; }\n};",
+      "description": "Pixel color container storing up to 4 channels in BGRA order with a byte-per-pixel count (default 4). Provides subscript operators to access individual channel bytes.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "TGAImage *"
+      ]
+    },
+    {
+      "ptr_type": "TGAImage *",
+      "aliases": [],
+      "definition": "struct TGAImage {\n    enum Format { GRAYSCALE=1, RGB=3, RGBA=4 };\n    TGAImage() = default;\n    TGAImage(const int w, const int h, const int bpp, TGAColor c = {});\n    bool  read_tga_file(const std::string filename);\n    bool write_tga_file(const std::string filename, const bool vflip=true, const bool rle=true) const;\n    void flip_horizontally();\n    void flip_vertically();\n    TGAColor get(const int x, const int y) const;\n    void set(const int x, const int y, const TGAColor &c);\n    int width()  const;\n    int height() const;\nprivate:\n    bool   load_rle_data(std::ifstream &in);\n    bool unload_rle_data(std::ofstream &out) const;\n    int w = 0, h = 0;\n    std::uint8_t bpp = 0;\n    std::vector<std::uint8_t> data = {};\n};",
+      "description": "Image container and I/O utility for TGA bitmaps. Supports grayscale, RGB, and RGBA formats; reading/writing TGA files (optionally RLE-compressed, with vertical flip), pixel accessors, and horizontal/vertical flips. Internally stores dimensions, bytes-per-pixel, and raw pixel data buffer.",
+      "direct_api_constructors": [
+        "TGAImage::TGAImage(const int w, const int h, const int bpp, TGAColor c = {})"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "TGAImage::Format *",
+      "aliases": [],
+      "definition": "enum Format { GRAYSCALE=1, RGB=3, RGBA=4 };",
+      "description": "Enumeration nested in TGAImage specifying pixel formats by bytes-per-pixel: 1 for grayscale, 3 for RGB, and 4 for RGBA.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "TGAImage *"
+      ]
+    },
+    {
+      "ptr_type": "Model *",
+      "aliases": [],
+      "definition": "class Model {\n    std::vector<vec4> verts = {};    // array of vertices        ┐ generally speaking, these arrays\n    std::vector<vec4> norms = {};    // array of normal vectors  │ do not have the same size\n    std::vector<vec2> tex = {};      // array of tex coords      ┘ check the logs of the Model() constructor\n    std::vector<int> facet_vrt = {}; //  ┐ per-triangle indices in the above arrays,\n    std::vector<int> facet_nrm = {}; //  │ the size is supposed to be\n    std::vector<int> facet_tex = {}; //  ┘ nfaces()*3\n    TGAImage diffusemap  = {};       // diffuse color texture\n    TGAImage normalmap   = {};       // normal map texture\n    TGAImage specularmap = {};       // specular texture\npublic:\n    Model(const std::string filename);\n    int nverts() const; // number of vertices\n    int nfaces() const; // number of triangles\n    vec4 vert(const int i) const;                          // 0 <= i < nverts()\n    vec4 vert(const int iface, const int nthvert) const;   // 0 <= iface <= nfaces(), 0 <= nthvert < 3\n    vec4 normal(const int iface, const int nthvert) const; // normal coming from the \"vn x y z\" entries in the .obj file\n    vec4 normal(const vec2 &uv) const;                     // normal vector from the normal map texture\n    vec2 uv(const int iface, const int nthvert) const;     // uv coordinates of triangle corners\n    const TGAImage& diffuse() const;\n    const TGAImage& specular() const;\n\n};",
+      "description": "A 3D model container class that loads a mesh from a file and provides access to vertex positions, normals, texture coordinates, and associated textures (diffuse, normal, specular). It stores per-attribute arrays and triangle index arrays (facet_vrt, facet_nrm, facet_tex), exposing query functions for counts and per-face attributes. Construction details are not included here beyond a filename-taking constructor; ownership of textures is internal. Details of file format and error handling are unknown from this header.",
+      "direct_api_constructors": [
+        "Model(const std::string filename)"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "IShader *",
+      "aliases": [],
+      "definition": "struct IShader {\n    static TGAColor sample2D(const TGAImage &img, const vec2 &uvf) {\n        return img.get(uvf[0] * img.width(), uvf[1] * img.height());\n    }\n    virtual std::pair<bool,TGAColor> fragment(const vec3 bar) const = 0;\n};",
+      "description": "Abstract shading interface for the rasterizer. Provides a static texture sampling helper and a pure-virtual fragment method that, given barycentric coordinates, returns a pair of (discard flag, color). Implementations define per-fragment shading; the static helper samples a TGAImage at UV in [0,1]^2.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "Triangle *",
+      "aliases": [],
+      "definition": "typedef vec4 Triangle[3]; // a triangle primitive is made of three ordered points",
+      "description": "Type alias for an array of three vec4 vertices representing a single triangle primitive in clip space or homogeneous coordinates. Each element is a vec4. This is a fixed-size C array type, not a struct.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "vec::operator[]",
+      "signature": "template<int n> double& vec<n>::operator[](int i)",
+      "description": "Element access (mutable) for vec<n>. Returns a reference to the ith component for 0 <= i < n. Uses assert to enforce bounds in debug builds.",
+      "requirements": [
+        "i must satisfy 0 <= i < n; otherwise the assert will fail in debug builds.",
+        "The vec<n> instance must be valid and initialized (default-initialized to zeros in this implementation)."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator*",
+      "signature": "template<int n> double operator*(const vec<n>& lhs, const vec<n>& rhs)",
+      "description": "Dot product of two vectors of the same dimension n. Computes sum(lhs[i] * rhs[i]) over i in [0, n).",
+      "requirements": [
+        "lhs and rhs must have the same dimension n (enforced by template parameter).",
+        "No special numeric constraints, but extremely large values may overflow."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator*",
+      "signature": "template<int n> vec<n> operator*(const vec<n>& lhs, const double& rhs)",
+      "description": "Scalar multiplication: scales each component of lhs by rhs.",
+      "requirements": [
+        "No division occurs; any finite rhs is allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator*",
+      "signature": "template<int n> vec<n> operator*(const double& lhs, const vec<n>& rhs)",
+      "description": "Scalar multiplication: scales each component of rhs by lhs. Commutative with the other scalar*vector overload.",
+      "requirements": [
+        "No division occurs; any finite lhs is allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator*",
+      "signature": "template<int nrows, int ncols> vec<ncols> operator*(const vec<nrows>& lhs, const mat<nrows,ncols>& rhs)",
+      "description": "Vector-matrix multiplication treating lhs as a row vector (1×nrows) and rhs as an nrows×ncols matrix. Result is a vec<ncols>.",
+      "requirements": [
+        "Dimensions must match as per template parameters (enforced at compile time)."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator+",
+      "signature": "template<int n> vec<n> operator+(const vec<n>& lhs, const vec<n>& rhs)",
+      "description": "Component-wise addition of two vectors of dimension n.",
+      "requirements": [
+        "lhs and rhs must have the same dimension n (enforced by template parameter)."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator+",
+      "signature": "template<int nrows, int ncols> mat<nrows,ncols> operator+(const mat<nrows,ncols>& lhs, const mat<nrows,ncols>& rhs)",
+      "description": "Element-wise addition of two matrices of identical shape.",
+      "requirements": [
+        "lhs and rhs must have the same dimensions (nrows and ncols), enforced by template parameters."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator-",
+      "signature": "template<int n> vec<n> operator-(const vec<n>& lhs, const vec<n>& rhs)",
+      "description": "Component-wise subtraction of two vectors of dimension n.",
+      "requirements": [
+        "lhs and rhs must have the same dimension n (enforced by template parameter)."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator-",
+      "signature": "template<int nrows, int ncols> mat<nrows,ncols> operator-(const mat<nrows,ncols>& lhs, const mat<nrows,ncols>& rhs)",
+      "description": "Element-wise subtraction of two matrices of identical shape.",
+      "requirements": [
+        "lhs and rhs must have the same dimensions (nrows and ncols), enforced by template parameters."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator/",
+      "signature": "template<int n> vec<n> operator/(const vec<n>& lhs, const double& rhs)",
+      "description": "Scalar division: divides each component of lhs by rhs.",
+      "requirements": [
+        "rhs must be non-zero to avoid division by zero.",
+        "Very small |rhs| can cause overflow/underflow."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator/",
+      "signature": "template<int nrows, int ncols> mat<nrows,ncols> operator/(const mat<nrows,ncols>& lhs, const double& val)",
+      "description": "Scalar division for matrices: divides every element of lhs by val.",
+      "requirements": [
+        "val must be non-zero to avoid division by zero.",
+        "Very small |val| can cause overflow/underflow."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator<<",
+      "signature": "template<int n> std::ostream& operator<<(std::ostream& out, const vec<n>& v)",
+      "description": "Stream insertion for vec<n>. Prints components separated by a space, in order, without brackets; does not add a trailing newline.",
+      "requirements": [
+        "out must be a valid std::ostream.",
+        "Relies on operator<<(ostream, double) for component printing."
+      ],
+      "error": null
+    },
+    {
+      "name": "operator<<",
+      "signature": "template<int nrows, int ncols> std::ostream& operator<<(std::ostream& out, const mat<nrows,ncols>& m)",
+      "description": "Stream insertion for matrices. Prints each row (via vec<<) followed by a newline (std::endl).",
+      "requirements": [
+        "out must be a valid std::ostream.",
+        "Relies on vec<ncols> stream insertion for row printing."
+      ],
+      "error": null
+    },
+    {
+      "name": "vec<2>::operator[]",
+      "signature": "double& vec<2>::operator[](int i)",
+      "description": "Element access (mutable) for vec<2>. Returns reference to x when i==0 and y when i==1. Uses assert for bounds.",
+      "requirements": [
+        "i must be 0 or 1; otherwise the assert will fail in debug builds."
+      ],
+      "error": null
+    },
+    {
+      "name": "vec<3>::operator[]",
+      "signature": "double& vec<3>::operator[](int i)",
+      "description": "Element access (mutable) for vec<3>. Returns reference to x (i==0), y (i==1), or z (i==2). Uses assert for bounds.",
+      "requirements": [
+        "i must be 0, 1, or 2; otherwise the assert will fail in debug builds."
+      ],
+      "error": null
+    },
+    {
+      "name": "vec<4>::operator[]",
+      "signature": "double& vec<4>::operator[](int i)",
+      "description": "Element access (mutable) for vec<4>. Returns reference to x (i==0), y (i==1), z (i==2), or w (i==3). Uses assert for bounds.",
+      "requirements": [
+        "i must be 0, 1, 2, or 3; otherwise the assert will fail in debug builds."
+      ],
+      "error": null
+    },
+    {
+      "name": "vec<4>::xy",
+      "signature": "vec<2> vec<4>::xy() const",
+      "description": "Swizzle/accessor that returns the first two components (x, y) of a vec<4> as a vec<2>.",
+      "requirements": [
+        "The source vec<4> must be valid and initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "vec<4>::xyz",
+      "signature": "vec<3> vec<4>::xyz() const",
+      "description": "Swizzle/accessor that returns the first three components (x, y, z) of a vec<4> as a vec<3>.",
+      "requirements": [
+        "The source vec<4> must be valid and initialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "norm",
+      "signature": "template<int n> double norm(const vec<n>& v)",
+      "description": "Euclidean length (L2 norm) of vector v. Equivalent to sqrt(dot(v, v)).",
+      "requirements": [
+        "No special constraints; for very large magnitudes the result may overflow."
+      ],
+      "error": null
+    },
+    {
+      "name": "normalized",
+      "signature": "template<int n> vec<n> normalized(const vec<n>& v)",
+      "description": "Returns a unit-length vector in the same direction as v by dividing by its Euclidean norm.",
+      "requirements": [
+        "v must not be the zero vector; norm(v) must be non-zero to avoid division by zero."
+      ],
+      "error": null
+    },
+    {
+      "name": "cross",
+      "signature": "inline vec3 cross(const vec3& v1, const vec3& v2)",
+      "description": "3D cross product. Returns a vector orthogonal to v1 and v2 following the right-hand rule.",
+      "requirements": [
+        "Inputs must be 3D vectors (vec3).",
+        "No special numeric constraints; extremely large values may overflow."
+      ],
+      "error": null
+    },
+    {
+      "name": "mat::operator[]",
+      "signature": "template<int nrows, int ncols> vec<ncols>& mat<nrows,ncols>::operator[](int idx)",
+      "description": "Row access (mutable) for mat<nrows,ncols>. Returns a reference to the idx-th row as vec<ncols>. Uses assert for bounds.",
+      "requirements": [
+        "idx must satisfy 0 <= idx < nrows; otherwise the assert will fail in debug builds."
+      ],
+      "error": null
+    },
+    {
+      "name": "mat::det",
+      "signature": "template<int nrows, int ncols> double mat<nrows,ncols>::det() const",
+      "description": "Determinant of a square matrix. For mat<n,n> it delegates to dt<n>::det(*this). Behavior is only mathematically defined for square matrices.",
+      "requirements": [
+        "The matrix must be square (nrows == ncols) for the determinant to be mathematically meaningful.",
+        "The elements should be finite; large magnitudes may cause overflow."
+      ],
+      "error": null
+    },
+    {
+      "name": "mat::cofactor",
+      "signature": "template<int nrows, int ncols> double mat<nrows,ncols>::cofactor(int row, int col) const",
+      "description": "Computes the (row,col) cofactor: the signed determinant of the submatrix formed by removing the given row and column.",
+      "requirements": [
+        "row must satisfy 0 <= row < nrows; col must satisfy 0 <= col < ncols.",
+        "Requires nrows >= 1 and ncols >= 1; the submatrix has size (nrows-1) x (ncols-1).",
+        "Meaningful primarily for square matrices."
+      ],
+      "error": null
+    },
+    {
+      "name": "mat::invert_transpose",
+      "signature": "template<int nrows, int ncols> mat<nrows,ncols> mat<nrows,ncols>::invert_transpose() const",
+      "description": "Computes the adjugate transpose and divides by the determinant, returning the inverse-transposed matrix. Equivalent to inverse(A)^T for invertible square matrices.",
+      "requirements": [
+        "Matrix must be square (nrows == ncols) for a true inverse to exist.",
+        "The determinant (computed as adjugate_transpose[0] · rows[0]) must be non-zero to avoid division by zero (matrix must be invertible)."
+      ],
+      "error": null
+    },
+    {
+      "name": "mat::invert",
+      "signature": "template<int nrows, int ncols> mat<nrows,ncols> mat<nrows,ncols>::invert() const",
+      "description": "Returns the inverse of a square, invertible matrix by taking the transpose of invert_transpose().",
+      "requirements": [
+        "Matrix must be square (nrows == ncols).",
+        "Matrix must be invertible (non-zero determinant)."
+      ],
+      "error": null
+    },
+    {
+      "name": "mat::transpose",
+      "signature": "template<int nrows, int ncols> mat<ncols,nrows> mat<nrows,ncols>::transpose() const",
+      "description": "Returns the transpose of the matrix, swapping rows and columns.",
+      "requirements": [
+        "No special constraints beyond a valid matrix instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "dt::det",
+      "signature": "template<int n> static double dt<n>::det(const mat<n,n>& src)",
+      "description": "Compile-time recursive determinant computation for square matrices of size n×n using cofactor expansion along the first row.",
+      "requirements": [
+        "src must be square by construction (mat<n,n>).",
+        "Numerical stability is poor for large n; may overflow or lose precision."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAColor::operator[]",
+      "signature": "std::uint8_t& TGAColor::operator[](const int i)",
+      "description": "Returns a mutable reference to the i-th channel of the BGRA color storage (indices 0..3). Useful for direct per-channel manipulation.",
+      "requirements": [
+        "i must be in the range [0, 3].",
+        "The TGAColor instance must be valid (default-initialized is valid)."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::TGAImage",
+      "signature": "TGAImage::TGAImage()",
+      "description": "Default constructor. Creates an empty image with zero width/height and no pixel data until populated by other operations (e.g., read_tga_file or set after a resize by a different API, not present here).",
+      "requirements": [
+        "No arguments. Image starts with w = 0, h = 0, and bpp = 0; many operations may require non-zero dimensions and a valid bpp."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::read_tga_file",
+      "signature": "bool TGAImage::read_tga_file(const std::string filename)",
+      "description": "Loads a TGA image from the specified file path into this TGAImage, replacing any existing image data. Returns true on success, false on failure.",
+      "requirements": [
+        "filename must reference an existing, readable file in TGA format.",
+        "On success, the image’s dimensions, bpp, and data are set to the file’s contents; prior contents are overwritten.",
+        "Callers should check the boolean return value to handle I/O or format errors."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::write_tga_file",
+      "signature": "bool TGAImage::write_tga_file(const std::string filename, const bool vflip = true, const bool rle = true) const",
+      "description": "Writes the current image to a TGA file at the specified path. By default saves with vertical flip and RLE compression. Returns true on success, false otherwise.",
+      "requirements": [
+        "filename must be a valid path to a writable location.",
+        "The image must have valid, non-zero width and height, and a supported bpp (typically 1, 3, or 4).",
+        "Callers should check the boolean return value to detect I/O or encoding errors.",
+        "vflip controls whether the written image is vertically flipped; rle controls use of RLE compression."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::flip_horizontally",
+      "signature": "void TGAImage::flip_horizontally()",
+      "description": "In-place horizontal flip of the image (mirror across a vertical axis).",
+      "requirements": [
+        "Image width and height should be non-zero.",
+        "The image must have valid pixel data and bpp."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::flip_vertically",
+      "signature": "void TGAImage::flip_vertically()",
+      "description": "In-place vertical flip of the image (mirror across a horizontal axis).",
+      "requirements": [
+        "Image width and height should be non-zero.",
+        "The image must have valid pixel data and bpp."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::get",
+      "signature": "TGAColor TGAImage::get(const int x, const int y) const",
+      "description": "Returns the color of the pixel at coordinates (x, y).",
+      "requirements": [
+        "0 <= x < width().",
+        "0 <= y < height().",
+        "The image must be initialized with valid dimensions and bpp."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::set",
+      "signature": "void TGAImage::set(const int x, const int y, const TGAColor &c)",
+      "description": "Sets the pixel at coordinates (x, y) to color c.",
+      "requirements": [
+        "0 <= x < width().",
+        "0 <= y < height().",
+        "The image must be initialized with valid dimensions and bpp.",
+        "The provided color c should be compatible with the image bpp (e.g., channels used should match 1, 3, or 4 as appropriate)."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::width",
+      "signature": "int TGAImage::width() const",
+      "description": "Returns the current image width in pixels.",
+      "requirements": [
+        "The image object must be valid; no additional requirements."
+      ],
+      "error": null
+    },
+    {
+      "name": "TGAImage::height",
+      "signature": "int TGAImage::height() const",
+      "description": "Returns the current image height in pixels.",
+      "requirements": [
+        "The image object must be valid; no additional requirements."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::Model",
+      "signature": "Model::Model(const std::string filename)",
+      "description": "Constructs a Model from a file path, loading mesh data (vertices, normals, texture coordinates) and associated textures (diffuse, normal, specular) into internal arrays and images. Typical usage: create an instance with a path to a model file (likely an OBJ) so its data can be queried via the accessors. Exact file format details and error handling behavior are not specified in the provided declaration; specifics are implementation-defined/unknown.",
+      "requirements": [
+        "filename should reference a readable, valid model file on disk (format and auxiliary texture loading conventions are implementation-defined/unknown).",
+        "If loading fails, behavior and error reporting are unknown (check implementation)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::nverts",
+      "signature": "int Model::nverts() const",
+      "description": "Returns the number of vertices stored in the model. Use to bound vertex index queries.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "Model::nfaces",
+      "signature": "int Model::nfaces() const",
+      "description": "Returns the number of triangles (faces) in the model. Use to bound per-face queries.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "Model::vert",
+      "signature": "vec4 Model::vert(const int i) const",
+      "description": "Returns the i-th vertex position as a vec4. Use for direct, global indexing into the vertex array.",
+      "requirements": [
+        "0 <= i < nverts() (explicitly stated in comments)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::vert",
+      "signature": "vec4 Model::vert(const int iface, const int nthvert) const",
+      "description": "Returns the nth vertex (0..2) of the triangle specified by iface as a vec4, using the model’s per-triangle index arrays. Intended to fetch triangle corner positions.",
+      "requirements": [
+        "0 <= iface <= nfaces() (as stated; note this likely contains an off-by-one ambiguity—typical bounds are 0 <= iface < nfaces()).",
+        "0 <= nthvert < 3 (explicitly stated)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::normal",
+      "signature": "vec4 Model::normal(const int iface, const int nthvert) const",
+      "description": "Returns the normal vector associated with the nth vertex of the specified triangle, sourced from the \"vn x y z\" entries in the model file. Intended to fetch per-corner normals via the model’s per-triangle normal index array.",
+      "requirements": [
+        "Inferred: 0 <= iface < nfaces() (to select a valid face).",
+        "Inferred: 0 <= nthvert < 3 (triangle corner index).",
+        "Inferred: The model must contain normal data for the referenced corner; behavior if absent is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::normal",
+      "signature": "vec4 Model::normal(const vec2 &uv) const",
+      "description": "Samples and returns a normal vector from the normal map texture at the given UV coordinate. Intended for texture-based normal lookup for shading.",
+      "requirements": [
+        "uv must be a valid coordinate for the model’s normal map; the expected domain (e.g., [0,1]x[0,1] vs. pixel coordinates) is not specified and is implementation-defined/unknown.",
+        "Requires that a normal map texture is present in the model; behavior if absent is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::uv",
+      "signature": "vec2 Model::uv(const int iface, const int nthvert) const",
+      "description": "Returns the UV texture coordinate of the nth corner of the triangle specified by iface. Intended to fetch per-corner UVs via the model’s per-triangle texture index array.",
+      "requirements": [
+        "Inferred: 0 <= iface < nfaces() (to select a valid face).",
+        "Inferred: 0 <= nthvert < 3 (triangle corner index)."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::diffuse",
+      "signature": "const TGAImage& Model::diffuse() const",
+      "description": "Returns a const reference to the model’s diffuse color texture image for use in texture sampling or inspection.",
+      "requirements": [
+        "Do not store or use the returned reference after the Model instance is destroyed (lifetime-bound reference).",
+        "The returned image is const; mutation is not allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "Model::specular",
+      "signature": "const TGAImage& Model::specular() const",
+      "description": "Returns a const reference to the model’s specular texture image for use in texture sampling or inspection.",
+      "requirements": [
+        "Do not store or use the returned reference after the Model instance is destroyed (lifetime-bound reference).",
+        "The returned image is const; mutation is not allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "lookat",
+      "signature": "void lookat(const vec3 eye, const vec3 center, const vec3 up);",
+      "description": "Initializes or updates a view (camera) transform, commonly known as a LookAt matrix, from camera position (eye), target point (center), and an up direction (up). Typical usage is to set the model-view transform before rendering geometry so world coordinates are transformed into view space. Details of storage (global state vs. return value) are not shown in this header.",
+      "requirements": [
+        "eye, center, and up must be valid 3D vectors",
+        "The direction (center - eye) should be non-zero",
+        "The up vector should be non-zero and not colinear with (center - eye) to avoid degenerate view frames",
+        "Callers should assume this affects subsequent vertex/fragment processing that relies on the view transform (implementation-specific)"
+      ],
+      "error": null
+    },
+    {
+      "name": "init_perspective",
+      "signature": "void init_perspective(const double f);",
+      "description": "Initializes or updates the perspective projection parameters using a single scalar f. Based on naming, f is likely a focal length or field-of-view-related parameter, configuring the projection matrix used in the rendering pipeline. Exact interpretation of f and any near/far planes are not documented here.",
+      "requirements": [
+        "f must be a finite real number",
+        "f should be positive (typical for focal length/FOV-related parameters)",
+        "This sets global/implicit projection state used later by vertex processing (inferred; exact effect unknown)"
+      ],
+      "error": null
+    },
+    {
+      "name": "init_viewport",
+      "signature": "void init_viewport(const int x, const int y, const int w, const int h);",
+      "description": "Initializes or updates the viewport transform mapping normalized device coordinates to framebuffer pixel coordinates with origin at (x, y) and size (w, h). Typically called once after setting up projection and before rasterization to ensure correct screen mapping.",
+      "requirements": [
+        "w > 0 and h > 0 (viewport dimensions must be positive)",
+        "x and y should be within the framebuffer coordinate space (implementation dependent; not enforced here)",
+        "This likely updates global/implicit viewport state used by rasterization (inferred)"
+      ],
+      "error": null
+    },
+    {
+      "name": "init_zbuffer",
+      "signature": "void init_zbuffer(const int width, const int height);",
+      "description": "Allocates or initializes a depth (Z) buffer of the specified dimensions for depth testing during rasterization. Typically called when the framebuffer size is known or changes.",
+      "requirements": [
+        "width > 0 and height > 0",
+        "Must be called before any operation that performs depth testing against the z-buffer (inferred)",
+        "Repeated calls may reinitialize or reallocate the buffer (behavior not documented)"
+      ],
+      "error": null
+    },
+    {
+      "name": "IShader::sample2D",
+      "signature": "static TGAColor IShader::sample2D(const TGAImage &img, const vec2 &uvf);",
+      "description": "Fetches a texel from img at floating-point UV coordinates uvf using simple nearest-neighbor addressing: returns img.get(uvf[0] * img.width(), uvf[1] * img.height()). No wrapping or clamping is performed in this function.",
+      "requirements": [
+        "img must be a valid, initialized TGAImage",
+        "uvf.x and uvf.y should be within [0, 1) to avoid out-of-bounds access (no clamping in this function)",
+        "img.get expects integer pixel coordinates in-range [0, width-1] and [0, height-1]; the product uvf*dim should satisfy this"
+      ],
+      "error": null
+    },
+    {
+      "name": "IShader::fragment",
+      "signature": "virtual std::pair<bool, TGAColor> IShader::fragment(const vec3 bar) const = 0;",
+      "description": "Fragment shader callback invoked per-fragment during rasterization. Given barycentric coordinates bar of the fragment within the current triangle, returns a pair: first indicates whether to discard (convention typically: true/false — exact meaning unknown), and second is the output color. As a pure virtual method, concrete shaders must implement it.",
+      "requirements": [
+        "bar represents barycentric coordinates for the triangle; components typically sum to 1 and are each in [0, 1] for interior fragments (inferred)",
+        "Implementations must be const-correct and not rely on mutable state unless managed externally",
+        "Return value must be a valid TGAColor; define and document the boolean’s convention consistently with rasterize’s expectation (unknown in this header)"
+      ],
+      "error": null
+    },
+    {
+      "name": "rasterize",
+      "signature": "void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffer);",
+      "description": "Rasterizes a single triangle primitive clip using the provided shader, writing results into framebuffer. Triangle is defined as vec4[3], suggesting clip-space vertices (x, y, z, w). The function likely performs clipping, viewport transform, depth testing (if a z-buffer is configured), and per-fragment shading via shader.fragment.",
+      "requirements": [
+        "clip must reference exactly three 4D vertices (vec4[3]) in the expected coordinate space (likely clip space)",
+        "shader must provide a valid implementation of IShader::fragment",
+        "framebuffer must be a valid, writable TGAImage whose dimensions match the intended viewport",
+        "If depth testing is expected, a z-buffer must have been initialized with matching dimensions (inferred)",
+        "Inputs should avoid NaNs/Infs in vertex attributes to prevent undefined behavior"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "vec::operator[]",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise vec<n>::operator[] for n in {2,3,4} ensuring index constraints and reference semantics\n// Create vec2, vec3, vec4 and set/get within valid bounds\nvec<2> v2; vec<3> v3; vec<4> v4;\n// Choose in-range indices deterministically from fuzzed integers\nint i2 = (int)(*FUZZ_PARAM(unsigned int) % 2);\nint i3 = (int)(*FUZZ_PARAM(unsigned int) % 3);\nint i4 = (int)(*FUZZ_PARAM(unsigned int) % 4);\n// Assign fuzzed values and check via reference access\ndouble a2 = *FUZZ_PARAM(double);\ndouble a3 = *FUZZ_PARAM(double);\ndouble a4 = *FUZZ_PARAM(double);\n// Write through reference and read back to ensure ref access works\nv2[i2] = a2; FUZZ_ASSERT(v2[i2] == a2, \"vec<2>::operator[] failed to store/retrieve\");\nv3[i3] = a3; FUZZ_ASSERT(v3[i3] == a3, \"vec<3>::operator[] failed to store/retrieve\");\nv4[i4] = a4; FUZZ_ASSERT(v4[i4] == a4, \"vec<4>::operator[] failed to store/retrieve\");"
+    },
+    {
+      "name": "operator*",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Overload 1: dot product vec<n>·vec<n>. Validate commutativity and non-negativity of v·v\nvec<3> a; vec<3> b;\nfor (int k=0;k<3;k++){ a[k]=*FUZZ_PARAM(double); b[k]=*FUZZ_PARAM(double);} \ndouble dab = a*b; double dba = b*a; FUZZ_ASSERT(dab==dba, \"dot product must be commutative\");\ndouble daa = a*a; FUZZ_ASSERT(daa >= 0.0, \"v·v must be non-negative\");"
+    },
+    {
+      "name": "operator+",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Overload: vec<n> + vec<n>. Check neutral element by adding zero vector\nvec<3> x; vec<3> z; for(int k=0;k<3;k++){ x[k]=*FUZZ_PARAM(double); z[k]=0.0; }\nvec<3> y = x + z; for(int k=0;k<3;k++){ FUZZ_ASSERT(y[k]==x[k], \"x + 0 must equal x\"); }"
+    },
+    {
+      "name": "operator-",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Overload: vec<n> - vec<n>. Check x - x == 0\nvec<4> p; for(int k=0;k<4;k++){ p[k]=*FUZZ_PARAM(double);} \nvec<4> q = p - p; for(int k=0;k<4;k++){ FUZZ_ASSERT(q[k]==0.0, \"x - x must be zero\"); }"
+    },
+    {
+      "name": "operator/",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Overload: vec<n> / scalar. Enforce non-zero divisor and check (v/s)*s == v\nvec<3> v; for(int k=0;k<3;k++){ v[k]=*FUZZ_PARAM(double);} \ndouble s = *FUZZ_PARAM(double);\nif (s==0.0) { FUZZ_BAIL(); }\nvec<3> q = v / s; vec<3> back = q * s; for(int k=0;k<3;k++){ FUZZ_ASSERT(back[k]==v[k], \"(v/s)*s must equal v\"); }"
+    },
+    {
+      "name": "operator<<",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Overload: ostream << vec<n>. Use ostringstream to avoid external I/O\nvec<3> v; for(int k=0;k<3;k++){ v[k]=*FUZZ_PARAM(double);} \nstd::ostringstream oss; oss << v; // Ensure it doesn't throw and produces some output\nFUZZ_ASSERT((bool)oss, \"ostream should remain valid after vec<<\");"
+    },
+    {
+      "name": "vec<2>::operator[]",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Specific overload: vec<2> index bounds i in {0,1}\nvec<2> v; v[0]=*FUZZ_PARAM(double); v[1]=*FUZZ_PARAM(double);\nint i = (int)(*FUZZ_PARAM(unsigned int) % 2);\ndouble before = v[i]; v[i]=before; FUZZ_ASSERT(v[i]==before, \"vec<2>::operator[] must allow get/set within bounds\");"
+    },
+    {
+      "name": "vec<3>::operator[]",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Specific overload: vec<3> index bounds i in {0,1,2}\nvec<3> v; v[0]=*FUZZ_PARAM(double); v[1]=*FUZZ_PARAM(double); v[2]=*FUZZ_PARAM(double);\nint i = (int)(*FUZZ_PARAM(unsigned int) % 3);\ndouble before = v[i]; v[i]=before; FUZZ_ASSERT(v[i]==before, \"vec<3>::operator[] must allow get/set within bounds\");"
+    },
+    {
+      "name": "vec<4>::operator[]",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Specific overload: vec<4> index bounds i in {0,1,2,3}\nvec<4> v; v[0]=*FUZZ_PARAM(double); v[1]=*FUZZ_PARAM(double); v[2]=*FUZZ_PARAM(double); v[3]=*FUZZ_PARAM(double);\nint i = (int)(*FUZZ_PARAM(unsigned int) % 4);\ndouble before = v[i]; v[i]=before; FUZZ_ASSERT(v[i]==before, \"vec<4>::operator[] must allow get/set within bounds\");"
+    },
+    {
+      "name": "vec<4>::xy",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Swizzle xy(): verify it returns the first two components\nvec<4> v; v[0]=*FUZZ_PARAM(double); v[1]=*FUZZ_PARAM(double); v[2]=*FUZZ_PARAM(double); v[3]=*FUZZ_PARAM(double);\nvec<2> xy = v.xy(); FUZZ_ASSERT(xy[0]==v[0] && xy[1]==v[1], \"vec<4>::xy must return first two components\");"
+    },
+    {
+      "name": "vec<4>::xyz",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Swizzle xyz(): verify it returns the first three components\nvec<4> v; v[0]=*FUZZ_PARAM(double); v[1]=*FUZZ_PARAM(double); v[2]=*FUZZ_PARAM(double); v[3]=*FUZZ_PARAM(double);\nvec<3> xyz = v.xyz(); FUZZ_ASSERT(xyz[0]==v[0] && xyz[1]==v[1] && xyz[2]==v[2], \"vec<4>::xyz must return first three components\");"
+    },
+    {
+      "name": "norm",
+      "inputs": [],
+      "outputs": [],
+      "code": "// norm(v) = sqrt(v·v); also norm>=0\nvec<3> v; for(int k=0;k<3;k++){ v[k]=*FUZZ_PARAM(double);} \ndouble n = norm(v); double d = v*v; FUZZ_ASSERT(n>=0.0, \"norm must be non-negative\");\n// Within floating math, n*n == d (exact for doubles if no NaN/Inf). Use exact compare per spec simplicity.\nFUZZ_ASSERT(n*n==d, \"norm^2 must equal dot(v,v)\");"
+    },
+    {
+      "name": "normalized",
+      "inputs": [],
+      "outputs": [],
+      "code": "// normalized(v): enforce v not zero. If near-zero norm, bail to avoid division by zero\nvec<4> v; for(int k=0;k<4;k++){ v[k]=*FUZZ_PARAM(double);} \ndouble n = norm(v);\nif (n==0.0) { FUZZ_BAIL(); }\nvec<4> u = normalized(v);\ndouble un = norm(u); FUZZ_ASSERT(un==1.0, \"normalized(v) must have unit length\");"
+    },
+    {
+      "name": "cross",
+      "inputs": [],
+      "outputs": [],
+      "code": "// cross(a,b): property cross(a,a)==0 and orthogonality with a when a and b not colinear\nvec<3> a; vec<3> b; for(int k=0;k<3;k++){ a[k]=*FUZZ_PARAM(double); b[k]=*FUZZ_PARAM(double);} \nvec<3> z = cross(a,a); FUZZ_ASSERT(z[0]==0.0 && z[1]==0.0 && z[2]==0.0, \"cross(a,a) must be zero\");\nvec<3> c = cross(a,b);\n// Orthogonality: a·c == 0 (within exact arithmetic for constructed values); assert exact per simplified model\ndouble adc = a*c; FUZZ_ASSERT(adc==0.0, \"a·(a×b) must be 0\");"
+    },
+    {
+      "name": "mat::operator[]",
+      "inputs": [],
+      "outputs": [],
+      "code": "// mat<nrows,ncols>::operator[]: bounds 0<=idx<nrows and row reference writable\nmat<3,2> M; int idx = (int)(*FUZZ_PARAM(unsigned int) % 3);\nM[idx][0]=*FUZZ_PARAM(double); M[idx][1]=*FUZZ_PARAM(double);\nFUZZ_ASSERT(true, \"row access and assignment succeeded within bounds\");"
+    },
+    {
+      "name": "mat::det",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Determinant on square matrix; test identity and simple 2x2 formula\nmat<2,2> I; I[0][0]=1; I[0][1]=0; I[1][0]=0; I[1][1]=1; FUZZ_ASSERT(I.det()==1.0, \"det(I)==1\");\nmat<2,2> A; A[0][0]=*FUZZ_PARAM(double); A[0][1]=*FUZZ_PARAM(double); A[1][0]=*FUZZ_PARAM(double); A[1][1]=*FUZZ_PARAM(double);\ndouble detA = A.det(); double formula = A[0][0]*A[1][1] - A[0][1]*A[1][0]; FUZZ_ASSERT(detA==formula, \"2x2 determinant formula must hold\");"
+    },
+    {
+      "name": "mat::cofactor",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Cofactor within bounds; verify 2x2 cofactors match explicit minors/signs\nmat<2,2> A; A[0][0]=*FUZZ_PARAM(double); A[0][1]=*FUZZ_PARAM(double); A[1][0]=*FUZZ_PARAM(double); A[1][1]=*FUZZ_PARAM(double);\n// cof(0,0) = (+1)*A[1][1], cof(0,1) = (-1)*A[1][0], cof(1,0)=(-1)*A[0][1], cof(1,1)=(+1)*A[0][0]\nFUZZ_ASSERT(A.cofactor(0,0)==A[1][1], \"cof(0,0) should equal A[1][1]\");\nFUZZ_ASSERT(A.cofactor(0,1)==-A[1][0], \"cof(0,1) should equal -A[1][0]\");\nFUZZ_ASSERT(A.cofactor(1,0)==-A[0][1], \"cof(1,0) should equal -A[0][1]\");\nFUZZ_ASSERT(A.cofactor(1,1)==A[0][0], \"cof(1,1) should equal A[0][0]\");"
+    },
+    {
+      "name": "mat::invert_transpose",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Invert-transpose on an invertible square matrix. Use diagonal with non-zero entries to guarantee invertible.\nmat<3,3> D; for(int i=0;i<3;i++){ for(int j=0;j<3;j++){ D[i][j]=0.0; } }\n// Make diagonal entries non-zero\nD[0][0]=1.0; D[1][1]=2.0; D[2][2]=3.0;\nmat<3,3> it = D.invert_transpose();\n// For diagonal D, inverse is diag(1/di), and transpose has no effect. So it should be diag(1/di)\nFUZZ_ASSERT(it[0][0]==1.0/1.0 && it[1][1]==1.0/2.0 && it[2][2]==1.0/3.0, \"invert_transpose of diagonal should be reciprocal diagonal\");\nFUZZ_ASSERT(it[0][1]==0.0 && it[0][2]==0.0 && it[1][0]==0.0 && it[1][2]==0.0 && it[2][0]==0.0 && it[2][1]==0.0, \"off-diagonals should be zero\");"
+    },
+    {
+      "name": "mat::invert",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Invert on an invertible square matrix; also relation with invert_transpose: invert(A) == invert_transpose(A).transpose()\nmat<2,2> D; D[0][0]=*FUZZ_PARAM(double); D[0][1]=0.0; D[1][0]=0.0; D[1][1]=*FUZZ_PARAM(double);\n// Ensure invertible diagonal by bailing if a zero on diagonal\nif (D[0][0]==0.0 || D[1][1]==0.0) { FUZZ_BAIL(); }\nmat<2,2> inv = D.invert(); mat<2,2> it = D.invert_transpose(); mat<2,2> itT = it.transpose();\nFUZZ_ASSERT(inv[0][0]==itT[0][0] && inv[0][1]==itT[0][1] && inv[1][0]==itT[1][0] && inv[1][1]==itT[1][1], \"invert must equal transpose(invert_transpose)\");\n// For diagonal, inv is reciprocal diagonal\nFUZZ_ASSERT(inv[0][0]==1.0/D[0][0] && inv[1][1]==1.0/D[1][1] && inv[0][1]==0.0 && inv[1][0]==0.0, \"inverse of diagonal must be reciprocal diagonal\");"
+    },
+    {
+      "name": "mat::transpose",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Transpose swaps rows/cols; transposing twice yields original\nmat<2,3> A; for(int i=0;i<2;i++){ for(int j=0;j<3;j++){ A[i][j]=*FUZZ_PARAM(double);} }\nmat<3,2> AT = A.transpose(); mat<2,3> ATT = AT.transpose();\nfor(int i=0;i<2;i++){ for(int j=0;j<3;j++){ FUZZ_ASSERT(ATT[i][j]==A[i][j], \"transpose(transpose(A)) must equal A\"); } }"
+    },
+    {
+      "name": "dt::det",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise dt<n>::det for n=1,2,3 using explicit closed-form formulas\n// 1x1: det([a]) == a\nmat<1,1> M1; M1[0][0] = *FUZZ_PARAM(double);\ndouble d1 = dt<1>::det(M1);\nFUZZ_ASSERT(d1 == M1[0][0], \"1x1 determinant must equal the sole element\");\n\n// 2x2: det([[a,b],[c,d]]) == a*d - b*c\nmat<2,2> M2; M2[0][0]=*FUZZ_PARAM(double); M2[0][1]=*FUZZ_PARAM(double); M2[1][0]=*FUZZ_PARAM(double); M2[1][1]=*FUZZ_PARAM(double);\ndouble d2 = dt<2>::det(M2);\ndouble f2 = M2[0][0]*M2[1][1] - M2[0][1]*M2[1][0];\nFUZZ_ASSERT(d2 == f2, \"2x2 determinant closed-form must hold\");\n\n// 3x3: det using cofactor expansion / Sarrus\nmat<3,3> M3;\nfor (int r=0;r<3;r++){ for(int c=0;c<3;c++){ M3[r][c]=*FUZZ_PARAM(double); } }\n// Aliases for readability\ndouble a=M3[0][0], b=M3[0][1], c=M3[0][2];\ndouble d=M3[1][0], e=M3[1][1], f=M3[1][2];\ndouble g=M3[2][0], h=M3[2][1], i=M3[2][2];\n// Cofactor expansion along first row\ndouble f3 = a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);\ndouble d3 = dt<3>::det(M3);\nFUZZ_ASSERT(d3 == f3, \"3x3 determinant must match cofactor expansion formula\");"
+    },
+    {
+      "name": "TGAColor::operator[]",
+      "inputs": [
+        {
+          "name": "color",
+          "type": "TGAColor *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "color",
+          "type": "TGAColor *"
+        }
+      ],
+      "code": "// Enforce index constraint [0,3]\nint idx = (int)(*FUZZ_PARAM(unsigned int) % 4);\n// Access mutable reference and mutate to exercise write path\nstd::uint8_t &chan = (*color)[idx];\nchan ^= (std::uint8_t)(*FUZZ_PARAM(unsigned int) & 0xFF);\n// color remains valid and is returned as output\n// Validation: idx is clamped to [0,3]; instance is assumed valid per API.\n"
+    },
+    {
+      "name": "TGAImage::TGAImage",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Construct a default, empty image (w=0,h=0,bpp=0)\nTGAImage *image = new TGAImage();\n// Track initialization state for downstream APIs\nFUZZ_SET_ATTR_INT(image, \"initialized\", 0);\nFUZZ_SET_ATTR_INT(image, \"w\", 0);\nFUZZ_SET_ATTR_INT(image, \"h\", 0);\n// Validation: Image starts empty as required; attributes set for invariants.\n"
+    },
+    {
+      "name": "TGAImage::read_tga_file",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Generate a filename that points to an existing random-data file\nconst char *path = FUZZ_PARAM_FILENAME();\n// Attempt to load; bail on failure to keep object state consistent\nbool ok = image->read_tga_file(std::string(path));\nif (!ok) { FUZZ_BAIL(); }\n// On success, record dimensions and init flag for future constraints\nint w = image->width();\nint h = image->height();\nFUZZ_ASSERT(w >= 0 && h >= 0, \"width/height must be non-negative\");\nFUZZ_SET_ATTR_INT(image, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(image, \"w\", w);\nFUZZ_SET_ATTR_INT(image, \"h\", h);\n// Validation: On success, dimensions captured and init flag set; on failure, we bail.\n"
+    },
+    {
+      "name": "TGAImage::write_tga_file",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Ensure the image has been initialized and has non-zero dimensions\nint inited = FUZZ_GET_ATTR_INT(image, \"initialized\");\nint w = image->width();\nint h = image->height();\nif (!inited || w <= 0 || h <= 0) { FUZZ_BAIL(); }\n// Generate writable target path and flags\nconst char *path = FUZZ_PARAM_FILENAME();\nbool vflip = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool rle   = ((*FUZZ_PARAM(unsigned int)) & 1) != 0;\nbool ok = image->write_tga_file(std::string(path), vflip, rle);\nif (!ok) { FUZZ_BAIL(); }\n// Validation: We only call write on initialized, non-empty images; bail on I/O/encoding failure.\n"
+    },
+    {
+      "name": "TGAImage::flip_horizontally",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Require initialized image with non-zero dimensions\nint inited = FUZZ_GET_ATTR_INT(image, \"initialized\");\nint w = image->width();\nint h = image->height();\nif (!inited || w <= 0 || h <= 0) { FUZZ_BAIL(); }\n// Perform in-place horizontal flip\nimage->flip_horizontally();\n// Validation: Preconditions enforce valid data; operation is in-place and image is returned.\n"
+    },
+    {
+      "name": "TGAImage::flip_vertically",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Require initialized image with non-zero dimensions\nint inited = FUZZ_GET_ATTR_INT(image, \"initialized\");\nint w = image->width();\nint h = image->height();\nif (!inited || w <= 0 || h <= 0) { FUZZ_BAIL(); }\n// Perform in-place vertical flip\nimage->flip_vertically();\n// Validation: Preconditions enforce valid data; operation is in-place and image is returned.\n"
+    },
+    {
+      "name": "TGAImage::get",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Ensure image is initialized and sized\nint inited = FUZZ_GET_ATTR_INT(image, \"initialized\");\nint w = image->width();\nint h = image->height();\nif (!inited || w <= 0 || h <= 0) { FUZZ_BAIL(); }\n// Choose in-bounds coordinates\nint x = (int)(*FUZZ_PARAM(unsigned int) % (unsigned)w);\nint y = (int)(*FUZZ_PARAM(unsigned int) % (unsigned)h);\n// Read pixel and lightly use it to avoid optimization dropping\nTGAColor c = image->get(x, y);\nvolatile std::uint8_t tmp = c[ (int)(*FUZZ_PARAM(unsigned int) % 4) ];\n(void)tmp;\n// Validation: Coordinates are in-bounds; image preconditions satisfied.\n"
+    },
+    {
+      "name": "TGAImage::width",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "int w = image->width();\n// If we've marked the image initialized, width should be > 0 (as set by a successful read)\nint inited = FUZZ_GET_ATTR_INT(image, \"initialized\");\nif (inited) { FUZZ_ASSERT(w > 0, \"Initialized image must have positive width\"); }\n// Validation: No side effects; we assert a reasonable postcondition when initialized.\n"
+    },
+    {
+      "name": "TGAImage::height",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "int h = image->height();\n// If we've marked the image initialized, height should be > 0 (as set by a successful read)\nint inited = FUZZ_GET_ATTR_INT(image, \"initialized\");\nif (inited) { FUZZ_ASSERT(h > 0, \"Initialized image must have positive height\"); }\n// Validation: No side effects; we assert a reasonable postcondition when initialized.\n"
+    },
+    {
+      "name": "TGAImage::set",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Require initialized image with non-zero dimensions\nint inited = FUZZ_GET_ATTR_INT(image, \"initialized\");\nint w = image->width();\nint h = image->height();\nif (!inited || w <= 0 || h <= 0) { FUZZ_BAIL(); }\n\n// Choose in-bounds coordinates\nint x = (int)(*FUZZ_PARAM(unsigned int) % (unsigned)w);\nint y = (int)(*FUZZ_PARAM(unsigned int) % (unsigned)h);\n\n// Derive a base color from the existing pixel to ensure bytes-per-pixel compatibility\nTGAColor c = image->get(x, y);\n\n// Mutate the color channels with fuzzed bytes without changing bytespp\nconst std::uint8_t *delta = *FUZZ_PARAM(std::uint8_t[4]);\nfor (int i = 0; i < (int)c.bytespp && i < 4; ++i) {\n    c.bgra[i] ^= delta[i];\n}\n\n// Set the pixel; coordinates are guaranteed in-bounds and color bpp matches image bpp\nimage->set(x, y, c);\n\n// Post-action: read back and minimally validate invariant on bytespp\nTGAColor c2 = image->get(x, y);\nFUZZ_ASSERT(c2.bytespp == c.bytespp, \"get/set should preserve bytes-per-pixel\");\n\n// Validation: We ensure initialized image with valid dimensions, choose in-bounds coords, keep color bytespp matching image, and perform set safely."
+    },
+    {
+      "name": "Model::Model",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Create a Model from a fuzz-provided filename. The filename points to a real, random-data file.\n// We do not assume any format; constructor may parse and load auxiliary textures.\nconst char *path = FUZZ_PARAM_FILENAME();\nModel *model = nullptr;\ntry {\n    // Construct on the heap so the fuzzer runtime can retain ownership.\n    model = new Model(std::string(path));\n} catch (...) {\n    // Any exception during construction is treated as an error path we can't cover safely.\n    FUZZ_BAIL();\n}\n// Best-effort sanity: query counts (non-negative by API intent) and attach as attributes for downstream stubs.\nint nv = 0, nf = 0;\ntry { nv = model->nverts(); } catch (...) { FUZZ_BAIL(); }\ntry { nf = model->nfaces(); } catch (...) { FUZZ_BAIL(); }\nFUZZ_ASSERT(nv >= 0, \"Model::nverts should be non-negative\");\nFUZZ_ASSERT(nf >= 0, \"Model::nfaces should be non-negative\");\nFUZZ_SET_ATTR_INT(model, \"nverts\", nv);\nFUZZ_SET_ATTR_INT(model, \"nfaces\", nf);\n// Provide the constructed model as an output-owned object.\n"
+    },
+    {
+      "name": "Model::nverts",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Query vertex count; property: result should be >= 0.\nint nv = 0;\ntry { nv = model->nverts(); } catch (...) { FUZZ_BAIL(); }\nFUZZ_ASSERT(nv >= 0, \"Model::nverts returned negative\");\nFUZZ_SET_ATTR_INT(model, \"nverts\", nv);\n// Return model back to pool unchanged."
+    },
+    {
+      "name": "Model::nfaces",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Query face count; property: result should be >= 0.\nint nf = 0;\ntry { nf = model->nfaces(); } catch (...) { FUZZ_BAIL(); }\nFUZZ_ASSERT(nf >= 0, \"Model::nfaces returned negative\");\nFUZZ_SET_ATTR_INT(model, \"nfaces\", nf);\n// Return model back to pool unchanged."
+    },
+    {
+      "name": "Model::vert",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Exercise the (iface, nthvert) overload of Model::vert with valid indices.\nint nf = FUZZ_GET_ATTR_INT(model, \"nfaces\");\nif (nf == 0) {\n    // Refresh from model if attribute missing or zero; if still zero, we can't pick a valid face.\n    try { nf = model->nfaces(); } catch (...) { FUZZ_BAIL(); }\n}\nif (nf <= 0) { FUZZ_BAIL(); }\n// Pick a valid face index in [0, nf-1]. Note: header comment mentioned \"<= nfaces()\"; we enforce strict < nfaces().\nunsigned int r = *FUZZ_PARAM(unsigned int);\nint iface = (int)(r % (unsigned int)nf);\n// Pick corner index in [0,2].\nint nthvert = (int)(*FUZZ_PARAM(unsigned int) % 3u);\n// Call the target function; ignore returned vec4 value.\ntry { (void)model->vert(iface, nthvert); } catch (...) { FUZZ_BAIL(); }\n// Return model unchanged."
+    },
+    {
+      "name": "Model::normal",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Exercise the (iface, nthvert) overload of Model::normal with valid indices.\nint nf = FUZZ_GET_ATTR_INT(model, \"nfaces\");\nif (nf == 0) {\n    try { nf = model->nfaces(); } catch (...) { FUZZ_BAIL(); }\n}\nif (nf <= 0) { FUZZ_BAIL(); }\nint iface = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)nf);\nint nthvert = (int)(*FUZZ_PARAM(unsigned int) % 3u);\n// Implementation may require normals to exist; if absent, it may throw or assert. Treat exceptions as bail.\ntry { (void)model->normal(iface, nthvert); } catch (...) { FUZZ_BAIL(); }\n// Return model unchanged."
+    },
+    {
+      "name": "Model::uv",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Exercise UV lookup with valid face/corner indices.\nint nf = FUZZ_GET_ATTR_INT(model, \"nfaces\");\nif (nf == 0) {\n    try { nf = model->nfaces(); } catch (...) { FUZZ_BAIL(); }\n}\nif (nf <= 0) { FUZZ_BAIL(); }\nint iface = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)nf);\nint nthvert = (int)(*FUZZ_PARAM(unsigned int) % 3u);\ntry { (void)model->uv(iface, nthvert); } catch (...) { FUZZ_BAIL(); }\n// Return model unchanged."
+    },
+    {
+      "name": "Model::diffuse",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Obtain const reference to diffuse texture; lifetime bound to model.\nconst TGAImage &tex = model->diffuse();\n// Safely inspect dimensions and sample one texel if possible to exercise accessors.\nint w = 0, h = 0;\ntry { w = tex.width(); h = tex.height(); } catch (...) { FUZZ_BAIL(); }\nif (w > 0 && h > 0) {\n    int x = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)w);\n    int y = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)h);\n    try { (void)tex.get(x, y); } catch (...) { FUZZ_BAIL(); }\n}\n// Return model; do not expose the texture reference as a separate object."
+    },
+    {
+      "name": "Model::specular",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "Model *"
+        }
+      ],
+      "code": "// Obtain const reference to specular texture; lifetime bound to model.\nconst TGAImage &tex = model->specular();\n// Safely inspect dimensions and sample one texel if possible to exercise accessors.\nint w = 0, h = 0;\ntry { w = tex.width(); h = tex.height(); } catch (...) { FUZZ_BAIL(); }\nif (w > 0 && h > 0) {\n    int x = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)w);\n    int y = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)h);\n    try { (void)tex.get(x, y); } catch (...) { FUZZ_BAIL(); }\n}\n// Return model; do not expose the texture reference as a separate object."
+    },
+    {
+      "name": "init_perspective",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a finite, positive perspective parameter f in a practical range\nunsigned int urand = *FUZZ_PARAM(unsigned int);\n// Map to [1e-3, 1e3]\ndouble f = 1e-3 + (urand % 1000000) / 1000.0; // up to ~1000.0\nif (!std::isfinite(f) || !(f > 0.0)) { FUZZ_BAIL(); }\n\n// Call target\ninit_perspective(f);\n\n// Validation: Ensures f is finite and positive; no outputs as this configures global state."
+    },
+    {
+      "name": "init_viewport",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose positive dimensions and reasonable origin\nunsigned int r1 = *FUZZ_PARAM(unsigned int);\nunsigned int r2 = *FUZZ_PARAM(unsigned int);\nunsigned int r3 = *FUZZ_PARAM(unsigned int);\nunsigned int r4 = *FUZZ_PARAM(unsigned int);\nint w = (int)(r3 % 2048u) + 1; // [1,2048]\nint h = (int)(r4 % 2048u) + 1; // [1,2048]\nint x = (int)(r1 % 4096u);     // keep within a moderate range\nint y = (int)(r2 % 4096u);\nif (w <= 0 || h <= 0) { FUZZ_BAIL(); }\n\n// Call target\ninit_viewport(x, y, w, h);\n\n// Validation: Enforces positive width/height; x/y kept within a bounded range; no outputs."
+    },
+    {
+      "name": "init_zbuffer",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose positive zbuffer dimensions\nunsigned int r1 = *FUZZ_PARAM(unsigned int);\nunsigned int r2 = *FUZZ_PARAM(unsigned int);\nint width  = (int)(r1 % 2048u) + 1;\nint height = (int)(r2 % 2048u) + 1;\nif (width <= 0 || height <= 0) { FUZZ_BAIL(); }\n\n// Call target\ninit_zbuffer(width, height);\n\n// Validation: Enforces positive dimensions; no outputs since z-buffer is implicit/global."
+    },
+    {
+      "name": "rasterize",
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "Triangle *"
+        },
+        {
+          "name": "framebuffer",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "clip",
+          "type": "Triangle *"
+        },
+        {
+          "name": "framebuffer",
+          "type": "TGAImage *"
+        }
+      ],
+      "code": "// Preconditions: framebuffer must be writable with positive dimensions\nint fbw = framebuffer->width();\nint fbh = framebuffer->height();\nif (!(fbw > 0 && fbh > 0)) { FUZZ_BAIL(); }\n\n// Ensure viewport and zbuffer are initialized consistently for depth testing\ninit_viewport(0, 0, fbw, fbh);\ninit_zbuffer(fbw, fbh);\n\n// Provide a minimal shader implementation for rasterization\nstruct FuzzShader : public IShader {\n    std::pair<bool, TGAColor> fragment(const vec3 bar) const override {\n        // Simple visible color varying with barycentric; opaque\n        double b0 = bar[0], b1 = bar[1], b2 = bar[2];\n        double s = b0 + b1 + b2;\n        if (std::isfinite(s) && std::fabs(s) > 1e-12) { b0/=s; b1/=s; b2/=s; }\n        auto clamp01 = [](double x){ return x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x); };\n        b0 = clamp01(b0); b1 = clamp01(b1); b2 = clamp01(b2);\n        TGAColor col; col[0]=(std::uint8_t)(b0*255.0); col[1]=(std::uint8_t)(b1*255.0); col[2]=(std::uint8_t)(b2*255.0); col[3]=255;\n        return {false, col};\n    }\n} shader;\n\n// Call target; Triangle is an alias of vec4[3]. We assume provided clip is initialized by the runtime.\nrasterize(*clip, shader, *framebuffer);\n\n// Validation: Ensures framebuffer is valid, initializes viewport/zbuffer, and uses a safe shader. clip and framebuffer are returned to the pool unchanged."
+    },
+    {
+      "name": "lookat",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate finite, non-degenerate camera frame vectors using fuzzed scalars\ndouble r0 = *(double*)FUZZ_PARAM(double);\ndouble r1 = *(double*)FUZZ_PARAM(double);\ndouble r2 = *(double*)FUZZ_PARAM(double);\nif (!std::isfinite(r0) || !std::isfinite(r1) || !std::isfinite(r2)) { FUZZ_BAIL(); }\n\n// Build vec3 values via index assignment (no multi-arg constructors available)\nvec3 eye;    eye[0] = r0*0.3;      eye[1] = r1*0.5 + 0.1;  eye[2] = -r2*0.2;\nvec3 center; center[0] = r0*1.1;   center[1] = -r1*0.7;    center[2] = r2*0.9 + 0.2;\nvec3 up;     up[0] = r0*0.33+0.4;  up[1] = r1*0.71-0.5;    up[2] = -r2*1.1+0.2;\n\n// Validate: (center-eye) != 0, up != 0, and not colinear\nvec3 dir; dir[0] = center[0]-eye[0]; dir[1] = center[1]-eye[1]; dir[2] = center[2]-eye[2];\nauto len2 = [](const vec3 &v){ return v[0]*v[0]+v[1]*v[1]+v[2]*v[2]; };\ndouble dir2 = len2(dir);\ndouble up2  = len2(up);\nif (!(dir2 > 1e-12)) { FUZZ_BAIL(); }\nif (!(up2  > 1e-12)) { FUZZ_BAIL(); }\n// Cross product to ensure non-colinearity\nvec3 c; c[0] = dir[1]*up[2]-dir[2]*up[1]; c[1] = dir[2]*up[0]-dir[0]*up[2]; c[2] = dir[0]*up[1]-dir[1]*up[0];\nif (!(len2(c) > 1e-16*dir2*up2)) { FUZZ_BAIL(); }\n\n// Call target\nlookat(eye, center, up);\n\n// Validation: Enforces finite, non-zero, non-colinear vectors; state is global so there are no outputs."
+    },
+    {
+      "name": "IShader::sample2D",
+      "inputs": [
+        {
+          "name": "img",
+          "type": "TGAImage *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "img",
+          "type": "TGAImage *"
+        },
+        {
+          "name": "sampled_color",
+          "type": "TGAColor *"
+        }
+      ],
+      "code": "// Preconditions: image must be valid with positive dimensions\nint w = img->width();\nint h = img->height();\nif (!(w > 0 && h > 0)) { FUZZ_BAIL(); }\n\n// Generate finite UVs and map to safe discrete texel centers to avoid OOB\ndouble ru = *(double*)FUZZ_PARAM(double);\ndouble rv = *(double*)FUZZ_PARAM(double);\nif (!std::isfinite(ru) || !std::isfinite(rv)) { FUZZ_BAIL(); }\n// Wrap to [0,1)\ndouble u = std::fmod(std::fabs(ru), 1.0);\ndouble v = std::fmod(std::fabs(rv), 1.0);\n// Convert to integer pixel addresses in-range, then back to normalized [0,1) that maps exactly to those pixels\nint ui = (int)(u * w); if (ui < 0) ui = 0; if (ui >= w) ui = w-1;\nint vi = (int)(v * h); if (vi < 0) vi = 0; if (vi >= h) vi = h-1;\nvec2 uvf; uvf[0] = (double)ui / (double)w; uvf[1] = (double)vi / (double)h;\n\n// Call target static sampler\nTGAColor c = IShader::sample2D(*img, uvf);\n\n// Produce an output color object for the pool\nTGAColor *sampled_color = new TGAColor(c);\n\n// Validation: Ensures image dims > 0 and UVs map to valid pixel coordinates; returns img unchanged and a new sampled_color."
+    },
+    {
+      "name": "IShader::fragment",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "out_color",
+          "type": "TGAColor *"
+        }
+      ],
+      "code": "// Provide a minimal concrete shader to exercise the virtual fragment method\nstruct FuzzShader : public IShader {\n    std::pair<bool, TGAColor> fragment(const vec3 bar) const override {\n        // Normalize barycentric to sum to 1 and clamp to [0,1]\n        double s = bar[0] + bar[1] + bar[2];\n        double b0 = bar[0], b1 = bar[1], b2 = bar[2];\n        if (std::isfinite(s) && std::fabs(s) > 1e-12) { b0/=s; b1/=s; b2/=s; }\n        auto clamp01 = [](double x){ return x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x); };\n        b0 = clamp01(b0); b1 = clamp01(b1); b2 = clamp01(b2);\n        // Map barycentric to a color gradient\n        TGAColor col; col[0] = (std::uint8_t)(b0 * 255.0); col[1] = (std::uint8_t)(b1 * 255.0); col[2] = (std::uint8_t)(b2 * 255.0); col[3] = 255;\n        return {false, col};\n    }\n} shader;\n\n// Generate finite barycentric inputs\ndouble a = *(double*)FUZZ_PARAM(double);\ndouble b = *(double*)FUZZ_PARAM(double);\ndouble c = *(double*)FUZZ_PARAM(double);\nif (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c)) { FUZZ_BAIL(); }\nvec3 bar; bar[0] = a; bar[1] = b; bar[2] = c;\n\nauto res = shader.fragment(bar);\n// Property: Result color is a concrete TGAColor; capture it for outputs\nTGAColor *out_color = new TGAColor(res.second);\n\n// Validation: Uses a concrete local shader to safely call the pure-virtual interface and returns the produced color."
+    },
+    {
+      "name": "Triangle *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "triangle",
+          "type": "Triangle *"
+        }
+      ],
+      "code": "// Allocate and initialize a Triangle (vec4[3]) with finite, clip-space-friendly values\n// Goals:\n// - w strictly positive to avoid perspective-divide issues\n// - x,y roughly within [-1,1] after perspective divide\n// - z within [0,1)\n// - non-degenerate area in NDC to exercise rasterization paths\n\n// Pull a fixed batch of fuzzed doubles\nconst double *rnd = *FUZZ_PARAM(double[12]);\n\n// Helper to coerce a double to finite, else use a fallback\nauto finite_or = [](double v, double fallback){ return std::isfinite(v) ? v : fallback; };\n\n// Correct allocation for an array typedef: allocate an array of 1 Triangle\n// This yields a value of type Triangle* (i.e., vec4 (*)[3]) suitable for the pool\nTriangle *triangle = new Triangle[1];\n\n// Fill the three vertices\nfor (int i = 0; i < 3; ++i) {\n    // Map fuzz to safe ranges\n    double rx = finite_or(rnd[i*4+0], 0.0);\n    double ry = finite_or(rnd[i*4+1], 0.0);\n    double rz = finite_or(rnd[i*4+2], 0.5);\n    double rw = finite_or(rnd[i*4+3], 1.0);\n\n    // x,y in roughly [-1,1] before divide; z in [0,1); w in [0.5, 2.0)\n    double wv = 0.5 + std::fmod(std::fabs(rw), 1.5); // [0.5, 2.0)\n    double xv = std::tanh(rx);                       // (-1,1)\n    double yv = std::tanh(ry);                       // (-1,1)\n    double zv = std::fmod(std::fabs(rz), 1.0);       // [0,1)\n\n    // Set components\n    (*triangle)[i][0] = xv;\n    (*triangle)[i][1] = yv;\n    (*triangle)[i][2] = zv;\n    (*triangle)[i][3] = wv;\n}\n\n// Ensure non-degenerate area in NDC: compute 2D area after perspective divide using (x/w, y/w)\nauto ndc_x = [&](int i){ return (*triangle)[i][0] / (*triangle)[i][3]; };\nauto ndc_y = [&](int i){ return (*triangle)[i][1] / (*triangle)[i][3]; };\n\ndouble ax = ndc_x(0), ay = ndc_y(0);\ndouble bx = ndc_x(1), by = ndc_y(1);\ndouble cx = ndc_x(2), cy = ndc_y(2);\n\n// Twice the signed area of triangle ABC in 2D\ndouble area2 = (bx - ax)*(cy - ay) - (by - ay)*(cx - ax);\nif (std::fabs(area2) < 1e-6) {\n    // Perturb the third vertex slightly to avoid degeneracy while keeping values finite and in-range\n    double x2 = (*triangle)[2][0];\n    double y2 = (*triangle)[2][1];\n    x2 = std::max(-0.999, std::min(0.999, x2 + 1e-3));\n    y2 = std::max(-0.999, std::min(0.999, y2 - 1e-3));\n    (*triangle)[2][0] = x2;\n    (*triangle)[2][1] = y2;\n}\n\n// Mark as valid for downstream stubs that may want to assert provenance\nFUZZ_SET_ATTR_INT(triangle, \"constructed\", 1);\n// Validation: We allocate with new Triangle[1] to obtain Triangle*, initialize finite values with w>0, and nudge if degenerate."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "vec::operator[]",
+      "data_types": []
+    },
+    {
+      "name": "operator*",
+      "data_types": []
+    },
+    {
+      "name": "operator+",
+      "data_types": []
+    },
+    {
+      "name": "operator-",
+      "data_types": []
+    },
+    {
+      "name": "operator/",
+      "data_types": []
+    },
+    {
+      "name": "operator<<",
+      "data_types": []
+    },
+    {
+      "name": "vec<2>::operator[]",
+      "data_types": []
+    },
+    {
+      "name": "vec<3>::operator[]",
+      "data_types": []
+    },
+    {
+      "name": "vec<4>::operator[]",
+      "data_types": []
+    },
+    {
+      "name": "vec<4>::xy",
+      "data_types": []
+    },
+    {
+      "name": "vec<4>::xyz",
+      "data_types": []
+    },
+    {
+      "name": "norm",
+      "data_types": []
+    },
+    {
+      "name": "normalized",
+      "data_types": []
+    },
+    {
+      "name": "cross",
+      "data_types": []
+    },
+    {
+      "name": "mat::operator[]",
+      "data_types": []
+    },
+    {
+      "name": "mat::det",
+      "data_types": []
+    },
+    {
+      "name": "mat::cofactor",
+      "data_types": []
+    },
+    {
+      "name": "mat::invert_transpose",
+      "data_types": []
+    },
+    {
+      "name": "mat::invert",
+      "data_types": []
+    },
+    {
+      "name": "mat::transpose",
+      "data_types": []
+    },
+    {
+      "name": "dt::det",
+      "data_types": []
+    },
+    {
+      "name": "TGAColor::operator[]",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::TGAImage",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::flip_horizontally",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::flip_vertically",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::get",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::width",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::height",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::set",
+      "data_types": []
+    },
+    {
+      "name": "Model::nverts",
+      "data_types": []
+    },
+    {
+      "name": "Model::nfaces",
+      "data_types": []
+    },
+    {
+      "name": "Model::vert",
+      "data_types": []
+    },
+    {
+      "name": "Model::normal",
+      "data_types": []
+    },
+    {
+      "name": "Model::uv",
+      "data_types": []
+    },
+    {
+      "name": "Model::diffuse",
+      "data_types": []
+    },
+    {
+      "name": "Model::specular",
+      "data_types": []
+    },
+    {
+      "name": "init_perspective",
+      "data_types": []
+    },
+    {
+      "name": "init_viewport",
+      "data_types": []
+    },
+    {
+      "name": "init_zbuffer",
+      "data_types": []
+    },
+    {
+      "name": "rasterize",
+      "data_types": []
+    },
+    {
+      "name": "lookat",
+      "data_types": []
+    },
+    {
+      "name": "IShader::sample2D",
+      "data_types": []
+    },
+    {
+      "name": "IShader::fragment",
+      "data_types": []
+    },
+    {
+      "name": "Triangle *",
+      "data_types": []
+    },
+    {
+      "name": "TGAImage::read_tga_file",
+      "data_types": [
+        "TGA image file"
+      ]
+    },
+    {
+      "name": "TGAImage::write_tga_file",
+      "data_types": [
+        "filesystem path"
+      ]
+    },
+    {
+      "name": "Model::Model",
+      "data_types": [
+        "Wavefront OBJ model file"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "TGA image file",
+      "description": "Binary image data encoded in the Truevision TGA (TARGA) format. Begins with an 18-byte header describing image type (uncompressed or RLE), color map parameters, image origin, width, height, bits per pixel (commonly 8, 24, or 32), and image descriptor. May be followed by an optional ID field, an optional color map, and pixel data (optionally RLE-compressed). Pixel data typically stored in BGR(A) order."
+    },
+    {
+      "data_type": "filesystem path",
+      "description": "A string representing a writable file path where output can be created. The content of the path string is not fuzzed as data; it must be a valid location for writing a file. Used by functions that write data to disk."
+    },
+    {
+      "data_type": "Wavefront OBJ model file",
+      "description": "Text-based 3D mesh format typically using lines beginning with tokens such as v (vertices), vt (texture coords), vn (normals), and f (faces). Faces reference indices into these arrays and may include per-corner vt/vn (e.g., f v/vt/vn). Implementations often load auxiliary textures referenced by material files (.mtl). The file is ASCII, line-oriented and may include comments starting with #."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "TGA image file",
+      "generator": "import random\nimport struct\nfrom typing import Tuple\n\n# This generator creates valid TGA (Truevision TARGA) files as bytes.\n# It supports uncompressed and RLE-compressed images, with 8/24/32 bits per pixel,\n# optional image ID field, optional color map (for 8bpp indexed), and proper headers.\n# It aims to exercise TGAImage::read_tga_file by providing varied yet valid files.\n\n# TGA constants\n# Image type codes\nTGA_NO_DATA = 0\nTGA_UNCOMP_CMAP = 1\nTGA_UNCOMP_TRUE = 2\nTGA_UNCOMP_GRAY = 3\nTGA_RLE_CMAP = 9\nTGA_RLE_TRUE = 10\nTGA_RLE_GRAY = 11\n\n# Helper to pack 16-bit little-endian\npack_u16 = lambda v: struct.pack('<H', v & 0xFFFF)\n\n\ndef _gen_dimensions(rng: random.Random) -> Tuple[int, int]:\n    # Choose a small but varied set of sizes to keep file small and cover edge cases\n    choices = [1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128]\n    # Bias toward square but allow rectangles\n    w = rng.choice(choices)\n    h = rng.choice(choices)\n    # Occasionally create non-square\n    if rng.random() < 0.4:\n        w = rng.choice(choices)\n        h = rng.choice([c for c in choices if c != w])\n    return w, h\n\n\ndef _gen_id_field(rng: random.Random) -> bytes:\n    # Optional image ID up to 255 bytes\n    if rng.random() < 0.6:\n        length = rng.randint(0, 32)  # modest size\n    else:\n        length = rng.randint(33, 64) if rng.random() < 0.5 else 0\n    # Create ASCII/bytes mix but valid\n    s = bytearray()\n    for _ in range(length):\n        if rng.random() < 0.8:\n            s.append(rng.choice(b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_- \"))\n        else:\n            s.append(rng.randrange(0, 256))\n    return bytes(s)\n\n\ndef _gen_colormap(rng: random.Random, length: int, depth: int) -> bytes:\n    # depth is bits per color map entry (commonly 24 or 32, sometimes 16)\n    bpp = depth // 8\n    # Generate plausible palette values\n    data = bytearray()\n    for _ in range(length):\n        if depth == 16:\n            # 5-5-5-1 format commonly used; pack as little-endian 16-bit\n            r = rng.randrange(0, 32)\n            g = rng.randrange(0, 32)\n            b = rng.randrange(0, 32)\n            a = rng.randrange(0, 2)\n            val = (a << 15) | (r << 10) | (g << 5) | b\n            data += pack_u16(val)\n        else:\n            # BGR(A) order per TGA\n            b = rng.randrange(0, 256)\n            g = rng.randrange(0, 256)\n            r_ = rng.randrange(0, 256)\n            if bpp == 3:\n                data += bytes([b, g, r_])\n            else:\n                a = rng.randrange(0, 256)\n                data += bytes([b, g, r_, a])\n    return bytes(data)\n\n\ndef _pixel_bytes_for_bpp(bpp: int, rng: random.Random) -> bytes:\n    # Return one pixel worth of bytes for given bpp in BGR(A) or intensity\n    if bpp == 8:\n        return bytes([rng.randrange(0, 256)])\n    elif bpp == 24:\n        return bytes([rng.randrange(0, 256) for _ in range(3)])\n    elif bpp == 32:\n        return bytes([rng.randrange(0, 256) for _ in range(4)])\n    else:\n        # 16 bpp optional: 5-5-5-1\n        r = rng.randrange(0, 32)\n        g = rng.randrange(0, 32)\n        b = rng.randrange(0, 32)\n        a = rng.randrange(0, 2)\n        val = (a << 15) | (r << 10) | (g << 5) | b\n        return pack_u16(val)\n\n\ndef _gen_uncompressed_pixels(rng: random.Random, w: int, h: int, bpp: int) -> bytes:\n    # Generate rows possibly with simple gradients or patterns\n    rowbytes = []\n    for y in range(h):\n        row = bytearray()\n        for x in range(w):\n            if bpp == 8:\n                # intensity gradient/pattern\n                val = (x * 255) // max(1, (w - 1)) if rng.random() < 0.5 else (y * 255) // max(1, (h - 1))\n                # spice with noise sometimes\n                if rng.random() < 0.1:\n                    val = rng.randrange(0, 256)\n                row += bytes([val])\n            elif bpp == 24:\n                # BGR\n                if rng.random() < 0.4:\n                    b = (x * 255) // max(1, (w - 1))\n                    g = (y * 255) // max(1, (h - 1))\n                    r = ((x ^ y) * 17) & 0xFF\n                else:\n                    b, g, r = rng.randrange(256), rng.randrange(256), rng.randrange(256)\n                row += bytes([b, g, r])\n            elif bpp == 32:\n                if rng.random() < 0.5:\n                    b = (x * 255) // max(1, (w - 1))\n                    g = (y * 255) // max(1, (h - 1))\n                    r = ((x + y) * 13) & 0xFF\n                    a = 255 if rng.random() < 0.7 else rng.randrange(256)\n                else:\n                    b, g, r, a = rng.randrange(256), rng.randrange(256), rng.randrange(256), rng.randrange(256)\n                row += bytes([b, g, r, a])\n            else:\n                row += _pixel_bytes_for_bpp(bpp, rng)\n        rowbytes.append(bytes(row))\n    return b\"\".join(rowbytes)\n\n\ndef _encode_rle(pixels: bytes, bpp: int) -> bytes:\n    # TGA RLE encoding: packets with header: high bit 1 for run-length packet, 0 for raw\n    # The lower 7 bits store count-1 (max 128 pixels per packet)\n    out = bytearray()\n    pixel_size = bpp // 8\n    i = 0\n    n = len(pixels) // pixel_size\n    def same_pixel(a: bytes, b: bytes) -> bool:\n        return a == b\n    while i < n:\n        # Try to form a run\n        run_len = 1\n        cur = pixels[i*pixel_size:(i+1)*pixel_size]\n        j = i + 1\n        while j < n and run_len < 128:\n            nxt = pixels[j*pixel_size:(j+1)*pixel_size]\n            if same_pixel(cur, nxt):\n                run_len += 1\n                j += 1\n            else:\n                break\n        if run_len >= 2:\n            # Emit RLE packet\n            out.append(0x80 | (run_len - 1))\n            out += cur\n            i += run_len\n        else:\n            # Emit raw packet up to 128 or until a run starts\n            raw_start = i\n            raw_len = 1\n            i += 1\n            while i < n and raw_len < 128:\n                prev = pixels[(i-1)*pixel_size:i*pixel_size]\n                cur = pixels[i*pixel_size:(i+1)*pixel_size]\n                if same_pixel(prev, cur):\n                    break\n                raw_len += 1\n                i += 1\n            out.append(raw_len - 1)\n            out += pixels[raw_start*pixel_size:(raw_start+raw_len)*pixel_size]\n    return bytes(out)\n\n\ndef _build_header(idlen: int, cmaptype: int, datatype: int,\n                  cmap_origin: int, cmap_length: int, cmap_depth: int,\n                  x0: int, y0: int, w: int, h: int, bpp: int, imagedesc: int) -> bytes:\n    # All fields are little-endian, packed size is exactly 18 bytes\n    parts = [\n        struct.pack('<B', idlen),\n        struct.pack('<B', cmaptype),\n        struct.pack('<B', datatype),\n        pack_u16(cmap_origin),\n        pack_u16(cmap_length),\n        struct.pack('<B', cmap_depth),\n        pack_u16(x0),\n        pack_u16(y0),\n        pack_u16(w),\n        pack_u16(h),\n        struct.pack('<B', bpp),\n        struct.pack('<B', imagedesc),\n    ]\n    return b''.join(parts)\n\n\ndef _gen_tga(rng: random.Random) -> bytes:\n    # Choose format scenario\n    # Options: Grayscale 8bpp, Truecolor 24/32 bpp, Indexed 8bpp with color map\n    fmt = rng.choices(\n        population=['gray', 'true24', 'true32', 'indexed'],\n        weights=[2, 3, 3, 2], k=1\n    )[0]\n\n    w, h = _gen_dimensions(rng)\n    id_field = _gen_id_field(rng)\n    idlen = len(id_field)\n\n    x0 = 0\n    y0 = 0\n\n    # Image origin bits in descriptor: bit 5 vertical (0=bottom-left origin), bit 4 horizontal\n    # We'll vary flipping to exercise loaders\n    origin_top = rng.random() < 0.5\n    origin_right = rng.random() < 0.2\n    alpha_bits = 8 if fmt == 'true32' and rng.random() < 0.7 else 0\n    imagedesc = (alpha_bits & 0x0F) | (0x20 if origin_top else 0) | (0x10 if origin_right else 0)\n\n    if fmt == 'indexed':\n        # Indexed color: 8bpp pixel indices, with color map\n        bpp = 8\n        # Color map parameters\n        cmaptype = 1\n        cmap_origin = 0\n        cmap_len = rng.choice([16, 32, 64, 128, 256])\n        cmap_depth = rng.choice([24, 32, 16])\n        # Generate color map\n        colormap = _gen_colormap(rng, cmap_len, cmap_depth)\n        # Uncompressed or RLE indexed\n        use_rle = rng.random() < 0.5\n        datatype = TGA_RLE_CMAP if use_rle else TGA_UNCOMP_CMAP\n        # Generate pixel index data\n        pixels = bytearray()\n        # Create some gradients into the palette range\n        for y in range(h):\n            for x in range(w):\n                if rng.random() < 0.6:\n                    # map across palette\n                    if rng.random() < 0.5:\n                        idx = (x * (cmap_len - 1)) // max(1, (w - 1))\n                    else:\n                        idx = (y * (cmap_len - 1)) // max(1, (h - 1))\n                else:\n                    idx = rng.randrange(0, cmap_len)\n                pixels.append(idx & 0xFF)\n        pixel_bytes = bytes(pixels)\n        if use_rle:\n            pixel_bytes = _encode_rle(pixel_bytes, 8)\n        header = _build_header(idlen, cmaptype, datatype, cmap_origin, cmap_len, cmap_depth,\n                               x0, y0, w, h, bpp, imagedesc)\n        return header + id_field + colormap + pixel_bytes\n\n    elif fmt == 'gray':\n        bpp = 8\n        cmaptype = 0\n        cmap_origin = 0\n        cmap_len = 0\n        cmap_depth = 0\n        use_rle = rng.random() < 0.5\n        datatype = TGA_RLE_GRAY if use_rle else TGA_UNCOMP_GRAY\n        raw_pixels = _gen_uncompressed_pixels(rng, w, h, bpp)\n        pixel_bytes = _encode_rle(raw_pixels, bpp) if use_rle else raw_pixels\n        header = _build_header(idlen, cmaptype, datatype, cmap_origin, cmap_len, cmap_depth,\n                               x0, y0, w, h, bpp, imagedesc)\n        return header + id_field + pixel_bytes\n\n    else:\n        # truecolor 24 or 32\n        bpp = 24 if fmt == 'true24' else 32\n        cmaptype = 0\n        cmap_origin = 0\n        cmap_len = 0\n        cmap_depth = 0\n        use_rle = rng.random() < 0.6\n        datatype = TGA_RLE_TRUE if use_rle else TGA_UNCOMP_TRUE\n        raw_pixels = _gen_uncompressed_pixels(rng, w, h, bpp)\n        pixel_bytes = _encode_rle(raw_pixels, bpp) if use_rle else raw_pixels\n        header = _build_header(idlen, cmaptype, datatype, cmap_origin, cmap_len, cmap_depth,\n                               x0, y0, w, h, bpp, imagedesc)\n        return header + id_field + pixel_bytes\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Produce between 1 and 3 concatenated TGA images occasionally to test single-file reads\n    # but since the consumer reads a single file, return just one valid TGA under 4096 bytes.\n    # Keep size under limit by controlling dimensions.\n    attempt = 0\n    while True:\n        attempt += 1\n        data = _gen_tga(rng)\n        if len(data) <= 4096:\n            return data\n        # If too large, reduce dimensions and retry by reseeding slightly\n        rng.seed(seed + attempt)\n"
+    },
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport struct\nimport string\nfrom typing import List\n\n# This generator targets FUZZ_PARAM_FILENAME for TGAImage::write_tga_file.\n# It returns a bytes object that the fuzzer framework will map into a writable\n# filesystem path string. We craft realistic, writable-looking paths with optional\n# subdirectories and a .tga extension to encourage successful writes.\n# No image bytes are produced because the function under test only needs a path;\n# the TGAImage instance is provided by the harness and already initialized.\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_ .\"\n\ndef _rand_name(rng: random.Random, min_len: int = 3, max_len: int = 12) -> str:\n    n = rng.randint(min_len, max_len)\n    # Avoid leading/trailing spaces and dots in segments\n    s = ''.join(rng.choice(SAFE_CHARS) for _ in range(n)).strip(' .')\n    if not s:\n        s = \"seg\"\n    return s\n\ndef _rand_subdirs(rng: random.Random) -> List[str]:\n    # Create 0-3 subdirectories with safe names\n    depth = rng.choices([0,1,2,3], weights=[5,4,3,2])[0]\n    return [_rand_name(rng) for _ in range(depth)]\n\ndef _rand_suffix(rng: random.Random) -> str:\n    # Common TGA-like names to hint at valid usage\n    base_opts = [\n        \"output\", \"image\", \"frame\", \"dump\", \"snap\", \"render\",\n        \"albedo\", \"diffuse\", \"specular\", \"normal\", \"rgba\", \"rgb\",\n    ]\n    base = rng.choice(base_opts) + (\"_\" + _rand_name(rng, 2, 6) if rng.random() < 0.5 else \"\")\n    # Ensure proper extension\n    ext = rng.choice([\".tga\", \".TGA\"]) if rng.random() < 0.9 else \".tgA\"\n    return base + ext\n\ndef _build_path(rng: random.Random) -> str:\n    # Prefer relative paths inside a temp-like directory to increase writability\n    roots = [\".\", \"./out\", \"./tmp\", \"./build\", \"./artifacts\"]\n    root = rng.choice(roots)\n    subdirs = _rand_subdirs(rng)\n    fname = _rand_suffix(rng)\n    parts = [root] + subdirs + [fname]\n    # Normalize redundant separators but keep relative nature\n    path = \"/\".join(parts)\n    # Occasionally add a Windows-style path to exercise cross-platform handling\n    if rng.random() < 0.15:\n        drive = rng.choice([\"C:\", \"D:\", \"E:\"])\n        win_parts = [drive, \"fuzz\", *_rand_subdirs(rng), _rand_suffix(rng)]\n        path = \"\\\\\".join(win_parts)\n    return path\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Build a path whose directories look reasonable; the harness is expected to\n    # ensure writability. We avoid NULs and special characters.\n    path = _build_path(rng)\n    # Ensure total size <= 4096 bytes\n    if len(path) > 4096:\n        path = path[:4096]\n    return path.encode('utf-8')\n"
+    },
+    {
+      "data_type": "Wavefront OBJ model file",
+      "generator": "import random\nfrom typing import List, Tuple\n\n# Generator for valid Wavefront OBJ files. Produces a single bytes buffer intended\n# to be written as an OBJ file. It embeds optional MTL and TGA payloads as markers\n# in the same buffer for harnesses that can split them; loaders that read only the\n# OBJ will still get valid content at the beginning.\n\n\ndef _rand_name(rng: random.Random) -> str:\n    syll = [\"al\",\"be\",\"ri\",\"ta\",\"zo\",\"mi\",\"nu\",\"ka\",\"lo\",\"ve\",\"tri\",\"nor\",\"spec\",\"tex\",\"mat\",\"geo\"]\n    return \"\".join(rng.choice(syll) for _ in range(rng.randint(2,4)))\n\n\ndef _gen_vertices(rng: random.Random, n: int) -> List[Tuple[float,float,float]]:\n    verts = []\n    for _ in range(n):\n        vals = []\n        for _c in range(3):\n            choice = rng.random()\n            if choice < 0.15:\n                vals.append(0.0)\n            elif choice < 0.30:\n                vals.append(1.0)\n            elif choice < 0.45:\n                vals.append(-1.0)\n            else:\n                vals.append(rng.uniform(-10.0, 10.0))\n        verts.append(tuple(vals))\n    return verts\n\n\ndef _gen_texcoords(rng: random.Random, n: int) -> List[Tuple[float,float]]:\n    t = []\n    for _ in range(n):\n        def comp():\n            choice = rng.random()\n            if choice < 0.2:\n                return 0.0\n            if choice < 0.4:\n                return 1.0\n            if choice < 0.6:\n                return rng.uniform(-0.2, 1.2)\n            return rng.random()\n        t.append((comp(), comp()))\n    return t\n\n\ndef _gen_normals(rng: random.Random, n: int) -> List[Tuple[float,float,float]]:\n    norms = []\n    for _ in range(n):\n        choice = rng.random()\n        if choice < 0.3:\n            axis = rng.choice([(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)])\n            norms.append(axis)\n        else:\n            x, y, z = rng.uniform(-1,1), rng.uniform(-1,1), rng.uniform(-1,1)\n            mag = (x*x + y*y + z*z) ** 0.5\n            if mag == 0:\n                norms.append((0,0,1))\n            else:\n                norms.append((x/mag, y/mag, z/mag))\n    return norms\n\n\ndef _triangulate_indices(idx: List[int]) -> List[Tuple[int,int,int]]:\n    # Robust triangulation for polygons with >=3 vertices using fan method\n    # Ensures no out-of-range accesses\n    if len(idx) < 3:\n        return []\n    if len(idx) == 3:\n        return [(idx[0], idx[1], idx[2])]\n    tris = []\n    for i in range(1, len(idx) - 1):\n        tris.append((idx[0], idx[i], idx[i+1]))\n    return tris\n\n\ndef _gen_faces(rng: random.Random, nv: int, nvt: int, nvn: int, nfaces: int, include_vt: bool, include_vn: bool) -> List[Tuple[Tuple[int,int,int], ...]]:\n    faces = []\n    if nv < 3:\n        return faces\n    for _ in range(nfaces):\n        # choose polygon vertex count between 3 and up to 5, limited by nv\n        max_vcount = min(5, nv)\n        vcount = 3 if max_vcount == 3 else rng.randint(3, max_vcount)\n        # choose unique vertex indices\n        vidx = rng.sample(range(1, nv+1), k=vcount)\n        # optional vt/vn indices lists parallel to vidx\n        tidx = [None] * vcount\n        nidx = [None] * vcount\n        if include_vt and nvt > 0:\n            tidx = [rng.randint(1, nvt) for _ in range(vcount)]\n        if include_vn and nvn > 0:\n            nidx = [rng.randint(1, nvn) for _ in range(vcount)]\n        # triangulate polygon to triangles\n        tri_vidx = _triangulate_indices(vidx)\n        # map attribute indices using same fan\n        for (a, b, c) in tri_vidx:\n            # find positions in original list to pick matching vt/vn\n            # a is vidx[0], b is vidx[i], c is vidx[i+1]\n            # build index map from vertex id to its first occurrence position\n            pos = {v: i for i, v in enumerate(vidx)}\n            ia, ib, ic = pos[a], pos[b], pos[c]\n            faces.append(((a, tidx[ia], nidx[ia]), (b, tidx[ib], nidx[ib]), (c, tidx[ic], nidx[ic])))\n    return faces\n\n\ndef _emit_obj(verts, texcoords, normals, faces, mtl_name: str | None, group_names: List[str], use_mtllib: bool, use_usemtl: bool) -> str:\n    lines = []\n    lines.append(\"# generated OBJ\")\n    if mtl_name and use_mtllib:\n        lines.append(f\"mtllib {mtl_name}\")\n    for g in group_names:\n        lines.append(f\"g {g}\")\n    for v in verts:\n        lines.append(f\"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\")\n    for vt in texcoords:\n        lines.append(f\"vt {vt[0]:.6f} {vt[1]:.6f}\")\n    for vn in normals:\n        lines.append(f\"vn {vn[0]:.6f} {vn[1]:.6f} {vn[2]:.6f}\")\n    if use_usemtl and mtl_name:\n        lines.append(f\"usemtl {mtl_name.split('.')[0]}\")\n    for ftri in faces:\n        parts = []\n        for (vi, vti, vni) in ftri:\n            if vti is None and vni is None:\n                parts.append(f\"{vi}\")\n            elif vti is None:\n                parts.append(f\"{vi}//{vni}\")\n            elif vni is None:\n                parts.append(f\"{vi}/{vti}\")\n            else:\n                parts.append(f\"{vi}/{vti}/{vni}\")\n        lines.append(\"f \" + \" \".join(parts))\n    return \"\\n\".join(lines) + \"\\n\"\n\n\ndef _emit_mtl_and_tga(rng: random.Random, base_name: str) -> Tuple[str, bytes, bytes, bytes, bytes]:\n    kd = f\"{base_name}_diffuse.tga\"\n    kn = f\"{base_name}_normal.tga\"\n    ks = f\"{base_name}_spec.tga\"\n    mtl_name = f\"{base_name}.mtl\"\n    mtl = [\n        f\"newmtl {base_name}\",\n        \"Kd 0.8 0.8 0.8\",\n        \"Ka 0.1 0.1 0.1\",\n        \"Ks 0.5 0.5 0.5\",\n        f\"map_Kd {kd}\",\n        f\"map_Bump {kn}\",\n        f\"map_Ks {ks}\",\n        \"Ns 16.0\",\n        \"d 1.0\",\n        \"\"\n    ]\n    mtl_bytes = (\"\\n\".join(mtl)).encode(\"ascii\")\n\n    def tga_image_bytes(w: int, h: int, bpp: int) -> bytes:\n        import struct\n        idlength = 0\n        colormaptype = 0\n        datatypecode = 2  # uncompressed true-color\n        colormaporigin = 0\n        colormaplength = 0\n        colormapdepth = 0\n        x_origin = 0\n        y_origin = 0\n        bitsperpixel = 24 if bpp == 3 else 32\n        imagedescriptor = 0x20  # top-left origin\n        header = struct.pack(\n            \"<BBBHHBHHHHBB\",\n            idlength,\n            colormaptype,\n            datatypecode,\n            colormaporigin,\n            colormaplength,\n            colormapdepth,\n            x_origin,\n            y_origin,\n            w,\n            h,\n            bitsperpixel,\n            imagedescriptor,\n        )\n        pixels = bytearray()\n        for y in range(h):\n            for x in range(w):\n                r = (x * 255) // max(1, (w - 1))\n                g = (y * 255) // max(1, (h - 1))\n                b = ((x + y) * 127) % 256\n                if bpp == 3:\n                    pixels += bytes((b, g, r))\n                else:\n                    a = 255 if ((x ^ y) & 1) == 0 else 128\n                    pixels += bytes((b, g, r, a))\n        return header + pixels\n\n    w = rng.choice([2, 4, 8])\n    h = rng.choice([2, 4, 8])\n    kd_bytes = tga_image_bytes(w, h, 3)\n    kn_bytes = tga_image_bytes(w, h, 3)\n    ks_bytes = tga_image_bytes(w, h, 4)\n    return mtl_name, mtl_bytes, kd_bytes, kn_bytes, ks_bytes\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Decide sizes\n    nv = rng.randint(3, 40)\n    nvt = rng.randint(0, 40)\n    nvn = rng.randint(0, 40)\n    if nvt == 0 and rng.random() < 0.7:\n        nvt = rng.randint(3, 20)\n    if nvn == 0 and rng.random() < 0.7:\n        nvn = rng.randint(3, 20)\n    nfaces = rng.randint(1, 60)\n\n    verts = _gen_vertices(rng, nv)\n    texcoords = _gen_texcoords(rng, nvt)\n    normals = _gen_normals(rng, nvn)\n\n    include_vt = nvt > 0 and (rng.random() < 0.9)\n    include_vn = nvn > 0 and (rng.random() < 0.9)\n    faces = _gen_faces(rng, nv, nvt, nvn, nfaces, include_vt, include_vn)\n\n    base = _rand_name(rng)\n    use_mtl = rng.random() < 0.85\n    use_mtllib = rng.random() < 0.9\n    use_usemtl = rng.random() < 0.9\n    groups = []\n    if rng.random() < 0.6:\n        groups = [\"g_default\", _rand_name(rng)]\n\n    mtl_name = f\"{base}.mtl\" if use_mtl else None\n    obj_text = _emit_obj(verts, texcoords, normals, faces, mtl_name, groups, use_mtllib, use_usemtl)\n\n    payload = bytearray()\n    payload += obj_text.encode(\"ascii\")\n\n    if use_mtl:\n        mtl_file, mtl_bytes, kd_bytes, kn_bytes, ks_bytes = _emit_mtl_and_tga(rng, base)\n        payload += (f\"\\n# BEGIN_MTL {mtl_file}\\n\").encode(\"ascii\")\n        payload += mtl_bytes\n        payload += b\"\\n# END_MTL\\n\"\n        payload += (f\"# BEGIN_TGA {base}_diffuse.tga\\n\").encode(\"ascii\")\n        payload += kd_bytes\n        payload += b\"\\n# END_TGA\\n\"\n        payload += (f\"# BEGIN_TGA {base}_normal.tga\\n\").encode(\"ascii\")\n        payload += kn_bytes\n        payload += b\"\\n# END_TGA\\n\"\n        payload += (f\"# BEGIN_TGA {base}_spec.tga\\n\").encode(\"ascii\")\n        payload += ks_bytes\n        payload += b\"\\n# END_TGA\\n\"\n\n    if len(payload) > 4096:\n        payload = payload[:4096]\n    return bytes(payload)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5721,
+            "output_tokens": 2967,
+            "total_tokens": 8688
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4033,
+            "output_tokens": 323,
+            "total_tokens": 4356
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6061,
+            "output_tokens": 10936,
+            "total_tokens": 16997
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 58873,
+            "output_tokens": 25011,
+            "total_tokens": 83884
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 63283,
+            "output_tokens": 6167,
+            "total_tokens": 69450
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9342,
+            "output_tokens": 344,
+            "total_tokens": 9686
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 425.48794293403625,
+    "scan_objects": 19.36443281173706,
+    "validate_objects": 2.9977505207061768,
+    "scan_functions": 0,
+    "synthesis": 199.00333309173584,
+    "fill": 103.56100106239319,
+    "classify": 7.180326461791992,
+    "build_generators": 93.37999963760376
+  }
+}

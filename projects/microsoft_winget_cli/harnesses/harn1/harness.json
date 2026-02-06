@@ -1,0 +1,1249 @@
+{
+  "objects": [
+    {
+      "ptr_type": "pure_ctx *",
+      "aliases": [],
+      "definition": "typedef struct pure_ctx {\n  uint64_t flags;\n  uint64_t depth;\n  uint64_t files;\n  uint64_t archives;\n  uint64_t size;\n  uint64_t compressed_size;\n  uint64_t uncompressed_size;\n} pure_ctx;",
+      "description": "Execution/context state used while scanning and validating ZIP archives. Tracks configuration flags and cumulative accounting (nesting depth, number of files/archives, total sizes, and cumulative compressed/uncompressed sizes) to enforce anti-zip-bomb limits during parsing and recursion.",
+      "direct_api_constructors": [
+        "pure_zip"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pure_zip_lfh *",
+      "aliases": [],
+      "definition": "typedef struct pure_zip_lfh {\n  uint64_t offset;\n  uint64_t length;\n  uint64_t version_minimum;\n  uint64_t general_purpose_bit_flag;\n  uint64_t compression_method;\n  uint64_t last_mod_file_time;\n  uint64_t last_mod_file_date;\n  uint64_t crc32;\n  uint64_t compressed_size;\n  uint64_t uncompressed_size;\n  uint8_t* file_name;\n  uint64_t file_name_length;\n  uint8_t* extra_field;\n  uint64_t extra_field_length;\n  uint8_t zip64;\n} pure_zip_lfh;",
+      "description": "Parsed view of a ZIP Local File Header (LFH). Contains decoded fixed fields, pointers into the original buffer for the variable-length file name and extra field, aggregate byte lengths, and a flag indicating ZIP64 usage.",
+      "direct_api_constructors": [
+        "pure_zip_decode_lfh"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pure_zip_ddr *",
+      "aliases": [],
+      "definition": "typedef struct pure_zip_ddr {\n  uint64_t offset;\n  uint64_t length;\n  uint64_t crc32;\n  uint64_t compressed_size;\n  uint64_t uncompressed_size;\n  uint8_t zip64;\n} pure_zip_ddr;",
+      "description": "Parsed view of a ZIP Data Descriptor Record (DDR), optionally ZIP64-sized. Holds checksum and sizes that may follow file data when bit 3 (data descriptor) is set.",
+      "direct_api_constructors": [
+        "pure_zip_decode_ddr"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pure_zip_cdh *",
+      "aliases": [],
+      "definition": "typedef struct pure_zip_cdh {\n  uint64_t offset;\n  uint64_t length;\n  uint64_t version_made;\n  uint64_t version_minimum;\n  uint64_t general_purpose_bit_flag;\n  uint64_t compression_method;\n  uint64_t last_mod_file_time;\n  uint64_t last_mod_file_date;\n  uint64_t crc32;\n  uint64_t compressed_size;\n  uint64_t uncompressed_size;\n  uint8_t* file_name;\n  uint64_t file_name_length;\n  uint8_t* extra_field;\n  uint64_t extra_field_length;\n  uint8_t* file_comment;\n  uint64_t file_comment_length;\n  uint64_t disk;\n  uint64_t internal_file_attributes;\n  uint64_t external_file_attributes;\n  uint64_t relative_offset;\n  uint64_t unix_mode;\n  uint8_t directory;\n  uint8_t zip64;\n} pure_zip_cdh;",
+      "description": "Parsed view of a ZIP Central Directory Header (CDH). Includes decoded fixed-size fields, pointers to variable-length name/extra/comment within the source buffer, derived attributes (unix_mode, directory), relative LFH offset, and ZIP64 indicator.",
+      "direct_api_constructors": [
+        "pure_zip_decode_cdh"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pure_zip_eocdr_64 *",
+      "aliases": [],
+      "definition": "typedef struct pure_zip_eocdr_64 {\n  uint64_t offset;\n  uint64_t length;\n  uint64_t version_made;\n  uint64_t version_minimum;\n  uint64_t disk;\n  uint64_t cd_disk;\n  uint64_t cd_disk_records;\n  uint64_t cd_records;\n  uint64_t cd_size;\n  uint64_t cd_offset;\n  uint8_t* extensible_data_sector;\n  uint64_t extensible_data_sector_length;\n} pure_zip_eocdr_64;",
+      "description": "Parsed ZIP64 End of Central Directory Record. Holds central directory location/size and counts in 64-bit form plus a pointer to the variable-length extensible data sector.",
+      "direct_api_constructors": [
+        "pure_zip_decode_eocdr_64"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pure_zip_eocdl_64 *",
+      "aliases": [],
+      "definition": "typedef struct pure_zip_eocdl_64 {\n  uint64_t offset;\n  uint64_t length;\n  uint64_t disk;\n  uint64_t eocdr_64_offset;\n  uint64_t disks;\n} pure_zip_eocdl_64;",
+      "description": "Parsed ZIP64 End of Central Directory Locator. Points to the ZIP64 EOCDR and records disk information.",
+      "direct_api_constructors": [
+        "pure_zip_decode_eocdl_64"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "pure_zip_eocdr *",
+      "aliases": [],
+      "definition": "typedef struct pure_zip_eocdr {\n  uint64_t offset;\n  uint64_t length;\n  uint64_t disk;\n  uint64_t cd_disk;\n  uint64_t cd_disk_records;\n  uint64_t cd_records;\n  uint64_t cd_size;\n  uint64_t cd_offset;\n  uint8_t* comment;\n  uint64_t comment_length;\n  uint8_t zip64;\n} pure_zip_eocdr;",
+      "description": "Parsed End of Central Directory Record (classic 32-bit). Contains central directory span and a pointer to the optional archive comment. The zip64 flag is set when upgraded by the ZIP64 EOCD structures.",
+      "direct_api_constructors": [
+        "pure_zip_decode_eocdr"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "pure_zip_crc32",
+      "signature": "int pure_zip_crc32(const uint8_t* buffer, const uint64_t size, uint64_t* result)",
+      "description": "Computes CRC32 over the given buffer using zlib crc32_z and returns it via result. Intended for verifying ZIP entry data integrity.",
+      "requirements": [
+        "buffer must point to at least size bytes of readable memory.",
+        "size must be <= SIZE_MAX (enforced by assert) and fit into unsigned long for zlib (code asserts compressed_size <= UINT32_MAX equivalently via size check path).",
+        "result must be non-NULL and must initially point to a uint64_t set to 0 (asserts *result == 0).",
+        "On success returns 0; never returns negative; maps zlib to simple success path."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_debug_lfh",
+      "signature": "void pure_zip_debug_lfh(const pure_zip_lfh* header)",
+      "description": "Prints a human-readable dump of a Local File Header (LFH) to stdout for debugging.",
+      "requirements": [
+        "header must be a valid, fully-decoded pure_zip_lfh pointer with fields and pointer members (file_name/extra_field) valid for their lengths.",
+        "Writes to stdout; caller should ensure IO is acceptable."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_debug_ddr",
+      "signature": "void pure_zip_debug_ddr(const pure_zip_ddr* header)",
+      "description": "Prints a human-readable dump of a Data Descriptor Record (DDR) to stdout for debugging.",
+      "requirements": [
+        "header must be a valid, fully-decoded pure_zip_ddr pointer with fields set.",
+        "Writes to stdout."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_debug_cdh",
+      "signature": "void pure_zip_debug_cdh(const pure_zip_cdh* header)",
+      "description": "Prints a human-readable dump of a Central Directory Header (CDH) to stdout for debugging, including file name and comment bytes.",
+      "requirements": [
+        "header must be a valid, fully-decoded pure_zip_cdh pointer with file_name/extra_field/file_comment pointers valid for their lengths.",
+        "Writes to stdout."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_debug_eocdl_64",
+      "signature": "void pure_zip_debug_eocdl_64(const pure_zip_eocdl_64* header)",
+      "description": "Prints a human-readable dump of the ZIP64 End of Central Directory Locator to stdout.",
+      "requirements": [
+        "header must be a valid, decoded pure_zip_eocdl_64 struct.",
+        "Writes to stdout."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_debug_eocdr_64",
+      "signature": "void pure_zip_debug_eocdr_64(const pure_zip_eocdr_64* header)",
+      "description": "Prints a human-readable dump of the ZIP64 End of Central Directory Record to stdout.",
+      "requirements": [
+        "header must be a valid, decoded pure_zip_eocdr_64 struct.",
+        "Writes to stdout."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_debug_eocdr",
+      "signature": "void pure_zip_debug_eocdr(const pure_zip_eocdr* header)",
+      "description": "Prints a human-readable dump of the End of Central Directory Record (EOCDR) to stdout, including comment bytes.",
+      "requirements": [
+        "header must be a valid, decoded pure_zip_eocdr with comment pointer valid for comment_length.",
+        "Writes to stdout."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_compression_ratio",
+      "signature": "int pure_zip_verify_compression_ratio(const uint64_t compressed_size, const uint64_t uncompressed_size)",
+      "description": "Heuristically evaluates compression ratio risk combining ratio and uncompressed size and returns an error code if it exceeds the configured limit; helps detect ZIP bombs.",
+      "requirements": [
+        "compressed_size and uncompressed_size are raw sizes for either a file or an aggregate; zero compressed_size is allowed and returns 0 to avoid division by zero.",
+        "Uses constants PURE_ZIP_COMPRESSION_RATIO_SIZE_MIN and PURE_ZIP_COMPRESSION_RATIO_SCORE_MAX for policy.",
+        "Returns 0 if acceptable, or PURE_E_ZIP_BOMB_RATIO on excessive score."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_compression_method",
+      "signature": "int pure_zip_verify_compression_method(const uint64_t value)",
+      "description": "Validates the ZIP compression method field against allowed methods and known unsafe or unsupported values.",
+      "requirements": [
+        "value is a ZIP method ID; 0 (store) and 8 (deflate) are accepted.",
+        "value > 999 returns PURE_E_ZIP_COMPRESSION_METHOD_DANGEROUS (CVE-2016-9844 mitigation).",
+        "value == 99 returns PURE_E_ZIP_COMPRESSION_METHOD_ENCRYPTED.",
+        "Other values return PURE_E_ZIP_COMPRESSION_METHOD_UNSUPPORTED.",
+        "Returns 0 only for supported methods."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_compression_method_sizes",
+      "signature": "int pure_zip_verify_compression_method_sizes(const uint64_t compression_method, const uint64_t compressed_size, const uint64_t uncompressed_size)",
+      "description": "Validates the combination of method and sizes: checks method validity, ensures stored entries have equal sizes, and guards against pathological negative ratios (overflow-prone cases).",
+      "requirements": [
+        "Callers provide raw sizes from headers.",
+        "If compression_method == 0 (store), then compressed_size must equal uncompressed_size; otherwise returns PURE_E_ZIP_STORED_COMPRESSION_SIZE_MISMATCH.",
+        "If uncompressed_size > 0, compressed_size > uncompressed_size, and compressed_size/uncompressed_size >= 2 then returns PURE_E_ZIP_DANGEROUS_NEGATIVE_COMPRESSION_RATIO.",
+        "Also returns nonzero if method itself is invalid per pure_zip_verify_compression_method."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_date",
+      "signature": "int pure_zip_verify_date(const uint64_t value)",
+      "description": "Validates an MS-DOS date packed into 16 bits: checks bit width and ensures year (<=2099), month (<=12), day (<=31) are within supported ranges.",
+      "requirements": [
+        "value must fit in 16 bits; otherwise PURE_E_ZIP_DATE_OVERFLOW.",
+        "Years after 2099 (relative to 1980 base) are rejected with PURE_E_ZIP_DATE_YEAR_OVERFLOW.",
+        "Month > 12 -> PURE_E_ZIP_DATE_MONTH_OVERFLOW; day > 31 -> PURE_E_ZIP_DATE_DAY_OVERFLOW.",
+        "Returns 0 if valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_directory",
+      "signature": "int pure_zip_verify_directory(const pure_zip_cdh* header)",
+      "description": "Ensures directory entries declare zero compressed and uncompressed sizes; non-directory entries are accepted as-is.",
+      "requirements": [
+        "header->directory must be 0 or 1 (assert).",
+        "If header->directory is true, compressed_size and uncompressed_size must both be 0, else returns PURE_E_ZIP_DIRECTORY_COMPRESSED/UNCOMPRESSED.",
+        "Returns 0 otherwise."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_disk",
+      "signature": "int pure_zip_verify_disk(const uint64_t value)",
+      "description": "Verifies that the disk number equals 0 (single-disk archives only).",
+      "requirements": [
+        "value must be 0; otherwise returns PURE_E_ZIP_MULTIPLE_DISKS.",
+        "Returns 0 if value == 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_extra_field",
+      "signature": "int pure_zip_verify_extra_field(const uint8_t* extra_field, const uint64_t extra_field_length, const uint8_t* file_name, const uint64_t file_name_length)",
+      "description": "Validates a ZIP extra field blob: bounds, well-formed TLV chunks, UTF-8 path (0x7075) handling, and detects under/overflow and overlong sizes. Ensures Unicode Path extra (0x7075) content matches the central directory file name exactly.",
+      "requirements": [
+        "extra_field must point to extra_field_length readable bytes.",
+        "extra_field_length must be <= PURE_ZIP_EXTRA_FIELD_MAX; if !=0 it must be >= 4 (else PURE_E_ZIP_EXTRA_FIELD_MIN).",
+        "Each attribute must fit within extra_field_length; otherwise PURE_E_ZIP_EXTRA_FIELD_ATTRIBUTE_OVERFLOW.",
+        "For id 0x7075 (Info-ZIP Unicode Path Extra), size must be at least 5 (1 version + 4 crc32); version must be 1, else PURE_E_ZIP_EXTRA_FIELD_UNICODE_PATH_VERSION.",
+        "For id 0x7075, the trailing Unicode path bytes must match file_name exactly in length and content; else PURE_E_ZIP_EXTRA_FIELD_UNICODE_PATH_DIFF.",
+        "If trailing bytes remain within the 0x0001 block (Zip64 block not parsed here) or any block, nonzero underflow region yields PURE_E_ZIP_EXTRA_FIELD_UNDERFLOW_BUFFER_BLEED, zeroed yields PURE_E_ZIP_EXTRA_FIELD_UNDERFLOW_ZEROED.",
+        "On general loop completion if offset > length returns PURE_E_ZIP_EXTRA_FIELD_OVERFLOW."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_file_name",
+      "signature": "int pure_zip_verify_file_name(const uint8_t* file_name, const uint64_t file_name_length)",
+      "description": "Validates a ZIP file name/path against traversal and policy: length limit, no control chars, no drive/relative/.. traversal, component size limits, and prohibits backslashes.",
+      "requirements": [
+        "file_name must point to file_name_length readable bytes; length may be 0.",
+        "file_name_length must be <= PURE_PATH_MAX else PURE_E_ZIP_FILE_NAME_LENGTH.",
+        "Must not contain control characters that mask traversal (checked via pure_path_control_characters) else PURE_E_ZIP_FILE_NAME_CONTROL_CHARACTERS.",
+        "Must not be drive-based paths -> PURE_E_ZIP_FILE_NAME_TRAVERSAL_DRIVE_PATH.",
+        "Must not be relative paths -> PURE_E_ZIP_FILE_NAME_TRAVERSAL_RELATIVE_PATH.",
+        "Must not contain \"..\" traversal -> PURE_E_ZIP_FILE_NAME_TRAVERSAL_DOUBLE_DOTS.",
+        "No component overflow -> PURE_E_ZIP_FILE_NAME_COMPONENT_OVERFLOW.",
+        "All slashes must be forward; any '\\' -> PURE_E_ZIP_FILE_NAME_BACKSLASH."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_flags",
+      "signature": "int pure_zip_verify_flags(const uint64_t value)",
+      "description": "Validates ZIP General Purpose Bit Flag field: enforces 16-bit width and rejects unsupported, reserved, or dangerous bits per policy and ISO/IEC 21320-1:2015.",
+      "requirements": [
+        "value must be <= PURE_16_BIT_MAX, else PURE_E_ZIP_FLAG_OVERFLOW.",
+        "Rejects bits: 0 (traditional encryption), 4 (enhanced deflate), 5 (compressed patched data), 6 (strong encryption), 7, 8, 9, 10 (unused), 12 (enhanced compression), 13 (masked local headers), 14/15 (reserved). Each returns a specific error code.",
+        "Returns 0 if none of the forbidden bits are set."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_string",
+      "signature": "int pure_zip_verify_string(const uint8_t* string, const uint64_t string_length, const uint64_t utf8)",
+      "description": "Validates a general ZIP string blob (file name/comment): size limit and absence of NUL bytes; placeholder for future UTF-8 validation when utf8 is nonzero.",
+      "requirements": [
+        "string must point to string_length readable bytes.",
+        "string_length must be <= PURE_ZIP_STRING_MAX; else PURE_E_ZIP_STRING_MAX.",
+        "No zero bytes allowed; NUL anywhere -> PURE_E_ZIP_STRING_NULL_BYTE.",
+        "If utf8 is nonzero, note that UTF-8 validity is not currently enforced (comment). Returns 0 otherwise."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_symlink",
+      "signature": "int pure_zip_verify_symlink(const pure_zip_cdh* cdh, const pure_zip_lfh* lfh, const uint8_t* buffer)",
+      "description": "If the entry is a Unix symlink, validates it is stored (no compression), and checks the symlink target path for traversal and component policies. Non-symlinks return 0.",
+      "requirements": [
+        "If not a symlink based on cdh->unix_mode, returns 0.",
+        "For symlinks: cdh->compression_method must be 0 (store) else PURE_E_ZIP_SYMLINK_COMPRESSED.",
+        "cdh->relative_offset must equal lfh->offset (assert).",
+        "buffer must contain the entire file; symlink data is at buffer + cdh->relative_offset + lfh->length with length cdh->compressed_size.",
+        "Symlink target length must be <= PURE_PATH_MAX else PURE_E_ZIP_SYMLINK_LENGTH.",
+        "Target must not contain control characters -> PURE_E_ZIP_SYMLINK_CONTROL_CHARACTERS.",
+        "Must not be drive/relative/.. traversal -> respective errors.",
+        "No component overflow -> PURE_E_ZIP_SYMLINK_COMPONENT_OVERFLOW."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_unix_mode",
+      "signature": "int pure_zip_verify_unix_mode(const uint64_t value)",
+      "description": "Validates Unix mode bits from external attributes: rejects device, FIFO, socket types and sticky/setgid/setuid permission bits; also ensures it fits 16 bits.",
+      "requirements": [
+        "value must be <= PURE_16_BIT_MAX else PURE_E_ZIP_UNIX_MODE_OVERFLOW.",
+        "Rejects BLK -> PURE_E_ZIP_UNIX_MODE_BLOCK_DEVICE; CHR -> PURE_E_ZIP_UNIX_MODE_CHARACTER_DEVICE; FIFO -> PURE_E_ZIP_UNIX_MODE_FIFO; SOCK -> PURE_E_ZIP_UNIX_MODE_SOCKET.",
+        "Rejects permissions: sticky (512), setgid (1024), setuid (2048).",
+        "Returns 0 if acceptable."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_time",
+      "signature": "int pure_zip_verify_time(const uint64_t value)",
+      "description": "Validates an MS-DOS time packed into 16 bits: hour (<=23), minute (<=59), second (even, <=59), and ensures 16-bit range.",
+      "requirements": [
+        "value must be <= PURE_16_BIT_MAX else PURE_E_ZIP_TIME_OVERFLOW.",
+        "If hour > 23 -> PURE_E_ZIP_TIME_HOUR_OVERFLOW; minute > 59 -> PURE_E_ZIP_TIME_MINUTE_OVERFLOW; second (value&31)*2 > 59 -> PURE_E_ZIP_TIME_SECOND_OVERFLOW.",
+        "Returns 0 if valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_lfh",
+      "signature": "int pure_zip_verify_lfh(const pure_zip_lfh* header)",
+      "description": "Performs semantic validation of a decoded Local File Header: checks lengths, flags, method+sizes, MS-DOS date/time, file name and string rules, and extra field semantics. Ensures ZIP64 indicator is boolean.",
+      "requirements": [
+        "header must be decoded with length/file_name/extra_field pointers valid and sizes consistent (assert that length equals base+name+extra).",
+        "General Purpose Bit Flag must pass pure_zip_verify_flags.",
+        "Compression method and sizes must pass pure_zip_verify_compression_method_sizes.",
+        "Date/time must pass pure_zip_verify_date/time.",
+        "File name must pass pure_zip_verify_file_name and pure_zip_verify_string (utf8 follows bit 11).",
+        "Extra field must pass pure_zip_verify_extra_field.",
+        "header->zip64 must be 0 or 1 (assert).",
+        "Returns first nonzero error encountered; 0 on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_verify_cdh",
+      "signature": "int pure_zip_verify_cdh(const pure_zip_cdh* header)",
+      "description": "Performs semantic validation of a decoded Central Directory Header: flags, method+sizes, non-ex-nihilo sizes, MS-DOS date/time, file name/comment strings, extra field, single-disk, Unix mode, and directory invariants. Ensures ZIP64 indicator is boolean.",
+      "requirements": [
+        "header must be decoded with length/file_name/extra_field/file_comment pointers valid and sizes consistent (assert length equals base+name+extra+comment).",
+        "Flags verified via pure_zip_verify_flags.",
+        "Compression method/sizes via pure_zip_verify_compression_method_sizes; also rejects compressed_size==0 with uncompressed_size!=0 (PURE_E_ZIP_EX_NIHILO).",
+        "Date/time via pure_zip_verify_date/time.",
+        "File name and comment via pure_zip_verify_file_name/pure_zip_verify_string (utf8 per bit 11).",
+        "Extra field via pure_zip_verify_extra_field.",
+        "Disk must be 0 via pure_zip_verify_disk.",
+        "Unix mode via pure_zip_verify_unix_mode; directory invariants via pure_zip_verify_directory.",
+        "header->zip64 must be 0 or 1 (assert)."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_eief_64",
+      "signature": "int pure_zip_decode_eief_64(const uint8_t* extra_field, const uint64_t length, uint64_t* compressed_size, uint64_t* uncompressed_size, uint64_t* relative_offset, uint64_t* disk, uint8_t* zip64, uint8_t lfh)",
+      "description": "Parses the Zip64 Extended Information Extra Field (ID 0x0001) within an extra_field blob and upgrades size/offset/disk fields that were maxed out in 32-bit headers. Sets zip64 to 1 if present and valid.",
+      "requirements": [
+        "Callers must initialize *compressed_size, *uncompressed_size, *relative_offset to either actual values or PURE_32_BIT_MAX and *disk to actual or PURE_16_BIT_MAX; at least one must be maxed (assert).",
+        "*zip64 must be initialized to 0 (assert). lfh must be 0 or 1 (assert); if lfh==1, exactly uncompressed+compressed (16 bytes) must be present in this block; otherwise PURE_E_ZIP_EIEF_64_LFH.",
+        "length must be <= PURE_ZIP_EXTRA_FIELD_MAX and either 0 or >=4, else PURE_E_ZIP_EXTRA_FIELD_MAX/MIN.",
+        "The 0x0001 block must not overflow length; otherwise PURE_E_ZIP_EXTRA_FIELD_ATTRIBUTE_OVERFLOW.",
+        "If any expected field is missing due to short size, returns the corresponding PURE_E_ZIP_EIEF_64_* error.",
+        "If extra bytes remain in the 0x0001 block, returns UNDERFLOW_* errors depending on zeroed versus nonzero content.",
+        "Returns 0 on success or if no 0x0001 block is found; sets zip64=1 only when 0x0001 is parsed."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_lfh",
+      "signature": "int pure_zip_decode_lfh(const uint8_t* buffer, const uint64_t size, const uint64_t offset, pure_zip_lfh* header)",
+      "description": "Decodes a Local File Header at the given offset in buffer into header, handling Zip64 size upgrades from its extra field, and verifies it via pure_zip_verify_lfh.",
+      "requirements": [
+        "offset < size (assert).",
+        "buffer must contain at least PURE_ZIP_LFH_MIN bytes at offset; else PURE_E_ZIP_LFH_OVERFLOW.",
+        "Signature at offset must match PURE_S_ZIP_LFH; else PURE_E_ZIP_LFH_SIGNATURE.",
+        "Derived pointers file_name and extra_field must not overflow the buffer; else respective PURE_E_ZIP_LFH_*_OVERFLOW errors.",
+        "If either size field is 0xFFFFFFFF, attempts Zip64 decode via pure_zip_decode_eief_64 with lfh=1; errors propagate.",
+        "On success, pure_zip_verify_lfh must pass; otherwise its error is returned."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_ddr",
+      "signature": "int pure_zip_decode_ddr(const uint8_t* buffer, const uint64_t size, uint64_t offset, pure_zip_ddr* header)",
+      "description": "Decodes a Data Descriptor Record at offset, with or without signature, using 32-bit or 64-bit form according to header->zip64. Populates lengths and values and returns 0.",
+      "requirements": [
+        "offset < size (assert).",
+        "header->zip64 must be 0 or 1 (assert) prior to call to choose size layout.",
+        "There must be at least minimal bytes available: PURE_L_ZIP_DDR followed by the min payload; otherwise PURE_E_ZIP_DDR_OVERFLOW.",
+        "If signature present, it is accounted in header->offset/length; otherwise decoding starts immediately at offset.",
+        "For zip64 form, payload sizes must follow 4+8+8; for 32-bit form 4+4+4; otherwise overflow errors apply.",
+        "Returns 0 on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_cdh",
+      "signature": "int pure_zip_decode_cdh(const uint8_t* buffer, const uint64_t size, const uint64_t offset, pure_zip_cdh* header)",
+      "description": "Decodes a Central Directory Header at offset, sets pointers to variable-length regions, derives unix_mode and directory flag, applies Zip64 extra upgrades as needed, performs critical offset sanity checks, then validates via pure_zip_verify_cdh.",
+      "requirements": [
+        "offset < size (assert).",
+        "Must have at least PURE_ZIP_CDH_MIN bytes; else PURE_E_ZIP_CDH_OVERFLOW.",
+        "Signature must match PURE_S_ZIP_CDH; else PURE_E_ZIP_CDH_SIGNATURE.",
+        "file_name/extra_field/file_comment regions must not overflow; else respective PURE_E_ZIP_CDH_*_OVERFLOW errors.",
+        "If version_made indicates UNIX, unix_mode is external_file_attributes >> 16; directory flag is determined by unix_mode, DOS dir attr bit, or trailing '/'.",
+        "If any of compressed_size, uncompressed_size, relative_offset, or disk are maxed (FFFFFFFF/FFFF), attempts Zip64 upgrade via pure_zip_decode_eief_64; errors propagate.",
+        "relative_offset must be <= size and <= current offset; otherwise PURE_E_ZIP_CDH_RELATIVE_OFFSET_OVERFLOW/OVERLAP.",
+        "pure_zip_verify_cdh must pass; otherwise returns its error."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_eocdl_64",
+      "signature": "int pure_zip_decode_eocdl_64(const uint8_t* buffer, const uint64_t size, const uint64_t offset, pure_zip_eocdl_64* header)",
+      "description": "Decodes a ZIP64 End of Central Directory Locator at offset and performs basic validity checks (single disk, offsets within file).",
+      "requirements": [
+        "offset < size (assert).",
+        "Must have PURE_ZIP_EOCDL_64 bytes available; else PURE_E_ZIP_EOCDL_64_OVERFLOW.",
+        "Signature must match; else PURE_E_ZIP_EOCDL_64_SIGNATURE.",
+        "disk must be 0; else PURE_E_ZIP_EOCDL_64_DISK.",
+        "eocdr_64_offset + minimum EOCDR64 size must not overflow past header->offset; else PURE_E_ZIP_EOCDR_EOCDL_64_OVERFLOW.",
+        "disks must be 0 or 1; else PURE_E_ZIP_EOCDL_64_DISKS."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64",
+      "signature": "int pure_zip_decode_eocdr_64(const uint8_t* buffer, const uint64_t size, const uint64_t offset, pure_zip_eocdr_64* header)",
+      "description": "Decodes a ZIP64 End of Central Directory Record at offset, computing the extensible data sector length from the stored size field and capturing a pointer to it.",
+      "requirements": [
+        "offset < size (assert).",
+        "Must have at least PURE_ZIP_EOCDR_64_MIN bytes; else PURE_E_ZIP_EOCDR_64_OVERFLOW.",
+        "Signature must match; else PURE_E_ZIP_EOCDR_64_SIGNATURE.",
+        "Sets header->length to PURE_ZIP_EOCDR_64_MIN and computes extensible_data_sector_length; caller must ensure buffer contains that many bytes if accessed later."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64_inherit",
+      "signature": "int pure_zip_decode_eocdr_64_inherit(pure_zip_eocdr* a, const pure_zip_eocdr_64* b)",
+      "description": "Copies values from a decoded ZIP64 EOCDR into a classic EOCDR where the classic fields were maxed out. Verifies all shared values match after inheritance.",
+      "requirements": [
+        "a and b must be previously decoded EOCDR/EOCDR64 structures.",
+        "Only fields in a that are maxed are overwritten; mismatches between a and b after inheritance return specific PURE_E_ZIP_DIFF_EOCDR_* errors.",
+        "Returns 0 on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64_upgrade",
+      "signature": "int pure_zip_decode_eocdr_64_upgrade(const uint8_t* buffer, const uint64_t size, pure_zip_eocdr* header)",
+      "description": "Attempts to upgrade a decoded classic EOCDR to ZIP64 by locating the preceding EOCDL64 and EOCDR64, validating layout/zero-fill between structures, and inheriting fields. On success sets header->zip64=1 and adjusts header->offset/length.",
+      "requirements": [
+        "header must already hold a decoded classic EOCDR with comment region accounted in length.",
+        "If all fields in header are not maxed (none require upgrade), returns 0 without changes.",
+        "header->offset must be >= PURE_ZIP_EOCDL_64; else PURE_E_ZIP_EOCDL_64_NEGATIVE_OFFSET.",
+        "decode of EOCDL64 at header->offset - PURE_ZIP_EOCDL_64 must succeed; PURE_E_ZIP_EOCDL_64_SIGNATURE is treated as no-zip64 and returns 0.",
+        "EOCDR64 must be at eocdl_64.eocdr_64_offset; errors propagate from decode.",
+        "There must be no overlap/underflow/garbage between EOCDR64 and EOCDL64; otherwise returns PURE_E_ZIP_EOCDR_EOCDL_64_OVERFLOW/UNDERFLOW_*.",
+        "Inherits via pure_zip_decode_eocdr_64_inherit; errors propagate.",
+        "On success sets zip64=1, adjusts offset and length to include EOCDR64+EOCDL64."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_decode_eocdr",
+      "signature": "int pure_zip_decode_eocdr(const uint8_t* buffer, const uint64_t size, const uint64_t offset, pure_zip_eocdr* header)",
+      "description": "Decodes the classic End of Central Directory Record at offset; sets comment pointer; may upgrade to ZIP64 by invoking pure_zip_decode_eocdr_64_upgrade; then validates central directory bounds, records counts, and comment string and ensures no appended data remains.",
+      "requirements": [
+        "offset < size (assert).",
+        "Must have at least PURE_ZIP_EOCDR_MIN bytes; else PURE_E_ZIP_EOCDR_OVERFLOW.",
+        "Signature must match; else PURE_E_ZIP_EOCDR_SIGNATURE.",
+        "Comment region must not overflow; else PURE_E_ZIP_EOCDR_COMMENT_OVERFLOW.",
+        "If upgraded to ZIP64, header->offset/length will be adjusted; otherwise they remain as classic EOCDR.",
+        "cd_size must be >= cd_records * PURE_ZIP_CDH_MIN, and nonzero size implies nonzero records; otherwise SIZE_OVERFLOW/SIZE_UNDERFLOW errors.",
+        "cd_offset + cd_size must not overflow past header->offset; else PURE_E_ZIP_CD_EOCDR_OVERFLOW.",
+        "disk and cd_disk must be 0 (single disk) and cd_disk_records == cd_records; else MULTIPLE_DISKS or EOCDR_RECORDS.",
+        "Comment must pass pure_zip_verify_string with utf8=0 (CP437).",
+        "There must be no data after the EOCDR(+ZIP64 structures); trailing zeroes/nonzeroes cause PURE_E_ZIP_APPENDED_DATA_*."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_diff_cld",
+      "signature": "int pure_zip_diff_cld(const uint64_t cdh_value, const uint64_t lfh_value, const pure_zip_lfh* lfh)",
+      "description": "Compares a value in CDH with the corresponding value in LFH, allowing LFH zero when bit 3 indicates Data Descriptor usage. Returns 0 if consistent, 1 if different.",
+      "requirements": [
+        "lfh must be the decoded LFH associated with the CDH field being compared.",
+        "If lfh->general_purpose_bit_flag has bit 3 set and lfh_value==0, considered matching; otherwise exact equality is required.",
+        "Returns 0 for match, 1 for mismatch."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_diff_cdh_ddr",
+      "signature": "int pure_zip_diff_cdh_ddr(const pure_zip_cdh* cdh, const pure_zip_ddr* ddr)",
+      "description": "Compares DDR fields (crc32, compressed_size, uncompressed_size) against CDH values; returns specific errors on mismatch.",
+      "requirements": [
+        "cdh and ddr must be decoded for the same file entry.",
+        "Returns PURE_E_ZIP_DIFF_DDR_* errors on mismatch; 0 if all match."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_diff_cdh_lfh",
+      "signature": "int pure_zip_diff_cdh_lfh(const pure_zip_cdh* cdh, const pure_zip_lfh* lfh)",
+      "description": "Compares key LFH fields against CDH (flags, method, time/date, crc/size values accounting for DDR, and file name length/content). Returns specific error codes on differences.",
+      "requirements": [
+        "cdh and lfh must be decoded for the same file entry.",
+        "Accepts LFH zeroes for crc/size if DDR is indicated (bit 3) via pure_zip_diff_cld; otherwise exact equality required.",
+        "Compares file_name_length and byte-for-byte content (assumes prior overflow checks).",
+        "Returns 0 if consistent, else specific PURE_E_ZIP_DIFF_LFH_*."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_diff_ddr_lfh",
+      "signature": "int pure_zip_diff_ddr_lfh(const pure_zip_ddr* ddr, const pure_zip_lfh* lfh)",
+      "description": "Compares DDR fields against LFH fields, allowing LFH zeros when using DDR. Returns specific errors on mismatch.",
+      "requirements": [
+        "lfh and ddr must correspond to the same entry; lfh values of 0 are allowed and treated as unspecified.",
+        "If lfh fields are nonzero and differ from DDR, returns PURE_E_ZIP_DIFF_LFH_DDR_* errors; 0 otherwise."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_inflate_raw",
+      "signature": "int pure_zip_inflate_raw(const uint8_t* compressed, const uint64_t compressed_size, const uint8_t* uncompressed, const uint64_t uncompressed_size)",
+      "description": "Performs a raw DEFLATE inflate (no zlib/gzip wrapper) from compressed into the provided uncompressed output buffer using zlib. Validates exact consumption/production and maps zlib errors to library-specific codes including bomb-related overflows.",
+      "requirements": [
+        "If uncompressed_size == 0, returns 0 without inflating.",
+        "compressed must point to compressed_size readable bytes; uncompressed must point to at least uncompressed_size writable bytes.",
+        "compressed_size and uncompressed_size must be <= UINT32_MAX (asserts) due to non-streaming zlib usage.",
+        "Uses window_bits = -15 to indicate raw DEFLATE.",
+        "On success (Z_STREAM_END) requires z.avail_in==0 and z.avail_out==0; else returns UNDERFLOW errors.",
+        "Maps zlib errors to PURE_E_*; Z_BUF_ERROR is interpreted as likely output or input overflow based on avail_out/avail_in."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_locate_eocdr",
+      "signature": "int pure_zip_locate_eocdr(const uint8_t* buffer, const uint64_t size, uint64_t* offset)",
+      "description": "Searches backward within the permissible EOCDR region to locate the classic EOCDR signature and returns its offset.",
+      "requirements": [
+        "*offset must be initialized to 0 (assert).",
+        "size must be >= PURE_ZIP_EOCDR_MIN else PURE_E_ZIP_TOO_SMALL.",
+        "buffer must contain at least size bytes; function scans from end minus minimum to end minus maximum comment.",
+        "On success, writes the starting offset of the EOCDR signature to *offset and returns 0; otherwise PURE_E_ZIP_EOCDR_NOT_FOUND."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_locate_first_lfh",
+      "signature": "int pure_zip_locate_first_lfh(const uint8_t* buffer, const uint64_t size, const pure_zip_eocdr* eocdr, uint64_t* offset)",
+      "description": "Determines the offset of the first LFH or EOCDR at the start of the file, accounting for optional spanning/splitting signatures and detecting prepended data. Returns an error if prepended data is found.",
+      "requirements": [
+        "size must be >= 8 (assert).",
+        "*offset must be initialized to 0 (assert).",
+        "If eocdr->cd_records > 0, expects first record to be an LFH; otherwise EOCDR may be at start if empty archive.",
+        "If a spanning (PURE_S_ZIP_SPAN) or temporary split signature (PURE_S_ZIP_TEMP) is present at start, LFH/EOCDR must immediately follow it.",
+        "If not found at expected positions, searches up to PURE_ZIP_PREPENDED_DATA_SEARCH_MAX; on finding data before signature returns PURE_E_ZIP_PREPENDED_DATA_* based on zeroed vs bleed.",
+        "On success writes 0 or PURE_L_ZIP_SPAN to *offset and returns 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_meta_data",
+      "signature": "int pure_zip_meta_data(pure_ctx* ctx, const uint8_t* buffer, const uint64_t size)",
+      "description": "Top-level ZIP metadata scanner entry that initializes a temporary decompression buffer, delegates to pure_zip_meta, then frees the buffer. Intended for recursion into embedded archives.",
+      "requirements": [
+        "ctx must be initialized by caller (fields used: flags, and counters).",
+        "buffer must contain size bytes of the ZIP to scan.",
+        "Allocations for inner data are managed and freed inside; caller does not retain data.",
+        "Returns PURE_E_OK (0) on success or a PURE_E_* error code."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_data",
+      "signature": "int pure_zip_data(pure_ctx* ctx, const uint8_t* buffer, const pure_zip_cdh* cdh, const pure_zip_lfh* lfh, uint8_t** data, uint64_t* data_size)",
+      "description": "Processes a single file entry’s data given its CDH and LFH: enforces ZIP bomb limits, inflates/stores into provided buffer (growing it as needed), verifies CRC32, and recursively scans embedded archives by signature; otherwise counts files.",
+      "requirements": [
+        "cdh->directory entries must have zero sizes; function returns 0 without data.",
+        "For non-empty entries: cdh->uncompressed_size must be > 0 or specific deflate 2-byte empty stream allowed; otherwise PURE_E_ZIP_AD_NIHILO.",
+        "ctx->compressed_size and ctx->uncompressed_size must not overflow when adding this entry; else PURE_E_UINT64_OVERFLOW.",
+        "Updates ctx sizes then verifies compression ratio via pure_zip_verify_compression_ratio.",
+        "If deflate: reallocates *data to uncompressed size via pure_realloc (must succeed) and calls pure_zip_inflate_raw; else uses stored data pointer.",
+        "Verifies CRC32 of uncompressed data equals cdh->crc32; else PURE_E_ZIP_CRC32.",
+        "If data begins with PK signature, recursively scans with pure_zip_meta_data; else increments ctx->files and checks against PURE_FILES_MAX.",
+        "buffer must contain the entry data at cdh->relative_offset + lfh->length and that region must fit within the provided buffer."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_meta",
+      "signature": "int pure_zip_meta(pure_ctx* ctx, const uint8_t* buffer, const uint64_t size, uint8_t** data, uint64_t* data_size)",
+      "description": "Parses and validates an entire ZIP file from buffer: applies anti-bomb limits in ctx, checks for masquerading signatures, locates and decodes EOCDR/ZIP64 structures, iterates CDH/LFH pairs while ensuring layout consistency, processes each file via pure_zip_data, and verifies there is no trailing/leading garbage between sections.",
+      "requirements": [
+        "Increments and validates ctx->depth, ctx->files, ctx->archives, ctx->size against PURE_* limits; returns corresponding PURE_E_* on violation.",
+        "size must be >= PURE_ZIP_EOCDR_MIN; otherwise PURE_E_ZIP_TOO_SMALL.",
+        "Rejects size > 4GiB with PURE_E_ZIP_SIZE_4GB (no ZIP64 v1/2).",
+        "Rejects RAR/TAR/XAR signature masquerades at offset 0 with PURE_E_ZIP_*.",
+        "Must successfully locate EOCDR and decode/upgrade it; errors propagate.",
+        "Must find the first LFH or EOCDR at file start considering spanning signatures; errors propagate.",
+        "Iterates exactly eocdr.cd_records CDHs, for each: decode CDH; ensure no under/overflow/overlap from LFH perspective; decode corresponding LFH; compare CDH/LFH; verify symlink; advance offsets including DDR when indicated; ensure no section gaps/overlaps with zero/bleed checks; process previous entry data via pure_zip_data after validating no LFH overlap.",
+        "At end, ensure LF region end equals cd_offset; ensure CD region size matches eocdr; ensure CD ends exactly at EOCDR offset; ensure no extra data after EOCDR; decrements ctx->depth.",
+        "data/data_size are working buffers grown and reused by pure_zip_data and must be freed by caller on error paths (this function frees them only in pure_zip_meta_data). Returns PURE_E_OK (0) on success or a PURE_E_* error code."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip",
+      "signature": "int pure_zip(const uint8_t* buffer, const uint64_t size, const uint64_t flags)",
+      "description": "Public API to scan a ZIP file for structural validity and ZIP-bomb characteristics. Initializes context with flags and delegates to pure_zip_meta_data.",
+      "requirements": [
+        "buffer must contain size bytes of the ZIP file.",
+        "flags are stored in ctx and may influence behavior via constants elsewhere.",
+        "Returns PURE_E_OK (0) on success or a PURE_E_* error code from the scanning pipeline."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_zip_bomb",
+      "signature": "int pure_zip_bomb(const int error)",
+      "description": "Convenience predicate: returns 1 if the given error code represents a ZIP bomb classification, else 0.",
+      "requirements": [
+        "error must be a library error code; returns 1 for specific PURE_E_ZIP_BOMB_* codes listed in the function.",
+        "Returns 0 otherwise."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_error_code",
+      "signature": "const char* pure_error_code(const int error)",
+      "description": "Maps an error code to its short, stable string code from PURE_E_CODES. Returns empty string on out-of-range input.",
+      "requirements": [
+        "error must be 0 <= error < PURE_E_ENUM_LENGTH (asserts).",
+        "If out of range at runtime, returns \"\".",
+        "Returned pointer is to a constant static table; do not free."
+      ],
+      "error": null
+    },
+    {
+      "name": "pure_error_string",
+      "signature": "const char* pure_error_string(const int error)",
+      "description": "Maps an error code to its descriptive message from PURE_E_STRINGS. Returns empty string on out-of-range input.",
+      "requirements": [
+        "error must be 0 <= error < PURE_E_ENUM_LENGTH (asserts).",
+        "If out of range at runtime, returns \"\".",
+        "Returned pointer is to a constant static table; do not free."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "pure_zip_crc32",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a small random buffer (<= 1024 bytes) and compute its CRC32\nstd::string src = FUZZ_PARAM_STR();\nsize_t cap = src.size();\nif (cap > 1024) { cap = 1024; }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(cap);\n// Prepare result as required: non-NULL and initially 0\nuint64_t result_value = 0;\nuint64_t *result = &result_value;\n// Call target\nint rc = pure_zip_crc32(buffer, size, result);\n// API guarantees non-negative; bail only if unexpected non-zero pointer preconditions are violated (we control them)\nif (rc < 0) { FUZZ_BAIL(); }\n// Validation: ensured result was initialized to 0 and buffer was readable for size bytes.\n"
+    },
+    {
+      "name": "pure_zip_debug_lfh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a minimally valid decoded LFH view with zero-length variable regions\npure_zip_lfh lfh = {};\nlfh.file_name = nullptr;\nlfh.file_name_length = 0;\nlfh.extra_field = nullptr;\nlfh.extra_field_length = 0;\nlfh.length = 0; // base+name+extra; zero is acceptable for debug printing paths that check lengths\n// Invoke debug dump (prints to stdout)\npure_zip_debug_lfh(&lfh);\n// Validation: header pointers are null with zero lengths, satisfying readable-bytes requirements."
+    },
+    {
+      "name": "pure_zip_debug_ddr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a basic DDR structure\npure_zip_ddr ddr = {};\n// Invoke debug dump\npure_zip_debug_ddr(&ddr);\n// Validation: fields present; function only reads them for printing."
+    },
+    {
+      "name": "pure_zip_debug_cdh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a minimally valid CDH with zero-length variable regions\npure_zip_cdh cdh = {};\ncdh.file_name = nullptr;\ncdh.file_name_length = 0;\ncdh.extra_field = nullptr;\ncdh.extra_field_length = 0;\ncdh.file_comment = nullptr;\ncdh.file_comment_length = 0;\n// Invoke debug dump\npure_zip_debug_cdh(&cdh);\n// Validation: pointers are null with zero lengths, so no invalid memory access when printing."
+    },
+    {
+      "name": "pure_zip_debug_eocdl_64",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a basic ZIP64 EOCD Locator\npure_zip_eocdl_64 loc = {};\n// Invoke debug dump\npure_zip_debug_eocdl_64(&loc);\n// Validation: structure fields set; function prints them."
+    },
+    {
+      "name": "pure_zip_debug_eocdr_64",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a basic ZIP64 EOCD Record with empty extensible data sector\npure_zip_eocdr_64 rec = {};\nrec.extensible_data_sector = nullptr;\nrec.extensible_data_sector_length = 0;\n// Invoke debug dump\npure_zip_debug_eocdr_64(&rec);\n// Validation: pointers are null with zero length; safe for printing."
+    },
+    {
+      "name": "pure_zip_debug_eocdr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a basic classic EOCDR with empty comment\npure_zip_eocdr eocdr = {};\neocdr.comment = nullptr;\neocdr.comment_length = 0;\n// Invoke debug dump\npure_zip_debug_eocdr(&eocdr);\n// Validation: comment pointer/length consistent; safe for printing."
+    },
+    {
+      "name": "pure_zip_verify_compression_ratio",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate small sizes; include a zero-compressed_size path to exercise the early-return case\nuint64_t choice = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int));\nuint64_t compressed_size = (choice % 3 == 0) ? 0ULL : static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 1024u);\nuint64_t uncompressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 2048u);\n// Call target; nonzero return is acceptable (policy failure), only bail on impossible preconditions (none here)\n( void ) pure_zip_verify_compression_ratio(compressed_size, uncompressed_size);\n// Validation: sizes are small and well-defined; division-by-zero is avoided in implementation per API when compressed_size==0."
+    },
+    {
+      "name": "pure_zip_verify_compression_method",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a method id covering supported, encrypted, dangerous, and unsupported ranges\nunsigned int r = *FUZZ_PARAM(unsigned int);\nuint64_t value;\nswitch (r % 5) {\n  case 0: value = 0; break;           // store\n  case 1: value = 8; break;           // deflate\n  case 2: value = 99; break;          // encrypted\n  case 3: value = 1000; break;        // dangerous (>999)\n  default: value = 14; break;         // unsupported typical\n}\n( void ) pure_zip_verify_compression_method(value);\n// Validation: value is within meaningful cases; function may return nonzero per policy."
+    },
+    {
+      "name": "pure_zip_verify_compression_method_sizes",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose method and sizes consistent with requirements\nunsigned int r = *FUZZ_PARAM(unsigned int);\nuint64_t method = (r % 2 == 0) ? 0ULL : 8ULL; // store or deflate\nuint64_t base = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 1024u);\nuint64_t compressed_size;\nuint64_t uncompressed_size;\nif (method == 0) {\n  // For stored, sizes must be equal to be acceptable\n  compressed_size = base;\n  uncompressed_size = base;\n} else {\n  // For deflate, allow arbitrary relation\n  compressed_size = base;\n  uncompressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 2048u);\n}\n( void ) pure_zip_verify_compression_method_sizes(method, compressed_size, uncompressed_size);\n// Validation: preconditions satisfied; return value may indicate policy errors which are acceptable."
+    },
+    {
+      "name": "pure_zip_verify_date",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a 16-bit DOS date candidate\nuint64_t value = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) & 0xFFFFu);\n( void ) pure_zip_verify_date(value);\n// Validation: input fits 16 bits as required."
+    },
+    {
+      "name": "pure_zip_verify_directory",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a CDH with either directory or file semantics\npure_zip_cdh cdh = {};\nunsigned int r = *FUZZ_PARAM(unsigned int);\ncdh.directory = (r % 2) ? 1 : 0;\nif (cdh.directory) {\n  // For directories, enforce zero sizes to satisfy the invariant path\n  cdh.compressed_size = 0;\n  cdh.uncompressed_size = 0;\n} else {\n  cdh.compressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 1024u);\n  cdh.uncompressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 1024u);\n}\n( void ) pure_zip_verify_directory(&cdh);\n// Validation: directory flag is 0/1; for dir==1 sizes are set to zero to meet requirement."
+    },
+    {
+      "name": "pure_zip_verify_disk",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate disk number; include 0 (valid) and nonzero (error) cases\nuint64_t value = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 3u); // 0..2\n( void ) pure_zip_verify_disk(value);\n// Validation: value within small range; function may return nonzero if value!=0."
+    },
+    {
+      "name": "pure_zip_verify_extra_field",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate an extra field blob with length 0 or >=4 and small (<=64)\nstd::string ef = FUZZ_PARAM_STR();\nsize_t maxlen = ef.size();\nif (maxlen > 64) { maxlen = 64; }\nunsigned int mode = *FUZZ_PARAM(unsigned int) % 2u; // 0 => empty, 1 => non-empty\nuint64_t extra_field_length = (mode == 0) ? 0ULL : static_cast<uint64_t>((maxlen >= 4) ? (4 + (maxlen - 4) % 60) : 4);\nconst uint8_t *extra_field = reinterpret_cast<const uint8_t*>(ef.data());\n// Generate a small file name blob to compare against unicode path extra if present\nstd::string fn = FUZZ_PARAM_STR();\nif (fn.size() > 64) { fn.resize(64); }\nconst uint8_t *file_name = reinterpret_cast<const uint8_t*>(fn.data());\nuint64_t file_name_length = static_cast<uint64_t>(fn.size());\n( void ) pure_zip_verify_extra_field(extra_field, extra_field_length, file_name, file_name_length);\n// Validation: extra_field points to at least extra_field_length bytes; length is 0 or >=4; file name is bounded and readable."
+    },
+    {
+      "name": "pure_zip_verify_file_name",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a small path-like name within modest size limits\nstd::string name = FUZZ_PARAM_STR();\nif (name.size() > 128) { name.resize(128); }\nconst uint8_t *file_name = reinterpret_cast<const uint8_t*>(name.data());\nuint64_t file_name_length = static_cast<uint64_t>(name.size());\n( void ) pure_zip_verify_file_name(file_name, file_name_length);\n// Validation: buffer is readable for length bytes; length kept modest to be within typical PURE_PATH_MAX."
+    },
+    {
+      "name": "pure_zip_verify_flags",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a 16-bit flag field per requirement\nuint64_t value = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) & 0xFFFFu);\n( void ) pure_zip_verify_flags(value);\n// Validation: width is <=16 bits as required; function may return specific errors for forbidden bits."
+    },
+    {
+      "name": "pure_zip_verify_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a small string with no explicit NULs; fuzz may still include zeros which should trigger errors as desired\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 128) { s.resize(128); }\nconst uint8_t *ptr = reinterpret_cast<const uint8_t*>(s.data());\nuint64_t len = static_cast<uint64_t>(s.size());\nuint64_t utf8 = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 2u); // toggle UTF-8 mode flag\n( void ) pure_zip_verify_string(ptr, len, utf8);\n// Validation: buffer is readable for len bytes; len kept small to be <= typical PURE_ZIP_STRING_MAX."
+    },
+    {
+      "name": "pure_zip_verify_symlink",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build minimal CDH/LFH and a backing buffer; select non-symlink to exercise early return\npure_zip_cdh cdh = {};\npure_zip_lfh lfh = {};\ncdh.unix_mode = 0100644; // regular file (not symlink)\ncdh.compression_method = 0; // store (won't be used when not a symlink)\ncdh.relative_offset = 0;\ncdh.compressed_size = 0;\nlfh.offset = 0;\nlfh.length = 0;\n// Provide a small backing buffer; not accessed for non-symlink path\nstd::string buf = FUZZ_PARAM_STR();\nif (buf.size() < 1) { buf.push_back('\\0'); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(buf.data());\n( void ) pure_zip_verify_symlink(&cdh, &lfh, buffer);\n// Validation: unix_mode indicates not a symlink, so function returns 0 without relying on buffer layout."
+    },
+    {
+      "name": "pure_zip_verify_unix_mode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a 16-bit unix mode candidate\nuint64_t value = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) & 0xFFFFu);\n( void ) pure_zip_verify_unix_mode(value);\n// Validation: input fits within 16-bit constraint; function returns 0 or specific policy errors."
+    },
+    {
+      "name": "pure_zip_verify_time",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a 16-bit DOS time candidate\nuint64_t value = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) & 0xFFFFu);\n( void ) pure_zip_verify_time(value);\n// Validation: input width is valid; function enforces hour/minute/second constraints."
+    },
+    {
+      "name": "pure_zip_verify_lfh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a minimally decoded LFH with consistent lengths and buffers\n// Use empty variable-length regions; enforce length = base + name + extra with base assumed 0 for this stub\npure_zip_lfh lfh = {};\nlfh.file_name = nullptr;\nlfh.file_name_length = 0;\nlfh.extra_field = nullptr;\nlfh.extra_field_length = 0;\nlfh.length = 0; // base(0) + 0 + 0\nlfh.zip64 = 0; // boolean\n// Reasonable defaults for fields used by verifiers\nlfh.general_purpose_bit_flag = 0; // no DDR, no UTF-8\nlfh.compression_method = 0;       // store\nlfh.compressed_size = 0;\nlfh.uncompressed_size = 0;\nlfh.last_mod_file_date = 0;\nlfh.last_mod_file_time = 0;\n// Invoke verification (may return nonzero on policy errors; acceptable)\n( void ) pure_zip_verify_lfh(&lfh);\n// Validation: pointers are null with zero lengths; boolean fields within 0/1; length invariant satisfied."
+    },
+    {
+      "name": "pure_zip_verify_cdh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a minimally decoded CDH with consistent lengths and buffers\npure_zip_cdh cdh = {};\ncdh.file_name = nullptr;\ncdh.file_name_length = 0;\ncdh.extra_field = nullptr;\ncdh.extra_field_length = 0;\ncdh.file_comment = nullptr;\ncdh.file_comment_length = 0;\ncdh.length = 0; // base(0) + name(0) + extra(0) + comment(0)\ncdh.zip64 = 0; // boolean\n// Defaults for fields used by verifiers\ncdh.general_purpose_bit_flag = 0; // not UTF-8\ncdh.compression_method = 0;       // store\ncdh.compressed_size = 0;\ncdh.uncompressed_size = 0;\ncdh.disk = 0;\ncdh.unix_mode = 0100644; // regular file\ncdh.directory = 0;\ncdh.last_mod_file_date = 0;\ncdh.last_mod_file_time = 0;\n// Invoke verification (may return nonzero policy errors; acceptable)\n( void ) pure_zip_verify_cdh(&cdh);\n// Validation: variable regions are null with zero length; directory invariants and disk=0 satisfied."
+    },
+    {
+      "name": "pure_zip_decode_eief_64",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a small extra field blob; may or may not contain 0x0001; both paths are valid\nstd::string ef = FUZZ_PARAM_STR();\nif (ef.size() > 64) { ef.resize(64); }\nconst uint8_t *extra_field = reinterpret_cast<const uint8_t*>(ef.data());\nuint64_t length = static_cast<uint64_t>(ef.size());\n// Initialize inputs as required: fields set to either actual values or 32/16-bit maxes\nuint64_t compressed_size = (*FUZZ_PARAM(unsigned int) % 2) ? 0xFFFFFFFFull : static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 1024u);\nuint64_t uncompressed_size = (*FUZZ_PARAM(unsigned int) % 2) ? 0xFFFFFFFFull : static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 2048u);\nuint64_t relative_offset = (*FUZZ_PARAM(unsigned int) % 2) ? 0xFFFFFFFFull : static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 4096u);\nuint64_t disk = (*FUZZ_PARAM(unsigned int) % 2) ? 0xFFFFull : 0ull;\nuint8_t zip64 = 0; // must be initialized to 0 per contract\nuint8_t lfh = static_cast<uint8_t>((*FUZZ_PARAM(unsigned int) % 2u)); // 0 or 1\n// Call decode (errors acceptable). Ensures assertions: zip64 initialized, lfh in {0,1}\n( void ) pure_zip_decode_eief_64(extra_field, length, &compressed_size, &uncompressed_size, &relative_offset, &disk, &zip64, lfh);\n// Validation: inputs obey initialization rules; extra_field bounds limited."
+    },
+    {
+      "name": "pure_zip_decode_lfh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a backing buffer and an in-bounds offset\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 1024) { src.resize(1024); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\nuint64_t offset = (size == 0) ? 0ull : (static_cast<uint64_t>(*FUZZ_PARAM(unsigned int)) % size);\nif (size == 0) { // Must satisfy offset < size precondition\n  // Ensure at least one byte to satisfy overflow checks path deterministically\n  std::string tmp = \"\\0\";\n  buffer = reinterpret_cast<const uint8_t*>(tmp.data());\n  size = 1;\n  offset = 0;\n}\npure_zip_lfh lfh = {};\n( void ) pure_zip_decode_lfh(buffer, size, offset, &lfh);\n// Validation: offset < size enforced; header provided; signature/overflow errors are acceptable outcomes."
+    },
+    {
+      "name": "pure_zip_decode_ddr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a small buffer and in-bounds offset\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 256) { src.resize(256); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\nuint64_t offset = (size == 0) ? 0ull : (static_cast<uint64_t>(*FUZZ_PARAM(unsigned int)) % size);\nif (size == 0) { std::string tmp = \"\\0\"; buffer = reinterpret_cast<const uint8_t*>(tmp.data()); size = 1; offset = 0; }\npure_zip_ddr ddr = {};\n// zip64 must be 0 or 1 prior to decode\nddr.zip64 = static_cast<uint8_t>((*FUZZ_PARAM(unsigned int)) & 1u);\n( void ) pure_zip_decode_ddr(buffer, size, offset, &ddr);\n// Validation: preconditions (offset<size, zip64 in {0,1}) satisfied; decode may return errors."
+    },
+    {
+      "name": "pure_zip_decode_cdh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate buffer and offset within bounds\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 1024) { src.resize(1024); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\nuint64_t offset = (size == 0) ? 0ull : (static_cast<uint64_t>(*FUZZ_PARAM(unsigned int)) % size);\nif (size == 0) { std::string tmp = \"\\0\"; buffer = reinterpret_cast<const uint8_t*>(tmp.data()); size = 1; offset = 0; }\npure_zip_cdh cdh = {};\n( void ) pure_zip_decode_cdh(buffer, size, offset, &cdh);\n// Validation: offset<size ensured; function may return signature/overflow or verification errors."
+    },
+    {
+      "name": "pure_zip_decode_eocdl_64",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Set up a small buffer and safe offset\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 128) { src.resize(128); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\nuint64_t offset = (size == 0) ? 0ull : (static_cast<uint64_t>(*FUZZ_PARAM(unsigned int)) % size);\nif (size == 0) { std::string tmp = \"\\0\"; buffer = reinterpret_cast<const uint8_t*>(tmp.data()); size = 1; offset = 0; }\npure_zip_eocdl_64 loc = {};\n( void ) pure_zip_decode_eocdl_64(buffer, size, offset, &loc);\n// Validation: offset<size enforced; decode may report signature/overflow/disks errors which are acceptable."
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare buffer and in-range offset\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 256) { src.resize(256); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\nuint64_t offset = (size == 0) ? 0ull : (static_cast<uint64_t>(*FUZZ_PARAM(unsigned int)) % size);\nif (size == 0) { std::string tmp = \"\\0\"; buffer = reinterpret_cast<const uint8_t*>(tmp.data()); size = 1; offset = 0; }\npure_zip_eocdr_64 rec = {};\n( void ) pure_zip_decode_eocdr_64(buffer, size, offset, &rec);\n// Validation: offset<size ensured; function may return signature/overflow; length fields are captured when possible."
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64_inherit",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build classic and ZIP64 EOCDR structures with matching values to exercise success/mismatch paths\npure_zip_eocdr a = {};\npure_zip_eocdr_64 b = {};\n// Use small consistent values that are not maxed to avoid mandatory upgrade\na.cd_size = 0; a.cd_offset = 0; a.cd_records = 0; a.disk = 0; a.cd_disk = 0; a.cd_disk_records = 0;\nb.cd_size = 0; b.cd_offset = 0; b.cd_records = 0; b.disk = 0; b.cd_disk = 0; b.cd_disk_records = 0;\n( void ) pure_zip_decode_eocdr_64_inherit(&a, &b);\n// Validation: inputs resemble decoded structs; fields match so inheritance check should pass or yield defined diffs."
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64_upgrade",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a decoded classic EOCDR that does not need ZIP64 upgrade (no fields maxed)\npure_zip_eocdr e = {};\ne.offset = 0; // Pretend EOCDR at start\ne.length = 0; // No comment region\n// Invoke upgrade; precondition satisfied that header is already decoded; expect early return 0 or defined errors\n( void ) pure_zip_decode_eocdr_64_upgrade(reinterpret_cast<const uint8_t*>(\"\"), 0, &e);\n// Validation: since no fields are maxed, function may return 0 without changes, satisfying the \"no-upgrade-needed\" path."
+    },
+    {
+      "name": "pure_zip_decode_eocdr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a buffer and safe offset; decoding will likely fail signature checks on random data\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 1024) { src.resize(1024); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\nuint64_t offset = (size == 0) ? 0ull : (static_cast<uint64_t>(*FUZZ_PARAM(unsigned int)) % size);\nif (size == 0) { std::string tmp = \"\\0\"; buffer = reinterpret_cast<const uint8_t*>(tmp.data()); size = 1; offset = 0; }\npure_zip_eocdr e = {};\n( void ) pure_zip_decode_eocdr(buffer, size, offset, &e);\n// Validation: offset<size enforced; decode may return overflow/signature/comment-related errors as designed."
+    },
+    {
+      "name": "pure_zip_diff_cld",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct LFH and values to compare with CDH value\npure_zip_lfh lfh = {};\n// Randomize whether DDR bit (bit 3) is set and whether lfh_value is zero to exercise both paths\nunsigned int r = *FUZZ_PARAM(unsigned int);\nlfh.general_purpose_bit_flag = (r & 1u) ? (1u << 3) : 0u; // toggle DDR bit\nuint64_t cdh_value = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int));\nuint64_t lfh_value = (lfh.general_purpose_bit_flag & (1u << 3)) ? 0ull : cdh_value; // match if DDR else require equality\n( void ) pure_zip_diff_cld(cdh_value, lfh_value, &lfh);\n// Validation: when DDR is indicated, lfh_value==0 exercises the relaxed match; otherwise exact equality."
+    },
+    {
+      "name": "pure_zip_diff_cdh_ddr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct matching CDH and DDR values to hit the equal path\npure_zip_cdh cdh = {};\npure_zip_ddr ddr = {};\ncdh.crc32 = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int));\ncdh.compressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 1024u);\ncdh.uncompressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 2048u);\nddr.crc32 = cdh.crc32;\nddr.compressed_size = cdh.compressed_size;\nddr.uncompressed_size = cdh.uncompressed_size;\n( void ) pure_zip_diff_cdh_ddr(&cdh, &ddr);\n// Validation: fields synchronized to favor the 0 (match) return; mismatches still acceptable outcomes."
+    },
+    {
+      "name": "pure_zip_diff_cdh_lfh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct CDH and LFH with consistent fields and zero-length names\npure_zip_cdh cdh = {};\npure_zip_lfh lfh = {};\n// Match flags, method, time/date\ncdh.general_purpose_bit_flag = 0; lfh.general_purpose_bit_flag = 0;\ncdh.compression_method = 0; lfh.compression_method = 0;\ncdh.last_mod_file_date = 0; lfh.last_mod_file_date = 0;\ncdh.last_mod_file_time = 0; lfh.last_mod_file_time = 0;\n// Match crc/sizes without DDR usage\ncdh.crc32 = 0; lfh.crc32 = 0;\ncdh.compressed_size = 0; lfh.compressed_size = 0;\ncdh.uncompressed_size = 0; lfh.uncompressed_size = 0;\n// File name and lengths equal and empty\ncdh.file_name = nullptr; cdh.file_name_length = 0;\nlfh.file_name = nullptr; lfh.file_name_length = 0;\n( void ) pure_zip_diff_cdh_lfh(&cdh, &lfh);\n// Validation: aligned fields and names aim for a match; function may still return specific diffs on internal policies."
+    },
+    {
+      "name": "pure_zip_diff_ddr_lfh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct DDR and LFH with consistent or unspecified (zero) fields\npure_zip_ddr ddr = {};\npure_zip_lfh lfh = {};\n// With DDR semantics, LFH zeros are allowed and treated as unspecified\nddr.crc32 = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int));\nddr.compressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 1024u);\nddr.uncompressed_size = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 2048u);\nlfh.crc32 = 0; lfh.compressed_size = 0; lfh.uncompressed_size = 0;\n( void ) pure_zip_diff_ddr_lfh(&ddr, &lfh);\n// Validation: LFH zeros exercise the relaxed comparison path; mismatches acceptable when LFH sets nonzero values."
+    },
+    {
+      "name": "pure_zip_inflate_raw",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare small compressed and output buffers; sizes kept <= 1024\nstd::string comp = FUZZ_PARAM_STR();\nif (comp.size() > 256) { comp.resize(256); }\n// Choose small output size; can be 0 to exercise early return\nunsigned int r = *FUZZ_PARAM(unsigned int);\nuint64_t uncompressed_size = (r % 4 == 0) ? 0ull : static_cast<uint64_t>((r % 1024) + 1);\nstd::vector<uint8_t> outbuf;\noutbuf.resize(static_cast<size_t>(uncompressed_size));\nconst uint8_t *compressed = reinterpret_cast<const uint8_t*>(comp.data());\nuint64_t compressed_size = static_cast<uint64_t>(comp.size());\n// Invoke inflate; function maps zlib statuses to PURE_E_*; both success and various errors are valid\n( void ) pure_zip_inflate_raw(compressed, compressed_size, outbuf.data(), uncompressed_size);\n// Validation: output buffer has at least uncompressed_size bytes; size bounds kept small; early return covered when size==0."
+    },
+    {
+      "name": "pure_zip_locate_eocdr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a buffer large enough for scan region search; cap to 1024\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() < 22) { src.resize(22, '\\0'); } // ensure >= PURE_ZIP_EOCDR_MIN typical\nif (src.size() > 1024) { src.resize(1024); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\nuint64_t offset = 0; // must be initialized to 0 per contract\n( void ) pure_zip_locate_eocdr(buffer, size, &offset);\n// Validation: size >= minimum ensured; *offset initialized to 0 as required; function may return NOT_FOUND."
+    },
+    {
+      "name": "pure_zip_locate_first_lfh",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a buffer and a simple EOCDR context; cap sizes for speed\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() < 8) { src.resize(8, '\\0'); }\nif (src.size() > 1024) { src.resize(1024); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\npure_zip_eocdr e = {};\n// Randomize whether there are records to influence expected layout paths\ne.cd_records = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int) % 2u);\nuint64_t offset = 0; // must be initialized to 0 per contract\n( void ) pure_zip_locate_first_lfh(buffer, size, &e, &offset);\n// Validation: size>=8 and *offset initialized; function may return prepended-data or success codes."
+    },
+    {
+      "name": "pure_zip_meta_data",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Initialize a context and provide a bounded buffer representing a ZIP file\npure_ctx ctx = {};\nctx.flags = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int));\n// Other counters start at 0 as required by the scanning pipeline\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 1024) { src.resize(1024); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\n( void ) pure_zip_meta_data(&ctx, buffer, size);\n// Validation: ctx initialized with zeroed accounting; buffer bounded; function manages internal allocations."
+    },
+    {
+      "name": "pure_zip_data",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise the directory-entry early return path to avoid relying on buffer layout\npure_ctx ctx = {};\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() == 0) { src.push_back('\\0'); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\npure_zip_cdh cdh = {};\npure_zip_lfh lfh = {};\ncdh.directory = 1;            // directory entry triggers zero-size early return\ncdh.compressed_size = 0;\ncdh.uncompressed_size = 0;\ncdh.relative_offset = 0;\nlfh.offset = 0; lfh.length = 0;\n// Provide reusable data buffer holders (will not be used for directory case)\nuint8_t *data = nullptr;\nuint64_t data_size = 0;\n( void ) pure_zip_data(&ctx, buffer, &cdh, &lfh, &data, &data_size);\n// Validation: directory invariants enforced => function should return quickly without dereferencing data regions."
+    },
+    {
+      "name": "pure_zip_meta",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Construct a minimal context and a too-small buffer to force early return without allocations\npure_ctx ctx = {};\nctx.flags = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int));\n// Provide a buffer smaller than PURE_ZIP_EOCDR_MIN to satisfy the \"too small\" fast-path\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() == 0) { src.push_back('\\0'); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = 1; // ensure < PURE_ZIP_EOCDR_MIN to avoid internal allocations\n// Working buffers that pure_zip_data would grow; we keep them null to avoid ownership issues\nuint8_t *data = nullptr;\nuint64_t data_size = 0;\n( void ) pure_zip_meta(&ctx, buffer, size, &data, &data_size);\n// Validation: size < minimum ensures early PURE_E_ZIP_TOO_SMALL and prevents any allocation so no freeing is required."
+    },
+    {
+      "name": "pure_zip",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz flags and provide a bounded buffer\nuint64_t flags = static_cast<uint64_t>(*FUZZ_PARAM(unsigned int));\nstd::string src = FUZZ_PARAM_STR();\nif (src.size() > 1024) { src.resize(1024); }\nconst uint8_t *buffer = reinterpret_cast<const uint8_t*>(src.data());\nuint64_t size = static_cast<uint64_t>(src.size());\n( void ) pure_zip(buffer, size, flags);\n// Validation: buffer points to size readable bytes; callee manages internal allocations via pure_zip_meta_data."
+    },
+    {
+      "name": "pure_zip_bomb",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a random error code; both bomb and non-bomb codes are valid\nint error = static_cast<int>(*FUZZ_PARAM(unsigned int));\n( void ) pure_zip_bomb(error);\n// Validation: function is a predicate over codes; any int is acceptable input."
+    },
+    {
+      "name": "pure_error_code",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide an in-range error code to satisfy asserted precondition; 0 is PURE_E_OK\nint error = 0;\n( void ) pure_error_code(error);\n// Validation: using 0 avoids out-of-range assertions; returned pointer is static and not freed."
+    },
+    {
+      "name": "pure_error_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide an in-range error code to satisfy asserted precondition; 0 is PURE_E_OK\nint error = 0;\n( void ) pure_error_string(error);\n// Validation: using 0 avoids out-of-range assertions; returned pointer is static and not freed."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "pure_zip_debug_lfh",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_debug_ddr",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_debug_cdh",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_debug_eocdl_64",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_debug_eocdr_64",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_debug_eocdr",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_compression_ratio",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_compression_method",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_compression_method_sizes",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_date",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_directory",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_disk",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_flags",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_unix_mode",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_time",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_lfh",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_verify_cdh",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64_inherit",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64_upgrade",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_diff_cld",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_diff_cdh_ddr",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_diff_cdh_lfh",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_diff_ddr_lfh",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_bomb",
+      "data_types": []
+    },
+    {
+      "name": "pure_error_code",
+      "data_types": []
+    },
+    {
+      "name": "pure_error_string",
+      "data_types": []
+    },
+    {
+      "name": "pure_zip_crc32",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_verify_extra_field",
+      "data_types": [
+        "ZIP extra field blob",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_verify_file_name",
+      "data_types": [
+        "filesystem path string"
+      ]
+    },
+    {
+      "name": "pure_zip_verify_string",
+      "data_types": [
+        "binary string without NULs"
+      ]
+    },
+    {
+      "name": "pure_zip_verify_symlink",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_decode_eief_64",
+      "data_types": [
+        "ZIP extra field blob"
+      ]
+    },
+    {
+      "name": "pure_zip_decode_lfh",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_decode_ddr",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_decode_cdh",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_decode_eocdl_64",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_decode_eocdr_64",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_decode_eocdr",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_inflate_raw",
+      "data_types": [
+        "deflate-compressed data"
+      ]
+    },
+    {
+      "name": "pure_zip_locate_eocdr",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_locate_first_lfh",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_meta_data",
+      "data_types": [
+        "ZIP file data"
+      ]
+    },
+    {
+      "name": "pure_zip_data",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip_meta",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "pure_zip",
+      "data_types": [
+        "ZIP file data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A buffer of arbitrary bytes with no required structure or encoding. Functions may interpret it as raw bytes, search for signatures, or parse if it happens to match expected formats."
+    },
+    {
+      "data_type": "ZIP extra field blob",
+      "description": "A byte sequence representing the ZIP extra field area (a concatenation of TLV records). May include various attributes such as 0x0001 (Zip64 extended information) or 0x7075 (Unicode path). Format: repeated [2-byte ID][2-byte size][size bytes data]."
+    },
+    {
+      "data_type": "filesystem path string",
+      "description": "A path-like string for filenames inside ZIP archives, expected to use forward slashes, without drive letters, relative prefixes, backslashes, control characters, or traversal components. May be empty in some contexts."
+    },
+    {
+      "data_type": "binary string without NULs",
+      "description": "A generic byte string intended for ZIP names/comments with the constraint that it should not contain NUL (0x00) bytes. Length is bounded by ZIP limits; encoding may be CP437 or UTF-8 depending on flags."
+    },
+    {
+      "data_type": "deflate-compressed data",
+      "description": "A raw DEFLATE bitstream (no zlib/gzip headers) suitable for inflation with windowBits=-15. May be any length, and decompression expects an exact output size."
+    },
+    {
+      "data_type": "ZIP file data",
+      "description": "A complete ZIP archive byte buffer, potentially including EOCDR, central directory, local file headers and file data. May or may not be valid; parsers will search for ZIP signatures and structures."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# This generator produces small, valid ZIP-like byte buffers tailored to exercise\n# the provided fuzzer stubs. It focuses on assembling coherent structures:\n# - EOCDR (classic) possibly with matching Central Directory (CDH) and a single file\n# - Matching Local File Header (LFH) and optional Data Descriptor (DDR)\n# - A few variants: stored vs deflate method, DDR present vs absent, Unicode Path extra field\n# The buffers are valid or near-valid ZIPs so that decode/verify paths can proceed\n# beyond signature checks. Sizes are kept small (<4096 bytes).\n\n# ZIP signatures\nS_LFH = 0x04034b50\nS_CDH = 0x02014b50\nS_EOCDR = 0x06054b50\nS_DDR = 0x08074b50  # optional signature for data descriptor\n\n# Helpers\n\ndef u16(v: int) -> bytes:\n    return struct.pack('<H', v & 0xFFFF)\n\ndef u32(v: int) -> bytes:\n    return struct.pack('<I', v & 0xFFFFFFFF)\n\ndef u64(v: int) -> bytes:\n    return struct.pack('<Q', v & 0xFFFFFFFFFFFFFFFF)\n\n# Simple CRC32 implementation via binascii (standard library)\nimport binascii\n\ndef crc32(data: bytes) -> int:\n    return binascii.crc32(data) & 0xFFFFFFFF\n\n# Build an Info-ZIP Unicode Path Extra Field (0x7075) matching file_name\n# Layout: [0x75,0x70] [size=1+4+len(name)] [version=1] [crc32(name)] [name bytes]\n\ndef make_unicode_path_extra(name_bytes: bytes) -> bytes:\n    name_crc = crc32(name_bytes)\n    payload = bytes([1]) + u32(name_crc) + name_bytes\n    return u16(0x7075) + u16(len(payload)) + payload\n\n# Build minimal extra field (optionally include Unicode path block)\n\ndef build_extra(include_unicode: bool, name_bytes: bytes) -> bytes:\n    extras = []\n    if include_unicode:\n        extras.append(make_unicode_path_extra(name_bytes))\n    # Add a benign padding TLV to exercise parser loop: id 0x5455 (UT) with size 0\n    # A zero-size attribute is valid and quickly skipped.\n    extras.append(u16(0x5455) + u16(0))\n    return b''.join(extras)\n\n# Build a stored (method 0) entry with tiny content\n\ndef build_stored_entry(file_name: str, content: bytes, add_ddr: bool, add_unicode_extra: bool) -> bytes:\n    name_b = file_name.encode('utf-8')\n    extra = build_extra(add_unicode_extra, name_b)\n    gpbf = 0\n    if add_ddr:\n        gpbf |= 1 << 3  # bit 3 indicates data descriptor\n    method = 0  # store\n    mtime = 0x4000  # 2:00:00\n    mdate = 0x21 << 9 | 1 << 5 | 1  # 2001-01-01 approx (DOS date)\n\n    uncompressed = content\n    csize = len(uncompressed)\n    usize = len(uncompressed)\n    crc = crc32(uncompressed)\n\n    # If DDR is used, LFH crc/size fields set to 0 per spec when bit 3 set\n    l_crc = 0 if add_ddr else crc\n    l_csize = 0 if add_ddr else csize\n    l_usize = 0 if add_ddr else usize\n\n    lfh = b''.join([\n        u32(S_LFH),\n        u16(20),               # version needed\n        u16(gpbf),\n        u16(method),\n        u16(mtime),\n        u16(mdate),\n        u32(l_crc),\n        u32(l_csize),\n        u32(l_usize),\n        u16(len(name_b)),\n        u16(len(extra)),\n        name_b,\n        extra,\n    ])\n\n    data = uncompressed  # stored\n\n    ddr = b''\n    if add_ddr:\n        # Use signature form of DDR to improve detectability\n        ddr = b''.join([\n            u32(S_DDR),\n            u32(crc),\n            u32(csize),\n            u32(usize),\n        ])\n\n    # Central Directory Header referencing this LFH\n    # external attributes: regular file 0100644 shifted into top 16 bits\n    unix_mode = 0o100644\n    ext_attr = unix_mode << 16\n    relative_offset = 0  # LFH at start\n\n    cdh_extra = build_extra(add_unicode_extra, name_b)\n    cdh = b''.join([\n        u32(S_CDH),\n        u16(20),            # version made by\n        u16(20),            # version needed\n        u16(gpbf),\n        u16(method),\n        u16(mtime),\n        u16(mdate),\n        u32(crc),\n        u32(csize),\n        u32(usize),\n        u16(len(name_b)),\n        u16(len(cdh_extra)),\n        u16(0),             # file comment length\n        u16(0),             # disk number start\n        u16(0),             # internal attrs\n        u32(ext_attr),\n        u32(relative_offset),\n        name_b,\n        cdh_extra,\n        # no file comment\n    ])\n\n    # EOCDR for single-entry archive\n    cd_offset = len(lfh) + len(data) + len(ddr)\n    cd_size = len(cdh)\n    eocdr = b''.join([\n        u32(S_EOCDR),\n        u16(0),  # disk\n        u16(0),  # cd_disk\n        u16(1),  # cd_disk_records\n        u16(1),  # cd_records\n        u32(cd_size),\n        u32(cd_offset),\n        u16(0),  # comment length\n    ])\n\n    return lfh + data + ddr + cdh + eocdr\n\n# Build a deflate entry with an empty deflate stream (valid 2-byte empty block)\n# This exercises inflate paths without heavy data. For DEFLATE, sizes can be zero only with\n# the special empty stream; we set sizes to 0 to exercise checks that allow 2-byte empty stream.\n\ndef build_deflate_empty_entry(file_name: str, add_ddr: bool, add_unicode_extra: bool) -> bytes:\n    name_b = file_name.encode('utf-8')\n    extra = build_extra(add_unicode_extra, name_b)\n    gpbf = 0\n    if add_ddr:\n        gpbf |= 1 << 3\n    method = 8  # deflate\n    mtime = 0x0000\n    mdate = 0x0021  # minimal valid date\n\n    # 2-byte empty raw deflate stream is not universally standard, but many parsers\n    # accept a minimal empty block sequence of 2 or 3 bytes. We'll use a known valid\n    # empty raw deflate block: 0x03 0x00 (BFINAL=1, BTYPE=00, LEN=0, NLEN=0) actually needs 5 bytes.\n    # To keep it tiny yet valid, use a single empty stored block header with LEN=0: 0x01 00 FF FF.\n    # However, raw deflate requires at least this 5-byte header if ending properly. We'll use 5 bytes.\n    compressed = bytes([0x01, 0x00, 0x00, 0xFF, 0xFF])\n    uncompressed = b''\n    csize = len(compressed)\n    usize = len(uncompressed)\n    crc = crc32(uncompressed)\n\n    l_crc = 0 if add_ddr else crc\n    l_csize = 0 if add_ddr else csize\n    l_usize = 0 if add_ddr else usize\n\n    lfh = b''.join([\n        u32(S_LFH),\n        u16(20),\n        u16(gpbf),\n        u16(method),\n        u16(mtime),\n        u16(mdate),\n        u32(l_crc),\n        u32(l_csize),\n        u32(l_usize),\n        u16(len(name_b)),\n        u16(len(extra)),\n        name_b,\n        extra,\n    ])\n\n    data = compressed\n\n    ddr = b''\n    if add_ddr:\n        ddr = b''.join([\n            u32(S_DDR),\n            u32(crc),\n            u32(csize),\n            u32(usize),\n        ])\n\n    unix_mode = 0o100644\n    ext_attr = unix_mode << 16\n    relative_offset = 0\n\n    cdh_extra = build_extra(add_unicode_extra, name_b)\n    cdh = b''.join([\n        u32(S_CDH),\n        u16(20),\n        u16(20),\n        u16(gpbf),\n        u16(method),\n        u16(mtime),\n        u16(mdate),\n        u32(crc),\n        u32(csize),\n        u32(usize),\n        u16(len(name_b)),\n        u16(len(cdh_extra)),\n        u16(0),\n        u16(0),\n        u16(0),\n        u32(ext_attr),\n        u32(relative_offset),\n        name_b,\n        cdh_extra,\n    ])\n\n    cd_offset = len(lfh) + len(data) + len(ddr)\n    cd_size = len(cdh)\n    eocdr = b''.join([\n        u32(S_EOCDR),\n        u16(0),\n        u16(0),\n        u16(1),\n        u16(1),\n        u32(cd_size),\n        u32(cd_offset),\n        u16(0),\n    ])\n\n    return lfh + data + ddr + cdh + eocdr\n\n# A minimal classic EOCDR-only buffer (empty archive) to drive locate_eocdr/first_lfh paths\n\ndef build_empty_archive() -> bytes:\n    # EOCDR with zero records and cd_size=0, cd_offset=0, no comment\n    eocdr = b''.join([\n        u32(S_EOCDR),\n        u16(0), u16(0),\n        u16(0), u16(0),\n        u32(0), u32(0),\n        u16(0),\n    ])\n    return eocdr\n\n# Public API\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Choose a variant\n    variant = rnd.choice([\n        'stored_no_ddr',\n        'stored_ddr',\n        'deflate_empty_no_ddr',\n        'deflate_empty_ddr',\n        'empty_archive',\n    ])\n\n    # File name variants to exercise file name validation and UTF-8 flag behavior (bit 11 not set here, but names are safe)\n    names = [\n        'a.txt',\n        'path/to/file',\n        'readme.md',\n        'dir/inner/test',\n        'unicodé',\n    ]\n    file_name = rnd.choice(names)\n\n    # Content for stored entries\n    contents = [\n        b'',\n        b'hello',\n        b'ZIP test data',\n        bytes([i % 256 for i in range(32)]),\n    ]\n    content = rnd.choice(contents)\n\n    add_unicode_extra = rnd.choice([True, False])\n\n    if variant == 'empty_archive':\n        return build_empty_archive()\n    elif variant == 'stored_no_ddr':\n        buf = build_stored_entry(file_name, content, add_ddr=False, add_unicode_extra=add_unicode_extra)\n    elif variant == 'stored_ddr':\n        buf = build_stored_entry(file_name, content, add_ddr=True, add_unicode_extra=add_unicode_extra)\n    elif variant == 'deflate_empty_no_ddr':\n        buf = build_deflate_empty_entry(file_name, add_ddr=False, add_unicode_extra=add_unicode_extra)\n    elif variant == 'deflate_empty_ddr':\n        buf = build_deflate_empty_entry(file_name, add_ddr=True, add_unicode_extra=add_unicode_extra)\n    else:\n        buf = build_empty_archive()\n\n    # Ensure size cap\n    if len(buf) > 4096:\n        buf = buf[:4096]\n    return buf\n"
+    },
+    {
+      "data_type": "ZIP extra field blob",
+      "generator": "import random\nfrom typing import List, Tuple\n\n# ZIP Extra Field generator focused on producing valid TLV sequences with\n# interesting combinations for:\n# - pure_zip_verify_extra_field(extra_field, extra_field_length, file_name,...)\n# - pure_zip_decode_eief_64(extra_field, length, ...)\n#\n# We emit buffers that are valid concatenations of [id(2)][size(2)][data],\n# stressing especially:\n# - 0x0001 Zip64 Extended Information blocks with different field subsets\n#   and valid sizes, including LFH-specific exact 16-byte data (ucsz+csz).\n# - 0x7075 Unicode Path blocks with version=1, crc32 placeholder, and a\n#   path that can match or intentionally differ from a companion filename\n#   depending on seed path; for the verify_extra_field stub, the harness\n#   passes a separate file_name buffer, so our content should often match\n#   to be considered valid.\n# - Benign unknown tags to exercise TLV traversal.\n# We keep sizes small (<= 64 bytes) as the stubs cap input length.\n\n# Helper to write little-endian 16/32/64 integers\n\ndef u16(x: int) -> bytes:\n    return (x & 0xFFFF).to_bytes(2, 'little')\n\ndef u32(x: int) -> bytes:\n    return (x & 0xFFFFFFFF).to_bytes(4, 'little')\n\ndef u64(x: int) -> bytes:\n    return (x & 0xFFFFFFFFFFFFFFFF).to_bytes(8, 'little')\n\n# Build specific extra field blocks\n\ndef build_zip64_block(fields: List[str], values: dict) -> bytes:\n    # fields order must be: uncompressed_size, compressed_size, relative_offset, disk\n    # Only include those listed in fields\n    payload = b\"\"\n    if 'uncompressed_size' in fields:\n        payload += u64(values.get('uncompressed_size', 0))\n    if 'compressed_size' in fields:\n        payload += u64(values.get('compressed_size', 0))\n    if 'relative_offset' in fields:\n        payload += u64(values.get('relative_offset', 0))\n    if 'disk' in fields:\n        payload += u32(values.get('disk', 0))\n    return u16(0x0001) + u16(len(payload)) + payload\n\n\ndef build_unicode_path_block(path_bytes: bytes, version: int = 1, crc32_val: int = 0) -> bytes:\n    # Info-ZIP Unicode Path Extra (0x7075): [ver(1)][crc32(4)][utf8 path]\n    payload = bytes([version & 0xFF]) + u32(crc32_val) + path_bytes\n    return u16(0x7075) + u16(len(payload)) + payload\n\n\ndef build_unknown_block(tag: int, data_len: int, rnd: random.Random) -> bytes:\n    data = bytes(rnd.getrandbits(8) for _ in range(data_len))\n    return u16(tag & 0xFFFF) + u16(len(data)) + data\n\n# Generate a safe, policy-conformant filename/path for 0x7075 matching\n\ndef make_valid_path(rnd: random.Random) -> bytes:\n    # Constraints from verify_file_name/string:\n    # - No NULs\n    # - No backslashes\n    # - No control chars\n    # - No leading ./, ../, drive specs, or .. components\n    # Keep it short and simple: components of [a-z0-9_-]\n    comp_count = rnd.randint(1, 3)\n    comps = []\n    alphabet = b\"abcdefghijklmnopqrstuvwxyz0123456789-_\"\n    for _ in range(comp_count):\n        L = rnd.randint(1, 10)\n        comp = bytes(alphabet[rnd.randrange(len(alphabet))] for _ in range(L))\n        comps.append(comp)\n    # Optionally mark as directory with trailing slash for CDH side, but here we just need name bytes\n    path = b\"/\".join(comps)\n    # Avoid trailing slash; Unicode Path compares exact bytes to file_name\n    return path\n\n\ndef build_extra_field_bundle(rnd: random.Random, want_lfh_zip64_16: bool, filename_for_7075: bytes) -> bytes:\n    blocks: List[bytes] = []\n\n    # Randomly include a Zip64 block\n    include_zip64 = rnd.random() < 0.8  # often include, exercises decode_eief_64\n    if include_zip64:\n        # Choose which fields to include; for LFH strictness path, include exactly ucsz+csz\n        if want_lfh_zip64_16:\n            fields = ['uncompressed_size', 'compressed_size']\n        else:\n            # Random subset but non-empty\n            all_fields = ['uncompressed_size', 'compressed_size', 'relative_offset', 'disk']\n            rnd.shuffle(all_fields)\n            k = rnd.randint(1, len(all_fields))\n            fields = all_fields[:k]\n        vals = {\n            'uncompressed_size': rnd.randrange(0, 1 << 20),\n            'compressed_size': rnd.randrange(0, 1 << 20),\n            'relative_offset': rnd.randrange(0, 1 << 20),\n            'disk': 0,  # single-disk policy friendly\n        }\n        blocks.append(build_zip64_block(fields, vals))\n\n    # Optionally include Unicode Path that matches filename\n    include_u_path = rnd.random() < 0.7\n    if include_u_path and filename_for_7075 is not None:\n        # For validity, ensure version=1 and bytes exactly equal to file_name\n        path_bytes = filename_for_7075\n        # CRC32 value is checked only for presence/size/version in this library;\n        # comparison is of trailing bytes to file_name. Use 0.\n        blocks.append(build_unicode_path_block(path_bytes, version=1, crc32_val=0))\n\n    # Add 0-2 unknown benign blocks to test TLV iteration\n    for _ in range(rnd.randint(0, 2)):\n        tag = rnd.choice([0x000A, 0x7A7A, 0xFFFF, 0x6C78])  # arbitrary IDs\n        # Keep total under 64; each block header is 4 bytes, data small\n        data_len = rnd.randint(0, 12)\n        blocks.append(build_unknown_block(tag, data_len, rnd))\n\n    # Shuffle order to vary parsing paths\n    rnd.shuffle(blocks)\n\n    blob = b\"\".join(blocks)\n    # Ensure overall <= 64 bytes to fit the stub cap. If too long, trim by removing unknown blocks or truncating last unknown.\n    if len(blob) > 64:\n        # Try removing unknown blocks first\n        unknown_indices = [i for i, b in enumerate(blocks) if len(b) >= 4 and int.from_bytes(b[0:2], 'little') not in (0x0001, 0x7075)]\n        for idx in reversed(unknown_indices):\n            blob_candidate = b\"\".join(blocks[:idx] + blocks[idx+1:])\n            if len(blob_candidate) <= 64:\n                blob = blob_candidate\n                break\n        if len(blob) > 64:\n            # As a last resort, truncate by shortening the last block's data if it is unknown\n            for i in range(len(blocks)-1, -1, -1):\n                tag = int.from_bytes(blocks[i][0:2], 'little')\n                if tag not in (0x0001, 0x7075):\n                    # Reduce its size field and data\n                    hdr = blocks[i][:4]\n                    data = blocks[i][4:]\n                    if len(data) > 0:\n                        new_len = max(0, len(data) - (len(blob) - 64))\n                        new_data = data[:new_len]\n                        new_block = blocks[i][0:2] + u16(len(new_data)) + new_data\n                        blocks[i] = new_block\n                        blob = b\"\".join(blocks)\n                        break\n            # Final guard\n            blob = blob[:64]\n\n    return blob\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Build a companion filename for 0x7075 matching\n    filename = make_valid_path(rnd)\n\n    # Two usage contexts from stubs:\n    # - verify_extra_field may set length to 0 (empty) or non-empty >= 4 and cap to 64\n    # - decode_eief_64 uses full buffer length (we keep <=64)\n\n    mode = rnd.randint(0, 2)\n    if mode == 0:\n        # Empty extra field (length 0)\n        return b\"\"\n\n    # Non-empty blob with valid TLVs\n    # Randomly decide if we want an LFH-style Zip64 block sized exactly 16 (ucsz+csz)\n    want_lfh_zip64_16 = rnd.random() < 0.5\n    blob = build_extra_field_bundle(rnd, want_lfh_zip64_16, filename_for_7075=filename)\n\n    # Ensure minimum of 4 bytes when non-empty (our TLVs guarantee that)\n    if len(blob) == 0:\n        # Fallback to a tiny unknown TLV\n        blob = build_unknown_block(0x7A7A, 4, rnd)\n\n    # Cap to 64 to align with stub behavior\n    if len(blob) > 64:\n        blob = blob[:64]\n\n    return blob\n"
+    },
+    {
+      "data_type": "filesystem path string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for valid ZIP internal path strings per constraints:\n# - Length <= 128 (fuzzer truncates); also keep within typical limits\n# - Forward slashes only, no backslashes\n# - No control characters (use visible ASCII)\n# - No drive letters (no patterns like \"C:\" at start)\n# - No relative prefixes: no leading \"./\" or \"../\"\n# - No \"..\" path components anywhere\n# - No empty component overflows; allow empty string as valid\n# - Prefer UTF-8 friendly ASCII subset without NULs\n# - Aim to cover directories (trailing '/'), files with extensions, nested paths, hidden names, long components, edge characters like spaces/tilde/plus\n\nVISIBLE_ASCII = ''.join(chr(c) for c in range(0x20, 0x7F))\n# Exclude forbidden characters: backslash and colon (to avoid drive paths), and NUL (not in visible anyway)\nALLOWED_CHARS = ''.join(ch for ch in VISIBLE_ASCII if ch not in {'\\\\', ':'})\n# Further restrict component characters to avoid accidental relative components: we'll construct components explicitly\nSAFE_COMPONENT_CHARS = ''.join(ch for ch in ALLOWED_CHARS if ch not in {'/'})\n\nEXTS = [\n    'txt', 'md', 'bin', 'dat', 'json', 'xml', 'csv', 'png', 'jpg', 'gif', 'webp', 'pdf',\n    'zip', 'tar', 'xz', '7z', 'exe', 'dll', 'so', 'dylib'\n]\n\nCOMP_PREFIXES = ['', 'sub', 'dir', 'folder', 'data', 'res', 'img', 'doc', 'tmp', 'var', 'etc', 'usr', '~user']\nCOMP_MIDDLES = ['', 'file', 'name', 'part', 'chunk', 'block', 'node', 'asset', 'payload']\nCOMP_SUFFIXES = ['', '1', '2', 'A', 'B', '-', '_', '+']\n\nSPECIAL_COMPONENTS = [\n    # Hidden files and typical names\n    '.hidden', '.gitignore', '.env', 'Makefile', 'README', 'LICENSE', 'CHANGELOG',\n    # Longish names\n    'long_component_name_with_mixed-CHARS_0123456789',\n    # Space-containing\n    'with space',\n    # Non-trivial punctuation (still safe)\n    'name~tilde', 'plus+sign', 'equals=sign', 'comma,sep', 'semi;colon', 'at@sign'\n]\n\ndef rand_component(rng: random.Random, min_len: int = 1, max_len: int = 32) -> str:\n    # Avoid \".\" or \"..\" specifically to satisfy no-traversal rule\n    # Sometimes pick from curated components; otherwise synthesize\n    if rng.random() < 0.35:\n        comp = rng.choice(SPECIAL_COMPONENTS)\n    else:\n        # Construct from prefix/middle/suffix and random tail\n        base = rng.choice(COMP_PREFIXES) + rng.choice(COMP_MIDDLES) + rng.choice(COMP_SUFFIXES)\n        if base == '':\n            base = 'f'\n        tail_len = rng.randint(0, max(0, min_len - len(base))) if min_len > len(base) else 0\n        tail_len = max(tail_len, rng.randint(0, max(0, max_len - len(base))))\n        extra = ''.join(rng.choice(SAFE_COMPONENT_CHARS) for _ in range(tail_len))\n        comp = base + extra\n    # Ensure not reserved traversal components\n    if comp in {'.', '..'}:\n        comp = 'dot' if comp == '.' else 'parent'\n    # Strip leading/trailing spaces only occasionally keep (spaces are allowed, but avoid empty after strip)\n    if comp.strip() == '':\n        comp = 'space'\n    return comp\n\ndef maybe_extension(rng: random.Random) -> str:\n    if rng.random() < 0.8:\n        return '.' + rng.choice(EXTS)\n    return ''\n\ndef make_directory_path(rng: random.Random, max_total: int) -> str:\n    # Build 1-6 components directory path ending with '/'\n    n = rng.randint(1, 6)\n    comps: List[str] = []\n    for _ in range(n):\n        comp = rand_component(rng)\n        comps.append(comp)\n    path = '/'.join(comps)\n    if not path.endswith('/'):\n        path += '/'\n    # Ensure within max_total\n    if len(path) > max_total:\n        path = path[:max_total]\n        if not path.endswith('/'):\n            # ensure directory semantics\n            if len(path) < max_total:\n                path = path.rstrip('/') + '/'\n            else:\n                # replace last char with '/'\n                path = path[:-1] + '/'\n    return path\n\ndef make_file_path(rng: random.Random, max_total: int) -> str:\n    # Build depth 0-6; depth 0 means just filename\n    depth = rng.randint(0, 6)\n    comps: List[str] = []\n    for _ in range(depth):\n        comp = rand_component(rng)\n        comps.append(comp)\n    # filename\n    base = rand_component(rng)\n    # Occasionally ensure not directory-like\n    if base.endswith('/'):\n        base = base.rstrip('/') or 'file'\n    # add extension\n    ext = maybe_extension(rng)\n    name = base + ext\n    comps.append(name)\n    path = '/'.join(comps)\n    if len(path) > max_total:\n        # Trim conservatively but avoid truncating into a leading './' or '..'\n        path = path[:max_total]\n        # avoid trailing '/' on files\n        path = path.rstrip('/')\n        if path == '' or path in {'.', '..'}:\n            path = 'file' + maybe_extension(rng)\n    return path\n\ndef make_edge_cases(rng: random.Random) -> List[str]:\n    # Curated set of valid edge paths\n    cases = [\n        '',  # empty allowed in some contexts\n        'a',\n        '0',\n        'folder/',\n        'folder/sub/',\n        'folder/file',\n        'folder/file.txt',\n        'a/b/c/d/e/f.txt',\n        'path/with space/and/mixed-chars_123/file.name',\n        'dot.name/.hidden',\n        '~user/docs/readme.md',\n        'usr/local/bin/tool',\n        'etc/nginx/nginx.conf',\n        'verylongcomponentname' * 3 + '/file',\n    ]\n    # Ensure no component is '..' and no backslashes present\n    filtered = []\n    for p in cases:\n        if '\\\\' in p:\n            continue\n        if any(comp == '..' for comp in p.split('/') if comp):\n            continue\n        filtered.append(p)\n    rng.shuffle(filtered)\n    return filtered\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Decide type of path to produce\n    kind = rng.random()\n    max_len = rng.randint(0, 128)\n\n    candidates: List[str] = []\n    # Add some curated edge cases\n    candidates.extend(make_edge_cases(rng))\n\n    # Synthesize a few random candidates\n    for _ in range(10):\n        if kind < 0.3:\n            p = make_directory_path(rng, max_len)\n        else:\n            p = make_file_path(rng, max_len)\n        candidates.append(p)\n        # Vary kind slightly\n        kind = rng.random()\n        max_len = rng.randint(0, 128)\n\n    # Post-filter to ensure validity constraints\n    valid: List[str] = []\n    for p in candidates:\n        # Length within 0..128\n        if len(p) > 128:\n            p = p[:128]\n        # No backslashes, no colon, no control chars\n        if any(ord(ch) < 0x20 for ch in p):\n            continue\n        if ':' in p or '\\\\' in p:\n            continue\n        # No relative prefixes './' or '../'\n        if p.startswith('./') or p.startswith('../'):\n            continue\n        # No components equal to '..'\n        comps = [c for c in p.split('/') if c != '']\n        if any(c == '..' for c in comps):\n            continue\n        # Forward slashes are fine; allow empty string\n        valid.append(p)\n\n    if not valid:\n        valid = ['file.txt']\n\n    chosen = rng.choice(valid)\n    # Ensure final length bound\n    if len(chosen) > 128:\n        chosen = chosen[:128]\n\n    # Return bytes; the fuzzer expects arbitrary bytes for std::string\n    return chosen.encode('utf-8')\n"
+    },
+    {
+      "data_type": "binary string without NULs",
+      "generator": "import random\nfrom typing import List\n\n# Generator for a \"binary string without NULs\" for pure_zip_verify_string fuzz stub\n# Constraints to honor:\n# - No NUL (0x00) bytes in the string payload\n# - Length reasonably small (the stub truncates to 128)\n# - Cover interesting edge cases for ZIP name/comment validation: control-byte avoidance,\n#   mixture of ASCII, CP437-like extended bytes, UTF-8-looking sequences, slashes, dots, etc.\n# - Return bytes that the fuzz harness will pass as std::string data()\n\n_ASCII_PRINTABLE = [i for i in range(0x20, 0x7F) if i != 0]  # 0x20-0x7E\n# CP437-ish high bytes excluding 0x00\n_HIGH_BYTES = [i for i in range(0x80, 0x100)]\n# Safe path characters (forward slash allowed, backslash not included here; no NUL)\n_SAFE_PATH_CHARS = (\n    list(b\"abcdefghijklmnopqrstuvwxyz\") +\n    list(b\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\") +\n    list(b\"0123456789\") +\n    list(b\"-_. /\")\n)\n\n# Some prebuilt interesting chunks with no NULs\n_PRESETS: List[bytes] = [\n    b\"readme.txt\",\n    b\"docs/manual.pdf\",\n    b\"dir/subdir/file.bin\",\n    b\".hidden/file\",\n    b\"a\" * 64,\n    b\"component\" * 12,  # long component to approach component limits\n    b\"unicode-\",\n    # Valid 2-byte UTF-8 sequences (no NUL bytes)\n    \"caf\\xc3\\xa9\".encode(\"latin1\"),  # caf\u0003a9\n    b\"emoji-\\xF0\\x9F\\x98\\x80\",       # 😀 in UTF-8\n    b\"space in name/with/slashes\",\n    b\"no-backslash-allowed\",\n    b\"trailing-slash/\",\n    b\"dots.in.name.and.path\",\n    b\"multiple/levels/of/dirs/file.dat\",\n    b\"CP437-\\x82\\x83\\x84\\x85\\x86\",  # some high bytes\n]\n\ndef _rand_bytes_no_nul(rng: random.Random, length: int) -> bytes:\n    # Mix of ASCII printable and high bytes, excluding NUL\n    out = bytearray()\n    for _ in range(length):\n        kind = rng.random()\n        if kind < 0.6:\n            out.append(rng.choice(_ASCII_PRINTABLE))\n        else:\n            out.append(rng.choice(_HIGH_BYTES))\n    return bytes(out)\n\ndef _rand_path_like(rng: random.Random, max_len: int) -> bytes:\n    # Build a path-like string: components separated by '/'\n    components = []\n    total = 0\n    # choose 1-6 components\n    for _ in range(rng.randint(1, 6)):\n        comp_len = rng.randint(1, max(1, min(20, max_len - total - 1)))\n        comp = bytearray()\n        for _j in range(comp_len):\n            comp.append(rng.choice(_SAFE_PATH_CHARS))\n        components.append(bytes(comp))\n        total += comp_len + 1\n        if total >= max_len:\n            break\n    s = b\"/\".join(components)\n    return s[:max_len]\n\ndef _inject_utf8_sequences(rng: random.Random, base: bytearray) -> None:\n    # Insert some valid-looking multi-byte UTF-8 sequences that avoid NULs\n    sequences = [\n        b\"\\xC2\\xA9\",           # ©\n        b\"\\xC3\\xA9\",           # é\n        b\"\\xE2\\x82\\xAC\",       # €\n        b\"\\xF0\\x9F\\x98\\x80\",   # 😀\n    ]\n    if len(base) == 0:\n        return\n    count = max(1, len(base) // 16)\n    for _ in range(count):\n        seq = rng.choice(sequences)\n        pos = rng.randrange(0, len(base))\n        # splice: insert sequence at pos, ensuring max length later\n        base[pos:pos] = seq\n        if len(base) > 128:\n            del base[128:]\n            break\n\ndef _make_candidate(rng: random.Random) -> bytes:\n    choice = rng.random()\n    if choice < 0.25:\n        # Use a preset\n        s = bytearray(rng.choice(_PRESETS))\n        # maybe duplicate/extend a bit\n        if rng.random() < 0.4 and len(s) < 100:\n            s.extend(b\"-\" + s)\n        return bytes(s[:128])\n    elif choice < 0.55:\n        # Path-like\n        s = bytearray(_rand_path_like(rng, rng.randint(8, 128)))\n        # optionally inject UTF-8-looking sequences\n        if rng.random() < 0.5:\n            _inject_utf8_sequences(rng, s)\n        return bytes(s[:128])\n    else:\n        # Mixed random without NULs\n        length = rng.randint(1, 128)\n        s = bytearray(_rand_bytes_no_nul(rng, length))\n        # sprinkle some special but non-NUL ASCII that are allowed for names/comments\n        specials = b\"-_.+/@#()[]{}$^&=,;!~%+\"\n        for _ in range(rng.randint(1, 8)):\n            if len(s) == 0:\n                break\n            pos = rng.randrange(0, len(s))\n            s[pos] = rng.choice(list(specials))\n        # maybe inject UTF-8 sequences\n        if rng.random() < 0.5:\n            _inject_utf8_sequences(rng, s)\n        return bytes(s[:128])\n\ndef _ensure_no_nul(data: bytes) -> bytes:\n    if 0 in data:\n        # Replace any accidental NULs with 'A'\n        return data.replace(b\"\\x00\", b\"A\")\n    return data\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Build multiple candidates and choose one to add variety while deterministic per seed\n    candidates: List[bytes] = []\n    count = rng.randint(1, 4)\n    for _ in range(count):\n        candidates.append(_make_candidate(rng))\n    # Join candidates with '/' to create a realistic path/comment blend, capped at 128 bytes\n    sep = b\"/\" if rng.random() < 0.6 else b\" \"\n    out = sep.join(candidates)\n    if len(out) == 0:\n        out = b\"file\"\n    if len(out) > 128:\n        out = out[:128]\n    out = _ensure_no_nul(out)\n    return out\n"
+    },
+    {
+      "data_type": "deflate-compressed data",
+      "generator": "import random\nimport struct\nimport zlib\nfrom typing import List\n\n# We need to generate valid raw DEFLATE streams (no zlib/gzip wrapper) that are\n# interesting for pure_zip_inflate_raw. The fuzzer stub:\n# - Calls FUZZ_PARAM_STR() for the compressed bytes and truncates to 256 bytes.\n# - Picks an uncompressed_size from {0 or 1..1024}.\n# - Invokes pure_zip_inflate_raw(compressed, compressed_size, outbuf, uncompressed_size).\n# Our generate(seed) should return bytes that become FUZZ_PARAM_STR content.\n# Strategy:\n# - Produce several families of raw deflate payloads:\n#   1) Empty raw stream that decodes to empty output (BFINAL=1 with empty stored block).\n#   2) Stored (uncompressed) blocks producing exact lengths across various sizes.\n#   3) Fixed Huffman with short literal sequences.\n#   4) Dynamic Huffman blocks encoding small patterns, runs, and length/distance backrefs.\n#   5) Edge cases: multiple concatenated blocks, end block early, max length codes within small output.\n# - We tailor the uncompressed output length to small sizes (<= 512) to keep compressed <= 256.\n# - We randomly choose one recipe and synthesize a valid raw deflate stream for it.\n# - Keep total size <= 256 and overall buffer <= 4096 (fuzzer truncates to 256 anyway).\n# - Do not use wrappers: use zlib.DEFLATED with raw (-15) where we leverage zlib to build a valid stream\n#   by compressing chosen plaintext, then post-process if we want multiple blocks (we can concatenate by\n#   compressing segments separately and concatenating raw streams). Note: zlib with wbits=-15 yields raw.\n#\n# We ensure many outputs have exact decompress size that commonly falls into 1..1024.\n\n# Helper: raw deflate compressor\n\ndef deflate_raw(data: bytes, level: int = 6, strategy: int = zlib.Z_DEFAULT_STRATEGY) -> bytes:\n    c = zlib.compressobj(level=level, method=zlib.DEFLATED, wbits=-15, memLevel=9, strategy=strategy)\n    out = c.compress(data) + c.flush()\n    return out\n\n# Build a stored (uncompressed) block manually for small payloads.\n# Stored block format in raw deflate:\n# - Align to next byte boundary (we assume start already byte-aligned). We'll construct from scratch so aligned.\n# - Header: 3 bits: BFINAL (1 bit), BTYPE=00 (2 bits). We pack into little-endian bit order within each byte.\n# - Then 16-bit LEN, 16-bit NLEN (one's complement), little-endian.\n# - Then LEN bytes of data.\n# We'll only build a single, byte-aligned stored block stream.\n\ndef deflate_raw_stored_block(payload: bytes, final: bool = True) -> bytes:\n    # Build header byte with bits: least-significant bits first in stream\n    # For byte-aligned start, the first byte's bit0 is BFINAL, bit1-2 are BTYPE.\n    bfinal = 1 if final else 0\n    btype = 0  # stored\n    first_byte = (bfinal | (btype << 1)) & 0x07\n    # LEN and NLEN\n    ln = len(payload)\n    if ln > 0xFFFF:\n        # Split into multiple stored blocks if needed; here we keep <= 64k per block\n        parts = []\n        offset = 0\n        remain = ln\n        # First block: not final\n        while remain > 0:\n            chunk = payload[offset:offset + min(0xFFFF, remain)]\n            final_flag = (offset + len(chunk) == ln)\n            parts.append(deflate_raw_stored_block(chunk, final=final_flag))\n            offset += len(chunk)\n            remain -= len(chunk)\n        return b\"\".join(parts)\n    nlen = (~ln) & 0xFFFF\n    header = bytes([first_byte])\n    body = struct.pack('<HH', ln, nlen) + payload\n    return header + body\n\n# Build a fixed-Huffman block by leveraging zlib raw compression with strategy FILTERED or HUFFMAN_ONLY.\n# zlib may choose dynamic anyway; this is acceptable for validity. We'll vary strategies and levels.\n\n# Create outputs designed to be interesting: ascii text, repetitive, binary, and short patterns.\n\nASCII_WORDS = [\n    b\"hello world\\n\",\n    b\"The quick brown fox jumps over the lazy dog.\\n\",\n    b\"ZIP\\n\",\n    b\"DEF LATE RAW\\n\",\n    b\"A\" * 64 + b\"\\n\",\n]\n\nBINARY_PATTERNS = [\n    bytes(range(32)),\n    bytes([0x00]) * 128,\n    bytes([0xFF]) * 128,\n    (b\"ABCD\" * 32),\n]\n\ndef make_concatenated_blocks(chunks: List[bytes]) -> bytes:\n    # Concatenate multiple raw deflate streams to form multiple blocks; valid per zlib inflate.\n    return b\"\".join(deflate_raw(c, level=3) for c in chunks)\n\ndef gen_empty_stream() -> bytes:\n    # Empty stored block with BFINAL=1, LEN=0, NLEN=0\n    return deflate_raw_stored_block(b\"\", final=True)\n\ndef gen_stored_of_length(n: int) -> bytes:\n    payload = bytes((i % 251) for i in range(n))\n    return deflate_raw_stored_block(payload, final=True)\n\ndef gen_text_block(data: bytes, level: int, strategy: int) -> bytes:\n    return deflate_raw(data, level=level, strategy=strategy)\n\ndef gen_backref_runs(ch: int, total: int) -> bytes:\n    # Create data that benefits from LZ back-references: long repeats\n    return bytes([ch]) * total\n\ndef gen_mixed_payload(rnd: random.Random, target_len: int) -> bytes:\n    parts = []\n    remaining = target_len\n    while remaining > 0:\n        choice = rnd.randint(0, 3)\n        take = min(remaining, rnd.randint(1, max(1, min(64, remaining))))\n        if choice == 0:\n            parts.append(bytes([rnd.randint(0, 255) for _ in range(take)]))\n        elif choice == 1:\n            parts.append(bytes([rnd.choice([0x00, 0x20, 0x41, 0x61, 0xFF])]) * take)\n        elif choice == 2:\n            parts.append((b\"./../\" * ((take + 3)//4))[:take])\n        else:\n            parts.append((b\"abcde\" * ((take + 4)//5))[:take])\n        remaining -= take\n    return b\"\".join(parts)\n\ndef clamp256(b: bytes) -> bytes:\n    return b if len(b) <= 256 else b[:256]\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    # Choose a target uncompressed length to make stream more likely to match fuzzer output buffer size.\n    # The fuzzer picks 0 or 1..1024; we aim for common small sizes 0..512.\n    target_lengths = [0, 1, 2, 3, 4, 8, 16, 32, 64, 128, 255, 256, 300, 512]\n    target_len = rnd.choice(target_lengths)\n\n    variant = rnd.randint(0, 7)\n\n    if target_len == 0:\n        # Empty stream variant choices\n        if variant % 2 == 0:\n            out = gen_empty_stream()\n        else:\n            # Valid raw deflate for empty payload via zlib\n            out = deflate_raw(b\"\", level=1)\n        return clamp256(out)\n\n    # Non-empty cases\n    if variant == 0:\n        # Stored block with exact length\n        out = gen_stored_of_length(target_len)\n    elif variant == 1:\n        # Single raw deflate compressed text\n        text = rnd.choice(ASCII_WORDS)\n        reps = max(1, target_len // max(1, len(text)))\n        data = (text * reps)[:target_len]\n        out = gen_text_block(data, level=rnd.choice([1, 3, 6, 9]), strategy=rnd.choice([zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED]))\n    elif variant == 2:\n        # Highly compressible run\n        ch = rnd.choice([0x00, 0x20, 0x41, 0x61, 0xFF])\n        data = gen_backref_runs(ch, target_len)\n        out = deflate_raw(data, level=rnd.choice([1, 6, 9]))\n    elif variant == 3:\n        # Mixed payload, dynamic huffman likely\n        data = gen_mixed_payload(rnd, target_len)\n        out = deflate_raw(data, level=rnd.choice([1, 4, 6]), strategy=rnd.choice([zlib.Z_DEFAULT_STRATEGY, zlib.Z_HUFFMAN_ONLY]))\n    elif variant == 4:\n        # Concatenated raw streams (multiple blocks)\n        chunks = []\n        remaining = target_len\n        while remaining > 0:\n            chunk_len = min(remaining, rnd.randint(1, min(64, remaining)))\n            src = rnd.choice(ASCII_WORDS + BINARY_PATTERNS)\n            if len(src) < chunk_len:\n                reps = (chunk_len + len(src) - 1) // len(src)\n                payload = (src * reps)[:chunk_len]\n            else:\n                start = rnd.randint(0, len(src) - chunk_len)\n                payload = src[start:start + chunk_len]\n            chunks.append(payload)\n            remaining -= chunk_len\n        out = make_concatenated_blocks(chunks)\n    elif variant == 5:\n        # Start with a stored block followed by a small compressed block\n        part1 = bytes([rnd.randint(0, 255) for _ in range(min(target_len, rnd.randint(1, max(1, target_len//2))))])\n        part2_len = max(0, target_len - len(part1))\n        part2 = gen_backref_runs(rnd.choice([0x41, 0x00, 0xFF]), part2_len)\n        stream1 = deflate_raw_stored_block(part1, final=False)\n        stream2 = deflate_raw(part2, level=3)\n        out = stream1 + stream2\n    elif variant == 6:\n        # Binary pattern compression\n        src = rnd.choice(BINARY_PATTERNS)\n        reps = max(1, target_len // max(1, len(src)))\n        data = (src * reps)[:target_len]\n        out = deflate_raw(data, level=rnd.choice([1, 6, 9]), strategy=rnd.choice([zlib.Z_DEFAULT_STRATEGY, zlib.Z_RLE]))\n    else:\n        # Short literal sequence likely to use fixed trees\n        data = bytes([rnd.randint(32, 126) for _ in range(target_len)])\n        out = deflate_raw(data, level=1, strategy=zlib.Z_HUFFMAN_ONLY)\n\n    # Ensure within 256 bytes for the stub; if too large (e.g., stored long), clamp.\n    return clamp256(out)\n"
+    },
+    {
+      "data_type": "ZIP file data",
+      "generator": "import io\nimport random\nimport struct\nimport zlib\nfrom typing import List, Tuple\n\n# This generator produces valid ZIP archives tailored to the parser behavior\n# described in the target. It focuses on classic (non-ZIP64) single-disk archives\n# with a small number of entries, using only supported methods: store (0) and deflate (8).\n# It avoids forbidden flags and creates consistent LFH/CDH/EOCDR with correct sizes,\n# offsets, CRC32s, and optional data descriptor usage for deflate entries.\n# The resulting buffer is <= 4096 bytes.\n\n# Constants (ZIP structures / signatures)\nS_LFH = 0x04034B50\nS_CDH = 0x02014B50\nS_EOCDR = 0x06054B50\nS_DDR = 0x08074B50  # optional signature for data descriptor\n\n# DOS time/date helpers\n# MS-DOS date: Y from 1980, bits: Y(7) M(4) D(5)\n# MS-DOS time: H(5) M(6) S/2(5)\n\ndef dos_time_date(seed: int) -> Tuple[int, int]:\n    r = random.Random(seed)\n    year = r.randrange(1980, 2099 + 1)\n    month = r.randrange(1, 12 + 1)\n    day = r.randrange(1, 28 + 1)  # stay in safe range\n    hour = r.randrange(0, 23 + 1)\n    minute = r.randrange(0, 59 + 1)\n    second = r.randrange(0, 29 + 1) * 2  # even seconds\n    dos_date = ((year - 1980) << 9) | (month << 5) | day\n    dos_time = (hour << 11) | (minute << 5) | (second // 2)\n    return dos_time, dos_date\n\n\ndef safe_name_components(r: random.Random) -> List[str]:\n    # Generate safe path components: no control chars, no '..', no backslashes, no empty\n    alpha = 'abcdefghijklmnopqrstuvwxyz'\n    comps = []\n    depth = r.choice([1, 1, 2, 2, 3])  # prefer shorter\n    for i in range(depth):\n        base = ''.join(r.choice(alpha) for _ in range(r.randint(3, 8)))\n        comps.append(base)\n    # Optional trailing slash only for directories (we won't generate directory entries here)\n    return comps\n\n\ndef make_filename(r: random.Random, directory: bool = False, ext: str = '') -> str:\n    comps = safe_name_components(r)\n    leaf = comps[-1]\n    if ext and not directory:\n        leaf = leaf + ext\n    comps[-1] = leaf\n    name = '/'.join(comps)\n    if directory and not name.endswith('/'):\n        name += '/'\n    return name\n\n\ndef deflate_raw(data: bytes) -> bytes:\n    # Raw DEFLATE stream (no zlib header). Python exposes wbits=-15 via zlib.compressobj\n    comp = zlib.compressobj(level=6, wbits=-15)\n    out = comp.compress(data) + comp.flush()\n    return out\n\n\ndef crc32_u32(data: bytes) -> int:\n    return zlib.crc32(data) & 0xFFFFFFFF\n\n\nclass Entry:\n    def __init__(self,\n                 name: str,\n                 method: int,\n                 data: bytes,\n                 use_ddr: bool):\n        self.name = name.encode('utf-8')  # We will not set UTF-8 flag; ensure no NUL\n        self.method = method\n        self.use_ddr = use_ddr\n        self.uncompressed = data\n        if method == 0:\n            self.compressed = data\n        elif method == 8:\n            self.compressed = deflate_raw(data)\n        else:\n            raise ValueError('unsupported method')\n        self.crc32 = crc32_u32(self.uncompressed)\n        self.time, self.date = dos_time_date(crc32_u32(self.name) ^ len(self.uncompressed))\n        # Filled later:\n        self.lfh_offset = 0\n        self.lfh_length = 0\n        self.data_offset = 0\n        self.ddr = b''\n\n    def build_lfh(self) -> bytes:\n        # General purpose bit flag: bit 3 indicates data descriptor when use_ddr.\n        flags = 0x0008 if self.use_ddr else 0x0000\n        version_needed = 20  # 2.0\n        extra = b''  # keep empty for simplicity\n        fn = self.name\n        # If DDR is used, LFH must have crc32 and sizes set to 0 per spec and matcher\n        crc = 0 if self.use_ddr else self.crc32\n        csize = 0 if self.use_ddr else len(self.compressed)\n        usize = 0 if self.use_ddr else len(self.uncompressed)\n        lfh = struct.pack('<IHHHHHIIIHH',\n                          S_LFH,\n                          version_needed,\n                          flags,\n                          self.method,\n                          self.time,\n                          self.date,\n                          crc,\n                          csize,\n                          usize,\n                          len(fn),\n                          len(extra))\n        self.lfh_length = len(lfh) + len(fn) + len(extra)\n        return lfh + fn + extra\n\n    def build_ddr(self) -> bytes:\n        if not self.use_ddr:\n            self.ddr = b''\n            return b''\n        # Emit data descriptor with signature (commonly accepted), 32-bit sizes\n        self.ddr = struct.pack('<IIII', S_DDR, self.crc32,\n                               len(self.compressed), len(self.uncompressed))\n        return self.ddr\n\n    def build_cdh(self) -> bytes:\n        # Version made by: set to Unix (3<<8) + 20\n        version_made_by = (3 << 8) | 20\n        version_needed = 20\n        flags = 0x0008 if self.use_ddr else 0x0000\n        comp_method = self.method\n        crc = self.crc32\n        csize = len(self.compressed)\n        usize = len(self.uncompressed)\n        fn = self.name\n        extra = b''\n        comment = b''\n        disk = 0\n        internal = 0\n        # External attributes; ensure regular file perms without special bits\n        external = (0o100644 & 0xFFFF) << 16\n        relative_offset = self.lfh_offset\n        cdh_fixed = struct.pack('<IHHHHHHIIIHHHHHII',\n                                S_CDH,\n                                version_made_by,\n                                version_needed,\n                                flags,\n                                comp_method,\n                                self.time,\n                                self.date,\n                                crc,\n                                csize,\n                                usize,\n                                len(fn),\n                                len(extra),\n                                len(comment),\n                                disk,\n                                internal,\n                                external,\n                                relative_offset)\n        return cdh_fixed + fn + extra + comment\n\n\ndef build_zip(entries: List[Entry]) -> bytes:\n    out = io.BytesIO()\n    # Write LFHs + data (+ optional DDR) sequentially\n    for e in entries:\n        e.lfh_offset = out.tell()\n        lfh = e.build_lfh()\n        out.write(lfh)\n        e.data_offset = out.tell()\n        out.write(e.compressed)\n        out.write(e.build_ddr())\n    cd_start = out.tell()\n    # Central directory\n    for e in entries:\n        out.write(e.build_cdh())\n    cd_end = out.tell()\n    cd_size = cd_end - cd_start\n    # EOCDR\n    total_entries = len(entries)\n    disk = 0\n    cd_disk = 0\n    cd_records_disk = total_entries\n    cd_records_total = total_entries\n    comment = b''\n    eocdr = struct.pack('<IHHHHIIH',\n                        S_EOCDR,\n                        disk,\n                        cd_disk,\n                        cd_records_disk,\n                        cd_records_total,\n                        cd_size,\n                        cd_start,\n                        len(comment))\n    out.write(eocdr)\n    out.write(comment)\n    return out.getvalue()\n\n\ndef random_payload(r: random.Random, typ: str) -> bytes:\n    if typ == 'text':\n        words = [b'lorem', b'ipsum', b'dolor', b'sit', b'amet', b'zip', b'pure', b'data']\n        n = r.randint(10, 80)\n        sep = b' '\n        payload = sep.join(r.choice(words) for _ in range(n)) + b\"\\n\"\n        return payload\n    elif typ == 'binary':\n        size = r.randint(16, 256)\n        # Structured binary: repeating pattern to compress well sometimes\n        block = bytes((i % 251 for i in range(r.randint(8, 32))))\n        payload = (block * (size // len(block) + 1))[:size]\n        return payload\n    elif typ == 'smallzero':\n        return b''  # Will handle empty via specific deflate empty stream or stored empty\n    else:\n        size = r.randint(1, 128)\n        return bytes(r.getrandbits(8) for _ in range(size))\n\n\ndef make_entries(seed: int, r: random.Random) -> List[Entry]:\n    entries: List[Entry] = []\n    count = r.choice([1, 1, 2, 3])\n    for i in range(count):\n        # Alternate between stored and deflated entries\n        method = r.choice([0, 8])\n        # Choose payload type to vary compression behavior\n        ptype = r.choice(['text', 'binary', 'random'])\n        data = random_payload(r, ptype)\n        # Ensure no zero-sized uncompressed for deflate except allow 2-byte empty stream case.\n        if method == 8 and len(data) == 0:\n            data = b'A' * r.randint(1, 32)\n        # Data descriptor only for deflate entries sometimes\n        use_ddr = (method == 8) and r.choice([True, False])\n        name_ext = '.txt' if ptype == 'text' else ('.bin' if ptype == 'binary' else '')\n        name = make_filename(r, directory=False, ext=name_ext)\n        # Ensure name has no NUL and only forward slashes already guaranteed\n        e = Entry(name=name, method=method, data=data, use_ddr=use_ddr)\n        entries.append(e)\n    # Keep total size under limit by trimming to first N entries if needed later\n    return entries\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Build between 1 and 3 entries and ensure final size <= 4096; if exceeded, reduce entries\n    for _ in range(5):\n        entries = make_entries(seed ^ r.getrandbits(32), r)\n        buf = build_zip(entries)\n        if len(buf) <= 4096:\n            return buf\n        # Try with fewer entries\n        if len(entries) > 1:\n            buf = build_zip(entries[:1])\n            if len(buf) <= 4096:\n                return buf\n    # Fallback: single tiny stored file\n    tiny = Entry(name='a/b/c.txt', method=0, data=b'hi\\n', use_ddr=False)\n    return build_zip([tiny])\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 18517,
+            "output_tokens": 1304,
+            "total_tokens": 19821
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 18095,
+            "output_tokens": 305,
+            "total_tokens": 18400
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 18859,
+            "output_tokens": 8383,
+            "total_tokens": 27242
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 52638,
+            "output_tokens": 12864,
+            "total_tokens": 65502
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15706,
+            "output_tokens": 680,
+            "total_tokens": 16386
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 637.7919976711273,
+    "scan_objects": 19.92027497291565,
+    "validate_objects": 1.3347434997558594,
+    "scan_functions": 203.49433612823486,
+    "synthesis": 308.00813579559326,
+    "fill": 0,
+    "classify": 14.361279010772705,
+    "build_generators": 90.67241168022156
+  }
+}

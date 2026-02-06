@@ -1,0 +1,446 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque pointer type used by the FEC API to represent a forward-error-correction code instance created by fec_new(). The concrete struct/class is not defined in this header, so it must be treated as an opaque handle. Functions like fec_encode/fec_decode/get_k/get_n expect this pointer. Unknown internal layout and lifetime details beyond being created by fec_new() and freed by fec_free().",
+      "direct_api_constructors": [
+        "fec_new"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "char **",
+      "aliases": [],
+      "definition": "",
+      "description": "Pointer-to-pointer used throughout the RS/FEC API to pass arrays of data buffers: data[0..k-1] for sources and data[k..n-1] for parity. Although not a distinct typedef here, the API repeatedly uses char *data[] parameters to represent buffer vectors for encoding/decoding.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "fec_free",
+      "signature": "void fec_free(void *p)",
+      "description": "Frees a FEC encoder/decoder context previously created with fec_new. Use to release resources when finished with a code instance.",
+      "requirements": [
+        "p should be a pointer previously returned by fec_new (same library).",
+        "Do not use the code/context after calling fec_free (use-after-free)."
+      ],
+      "error": null
+    },
+    {
+      "name": "fec_new",
+      "signature": "void * fec_new(int k, int n)",
+      "description": "Creates and initializes a forward error correction (FEC) code context (likely Reed–Solomon over GF(2^GF_BITS)) for k data shards and n total shards (data + parity). The returned pointer is passed to other fec_* and rs_* APIs that require a code context.",
+      "requirements": [
+        "n must be greater than or equal to k (as documented).",
+        "The caller must store and later pass the returned context pointer to other functions that require it (e.g., fec_encode, fec_decode, rs_encode, rs_decode).",
+        "init_fec is called automatically inside fec_new if it has not been called yet (no need to call it first).",
+        "Error handling behavior on allocation failure is not documented; returned pointer may be NULL or the function may abort — unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "init_fec",
+      "signature": "void init_fec()",
+      "description": "Initializes global/static tables needed for the FEC implementation. Normally you do not need to call this explicitly because fec_new will call it automatically if it hasn’t been called yet. Expose it only if you want to pre-initialize at program startup.",
+      "requirements": [
+        "Safe to call before any other fec_* or rs_* calls to pre-initialize tables.",
+        "Not required to call before fec_new; fec_new will invoke it automatically if necessary.",
+        "Calling it multiple times should be safe or a no-op, but exact behavior is not documented — unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "fec_encode",
+      "signature": "void fec_encode(void *code, void *src[], void *dst, int index, int sz)",
+      "description": "Encodes one shard/block using the provided FEC code context. Given an array of source data pointers, produces the encoded shard at the specified index and writes it into dst. Typically used to generate a specific parity shard of size sz bytes.",
+      "requirements": [
+        "code must be a valid context returned by fec_new for the intended (k, n) code.",
+        "src must point to an array of pointers to at least k source shards; each referenced shard must contain at least sz bytes (exact layout unspecified — inferred).",
+        "dst must point to a writable buffer with capacity of at least sz bytes to receive the encoded shard (inferred).",
+        "index selects which output shard is computed; valid range and meaning (data vs parity) are not documented — unknown.",
+        "sz is the per-shard length in bytes and must match the size used consistently across corresponding encode/decode operations (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "fec_decode",
+      "signature": "int fec_decode(void *code, void *pkt[], int index[], int sz)",
+      "description": "Attempts to recover missing shards given a set of received packets and their corresponding original indices using the provided FEC context. Returns a status code; exact semantics are not documented.",
+      "requirements": [
+        "code must be a valid context returned by fec_new for the matching (k, n) parameters.",
+        "pkt must be an array of pointers to shards of length at least sz bytes; missing shards may be represented by NULL pointers (not explicitly documented here — unknown).",
+        "index must be an array giving the original indices for the corresponding pkt entries; its length and valid value range are not documented — unknown.",
+        "sz must be the shard size in bytes and consistent with the encoding size (inferred).",
+        "Return value conventions (e.g., 0 on success) are not specified in this header — unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_k",
+      "signature": "int get_k(void *code)",
+      "description": "Returns k (the number of data shards) from a FEC code context created by fec_new.",
+      "requirements": [
+        "code must be a valid pointer previously returned by fec_new."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_n",
+      "signature": "int get_n(void *code)",
+      "description": "Returns n (the total number of shards: data + parity) from a FEC code context created by fec_new.",
+      "requirements": [
+        "code must be a valid pointer previously returned by fec_new."
+      ],
+      "error": null
+    },
+    {
+      "name": "rs_encode",
+      "signature": "void rs_encode(void *code, char *data[], int size)",
+      "description": "High-level Reed–Solomon encode helper using an existing FEC context. Given k original data blocks in data[0..k-1], generates n−k redundancy blocks and stores pointers in data[k..n-1]. The function will allocate memory for redundancy blocks and will exit the process on allocation failure.",
+      "requirements": [
+        "code must be a valid fec_new-generated context whose k and n define the code parameters.",
+        "data must reference an array with capacity for at least n pointers.",
+        "data[0..k-1] must be non-NULL pointers to buffers of at least size bytes (original data).",
+        "size is the per-block length in bytes and must be consistent across all blocks in the operation.",
+        "The function may allocate memory for redundancy and store pointers into data[k..n-1]; callers must later free/manage those buffers according to the library’s lifecycle (exact ownership rules beyond allocation on encode are not documented).",
+        "On malloc failure the function will call exit(); callers should not expect a return in that case."
+      ],
+      "error": null
+    },
+    {
+      "name": "rs_decode",
+      "signature": "int rs_decode(void *code, char *data[], int size)",
+      "description": "High-level Reed–Solomon decode/recovery using an existing FEC context. The input array data[0..n-1] contains pointers to data and redundancy blocks in proper order; set data[i] to NULL for missing blocks. On success, data[0..k-1] will be updated to point to the recovered original data. Returns 0 on success; returns non-zero if fewer than k non-NULL blocks are provided.",
+      "requirements": [
+        "code must be a valid fec_new-generated context whose k and n define the code parameters.",
+        "data must reference an array of exactly n entries corresponding to indices 0..n−1.",
+        "Mark missing blocks by setting the corresponding data[i] pointer to NULL.",
+        "At least k entries in data[0..n−1] must be non-NULL, otherwise the function fails and returns non-zero.",
+        "size must be the per-block length in bytes and must match the size used during encoding.",
+        "The function will not malloc memory for NULL pointers in data[0..k−1]; instead, it will reuse memory from other non-NULL pointers and adjust data[0..k−1] to point at those buffers. After return, the total count of non-NULL pointers in data[0..n−1] remains unchanged (order and which entries are non-NULL may change).",
+        "Callers must not assume that original buffer ownership or positions are preserved; they should use the updated pointers after decoding."
+      ],
+      "error": null
+    },
+    {
+      "name": "rs_encode2",
+      "signature": "void rs_encode2(int k, int n, char *data[], int size)",
+      "description": "High-level Reed–Solomon encode helper that takes k and n explicitly, without requiring a fec_new-generated context. Produces redundancy blocks for data[0..k-1] and stores them in data[k..n-1]. Specific allocation and failure behavior are not documented here; by analogy with rs_encode, it likely allocates redundancy buffers.",
+      "requirements": [
+        "k and n define the code parameters; n must be >= k (inferred from the library’s overall contract).",
+        "data must reference an array with capacity for at least n pointers.",
+        "data[0..k-1] must be non-NULL pointers to buffers of at least size bytes (inferred).",
+        "size is the per-block length in bytes and must be consistent across all blocks (inferred).",
+        "Allocation strategy, error handling, and ownership for data[k..n-1] are not documented here — unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "rs_decode2",
+      "signature": "int rs_decode2(int k, int n, char *data[], int size)",
+      "description": "High-level Reed–Solomon decode helper that takes k and n explicitly, without requiring a fec_new-generated context. Recovers original data into data[0..k-1] given at least k non-NULL blocks in data[0..n-1]. Return value semantics are not documented here; by analogy with rs_decode, it likely returns 0 on success and non-zero on failure.",
+      "requirements": [
+        "k and n define the code parameters; n must be >= k (inferred).",
+        "data must reference an array of exactly n entries; set data[i] to NULL for missing blocks (inferred).",
+        "At least k entries in data[0..n−1] should be non-NULL to succeed (inferred).",
+        "size must be the per-block length in bytes and must match the encoder’s size (inferred).",
+        "Exact memory reuse behavior (like rs_decode’s reuse guarantee) and precise return codes are not documented — unknown."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "fec_free",
+      "inputs": [
+        {
+          "name": "p",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Enforce that p is a fec_new-generated, still-alive context\nint alive = FUZZ_GET_ATTR_INT(p, \"fec_alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Call target and mark object as freed to prevent double-free/use-after-free across stubs\nfec_free(p);\nFUZZ_SET_ATTR_INT(p, \"fec_alive\", 0);\n// Do not return p as an output: ownership has been consumed by fec_free\n// Validation: Ensures only live contexts are freed and drops pointer from pool."
+    },
+    {
+      "name": "fec_new",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "code": "// Choose small, valid parameters with n >= k to satisfy API\nunsigned int k_raw = *FUZZ_PARAM(unsigned int) % 8u; // 0..7\nint k = (int)(k_raw + 1u); // 1..8\nunsigned int extra = *FUZZ_PARAM(unsigned int) % 9u; // 0..8\nint n = k + (int)extra; // k..k+8 (<=16)\n// Construct the context\nvoid *code = fec_new(k, n);\n// If allocation failed and a NULL was returned, bail out of this attempt\nif (!code) { FUZZ_BAIL(); }\n// Track parameters and lifetime for downstream stubs\nFUZZ_SET_ATTR_INT(code, \"k\", k);\nFUZZ_SET_ATTR_INT(code, \"n\", n);\nFUZZ_SET_ATTR_INT(code, \"fec_alive\", 1);\n// Validation: Guarantees n >= k and persists attributes for later property checks."
+    },
+    {
+      "name": "fec_encode",
+      "inputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate code context\nint alive = FUZZ_GET_ATTR_INT(code, \"fec_alive\");\nint k = FUZZ_GET_ATTR_INT(code, \"k\");\nint n = FUZZ_GET_ATTR_INT(code, \"n\");\nif (!alive || k <= 0 || n < k) { FUZZ_BAIL(); }\n// Choose shard size and index within [0, n-1]\nint sz = (int)(*FUZZ_PARAM(unsigned int) % 512u) + 1; // 1..512\nint index = 0;\nif (n > 0) { index = (int)(*FUZZ_PARAM(unsigned int) % (unsigned int)n); }\n// Build k source shards each of at least sz bytes\n// Allocate backing buffers and assemble pointer array\nconst int KMAX = 16;\nif (k > KMAX) { FUZZ_BAIL(); }\nchar *src_bufs[KMAX];\nfor (int i = 0; i < k; ++i) {\n    std::string s = FUZZ_PARAM_STR();\n    if ((int)s.size() < sz) s.resize((size_t)sz, '\\0');\n    // Allocate dedicated writable buffer and copy fuzz data\n    char *buf = new char[sz];\n    memcpy(buf, s.data(), (size_t)sz);\n    src_bufs[i] = buf;\n}\nvoid *src_ptrs[KMAX];\nfor (int i = 0; i < k; ++i) src_ptrs[i] = (void *)src_bufs[i];\n// Destination buffer of at least sz bytes\nchar *dst_buf = new char[sz];\n// Call target\nfec_encode(code, (void **)src_ptrs, (void *)dst_buf, index, sz);\n// Clean up ephemeral allocations (the API does not take ownership here)\nfor (int i = 0; i < k; ++i) { delete[] src_bufs[i]; }\ndelete[] dst_buf;\n// Keep code alive as output\n// Validation: Enforces valid context, bounds index to [0,n), supplies k non-NULL src shards and writable dst."
+    },
+    {
+      "name": "fec_decode",
+      "inputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate code context and parameters\nint alive = FUZZ_GET_ATTR_INT(code, \"fec_alive\");\nint k = FUZZ_GET_ATTR_INT(code, \"k\");\nint n = FUZZ_GET_ATTR_INT(code, \"n\");\nif (!alive || k <= 0 || n < k) { FUZZ_BAIL(); }\n// Choose shard size\nint sz = (int)(*FUZZ_PARAM(unsigned int) % 512u) + 1; // 1..512\n// Build pkt[] and index[] arrays. We'll use length k for a minimal valid set.\nconst int KMAX = 16;\nif (k > KMAX) { FUZZ_BAIL(); }\nvoid *pkt[KMAX];\nint idx[KMAX];\n// Create a mix of NULL and non-NULL, but ensure at least k non-NULL overall by forcing all non-NULL here\nint nonnull = 0;\nfor (int i = 0; i < k; ++i) {\n    std::string s = FUZZ_PARAM_STR();\n    if ((int)s.size() < sz) s.resize((size_t)sz, '\\0');\n    char *buf = new char[sz];\n    memcpy(buf, s.data(), (size_t)sz);\n    pkt[i] = (void *)buf;\n    idx[i] = i % (n > 0 ? n : 1); // map to [0, n-1]\n    ++nonnull;\n}\n// Call target\nint rc = fec_decode(code, (void **)pkt, (int *)idx, sz);\n(void)rc; // return value semantics are undocumented\n// Release ephemeral buffers\nfor (int i = 0; i < k; ++i) { if (pkt[i]) { delete[] (char *)pkt[i]; } }\n// Keep code alive as output\n// Validation: Supplies k packets with valid indices and consistent shard size; ignores undocumented rc semantics safely."
+    },
+    {
+      "name": "get_k",
+      "inputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate context is alive\nint alive = FUZZ_GET_ATTR_INT(code, \"fec_alive\");\nif (!alive) { FUZZ_BAIL(); }\nint expected_k = FUZZ_GET_ATTR_INT(code, \"k\");\nint ret = get_k(code);\n// Property: get_k must reflect the k used at creation\nFUZZ_ASSERT(ret == expected_k, \"get_k() returned value inconsistent with fec_new k\");\n// Keep code as output\n// Validation: Asserts core property of the API without altering object state."
+    },
+    {
+      "name": "get_n",
+      "inputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "code": "// Validate context is alive\nint alive = FUZZ_GET_ATTR_INT(code, \"fec_alive\");\nif (!alive) { FUZZ_BAIL(); }\nint expected_n = FUZZ_GET_ATTR_INT(code, \"n\");\nint ret = get_n(code);\n// Property: get_n must reflect the n used at creation\nFUZZ_ASSERT(ret == expected_n, \"get_n() returned value inconsistent with fec_new n\");\n// Keep code as output\n// Validation: Asserts n is preserved; leaves context usable."
+    },
+    {
+      "name": "rs_encode",
+      "inputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        },
+        {
+          "name": "data",
+          "type": "char **"
+        }
+      ],
+      "code": "// Validate code and parameters\nint alive = FUZZ_GET_ATTR_INT(code, \"fec_alive\");\nint k = FUZZ_GET_ATTR_INT(code, \"k\");\nint n = FUZZ_GET_ATTR_INT(code, \"n\");\nif (!alive || k <= 0 || n < k) { FUZZ_BAIL(); }\n// Choose per-block size\nint size = (int)(*FUZZ_PARAM(unsigned int) % 512u) + 1; // 1..512\n// Allocate an array with capacity for n pointers and initialize data[0..k-1]\nconst int NMAX = 16;\nif (n > NMAX) { FUZZ_BAIL(); }\nchar **data = new char *[n];\nfor (int i = 0; i < n; ++i) data[i] = nullptr;\nfor (int i = 0; i < k; ++i) {\n    std::string s = FUZZ_PARAM_STR();\n    if ((int)s.size() < size) s.resize((size_t)size, '\\0');\n    char *buf = new char[size];\n    memcpy(buf, s.data(), (size_t)size);\n    data[i] = buf;\n}\n// Call target; it may allocate parity blocks and store into data[k..n-1]\nrs_encode(code, data, size);\n// Track metadata for downstream decode and lifecycle\nFUZZ_SET_ATTR_INT(data, \"k\", k);\nFUZZ_SET_ATTR_INT(data, \"n\", n);\nFUZZ_SET_ATTR_INT(data, \"size\", size);\nint nonnull = 0; for (int i = 0; i < n; ++i) { if (data[i]) ++nonnull; }\nFUZZ_SET_ATTR_INT(data, \"nonnull\", nonnull);\n// Keep both context and data for later use\n// Validation: Ensures valid inputs, initializes k data shards, and records array metadata for decode."
+    },
+    {
+      "name": "rs_decode",
+      "inputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        },
+        {
+          "name": "data",
+          "type": "char **"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code",
+          "type": "void *"
+        },
+        {
+          "name": "data",
+          "type": "char **"
+        }
+      ],
+      "code": "// Validate context and data array metadata\nint alive = FUZZ_GET_ATTR_INT(code, \"fec_alive\");\nint k = FUZZ_GET_ATTR_INT(code, \"k\");\nint n = FUZZ_GET_ATTR_INT(code, \"n\");\nint dk = FUZZ_GET_ATTR_INT(data, \"k\");\nint dn = FUZZ_GET_ATTR_INT(data, \"n\");\nint size = FUZZ_GET_ATTR_INT(data, \"size\");\nif (!alive || k <= 0 || n < k || dk != k || dn != n || size <= 0) { FUZZ_BAIL(); }\n// Ensure at least k non-NULL entries in data[0..n-1]. If fewer, synthesize buffers to reach k.\nint nonnull = 0; for (int i = 0; i < n; ++i) { if (data[i]) ++nonnull; }\nfor (int i = 0; i < n && nonnull < k; ++i) {\n    if (!data[i]) {\n        char *buf = new char[size];\n        // Fill synthesized buffers with fuzz data\n        std::string s = FUZZ_PARAM_STR();\n        if ((int)s.size() < size) s.resize((size_t)size, '\\0');\n        memcpy(buf, s.data(), (size_t)size);\n        data[i] = buf;\n        ++nonnull;\n    }\n}\n// Track baseline non-NULL count for postcondition check\nint before = 0; for (int i = 0; i < n; ++i) { if (data[i]) ++before; }\n// Call target\nint rc = rs_decode(code, data, size);\n(void)rc; // 0 on success per docs; we do not assert exact return code\n// Check doc-stated invariant: total non-NULL count should remain unchanged\nint after = 0; for (int i = 0; i < n; ++i) { if (data[i]) ++after; }\nFUZZ_ASSERT(after == before, \"rs_decode should not change total non-NULL count\");\n// Refresh metadata\nFUZZ_SET_ATTR_INT(data, \"nonnull\", after);\n// Keep context and data for further use\n// Validation: Matches k/n/size with context, ensures precondition (>=k non-NULL), and asserts non-NULL count invariant."
+    },
+    {
+      "name": "rs_encode2",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "char **"
+        }
+      ],
+      "code": "// Pick small parameters with n >= k\nunsigned int k_raw = *FUZZ_PARAM(unsigned int) % 8u; // 0..7\nint k = (int)(k_raw + 1u); // 1..8\nunsigned int extra = *FUZZ_PARAM(unsigned int) % 9u; // 0..8\nint n = k + (int)extra; // k..k+8\nconst int NMAX = 16; if (n > NMAX) { FUZZ_BAIL(); }\nint size = (int)(*FUZZ_PARAM(unsigned int) % 512u) + 1; // 1..512\n// Allocate data[0..n-1] and initialize 0..k-1\nchar **data = new char *[n];\nfor (int i = 0; i < n; ++i) data[i] = nullptr;\nfor (int i = 0; i < k; ++i) {\n    std::string s = FUZZ_PARAM_STR();\n    if ((int)s.size() < size) s.resize((size_t)size, '\\0');\n    char *buf = new char[size];\n    memcpy(buf, s.data(), (size_t)size);\n    data[i] = buf;\n}\n// Call target\nrs_encode2(k, n, data, size);\n// Track metadata for rs_decode2\nFUZZ_SET_ATTR_INT(data, \"k\", k);\nFUZZ_SET_ATTR_INT(data, \"n\", n);\nFUZZ_SET_ATTR_INT(data, \"size\", size);\nint nonnull = 0; for (int i = 0; i < n; ++i) { if (data[i]) ++nonnull; }\nFUZZ_SET_ATTR_INT(data, \"nonnull\", nonnull);\n// Validation: Ensures n>=k, initializes inputs, and persists metadata for the paired decode."
+    },
+    {
+      "name": "rs_decode2",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "char **"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "char **"
+        }
+      ],
+      "code": "// Retrieve parameters from data array metadata\nint k = FUZZ_GET_ATTR_INT(data, \"k\");\nint n = FUZZ_GET_ATTR_INT(data, \"n\");\nint size = FUZZ_GET_ATTR_INT(data, \"size\");\nif (k <= 0 || n < k || size <= 0) { FUZZ_BAIL(); }\n// Ensure at least k non-NULL entries\nint nonnull = 0; for (int i = 0; i < n; ++i) { if (data[i]) ++nonnull; }\nfor (int i = 0; i < n && nonnull < k; ++i) {\n    if (!data[i]) {\n        char *buf = new char[size];\n        std::string s = FUZZ_PARAM_STR();\n        if ((int)s.size() < size) s.resize((size_t)size, '\\0');\n        memcpy(buf, s.data(), (size_t)size);\n        data[i] = buf;\n        ++nonnull;\n    }\n}\n// Call target\nint rc = rs_decode2(k, n, data, size);\n(void)rc; // return semantics not strictly specified; treat non-fatal\n// Validation: Matches k/n from metadata, enforces precondition (>=k non-NULL), and preserves data for further stubs."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "init_fec",
+      "reason": "The symbol init_fec is not available at link time in this environment (undefined reference), so it cannot be exercised."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "fec_free",
+      "data_types": []
+    },
+    {
+      "name": "fec_new",
+      "data_types": []
+    },
+    {
+      "name": "get_k",
+      "data_types": []
+    },
+    {
+      "name": "get_n",
+      "data_types": []
+    },
+    {
+      "name": "fec_encode",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "fec_decode",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "rs_encode",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "rs_decode",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "rs_encode2",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    },
+    {
+      "name": "rs_decode2",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary blob",
+      "description": "Unstructured byte buffer of length specified by the caller. May contain any values 0x00–0xFF and is treated as opaque data by the FEC/Reed–Solomon routines. Used as shard/block contents; size is provided separately and callers must ensure buffers are at least that many bytes."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary blob",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# This generator produces arbitrary binary blobs suitable as shard contents.\n# Fuzzer stubs use FUZZ_PARAM_STR() to fill shard buffers of a chosen size (1..512).\n# We generate diverse, valid contents that exercise different data patterns while\n# remaining arbitrary binary data.\n\nMAX_BLOCK = 512\n\ndef _rand_bytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.getrandbits(8) for _ in range(n))\n\ndef _pattern_zero(n: int) -> bytes:\n    return b\"\\x00\" * n\n\ndef _pattern_ff(n: int) -> bytes:\n    return b\"\\xff\" * n\n\ndef _pattern_inc(n: int, start: int = 0) -> bytes:\n    return bytes((start + i) & 0xFF for i in range(n))\n\ndef _pattern_dec(n: int, start: int = 255) -> bytes:\n    return bytes((start - i) & 0xFF for i in range(n))\n\ndef _pattern_stripes(n: int, period: int = 4) -> bytes:\n    base = bytes([(i % period) * (255 // max(1, period - 1)) for i in range(period)])\n    return (base * (n // period)) + base[: n % period]\n\ndef _pattern_sparse(n: int, step: int = 7, val: int = 0x80) -> bytes:\n    # Mostly zeros with periodic non-zero to probe GF ops\n    b = bytearray(n)\n    for i in range(0, n, step):\n        b[i] = val & 0xFF\n    return bytes(b)\n\ndef _pattern_head_tail(n: int, head: bytes, tail: bytes) -> bytes:\n    if n <= len(head) + len(tail):\n        core = (head + tail)[:n]\n        return core\n    mid = n - len(head) - len(tail)\n    return head + (b\"\\x00\" * mid) + tail\n\ndef _mix_chunks(r: random.Random, n: int) -> bytes:\n    # Concatenate small chunks of various patterns to create heterogeneity\n    out = bytearray()\n    patterns = [\n        lambda m: _rand_bytes(r, m),\n        _pattern_zero,\n        _pattern_ff,\n        _pattern_inc,\n        _pattern_dec,\n        _pattern_stripes,\n        _pattern_sparse,\n    ]\n    while len(out) < n:\n        remain = n - len(out)\n        chunk = r.randint(1, min(64, remain))\n        pat = r.choice(patterns)\n        if pat in (_pattern_inc, _pattern_dec):\n            start = r.randint(0, 255)\n            out += pat(chunk, start)  # type: ignore[arg-type]\n        elif pat is _pattern_stripes:\n            period = r.randint(2, 16)\n            out += _pattern_stripes(chunk, period)\n        elif pat is _pattern_sparse:\n            step = r.randint(3, 13)\n            val = r.randint(1, 255)\n            out += _pattern_sparse(chunk, step, val)\n        else:\n            out += pat(chunk)  # type: ignore[misc]\n    return bytes(out[:n])\n\ndef _construct_blob(r: random.Random, size: int) -> bytes:\n    # Choose a strategy to generate the blob\n    choice = r.randint(0, 9)\n    if choice == 0:\n        return _pattern_zero(size)\n    if choice == 1:\n        return _pattern_ff(size)\n    if choice == 2:\n        return _pattern_inc(size, r.randint(0, 255))\n    if choice == 3:\n        return _pattern_dec(size, r.randint(0, 255))\n    if choice == 4:\n        period = r.randint(2, 32)\n        return _pattern_stripes(size, period)\n    if choice == 5:\n        step = r.randint(3, 19)\n        val = r.randint(1, 255)\n        return _pattern_sparse(size, step, val)\n    if choice == 6:\n        head = struct.pack(\n            \">IIBB\", r.getrandbits(32), r.getrandbits(32), r.getrandbits(8), r.getrandbits(8)\n        )\n        tail = struct.pack(\n            \"<IHB\", r.getrandbits(32), r.getrandbits(16), r.getrandbits(8)\n        )\n        return _pattern_head_tail(size, head, tail)\n    if choice == 7:\n        return _mix_chunks(r, size)\n    if choice == 8:\n        # Bias to small alphabet, good for GF linear dependencies\n        alphabet = bytes(sorted(set(r.getrandbits(3) << 5 for _ in range(8))))\n        return bytes(alphabet[r.randrange(len(alphabet))] for _ in range(size))\n    # choice == 9\n    return _rand_bytes(r, size)\n\ndef _choose_sizes(r: random.Random) -> List[int]:\n    # The stubs independently choose sizes 1..512 per call; to be broadly useful,\n    # we return a single buffer up to 4096 bytes containing concatenated blobs of\n    # common shard sizes so multiple FUZZ_PARAM_STR() calls can slice from it.\n    # However, since FUZZ_PARAM_STR reads the whole provided buffer, we focus on\n    # producing a blob that is valid for any requested size by being sufficiently\n    # random yet diverse. We'll pick a primary size in 64..512 with some bias.\n    base = r.choice([64, 128, 192, 256, 320, 384, 448, 512])\n    # Create a few segments that total up to <= 4096\n    segments = r.randint(1, 6)\n    sizes = []\n    total = 0\n    for _ in range(segments):\n        s = r.randint(max(1, base // 2), base)\n        if total + s > 4096:\n            break\n        sizes.append(s)\n        total += s\n    if not sizes:\n        sizes = [min(base, 4096)]\n    return sizes\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Compose multiple blobs back-to-back to give the fuzzer varied content\n    sizes = _choose_sizes(r)\n    chunks = []\n    for sz in sizes:\n        chunks.append(_construct_blob(r, sz))\n    out = b\"\".join(chunks)\n    # Ensure non-empty and <= 4096\n    if not out:\n        out = _rand_bytes(r, 64)\n    return out[:4096]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1646,
+            "output_tokens": 207,
+            "total_tokens": 1853
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1224,
+            "output_tokens": 51,
+            "total_tokens": 1275
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1700,
+            "output_tokens": 3195,
+            "total_tokens": 4895
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15915,
+            "output_tokens": 6054,
+            "total_tokens": 21969
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6236,
+            "output_tokens": 181,
+            "total_tokens": 6417
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 203.3790318965912,
+    "scan_objects": 8.233649015426636,
+    "validate_objects": 0.22089385986328125,
+    "scan_functions": 55.89983773231506,
+    "synthesis": 109.63064694404602,
+    "fill": 0,
+    "classify": 4.383784770965576,
+    "build_generators": 25.00936460494995
+  }
+}

@@ -1,0 +1,1159 @@
+{
+  "objects": [
+    {
+      "ptr_type": "clip::format *",
+      "aliases": [],
+      "definition": "typedef size_t format;",
+      "description": "Clipboard format identifier type. An alias of size_t used to identify registered clipboard formats.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "clip::lock *",
+      "aliases": [],
+      "definition": "class lock {\n  public:\n    lock(void* native_window_handle = nullptr);\n    ~lock();\n\n    bool locked() const;\n    bool clear();\n    bool is_convertible(format f) const;\n    bool set_data(format f, const char* buf, size_t len);\n    bool get_data(format f, char* buf, size_t len) const;\n    size_t get_data_length(format f) const;\n\n    bool set_image(const image& image);\n    bool get_image(image& image) const;\n    bool get_image_spec(image_spec& spec) const;\n\n  private:\n    class impl;\n    std::unique_ptr<impl> p;\n};",
+      "description": "RAII clipboard lock for low-level access. Constructing tries to open/lock the system clipboard (optionally using a native window handle), and destruction unlocks it. Provides methods to clear, query/transfer arbitrary formats and images. Implementation is pimpl-hidden in lock::impl.",
+      "direct_api_constructors": [
+        "clip::lock::lock"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "clip::ErrorCode *",
+      "aliases": [],
+      "definition": "enum class ErrorCode {\n  CannotLock,\n  ImageNotSupported,\n};",
+      "description": "Error codes reported by the library via error handlers. CannotLock indicates failure to lock the clipboard; ImageNotSupported indicates lack of image support for the current platform/format.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "clip::error_handler *",
+      "aliases": [],
+      "definition": "typedef void (*error_handler)(ErrorCode code);",
+      "description": "Function pointer type for receiving asynchronous/synchronous error notifications from the library. The callback takes a single ErrorCode.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "clip::image_spec *",
+      "aliases": [],
+      "definition": "struct image_spec {\n  unsigned long width = 0;\n  unsigned long height = 0;\n  unsigned long bits_per_pixel = 0;\n  unsigned long bytes_per_row = 0;\n  unsigned long red_mask = 0;\n  unsigned long green_mask = 0;\n  unsigned long blue_mask = 0;\n  unsigned long alpha_mask = 0;\n  unsigned long red_shift = 0;\n  unsigned long green_shift = 0;\n  unsigned long blue_shift = 0;\n  unsigned long alpha_shift = 0;\n\n  unsigned long required_data_size() const;\n};",
+      "description": "Describes image layout and pixel format used by clip::image: dimensions, row stride, and bit masks/shifts for RGBA channels. required_data_size() returns the buffer size needed for the current spec. Used to interpret raw pixel data in straight (non-premultiplied) alpha.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "clip::image *",
+        "clip::lock *"
+      ]
+    },
+    {
+      "ptr_type": "clip::image *",
+      "aliases": [],
+      "definition": "class image {\npublic:\n  image();\n  image(const image_spec& spec);\n  image(const void* data, const image_spec& spec);\n  image(const image& image);\n  image(image&& image);\n  ~image();\n\n  image& operator=(const image& image);\n  image& operator=(image&& image);\n\n  char* data() const { return m_data; }\n  const image_spec& spec() const { return m_spec; }\n\n  bool is_valid() const { return m_data != nullptr; }\n  void reset();\n\nprivate:\n  void copy_image(const image& image);\n  void move_image(image&& image);\n\n  bool m_own_data;\n  char* m_data;\n  image_spec m_spec;\n};",
+      "description": "Owns or wraps raw pixel data described by an image_spec. Guarantees straight (non-premultiplied) alpha externally; platform-specific conversions may occur internally. Supports default, spec-based, data+spec, copy, and move construction; provides access to raw data and spec, validity checks, and reset. Manages ownership via m_own_data.",
+      "direct_api_constructors": [
+        "clip::image::image",
+        "clip::image::image(const image_spec&)",
+        "clip::image::image(const void*, const image_spec&)",
+        "clip::image::image(const clip::image&)",
+        "clip::image::image(clip::image&&)"
+      ],
+      "owned_by": [
+        "clip::lock *"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "clip::lock::lock",
+      "signature": "clip::lock::lock(void* native_window_handle = nullptr)",
+      "description": "Constructs a clipboard lock that attempts to open/lock the system clipboard for exclusive access. On Windows, you may pass your current HWND as native_window_handle to help OpenClipboard/SetClipboardData succeed after EmptyClipboard; passing nullptr is also supported. Use locked() to check whether the lock was acquired before calling other member functions to modify/read clipboard content.",
+      "requirements": [
+        "Should be constructed before calling other low-level clipboard methods on this lock instance.",
+        "On Windows, passing a valid HWND as native_window_handle may be required to avoid SetClipboardData failing after EmptyClipboard (per header comment); nullptr is allowed.",
+        "Call locked() and ensure it returns true before using methods like clear/set_data/get_data/set_image/get_image on this instance."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::~lock",
+      "signature": "clip::lock::~lock()",
+      "description": "Destructor that unlocks/releases the clipboard if it was successfully locked in the constructor. Ensures cleanup of clipboard access state.",
+      "requirements": [
+        "Do not use the lock instance after it has been destroyed.",
+        "Other clipboard operations that require a lock must occur before destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::locked",
+      "signature": "bool clip::lock::locked() const",
+      "description": "Returns true if the clipboard was successfully locked by this object’s constructor. Use to guard subsequent clipboard operations on this lock instance.",
+      "requirements": [
+        "Must be called on a valid clip::lock instance.",
+        "If this returns false, callers should not invoke clear/set_data/get_data/set_image/get_image on this lock."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::clear",
+      "signature": "bool clip::lock::clear()",
+      "description": "Clears the current clipboard content for the active clipboard/pasteboard. Prevents previous unknown formats from persisting after unlock.",
+      "requirements": [
+        "A successful lock must be held (locked() must be true) on this object."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::is_convertible",
+      "signature": "bool clip::lock::is_convertible(clip::format f) const",
+      "description": "Returns true if the current clipboard contents can be converted to the specified format identifier.",
+      "requirements": [
+        "A successful lock should be held (locked() == true) to query the clipboard state.",
+        "The format identifier must be one obtained from register_format() or a known built-in format such as text_format() or image_format()."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::set_data",
+      "signature": "bool clip::lock::set_data(clip::format f, const char* buf, size_t len)",
+      "description": "Sets raw clipboard data in the specified format for the currently locked clipboard. Use with custom registered formats or known formats.",
+      "requirements": [
+        "A successful lock must be held (locked() must be true).",
+        "f must be a valid format identifier (e.g., from register_format(), text_format(), image_format()).",
+        "buf must point to at least len bytes of readable memory.",
+        "len must equal the size of the data being provided."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::get_data",
+      "signature": "bool clip::lock::get_data(clip::format f, char* buf, size_t len) const",
+      "description": "Retrieves clipboard data in the specified format into the provided buffer. Use get_data_length() first to size your buffer appropriately.",
+      "requirements": [
+        "A successful lock must be held (locked() must be true).",
+        "f must be a valid format identifier.",
+        "buf must point to a writable buffer of at least len bytes.",
+        "len should not exceed the available data length for the format (query via get_data_length())."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::get_data_length",
+      "signature": "size_t clip::lock::get_data_length(clip::format f) const",
+      "description": "Returns the length in bytes of the clipboard data for the specified format. Typically used to size a buffer before calling get_data().",
+      "requirements": [
+        "A successful lock should be held (locked() == true).",
+        "f must be a valid format identifier."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::set_image",
+      "signature": "bool clip::lock::set_image(const clip::image& image)",
+      "description": "Sets an image to the clipboard using the provided image object. The library handles platform-specific conversions (e.g., premultiplied alpha on Windows).",
+      "requirements": [
+        "A successful lock must be held (locked() must be true).",
+        "The input image should be valid (image.is_valid() == true).",
+        "Image data must represent straight (non‑premultiplied) RGB(A) as per library notes."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::get_image",
+      "signature": "bool clip::lock::get_image(clip::image& image) const",
+      "description": "Retrieves the current clipboard image into the provided image object. Returned image data uses straight (non‑premultiplied) alpha.",
+      "requirements": [
+        "A successful lock must be held (locked() must be true).",
+        "image will be modified on success; it should be in a state where reassignment is allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::lock::get_image_spec",
+      "signature": "bool clip::lock::get_image_spec(clip::image_spec& spec) const",
+      "description": "Retrieves only the image specification (dimensions, pixel layout, masks) of the clipboard image without transferring pixel data.",
+      "requirements": [
+        "A successful lock must be held (locked() must be true).",
+        "spec is an output parameter and will be overwritten on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::register_format",
+      "signature": "clip::format clip::register_format(const std::string& name)",
+      "description": "Registers or retrieves a clipboard format identifier by name for use with set_data/get_data. Returned identifier is used to refer to that format.",
+      "requirements": [
+        "name should identify the desired custom format. No explicit constraints documented.",
+        "Use the returned format with clip::lock::set_data/get_data or clip::has."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::empty_format",
+      "signature": "clip::format clip::empty_format()",
+      "description": "Returns the format identifier representing an empty clipboard (no content). Useful for comparisons or checks.",
+      "requirements": [
+        "None beyond normal usage."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::text_format",
+      "signature": "clip::format clip::text_format()",
+      "description": "Returns the format identifier used when the clipboard contains UTF‑8 text.",
+      "requirements": [
+        "Use with has(), lock::is_convertible(), lock::set_data/get_data as appropriate."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image_format",
+      "signature": "clip::format clip::image_format()",
+      "description": "Returns the format identifier used when the clipboard contains an image.",
+      "requirements": [
+        "Use with has(), lock operations, or format checks."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::has",
+      "signature": "bool clip::has(clip::format f)",
+      "description": "High‑level query that returns true if the clipboard currently has content convertible to the given format.",
+      "requirements": [
+        "f must be a valid format identifier."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::clear",
+      "signature": "bool clip::clear()",
+      "description": "High‑level function that clears the clipboard content without manually managing a lock.",
+      "requirements": [
+        "None documented; returns false on error."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::set_error_handler",
+      "signature": "void clip::set_error_handler(clip::error_handler f)",
+      "description": "Sets a global error handler callback that receives ErrorCode values for clipboard-related errors (e.g., CannotLock, ImageNotSupported).",
+      "requirements": [
+        "f must be a valid function pointer of type void (*)(ErrorCode).",
+        "The handler should be reentrant/safe to call from library error contexts."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::get_error_handler",
+      "signature": "clip::error_handler clip::get_error_handler()",
+      "description": "Returns the currently installed global error handler callback, or nullptr if none has been set.",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::set_text",
+      "signature": "bool clip::set_text(const std::string& value)",
+      "description": "High‑level API to set UTF‑8 text into the clipboard. Returns false on error.",
+      "requirements": [
+        "value must contain UTF‑8 encoded text."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::get_text",
+      "signature": "bool clip::get_text(std::string& value)",
+      "description": "High‑level API to get UTF‑8 text from the clipboard. On success, writes the text to value. Returns false on error or if not available.",
+      "requirements": [
+        "value is an output parameter and will be overwritten on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image_spec::required_data_size",
+      "signature": "unsigned long clip::image_spec::required_data_size() const",
+      "description": "Returns the number of bytes required to store an image with this specification. Likely derived from height * bytes_per_row. Exact formula is not shown in this header.",
+      "requirements": [
+        "spec fields (width, height, bytes_per_row, bits_per_pixel, masks/shifts) should be set consistently; otherwise the result may be meaningless."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::image",
+      "signature": "clip::image::image()",
+      "description": "Default constructs an empty/invalid image object (no owned data).",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::image",
+      "signature": "clip::image::image(const clip::image_spec& spec)",
+      "description": "Constructs an image with the given specification and allocates/owns pixel storage accordingly.",
+      "requirements": [
+        "spec fields must describe a valid pixel layout. The amount of data implied by spec must be allocatable.",
+        "Image data is expected to be straight (non‑premultiplied) alpha per library notes."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::image",
+      "signature": "clip::image::image(const void* data, const clip::image_spec& spec)",
+      "description": "Constructs an image that references/copies pixel data described by spec from the provided memory. The image will represent straight (non‑premultiplied) alpha data.",
+      "requirements": [
+        "data must point to at least the number of bytes required by spec (e.g., spec.required_data_size()).",
+        "spec must be valid and consistent with the data pointer.",
+        "Input data should be straight (non‑premultiplied) alpha."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::image",
+      "signature": "clip::image::image(const clip::image& image)",
+      "description": "Copy constructor. Creates a deep copy of the given image, including its specification and pixel data.",
+      "requirements": [
+        "The source image may be valid or invalid; behavior follows standard copy semantics."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::image",
+      "signature": "clip::image::image(clip::image&& image)",
+      "description": "Move constructor. Transfers ownership of image data/spec from the source image to this one, leaving the source in a moved‑from state.",
+      "requirements": [
+        "Source image becomes moved‑from; do not rely on its previous contents."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::~image",
+      "signature": "clip::image::~image()",
+      "description": "Destructor that frees any owned pixel data and cleans up resources.",
+      "requirements": [
+        "Do not use the image after destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::operator=",
+      "signature": "clip::image& clip::image::operator=(const clip::image& image)",
+      "description": "Copy assignment operator. Replaces this image with a deep copy of another image’s spec and data.",
+      "requirements": [
+        "Both images may be the same object; should handle self‑assignment safely (typical expectation)."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::operator=",
+      "signature": "clip::image& clip::image::operator=(clip::image&& image)",
+      "description": "Move assignment operator. Transfers ownership of pixel data/spec from the source image to this one.",
+      "requirements": [
+        "After the move, the source becomes moved‑from and should not be used except for destruction or reassignment."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::data",
+      "signature": "char* clip::image::data() const",
+      "description": "Returns a pointer to the underlying pixel data buffer. The method is const but returns a modifiable pointer; modifying the data through this pointer alters the image contents.",
+      "requirements": [
+        "The image must be valid (is_valid() == true) for the pointer to be non‑null.",
+        "Do not read/write beyond the allocated size (e.g., spec.required_data_size())."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::spec",
+      "signature": "const clip::image_spec& clip::image::spec() const",
+      "description": "Returns a const reference to the image specification (dimensions, pixel format, masks/shifts, bytes per row).",
+      "requirements": [
+        "The returned reference remains valid while the image object remains alive and unmodified in ways that replace its spec."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::is_valid",
+      "signature": "bool clip::image::is_valid() const",
+      "description": "Returns true if the image currently has an associated data buffer (non‑null).",
+      "requirements": [
+        "None."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::image::reset",
+      "signature": "void clip::image::reset()",
+      "description": "Resets the image to an invalid/empty state, releasing owned data and clearing the specification appropriately.",
+      "requirements": [
+        "After reset, previously obtained data pointers become invalid."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::set_image",
+      "signature": "bool clip::set_image(const clip::image& img)",
+      "description": "High‑level API to place an image on the clipboard. Handles platform‑specific conversions automatically. Returns false on error.",
+      "requirements": [
+        "img should be valid (img.is_valid() == true).",
+        "Image data must be straight (non‑premultiplied) alpha as per library notes."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::get_image",
+      "signature": "bool clip::get_image(clip::image& img)",
+      "description": "High‑level API to retrieve an image from the clipboard into img. The returned image data uses straight alpha. Returns false on error.",
+      "requirements": [
+        "img will be modified on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::get_image_spec",
+      "signature": "bool clip::get_image_spec(clip::image_spec& spec)",
+      "description": "High‑level API to query the clipboard image specification without transferring pixel data. Returns false on error.",
+      "requirements": [
+        "spec is an output parameter and will be overwritten on success."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::set_x11_wait_timeout",
+      "signature": "void clip::set_x11_wait_timeout(int msecs)",
+      "description": "X11-only: Sets the timeout in milliseconds to wait for the selection/clipboard owner to receive content. Default is 1000 ms.",
+      "requirements": [
+        "Only meaningful on X11 platforms; has no effect on others.",
+        "msecs should be a non‑negative integer."
+      ],
+      "error": null
+    },
+    {
+      "name": "clip::get_x11_wait_timeout",
+      "signature": "int clip::get_x11_wait_timeout()",
+      "description": "X11-only: Returns the current timeout in milliseconds used when waiting for the selection/clipboard owner.",
+      "requirements": [
+        "Only meaningful on X11 platforms."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "clip::lock::lock",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        }
+      ],
+      "code": "// Create a clipboard lock. We pass nullptr for the native window handle as allowed by API.\nclip::lock *lock = new clip::lock(nullptr);\n// Track whether the lock was acquired to guard later operations.\nFUZZ_SET_ATTR_INT(lock, \"locked\", lock->locked() ? 1 : 0);\n// Validation: We do not assert locked() because construction may legitimately fail on some platforms.\n// The lock object is returned for future operations."
+    },
+    {
+      "name": "clip::lock::~lock",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Invoke destructor by deleting the object. After this, the lock must not be used.\ndelete lock;\n// Validation: No outputs returned; ownership is released."
+    },
+    {
+      "name": "clip::lock::locked",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        }
+      ],
+      "code": "// Query lock state and refresh attribute for downstream stubs.\nbool is_locked = lock->locked();\nFUZZ_SET_ATTR_INT(lock, \"locked\", is_locked ? 1 : 0);\n// Validation: We only update metadata; object remains in pool."
+    },
+    {
+      "name": "clip::lock::clear",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        }
+      ],
+      "code": "// Require a successful lock before clearing.\nif (!lock->locked()) { FUZZ_BAIL(); }\n// Clear clipboard contents.\n(void)lock->clear();\n// Validation: Keeps lock alive; no additional outputs."
+    },
+    {
+      "name": "clip::lock::is_convertible",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "// Enforce preconditions.\nif (!lock->locked()) { FUZZ_BAIL(); }\n// Ensure format was produced by a format-producing API (tracked via attribute).\nif (!FUZZ_GET_ATTR_INT(f, \"valid\")) { FUZZ_BAIL(); }\n// Query convertibility; ignore result (fuzzer explores both outcomes).\n(void)lock->is_convertible(*f);\n// Validation: Both inputs are returned to the pool unchanged."
+    },
+    {
+      "name": "clip::lock::set_data",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "// Require a successful lock and a valid format id.\nif (!lock->locked()) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(f, \"valid\")) { FUZZ_BAIL(); }\n// Generate a bounded data buffer. len must equal provided size.\nstd::string payload = FUZZ_PARAM_STR();\nif (payload.size() > 1024) payload.resize(1024);\nif (payload.empty()) { FUZZ_BAIL(); }\n(void)lock->set_data(*f, payload.data(), payload.size());\n// Validation: Inputs persist; buffer is ephemeral and not returned."
+    },
+    {
+      "name": "clip::lock::get_data",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "// Require a successful lock and a valid format id.\nif (!lock->locked()) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(f, \"valid\")) { FUZZ_BAIL(); }\n// Size the buffer based on reported length; cap for fuzzer performance.\nsize_t len = lock->get_data_length(*f);\nif (len == 0 || len > 2048) { FUZZ_BAIL(); }\nstd::string buf; buf.resize(len);\n(void)lock->get_data(*f, buf.data(), len);\n// Validation: Buffer lifetime is local; objects are returned."
+    },
+    {
+      "name": "clip::lock::get_data_length",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "// Require a successful lock and a valid format id.\nif (!lock->locked()) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(f, \"valid\")) { FUZZ_BAIL(); }\n// Query length; ignore value here, other stubs consume it properly.\n(void)lock->get_data_length(*f);\n// Validation: Safe query; both objects remain in pool."
+    },
+    {
+      "name": "clip::lock::set_image",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Require a successful lock.\nif (!lock->locked()) { FUZZ_BAIL(); }\n// Ensure image is valid; if not, initialize a minimal valid 1x1 RGBA image with straight alpha.\nif (!img->is_valid()) {\n  clip::image_spec spec;\n  spec.width = 1; spec.height = 1; spec.bits_per_pixel = 32; spec.bytes_per_row = 4;\n  spec.red_mask = 0x00FF0000; spec.green_mask = 0x0000FF00; spec.blue_mask = 0x000000FF; spec.alpha_mask = 0xFF000000;\n  spec.red_shift = 16; spec.green_shift = 8; spec.blue_shift = 0; spec.alpha_shift = 24;\n  unsigned int px = *FUZZ_PARAM(unsigned int);\n  char p[4]; p[0] = (char)(px & 0xFF); p[1] = (char)((px >> 8) & 0xFF); p[2] = (char)((px >> 16) & 0xFF); p[3] = (char)((px >> 24) & 0xFF);\n  *img = clip::image(p, spec); // constructs image owning its own copy per API semantics\n}\n// Now attempt to set the image; the library may convert as needed.\n(void)lock->set_image(*img);\n// Validation: Both objects persist; initialization kept within small bounds."
+    },
+    {
+      "name": "clip::lock::get_image",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Require a successful lock.\nif (!lock->locked()) { FUZZ_BAIL(); }\n// Retrieve image into provided object; it will overwrite/assign as needed.\n(void)lock->get_image(*img);\n// Validation: Returns both objects; img may become valid with pixel data."
+    },
+    {
+      "name": "clip::lock::get_image_spec",
+      "inputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "spec",
+          "type": "clip::image_spec *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "lock",
+          "type": "clip::lock *"
+        },
+        {
+          "name": "spec",
+          "type": "clip::image_spec *"
+        }
+      ],
+      "code": "// Require a successful lock.\nif (!lock->locked()) { FUZZ_BAIL(); }\n// Query only the image specification; spec is overwritten on success.\n(void)lock->get_image_spec(*spec);\n// Validation: Both objects persist; spec is treated as out-parameter."
+    },
+    {
+      "name": "clip::register_format",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "// Generate a custom format name; cap size for performance.\nstd::string name = FUZZ_PARAM_STR();\nif (name.size() > 128) name.resize(128);\nclip::format id = clip::register_format(name);\nclip::format *f = new clip::format(id);\n// Track that this format id is valid for low-level ops.\nFUZZ_SET_ATTR_INT(f, \"valid\", 1);\n// Validation: f is persistent and marked valid."
+    },
+    {
+      "name": "clip::empty_format",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "clip::format id = clip::empty_format();\nclip::format *f = new clip::format(id);\nFUZZ_SET_ATTR_INT(f, \"valid\", 1);\n// Validation: Persistent format id returned and marked valid."
+    },
+    {
+      "name": "clip::text_format",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "clip::format id = clip::text_format();\nclip::format *f = new clip::format(id);\nFUZZ_SET_ATTR_INT(f, \"valid\", 1);\n// Validation: Persistent text format id returned and marked valid."
+    },
+    {
+      "name": "clip::image_format",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "clip::format id = clip::image_format();\nclip::format *f = new clip::format(id);\nFUZZ_SET_ATTR_INT(f, \"valid\", 1);\n// Validation: Persistent image format id returned and marked valid."
+    },
+    {
+      "name": "clip::has",
+      "inputs": [
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "f",
+          "type": "clip::format *"
+        }
+      ],
+      "code": "// Ensure provided format identifier was created by a supported API.\nif (!FUZZ_GET_ATTR_INT(f, \"valid\")) { FUZZ_BAIL(); }\n(void)clip::has(*f);\n// Validation: Query only; format persists."
+    },
+    {
+      "name": "clip::clear",
+      "inputs": [],
+      "outputs": [],
+      "code": "// High-level clear; returns false on error which we tolerate here.\n(void)clip::clear();\n// Validation: No persistent objects involved."
+    },
+    {
+      "name": "clip::set_error_handler",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Install a simple no-op handler; must be function-pointer compatible.\nclip::error_handler eh = +[](clip::ErrorCode){ };\nclip::set_error_handler(eh);\n// Validation: Global state changed; no objects to return."
+    },
+    {
+      "name": "clip::get_error_handler",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "handler",
+          "type": "clip::error_handler *"
+        }
+      ],
+      "code": "clip::error_handler h = clip::get_error_handler();\nclip::error_handler *handler = new clip::error_handler(h);\n// Validation: Persist the retrieved handler so other stubs can inspect/use it."
+    },
+    {
+      "name": "clip::set_text",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate UTF-8-like text by constraining to ASCII subset to satisfy API expectations.\nstd::string raw = FUZZ_PARAM_STR();\nif (raw.size() > 1024) raw.resize(1024);\nstd::string ascii; ascii.reserve(raw.size());\nfor (unsigned char c : raw) {\n  if (c == '\\n' || c == '\\r' || c == '\\t' || (c >= 0x20 && c <= 0x7E)) ascii.push_back((char)c);\n}\nif (ascii.empty()) ascii = \"A\"; // ensure non-empty UTF-8-compatible content\n(void)clip::set_text(ascii);\n// Validation: No persistent objects; input sanitized to valid UTF-8 subset."
+    },
+    {
+      "name": "clip::get_text",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Retrieve UTF-8 text into a local string; do not persist buffers across stubs.\nstd::string value;\n(void)clip::get_text(value);\n// Validation: No persistent objects; output parameter is local and safe to discard."
+    },
+    {
+      "name": "clip::image_spec::required_data_size",
+      "inputs": [
+        {
+          "name": "spec",
+          "type": "clip::image_spec *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "spec",
+          "type": "clip::image_spec *"
+        }
+      ],
+      "code": "// Call the query; do not assume any formula here.\nunsigned long need = spec->required_data_size();\n// Constrain pathological values: if the reported size is extremely large, bail to avoid oversized allocations downstream.\nif (need > 1u<<26) { FUZZ_BAIL(); }\n// Validation: spec persists; we only queried a size."
+    },
+    {
+      "name": "clip::image::image",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Randomly choose a construction path among supported overloads.\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 3; // 0: default, 1: spec, 2: data+spec\nclip::image *img = nullptr;\nif (choice == 0) {\n  // Default-constructed (invalid) image\n  img = new clip::image();\n} else {\n  // Build a small, valid RGBA8888 spec with straight alpha.\n  clip::image_spec spec;\n  // Choose small dimensions, bound total bytes <= 2048.\n  unsigned int w = (*FUZZ_PARAM(unsigned int) % 22) + 1; // 1..22\n  unsigned int h = (*FUZZ_PARAM(unsigned int) % 22) + 1; // 1..22\n  unsigned int bpp = 32; // RGBA8888\n  unsigned int row = w * 4; // 4 bytes per pixel\n  // Ensure cap: shrink height if needed to keep size <= 2048\n  unsigned long total = (unsigned long)h * (unsigned long)row;\n  if (total > 2048) {\n    h = (unsigned int)(2048 / (row ? row : 1));\n    if (h == 0) h = 1;\n    total = (unsigned long)h * (unsigned long)row;\n  }\n  spec.width = w; spec.height = h; spec.bits_per_pixel = bpp; spec.bytes_per_row = row;\n  spec.red_mask   = 0x00FF0000; spec.green_mask = 0x0000FF00; spec.blue_mask  = 0x000000FF; spec.alpha_mask = 0xFF000000;\n  spec.red_shift  = 16;          spec.green_shift= 8;           spec.blue_shift = 0;           spec.alpha_shift= 24;\n  if (choice == 1) {\n    // Construct with spec, image owns its pixel storage.\n    img = new clip::image(spec);\n  } else {\n    // Provide external data; constructor copies/wraps per API semantics.\n    unsigned long need = (unsigned long)spec.height * (unsigned long)spec.bytes_per_row;\n    std::string buf; buf.resize((size_t)need);\n    // Fill with random bytes.\n    const unsigned int *rnd = FUZZ_PARAM(unsigned int);\n    for (size_t i = 0; i < buf.size(); ++i) buf[i] = (char)(((*rnd) >> (i & 7)) & 0xFF);\n    img = new clip::image((const void*)buf.data(), spec);\n    // buf is ephemeral; image should own/copy as per API.\n  }\n}\n// Validation: img is created and returned to the pool."
+    },
+    {
+      "name": "clip::image::~image",
+      "inputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Destroy the image; it must not be used after this point.\ndelete img;\n// Validation: No outputs returned; ownership released."
+    },
+    {
+      "name": "clip::image::operator=",
+      "inputs": [
+        {
+          "name": "dst",
+          "type": "clip::image *"
+        },
+        {
+          "name": "src",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dst",
+          "type": "clip::image *"
+        },
+        {
+          "name": "src",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Exercise copy or move assignment based on a fuzzed toggle.\nunsigned int mode = *FUZZ_PARAM(unsigned int) & 1u;\nif (mode == 0) {\n  // Copy assignment: dst = src\n  (void)(*dst = *src);\n} else {\n  // Move assignment: create a temporary rvalue from a copy of src, then move-assign\n  clip::image tmp(*src);           // ensure tmp owns valid data (or remains invalid if src is)\n  (void)(*dst = std::move(tmp));   // move assignment path\n}\n// Validation: Both dst and src remain in the pool; tmp was local."
+    },
+    {
+      "name": "clip::image::data",
+      "inputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Retrieve the data pointer; do not dereference unless valid and bounded.\nchar *p = img->data();\n// Do not touch p; if img is invalid, p may be null. Respect API constraints.\n(void)p;\n// Validation: img persists; no memory access performed."
+    },
+    {
+      "name": "clip::image::spec",
+      "inputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Access the spec; only read fields for coverage, do not modify.\nconst clip::image_spec &s = img->spec();\nvolatile unsigned long w = s.width; // prevent over-optimization\nvolatile unsigned long h = s.height;\n(void)w; (void)h;\n// Validation: img persists; reference remains valid as long as img is unchanged."
+    },
+    {
+      "name": "clip::image::is_valid",
+      "inputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Query validity; result is used only to update an attribute for potential downstream checks.\nbool ok = img->is_valid();\nFUZZ_SET_ATTR_INT(img, \"valid\", ok ? 1 : 0);\n// Validation: Only metadata updated; img persists."
+    },
+    {
+      "name": "clip::image::reset",
+      "inputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Reset invalidates the image and releases owned data.\nimg->reset();\nFUZZ_SET_ATTR_INT(img, \"valid\", 0);\n// Validation: img persists but becomes invalid."
+    },
+    {
+      "name": "clip::set_image",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a small valid image and set it via the high-level API.\nclip::image_spec spec;\nspec.width = 8; spec.height = 8; spec.bits_per_pixel = 32; spec.bytes_per_row = 8 * 4;\nspec.red_mask = 0x00FF0000; spec.green_mask = 0x0000FF00; spec.blue_mask = 0x000000FF; spec.alpha_mask = 0xFF000000;\nspec.red_shift = 16; spec.green_shift = 8; spec.blue_shift = 0; spec.alpha_shift = 24;\nunsigned long need = spec.height * spec.bytes_per_row; // 256 bytes\nstd::string buf; buf.resize((size_t)need);\n// Fill with random but bounded content.\nconst unsigned int *r = FUZZ_PARAM(unsigned int);\nfor (size_t i = 0; i < buf.size(); ++i) buf[i] = (char)(((*r) >> (i & 7)) & 0xFF);\nclip::image img((const void*)buf.data(), spec);\n(void)clip::set_image(img);\n// Validation: High-level call; temporary objects are local."
+    },
+    {
+      "name": "clip::get_image",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "img",
+          "type": "clip::image *"
+        }
+      ],
+      "code": "// Allocate an image object to receive clipboard data.\nclip::image *img = new clip::image();\n(void)clip::get_image(*img);\n// Validation: img persists in the pool for further operations."
+    },
+    {
+      "name": "clip::get_image_spec",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "spec",
+          "type": "clip::image_spec *"
+        }
+      ],
+      "code": "// Allocate a spec object to receive clipboard image specification.\nclip::image_spec *spec = new clip::image_spec();\n(void)clip::get_image_spec(*spec);\n// Validation: spec persists; may be used by subsequent stubs."
+    },
+    {
+      "name": "clip::set_x11_wait_timeout",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Set a non-negative timeout; cap to a reasonable bound.\nint msecs = (int)(*FUZZ_PARAM(unsigned int) % 2000); // 0..1999 ms\nclip::set_x11_wait_timeout(msecs);\nFUZZ_SET_ATTR_INT_GLOBAL(\"x11_timeout\", msecs);\n// Validation: Global-only effect; no objects."
+    },
+    {
+      "name": "clip::get_x11_wait_timeout",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Query current timeout; platform-dependent meaning.\nint current = clip::get_x11_wait_timeout();\n// Store observed value for potential later comparisons; do not assert cross-platform behavior.\nFUZZ_SET_ATTR_INT_GLOBAL(\"x11_timeout_observed\", current);\n// Validation: No persistent objects; global metadata updated."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "clip::lock::lock",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::~lock",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::locked",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::clear",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::is_convertible",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::get_data",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::get_data_length",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::set_image",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::get_image",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::get_image_spec",
+      "data_types": []
+    },
+    {
+      "name": "clip::empty_format",
+      "data_types": []
+    },
+    {
+      "name": "clip::text_format",
+      "data_types": []
+    },
+    {
+      "name": "clip::image_format",
+      "data_types": []
+    },
+    {
+      "name": "clip::has",
+      "data_types": []
+    },
+    {
+      "name": "clip::clear",
+      "data_types": []
+    },
+    {
+      "name": "clip::set_error_handler",
+      "data_types": []
+    },
+    {
+      "name": "clip::get_error_handler",
+      "data_types": []
+    },
+    {
+      "name": "clip::get_text",
+      "data_types": []
+    },
+    {
+      "name": "clip::image_spec::required_data_size",
+      "data_types": []
+    },
+    {
+      "name": "clip::image::image",
+      "data_types": []
+    },
+    {
+      "name": "clip::image::~image",
+      "data_types": []
+    },
+    {
+      "name": "clip::image::operator=",
+      "data_types": []
+    },
+    {
+      "name": "clip::image::data",
+      "data_types": []
+    },
+    {
+      "name": "clip::image::spec",
+      "data_types": []
+    },
+    {
+      "name": "clip::image::is_valid",
+      "data_types": []
+    },
+    {
+      "name": "clip::image::reset",
+      "data_types": []
+    },
+    {
+      "name": "clip::set_image",
+      "data_types": []
+    },
+    {
+      "name": "clip::get_image",
+      "data_types": []
+    },
+    {
+      "name": "clip::get_image_spec",
+      "data_types": []
+    },
+    {
+      "name": "clip::set_x11_wait_timeout",
+      "data_types": []
+    },
+    {
+      "name": "clip::get_x11_wait_timeout",
+      "data_types": []
+    },
+    {
+      "name": "clip::lock::set_data",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "clip::register_format",
+      "data_types": [
+        "arbitrary string"
+      ]
+    },
+    {
+      "name": "clip::set_text",
+      "data_types": [
+        "UTF-8 text"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "An unconstrained byte buffer with any values 0x00–0xFF. May include NUL bytes and is not required to be valid text or encoded data. Used when APIs expect raw bytes with an explicit length."
+    },
+    {
+      "data_type": "arbitrary string",
+      "description": "A generic string of bytes interpreted as a name/identifier. No specific encoding or character constraints implied beyond being a sequence of bytes; typical use is ASCII/UTF-8, but arbitrary bytes may appear."
+    },
+    {
+      "data_type": "UTF-8 text",
+      "description": "A string containing valid UTF-8 encoded textual data, potentially including common whitespace such as newline, carriage return, and tab. For clipboard text-oriented APIs expecting UTF-8."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nfrom typing import List\n\n# Generator for arbitrary binary data payloads to be used with clip::lock::set_data\n# Constraints from the stub:\n# - Non-empty buffer\n# - Length bounded: the stub truncates to 1024 bytes; keep <= 1024\n# - Any bytes 0x00..0xFF are valid\n# - Aim to produce varied yet valid payloads that may trigger different code paths\n#   in consumers (e.g., containing NULs, printable text, repeating patterns, high-entropy, etc.)\n\nMAX_SIZE = 1024\n\ndef _rand(rng: random.Random, a: int, b: int) -> int:\n    return rng.randint(a, b)\n\ndef _pattern_repeating(rng: random.Random) -> bytes:\n    # Construct a repeating pattern from a randomly chosen motif\n    motifs: List[bytes] = []\n    # Common small motifs\n    motifs.append(b\"\\x00\")\n    motifs.append(b\"\\xff\")\n    motifs.append(b\"\\x00\\xff\")\n    motifs.append(b\"\\x55\\xaa\")\n    motifs.append(b\"\\xde\\xad\\xbe\\xef\")\n    # Random motif\n    mlen = _rand(rng, 1, 16)\n    motifs.append(bytes(rng.getrandbits(8) for _ in range(mlen)))\n    motif = rng.choice(motifs)\n    total = _rand(rng, 1, MAX_SIZE)\n    rep = (motif * (total // len(motif) + 1))[:total]\n    return rep\n\ndef _pattern_structured_text(rng: random.Random) -> bytes:\n    # UTF-8 printable text with various line endings and lengths\n    words = [\n        \"Hello, world!\", \"clipboard\", \"text\", \"image\", \"format\", \"UTF-8\",\n        \"null\\x00byte\", \"CRLF\\r\\n\", \"LF\\n\", \"tabs\\tindent\", \"unicode – αβγ\", \"end\"\n    ]\n    # Compose several lines\n    lines = []\n    for _ in range(_rand(rng, 2, 10)):\n        w = rng.choice(words)\n        # Occasionally append numbers or hex-like tokens\n        if rng.random() < 0.4:\n            w += f\" {rng.randint(0, 1<<16):04x}\"\n        # Occasionally include NULs inside\n        if rng.random() < 0.3:\n            w = w + \"\\x00\" + rng.choice(words)\n        lines.append(w)\n    sep = rng.choice([\"\\n\", \"\\r\\n\", \"\\r\", \"\\n\\n\"]) \n    s = sep.join(lines)\n    b = s.encode(\"utf-8\", errors=\"surrogatepass\")\n    if len(b) > MAX_SIZE:\n        b = b[:MAX_SIZE]\n    if not b:\n        b = b\"A\"\n    return b\n\ndef _pattern_high_entropy(rng: random.Random) -> bytes:\n    size = _rand(rng, 16, MAX_SIZE)\n    return bytes(rng.getrandbits(8) for _ in range(size))\n\ndef _pattern_ring_and_edges(rng: random.Random) -> bytes:\n    # Mix of 0x00, 0xFF, ascending/descending sequences to probe edge handling\n    size = _rand(rng, 32, MAX_SIZE)\n    parts: List[bytes] = []\n    # Header with size and magic\n    magic = b\"CLIP\" + size.to_bytes(2, 'little', signed=False)\n    parts.append(magic)\n    # Ascending sequence\n    asc_len = _rand(rng, 8, 64)\n    parts.append(bytes((i % 256 for i in range(asc_len))))\n    # Descending sequence\n    desc_len = _rand(rng, 8, 64)\n    parts.append(bytes(((255 - i) % 256 for i in range(desc_len))))\n    # Zero run\n    parts.append(b\"\\x00\" * _rand(rng, 0, 64))\n    # FF run\n    parts.append(b\"\\xff\" * _rand(rng, 0, 64))\n    # Random tail\n    tail_len = max(0, size - sum(len(p) for p in parts))\n    parts.append(bytes(rng.getrandbits(8) for _ in range(tail_len)))\n    data = b\"\".join(parts)[:MAX_SIZE]\n    if not data:\n        data = b\"X\"\n    return data\n\ndef _pattern_partial_utf8_with_nuls(rng: random.Random) -> bytes:\n    # Mix valid UTF-8, embedded NULs, and truncated multibyte sequences\n    chunks: List[bytes] = []\n    # Valid UTF-8 chunk\n    valid = \"😊 clipboard 📋 data 🔣\".encode(\"utf-8\")\n    chunks.append(valid[:_rand(rng, 4, len(valid))])\n    # NULs interleaved\n    chunks.append(b\"\\x00\" * _rand(rng, 1, 16))\n    # Another text chunk\n    more = \"résumé – café – naïve\".encode(\"utf-8\")\n    chunks.append(more[:_rand(rng, 4, len(more))])\n    # Optional truncated multibyte prefix to test consumers that read len strictly\n    if rng.random() < 0.6:\n        # Start of a 3-byte sequence 0xE2 0x82 0xAC (Euro) but possibly cut\n        euro = b\"\\xE2\\x82\\xAC\"\n        cut = _rand(rng, 1, 2)\n        chunks.append(euro[:cut])\n    # Random filler\n    filler = bytes(rng.getrandbits(8) for _ in range(_rand(rng, 0, 32)))\n    chunks.append(filler)\n    data = b\"\".join(chunks)\n    if len(data) > MAX_SIZE:\n        data = data[:MAX_SIZE]\n    if not data:\n        data = b\"Y\"\n    return data\n\ndef _pattern_length_prefixed(rng: random.Random) -> bytes:\n    # Simple length-prefixed payload (not required by API but often exercised)\n    body_len = _rand(rng, 1, MAX_SIZE - 8)\n    body_type = rng.choice([\n        b\"TXT\", b\"BIN\", b\"IMG\", b\"DAT\", b\"RAW\"\n    ])\n    body = bytes(rng.getrandbits(8) for _ in range(body_len))\n    header = b\"LEN\\x00\" + len(body).to_bytes(4, 'little', signed=False) + body_type\n    out = header + body\n    return out[:MAX_SIZE]\n\ndef _ensure_non_empty(data: bytes) -> bytes:\n    return data if data else b\"Z\"\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Choose a pattern family to diversify payloads while keeping them valid\n    builders = [\n        _pattern_repeating,\n        _pattern_structured_text,\n        _pattern_high_entropy,\n        _pattern_ring_and_edges,\n        _pattern_partial_utf8_with_nuls,\n        _pattern_length_prefixed,\n    ]\n    # Optionally concatenate two small patterns to increase variety while respecting size\n    if rng.random() < 0.35:\n        a = rng.choice(builders)(rng)\n        b = rng.choice(builders)(rng)\n        combined = (a + b)[:MAX_SIZE]\n        return _ensure_non_empty(combined)\n    else:\n        data = rng.choice(builders)(rng)\n        return _ensure_non_empty(data)\n"
+    },
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Target data type: arbitrary string used as a clipboard custom format name\n# The fuzzer stub caps the name length to 128 bytes. We generate interesting\n# byte sequences up to 128 bytes. Avoid embedding literal NULs in source; any\n# NULs are produced via bytes construction, not string literals.\n\nMAX_LEN = 128\n\n_ascii_printable = string.ascii_letters + string.digits + \" _-./:+[](){}#@!$%^&=,~\"\n\n# Some interesting Unicode sequences (UTF-8) including combining marks, emoji, RTL, CJK\n_unicode_samples: List[str] = [\n    \"\",  # empty\n    \"A\",  # simple\n    \"ClipboardFormat\",\n    \"text/plain\",\n    \"application/x-custom\",\n    \"格式\",  # CJK\n    \"формат\",  # Cyrillic\n    \"اسم\",  # Arabic\n    \"नाम\",  # Devanagari\n    \"🙂\",  # emoji\n    \"👍🏽\",  # emoji + skin tone\n    \"e\\x1b\\u0000\",  # ESC + NUL via escapes\n    \"a\\u0000a\",\n    \"Z\\u0000d\",\n    \"\\u0000f\\u0000f\\u0000f\",\n    \"\\u0000\",  # single NUL\n    \"\\u0006a\\u0006f\\u0006e\",\n    \"\\u000b\\u000c\\r\",  # VT, FF, CR\n    \"\\n\\n\\n\",  # newlines\n    \"\\r\\n\",  # CRLF\n]\n\n_common_like = [\n    \"CF_TEXT\", \"CF_UNICODETEXT\", \"CF_BITMAP\", \"CF_DIB\", \"CF_DIBV5\",\n    \"text/uri-list\", \"text/html\", \"text/plain;charset=utf-8\",\n    \"image/png\", \"image/bmp\", \"image/jpeg\", \"application/json\",\n]\n\ndef rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.randrange(0, 256) for _ in range(n))\n\n\ndef mix_segments(rng: random.Random) -> bytes:\n    parts: List[bytes] = []\n    for _ in range(rng.randint(2, 6)):\n        choice = rng.random()\n        if choice < 0.30:\n            l = rng.randint(1, 32)\n            parts.append(''.join(rng.choice(_ascii_printable) for _ in range(l)).encode('utf-8'))\n        elif choice < 0.55:\n            s = rng.choice(_unicode_samples)\n            if not s:\n                s = ''.join(rng.choice(['格式', '🙂', '名', '漢', '字', '😀', 'α', 'β', 'γ']) for _ in range(rng.randint(1, 8)))\n            parts.append(s.encode('utf-8', errors='surrogatepass'))\n        elif choice < 0.80:\n            parts.append(rng.choice(_common_like).encode('utf-8'))\n        else:\n            parts.append(rand_bytes(rng, rng.randint(1, 24)))\n    data = b''.join(parts)\n    if rng.random() < 0.3 and len(data) > 0:\n        idx = rng.randrange(0, len(data)+1)\n        data = data[:idx] + (b\"\\x00\" * rng.randint(1, 3)) + data[idx:]\n    return data\n\n\ndef edge_case(rng: random.Random) -> bytes:\n    cases = []\n    cases.append(b\"\")  # empty\n    cases.append(b\"A\")\n    cases.append(b\"a\" * MAX_LEN)  # max length ASCII\n    cases.append(b\"\\x00\" * MAX_LEN)  # max length NULs\n    # \"image/png\\0\" + padding to MAX_LEN constructed without literal NUL in source\n    prefix = b\"image/png\" + b\"\\x00\"\n    if len(prefix) < MAX_LEN:\n        cases.append(prefix + b\"X\" * (MAX_LEN - len(prefix)))\n    else:\n        cases.append(prefix[:MAX_LEN])\n    cases.append(b\"text/plain;charset=utf-8\")\n    cases.append(b\"CF_UNICODETEXT\")\n    uni = (\"😀\" * 100).encode('utf-8')\n    cases.append(uni[:MAX_LEN])\n    cases.append(bytes([i % 256 for i in range(MAX_LEN)]))\n    return rng.choice(cases)\n\n\ndef clamp(b: bytes) -> bytes:\n    if len(b) <= MAX_LEN:\n        return b\n    return b[:MAX_LEN]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    p = rng.random()\n    if p < 0.30:\n        data = edge_case(rng)\n    elif p < 0.85:\n        data = mix_segments(rng)\n    else:\n        mode = rng.randrange(4)\n        if mode == 0:\n            n = rng.randint(0, MAX_LEN)\n            data = ''.join(rng.choice(_ascii_printable) for _ in range(n)).encode('utf-8')\n        elif mode == 1:\n            s = ''.join(rng.choice([\n                '🙂', '👍🏽', '格式', '名', '漢', '字', 'α', 'β', 'γ', 'Ж', 'Ω', '𝛑'\n            ]) for _ in range(rng.randint(1, 64)))\n            data = s.encode('utf-8')\n        elif mode == 2:\n            data = rand_bytes(rng, rng.randint(0, MAX_LEN))\n        else:\n            mime = rng.choice(['text/plain', 'text/html', 'application/json', 'application/x-foo', 'image/png', 'image/bmp'])\n            params = []\n            if rng.random() < 0.7:\n                params.append('charset=' + rng.choice(['utf-8', 'utf-16', 'iso-8859-1']))\n            if rng.random() < 0.5:\n                params.append('version=' + str(rng.randint(1, 5)))\n            if params:\n                mime = mime + ';' + ';'.join(params)\n            if rng.random() < 0.4:\n                mime += \";name=\" + ''.join(rng.choice(_ascii_printable) for _ in range(rng.randint(1, 16)))\n            data = mime.encode('utf-8')\n\n    return clamp(data)\n"
+    },
+    {
+      "data_type": "UTF-8 text",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Target: Provide valid UTF-8 text bytes that the fuzzer stub will further\n# sanitize to ASCII subset. We should generate interesting, valid UTF-8 that,\n# after the stub's filtering (allowing \\n, \\r, \\t, and 0x20..0x7E), still leaves\n# meaningful content. We keep size <= 1024 because the stub truncates above that.\n\nASCII_PRINTABLE = ''.join(chr(c) for c in range(0x20, 0x7F))\nALLOWED_CHARS = ASCII_PRINTABLE + \"\\n\\r\\t\"\n\n# Useful building blocks to explore different clipboard text behaviors\nCOMMON_LINES = [\n    \"\",  # empty will be replaced in stub, but we can mix empty lines\n    \"A\",\n    \"Hello, world!\",\n    \"The quick brown fox jumps over the lazy dog.\",\n    \"1234567890\",\n    \"!@#$%^&*()_+-=[]{}|;:'\\\",.<>/?`~\",\n    \"\\tIndented line\",\n    \"Line with spaces    \",\n    \"Multiple\\nlines\\nwith\\nLF\",\n    \"CRLF\\r\\nline endings\",\n    \"Tabs\\tand\\ttabs\",\n    \"Unicode names (will be ASCII here): cafe, resume, naive\",\n]\n\n# Generate various newline styles\nNEWLINE_STYLES = [\"\\n\", \"\\r\\n\", \"\\r\"]\n\n# Random ASCII word generator\ndef rand_word(rng: random.Random, min_len=1, max_len=12) -> str:\n    letters = string.ascii_letters + string.digits\n    n = rng.randint(min_len, max_len)\n    return ''.join(rng.choice(letters) for _ in range(n))\n\n# Random line with punctuation and whitespace\ndef rand_line(rng: random.Random, target_len: int) -> str:\n    chars = ALLOWED_CHARS\n    return ''.join(rng.choice(chars) for _ in range(target_len))\n\ndef make_blocks(rng: random.Random) -> List[str]:\n    blocks: List[str] = []\n\n    # Include a selection of canned lines\n    canned = rng.sample(COMMON_LINES, k=rng.randint(3, min(8, len(COMMON_LINES))))\n    blocks.extend(canned)\n\n    # Add random words/sentences\n    for _ in range(rng.randint(3, 8)):\n        words = [rand_word(rng) for _ in range(rng.randint(3, 15))]\n        sep = rng.choice([\" \", \"\\t\"])  # include tabs occasionally\n        sentence = sep.join(words)\n        # Optionally add punctuation\n        if rng.random() < 0.6:\n            sentence += rng.choice([\".\", \"?\", \"!\", \":\", \";\"])\n        blocks.append(sentence)\n\n    # Add lines with specific control chars\n    if rng.random() < 0.7:\n        blocks.append(\"\".join([\"A\", \"\\n\", \"B\", \"\\t\", \"C\", \"\\r\", \"D\"]))\n\n    # Add long random ASCII line\n    if rng.random() < 0.8:\n        blocks.append(rand_line(rng, rng.randint(40, 200)))\n\n    return blocks\n\ndef assemble_text(rng: random.Random) -> str:\n    blocks = make_blocks(rng)\n\n    # Randomly choose a newline style for joining\n    join_nl = rng.choice(NEWLINE_STYLES)\n\n    # Shuffle to vary structure\n    rng.shuffle(blocks)\n\n    text = join_nl.join(blocks)\n\n    # Optionally add a trailing newline style\n    if rng.random() < 0.6:\n        text += join_nl\n\n    # Ensure non-empty and within size cap before stub truncation (<= 1024)\n    # We bias lengths to a variety of sizes.\n    max_len = 1024\n    if not text:\n        text = \"A\"\n\n    # Occasionally craft edge-case lengths around boundaries\n    if rng.random() < 0.3:\n        target = rng.choice([1, 2, 3, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024])\n        if len(text) < target:\n            # pad with allowed chars\n            pad_char = rng.choice(list(ALLOWED_CHARS))\n            text = text + pad_char * (target - len(text))\n        else:\n            text = text[:target]\n\n    # Otherwise, clamp to limit\n    if len(text) > max_len:\n        text = text[:max_len]\n\n    # Guarantee that text contains at least one allowed character the stub keeps\n    # (which it will, given our generation), and avoid being all whitespace sometimes\n    if text.strip(\" \\t\\r\\n\") == \"\" and len(text) < max_len:\n        text += \"A\"\n\n    return text\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a scenario to diversify content while remaining valid UTF-8 ASCII\n    scenario = rng.choice([\n        \"sentences\",\n        \"csv\",\n        \"tsv\",\n        \"json_like\",\n        \"path_list\",\n        \"code_like\",\n        \"poem\",\n    ])\n\n    if scenario == \"sentences\":\n        text = assemble_text(rng)\n    elif scenario == \"csv\":\n        rows = rng.randint(3, 40)\n        cols = rng.randint(2, 8)\n        lines = []\n        for _ in range(rows):\n            row = []\n            for _c in range(cols):\n                cell = rand_word(rng, 0, 10)\n                # Occasionally quote and include commas/space\n                if rng.random() < 0.4:\n                    cell = '\"' + cell + (\",\" if rng.random() < 0.5 else \"\") + '\"'\n                row.append(cell)\n            lines.append(','.join(row))\n        text = \"\\n\".join(lines)\n    elif scenario == \"tsv\":\n        rows = rng.randint(3, 40)\n        cols = rng.randint(2, 12)\n        lines = []\n        for _ in range(rows):\n            row = [rand_word(rng, 0, 16) for _ in range(cols)]\n            lines.append(\"\\t\".join(row))\n        text = \"\\n\".join(lines)\n    elif scenario == \"json_like\":\n        # ASCII-only pseudo-JSON, valid UTF-8\n        pairs = []\n        n = rng.randint(3, 20)\n        for i in range(n):\n            k = f\"key{i}_{rand_word(rng,1,6)}\"\n            v_choice = rng.random()\n            if v_choice < 0.4:\n                v = f'\"{rand_word(rng,0,10)}\"'\n            elif v_choice < 0.7:\n                v = str(rng.randint(-100000, 100000))\n            else:\n                v = \"true\" if rng.random() < 0.5 else \"false\"\n            pairs.append(f'\"{k}\": {v}')\n        text = \"{\" + \", \".join(pairs) + \"}\"\n    elif scenario == \"path_list\":\n        # Simulate file paths (ASCII), separated by various newlines\n        roots = [\"/\", \"C:/\", \"D:/\", \"./\", \"../\"]\n        parts = [\"usr\", \"bin\", \"lib\", \"home\", \"tmp\", \"var\", \"etc\", \"Documents\", \"Downloads\"]\n        lines = []\n        for _ in range(rng.randint(5, 40)):\n            root = rng.choice(roots)\n            depth = rng.randint(1, 6)\n            segs = [rng.choice(parts) for _ in range(depth)]\n            # Mix separators\n            sep = rng.choice([\"/\", \"\\\\\\\\\"])  # escaped backslash for Python string\n            path = root + sep.join(segs)\n            if rng.random() < 0.3:\n                path += rng.choice([\".txt\", \".bin\", \".png\", \".json\"]) \n            lines.append(path)\n        text = rng.choice(NEWLINE_STYLES).join(lines)\n    elif scenario == \"code_like\":\n        # Simple ASCII pseudo-code snippet\n        keywords = [\"if\", \"else\", \"for\", \"while\", \"return\", \"int\", \"char\", \"void\", \"bool\", \"true\", \"false\"]\n        ops = [\"+\", \"-\", \"*\", \"/\", \"%\", \"==\", \"!=\", \"<=\", \">=\", \"&&\", \"||\"]\n        lines = []\n        for _ in range(rng.randint(5, 60)):\n            line = []\n            if rng.random() < 0.4:\n                line.append(rng.choice(keywords))\n            line.append(rand_word(rng,1,10))\n            if rng.random() < 0.7:\n                line.append(rng.choice(ops))\n                line.append(rand_word(rng,1,10))\n            if rng.random() < 0.5:\n                line.append(\";\")\n            lines.append(\" \".join(line))\n        text = \"\\n\".join(lines)\n    elif scenario == \"poem\":\n        # Lines with varied lengths and whitespace\n        lines = []\n        for _ in range(rng.randint(4, 40)):\n            length = rng.randint(0, 80)\n            if rng.random() < 0.2:\n                lines.append(\"\")\n            else:\n                lines.append(rand_line(rng, length).rstrip())\n        text = \"\\n\".join(lines)\n    else:\n        text = assemble_text(rng)\n\n    # Final size clamp to 4096 overall requirement and stub's 1024; keep <= 1024\n    text = text[:1024]\n\n    # Ensure valid UTF-8 ASCII bytes\n    data = text.encode('utf-8', errors='strict')\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2549,
+            "output_tokens": 1008,
+            "total_tokens": 3557
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2127,
+            "output_tokens": 257,
+            "total_tokens": 2384
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2835,
+            "output_tokens": 4329,
+            "total_tokens": 7164
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 19634,
+            "output_tokens": 10487,
+            "total_tokens": 30121
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6026,
+            "output_tokens": 224,
+            "total_tokens": 6250
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 379.4342129230499,
+    "scan_objects": 13.594767808914185,
+    "validate_objects": 0.7638518810272217,
+    "scan_functions": 91.02911686897278,
+    "synthesis": 216.8589255809784,
+    "fill": 0,
+    "classify": 4.395572900772095,
+    "build_generators": 52.79078221321106
+  }
+}

@@ -1,0 +1,2290 @@
+{
+  "objects": [
+    {
+      "ptr_type": "RiffChunkHeader *",
+      "aliases": [],
+      "definition": "typedef struct {\n    char ckID [4];\n    uint32_t ckSize;\n    char formType [4];\n} RiffChunkHeader;",
+      "description": "RIFF chunk header used at the beginning of WAV and pre-4.0 WavPack files. Contains 4-byte chunk ID, size, and form type (e.g., \"RIFF\"/\"WAVE\").",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ChunkHeader *",
+      "aliases": [],
+      "definition": "typedef struct {\n    char ckID [4];\n    uint32_t ckSize;\n} ChunkHeader;",
+      "description": "Generic RIFF-like chunk header with a 4-byte ID and 32-bit size field.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "WaveHeader *",
+      "aliases": [],
+      "definition": "typedef struct {\n    uint16_t FormatTag, NumChannels;\n    uint32_t SampleRate, BytesPerSecond;\n    uint16_t BlockAlign, BitsPerSample;\n    uint16_t cbSize, ValidBitsPerSample;\n    int32_t ChannelMask;\n    uint16_t SubFormat;\n    char GUID [14];\n} WaveHeader;",
+      "description": "WAVEFORMATEXTENSIBLE-compatible audio format header including channel count, sample rate, bit depth, channel mask, and subformat GUID tail.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "WavpackHeader *",
+      "aliases": [],
+      "definition": "typedef struct {\n    char ckID [4];\n    uint32_t ckSize;\n    int16_t version;\n    unsigned char block_index_u8;\n    unsigned char total_samples_u8;\n    uint32_t total_samples, block_index, block_samples, flags, crc;\n} WavpackHeader;",
+      "description": "Block header that precedes every WavPack 4.x/5.x block (.wv/.wvc). Includes version, 40-bit block_index and total_samples fields (split high/low), per-block sample counts, flags, and CRC.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "WavpackConfig *",
+      "aliases": [],
+      "definition": "typedef struct {\n    float bitrate, shaping_weight;\n    int bits_per_sample, bytes_per_sample;\n    int qmode, flags, xmode, num_channels, float_norm_exp;\n    int32_t block_samples, worker_threads, sample_rate, channel_mask;\n    unsigned char md5_checksum [16], md5_read;\n    int num_tag_strings;                // this field is not used\n    char **tag_strings;                 // this field is not used\n} WavpackConfig;",
+      "description": "Configuration/state structure for encoding (inputs parameters like bitrate, mode flags, channel info, MD5) and for decoding (reports file properties). Some fields are noted as unused.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "WavpackStreamReader *",
+      "aliases": [],
+      "definition": "typedef struct {\n    int32_t (*read_bytes)(void *id, void *data, int32_t bcount);\n    uint32_t (*get_pos)(void *id);\n    int (*set_pos_abs)(void *id, uint32_t pos);\n    int (*set_pos_rel)(void *id, int32_t delta, int mode);\n    int (*push_back_byte)(void *id, int c);\n    uint32_t (*get_length)(void *id);\n    int (*can_seek)(void *id);\n\n    // this callback is for writing edited tags only\n    int32_t (*write_bytes)(void *id, void *data, int32_t bcount);\n} WavpackStreamReader;",
+      "description": "Callback vtable for I/O on 32-bit-sized streams used by decoder/open functions. Provides reading, seeking, optional writing for tag edits, and capability queries.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "WavpackStreamReader64 *",
+      "aliases": [],
+      "definition": "typedef struct {\n    int32_t (*read_bytes)(void *id, void *data, int32_t bcount);\n    int32_t (*write_bytes)(void *id, void *data, int32_t bcount);\n    int64_t (*get_pos)(void *id);                               // new signature for large files\n    int (*set_pos_abs)(void *id, int64_t pos);                  // new signature for large files\n    int (*set_pos_rel)(void *id, int64_t delta, int mode);      // new signature for large files\n    int (*push_back_byte)(void *id, int c);\n    int64_t (*get_length)(void *id);                            // new signature for large files\n    int (*can_seek)(void *id);\n    int (*truncate_here)(void *id);                             // new function to truncate file at current position\n    int (*close)(void *id);                                     // new function to close file\n} WavpackStreamReader64;",
+      "description": "Extended callback vtable supporting 64-bit file positions and additional operations (truncate, close) for large-file I/O and full write support.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "WavpackBlockOutput *",
+      "aliases": [],
+      "definition": "typedef int (*WavpackBlockOutput)(void *id, void *data, int32_t bcount);",
+      "description": "Function pointer type for outputting encoded WavPack blocks during encoding.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "WavpackContext *",
+      "aliases": [],
+      "definition": "typedef struct WavpackContext WavpackContext;",
+      "description": "Opaque context handle for WavPack encode/decode sessions. Actual definition is hidden; managed via the Wavpack* API functions.",
+      "direct_api_constructors": [
+        "WavpackOpenRawDecoder",
+        "WavpackOpenFileInputEx64",
+        "WavpackOpenFileInputEx",
+        "WavpackOpenFileInput",
+        "WavpackOpenFileOutput"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "WavpackOpenRawDecoder",
+      "signature": "WavpackContext *WavpackOpenRawDecoder(void *main_data, int32_t main_size, void *corr_data, int32_t corr_size, int16_t version, char *error, int flags, int norm_offset);",
+      "description": "Create a decoding context from raw WavPack block data already held in memory (main stream and optional correction stream). Intended for decoding when you already have the raw block bytes rather than opening files/streams.",
+      "requirements": [
+        "main_data must point to a buffer containing raw WavPack main bitstream block data; main_size specifies its length in bytes.",
+        "corr_data may be NULL; if provided it must point to raw correction bitstream data with length corr_size.",
+        "version should specify the stream version corresponding to the provided block data (valid WavPack stream version; exact range unspecified in this header).",
+        "error may be NULL; if non-NULL, the function may write a human-readable error message to it; required buffer size is unspecified here.",
+        "flags and norm_offset are decoder options (semantics not documented here).",
+        "Returns a non-NULL WavpackContext on success; NULL on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackOpenFileInputEx64",
+      "signature": "WavpackContext *WavpackOpenFileInputEx64(WavpackStreamReader64 *reader, void *wv_id, void *wvc_id, char *error, int flags, int norm_offset);",
+      "description": "Open a WavPack file/stream for decoding using application-provided 64-bit capable stream callbacks. Optionally also supply a separate correction stream handle.",
+      "requirements": [
+        "reader must point to a valid WavpackStreamReader64 struct with all required callback pointers set appropriately for the provided ids.",
+        "wv_id must be an application-defined handle understood by reader callbacks and represent the main (.wv) stream; required for decoding.",
+        "wvc_id may be NULL or an application-defined handle for the correction (.wvc) stream if OPEN_WVC is desired.",
+        "error may be NULL; if non-NULL, the function may write a human-readable error message; buffer size unspecified.",
+        "flags controls decoder behavior (see OPEN_* defines in this header).",
+        "norm_offset adjusts float normalization when OPEN_NORMALIZE is used (semantics not specified here).",
+        "Returns non-NULL WavpackContext on success; NULL on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackOpenFileInputEx",
+      "signature": "WavpackContext *WavpackOpenFileInputEx(WavpackStreamReader *reader, void *wv_id, void *wvc_id, char *error, int flags, int norm_offset);",
+      "description": "Open a WavPack file/stream for decoding using application-provided stream callbacks (32-bit positions/lengths). Optionally provide a correction stream handle.",
+      "requirements": [
+        "reader must point to a valid WavpackStreamReader with required callbacks set for the provided ids.",
+        "wv_id must be an application-defined handle understood by the callbacks representing the main (.wv) stream.",
+        "wvc_id may be NULL or an application-defined handle for the correction (.wvc) stream if OPEN_WVC is desired.",
+        "error may be NULL; if non-NULL, the function may write an error message; buffer size unspecified.",
+        "flags controls decoder behavior (see OPEN_* defines).",
+        "norm_offset is used with floating-point normalization (details not specified).",
+        "Returns non-NULL WavpackContext on success; NULL on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackOpenFileInput",
+      "signature": "WavpackContext *WavpackOpenFileInput(const char *infilename, char *error, int flags, int norm_offset);",
+      "description": "Open a WavPack file by filename for decoding using built-in file I/O. Optionally control behavior with flags and normalization.",
+      "requirements": [
+        "infilename must be a valid, null-terminated path to an existing WavPack file.",
+        "error may be NULL; if non-NULL, the function may write a human-readable error message; buffer size unspecified.",
+        "flags controls decoder behavior (see OPEN_* defines).",
+        "norm_offset affects float normalization when OPEN_NORMALIZE is used (details not specified).",
+        "Returns non-NULL WavpackContext on success; NULL on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetMode",
+      "signature": "int WavpackGetMode(WavpackContext *wpc);",
+      "description": "Return bitmask flags describing the current decoding mode and file characteristics (e.g., lossless, hybrid, float, tag presence).",
+      "requirements": [
+        "wpc must be a valid WavpackContext obtained from a successful open.",
+        "Returns a combination of MODE_* bits defined in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackVerifySingleBlock",
+      "signature": "int WavpackVerifySingleBlock(unsigned char *buffer, int verify_checksum);",
+      "description": "Verify the integrity of a single WavPack block contained in buffer; optionally verify its trailing checksum if present.",
+      "requirements": [
+        "buffer must point to a memory buffer containing one complete WavPack block.",
+        "verify_checksum nonzero requests checksum verification if the block indicates a checksum (HAS_CHECKSUM flag).",
+        "Returns an int status (exact values not documented here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetQualifyMode",
+      "signature": "int WavpackGetQualifyMode(WavpackContext *wpc);",
+      "description": "Return an implementation-defined integer representing encoder/decoder qualify/extra mode details (e.g., extra processing level).",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "Return value semantics are not detailed here; treat as an informational integer."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetErrorMessage",
+      "signature": "char *WavpackGetErrorMessage(WavpackContext *wpc);",
+      "description": "Retrieve a human-readable error message for the last error on this context.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "Returns a pointer to a string owned by the library; lifetime and thread-safety are not specified here; do not modify or free."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetVersion",
+      "signature": "int WavpackGetVersion(WavpackContext *wpc);",
+      "description": "Return the WavPack stream version of the open file/stream associated with this context.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetFileExtension",
+      "signature": "char *WavpackGetFileExtension(WavpackContext *wpc);",
+      "description": "Return the file extension string (without dot) appropriate for the current file format (e.g., \"wav\", \"caf\").",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "Returned pointer refers to memory owned by the library; do not modify or free."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetFileFormat",
+      "signature": "unsigned char WavpackGetFileFormat(WavpackContext *wpc);",
+      "description": "Return a small integer code indicating the container/wrapper format of the source file (see WP_FORMAT_* defines).",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "The returned value maps to WP_FORMAT_* constants defined in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackUnpackSamples",
+      "signature": "uint32_t WavpackUnpackSamples(WavpackContext *wpc, int32_t *buffer, uint32_t samples);",
+      "description": "Decode up to 'samples' interleaved sample frames into the provided buffer. The buffer receives 32-bit integers (or DSD bytes packed in 32-bit words if opening DSD native).",
+      "requirements": [
+        "wpc must be a valid WavpackContext in a state ready to decode.",
+        "buffer must be non-NULL and large enough for samples × channels 32-bit integers.",
+        "samples is the number of sample frames requested; must be within remaining samples; the function may return fewer than requested.",
+        "Returns the number of sample frames actually unpacked."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNumSamples",
+      "signature": "uint32_t WavpackGetNumSamples(WavpackContext *wpc);",
+      "description": "Return the total number of sample frames in the stream, truncated to 32-bit if necessary.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "If the total length is unknown, library may return 0 or a sentinel (not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNumSamples64",
+      "signature": "int64_t WavpackGetNumSamples64(WavpackContext *wpc);",
+      "description": "Return the total number of sample frames as a 64-bit value, or -1 if unknown (per header macros).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNumSamplesInFrame",
+      "signature": "uint32_t WavpackGetNumSamplesInFrame(WavpackContext *wpc);",
+      "description": "Return the number of sample frames contained in the current block/frame being processed.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetSampleIndex",
+      "signature": "uint32_t WavpackGetSampleIndex(WavpackContext *wpc);",
+      "description": "Return the current absolute sample index as a 32-bit value (lower 32 bits).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetSampleIndex64",
+      "signature": "int64_t WavpackGetSampleIndex64(WavpackContext *wpc);",
+      "description": "Return the current absolute sample index as a 64-bit value.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNumErrors",
+      "signature": "int WavpackGetNumErrors(WavpackContext *wpc);",
+      "description": "Return the number of bitstream errors encountered so far during decoding.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackLossyBlocks",
+      "signature": "int WavpackLossyBlocks(WavpackContext *wpc);",
+      "description": "Return nonzero if any decoded blocks are lossy (i.e., hybrid mode without correction) in the current stream.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackSeekSample",
+      "signature": "int WavpackSeekSample(WavpackContext *wpc, uint32_t sample);",
+      "description": "Seek the decoding position to the specified sample index (32-bit).",
+      "requirements": [
+        "wpc must be a valid WavpackContext on a seekable stream (reader must support seeking).",
+        "sample is the target sample index.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackSeekSample64",
+      "signature": "int WavpackSeekSample64(WavpackContext *wpc, int64_t sample);",
+      "description": "Seek the decoding position to the specified 64-bit sample index.",
+      "requirements": [
+        "wpc must be a valid WavpackContext on a seekable stream (callbacks must support seeking).",
+        "sample is the target 64-bit sample index.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackCloseFile",
+      "signature": "WavpackContext *WavpackCloseFile(WavpackContext *wpc);",
+      "description": "Close and free resources associated with a WavpackContext. Returns NULL (conventionally) after closing.",
+      "requirements": [
+        "wpc may be NULL; if non-NULL it must be a valid context previously returned by an open function.",
+        "After closing, the context must not be used."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetSampleRate",
+      "signature": "uint32_t WavpackGetSampleRate(WavpackContext *wpc);",
+      "description": "Return the effective sample rate for decoding (may differ if DSD opened as PCM).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNativeSampleRate",
+      "signature": "uint32_t WavpackGetNativeSampleRate(WavpackContext *wpc);",
+      "description": "Return the native/original sample rate stored in the file (without decoder-side conversion).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetBitsPerSample",
+      "signature": "int WavpackGetBitsPerSample(WavpackContext *wpc);",
+      "description": "Return the nominal bits-per-sample of source audio.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetBytesPerSample",
+      "signature": "int WavpackGetBytesPerSample(WavpackContext *wpc);",
+      "description": "Return the bytes-per-sample for decoded samples (per channel).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNumChannels",
+      "signature": "int WavpackGetNumChannels(WavpackContext *wpc);",
+      "description": "Return the number of audio channels in the stream.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetChannelMask",
+      "signature": "int WavpackGetChannelMask(WavpackContext *wpc);",
+      "description": "Return the channel mask (Microsoft speaker layout) if present, 0 otherwise.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetReducedChannels",
+      "signature": "int WavpackGetReducedChannels(WavpackContext *wpc);",
+      "description": "Return the effective number of channels after any reduction options (e.g., OPEN_2CH_MAX).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetFloatNormExp",
+      "signature": "int WavpackGetFloatNormExp(WavpackContext *wpc);",
+      "description": "Return the float normalization exponent used when decoding floating-point data with OPEN_NORMALIZE.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetMD5Sum",
+      "signature": "int WavpackGetMD5Sum(WavpackContext *wpc, unsigned char data[16]);",
+      "description": "Copy the stored MD5 checksum of the original audio into the provided 16-byte buffer, if present.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "data must point to a writable buffer of at least 16 bytes.",
+        "Returns nonzero on success if an MD5 sum is available, 0 otherwise."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetChannelIdentities",
+      "signature": "void WavpackGetChannelIdentities(WavpackContext *wpc, unsigned char *identities);",
+      "description": "Fill an array with per-channel identity codes (WavPack-defined) describing each channel’s role, if available.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "identities must point to a buffer large enough to hold one byte per channel (WAVPACK_MAX_CHANS is an upper bound)."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetChannelLayout",
+      "signature": "uint32_t WavpackGetChannelLayout(WavpackContext *wpc, unsigned char *reorder);",
+      "description": "Return the channel layout tag and optionally provide a channel reordering map for mapping stored order to standard order.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "If reorder is non-NULL, it must point to a buffer large enough for one entry per channel.",
+        "Returns a layout tag (e.g., Microsoft channel mask or format-specific tag; exact encoding not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetWrapperBytes",
+      "signature": "uint32_t WavpackGetWrapperBytes(WavpackContext *wpc);",
+      "description": "Return the number of bytes of source file wrapper (e.g., RIFF/CAF/AIFF header/trailer) currently available via WavpackGetWrapperData.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "OPEN_WRAPPER must be set at open time for wrappers to be made available."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetWrapperData",
+      "signature": "unsigned char *WavpackGetWrapperData(WavpackContext *wpc);",
+      "description": "Return a pointer to the buffer containing wrapper bytes obtained from the source container (e.g., RIFF chunks).",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "Must call WavpackGetWrapperBytes to know the length.",
+        "Returned pointer is owned by the library and valid until WavpackFreeWrapper is called or context advances; do not modify or free."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackFreeWrapper",
+      "signature": "void WavpackFreeWrapper(WavpackContext *wpc);",
+      "description": "Release the current wrapper buffer previously returned by WavpackGetWrapperData.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "Should be called after consuming wrapper data to release internal storage."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackSeekTrailingWrapper",
+      "signature": "void WavpackSeekTrailingWrapper(WavpackContext *wpc);",
+      "description": "Seek to the trailing wrapper (e.g., file trailer metadata) for later retrieval.",
+      "requirements": [
+        "wpc must be a valid WavpackContext on a seekable input."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetProgress",
+      "signature": "double WavpackGetProgress(WavpackContext *wpc);",
+      "description": "Return decoding progress as a fraction between 0.0 and 1.0 (exact scale not specified).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetFileSize",
+      "signature": "uint32_t WavpackGetFileSize(WavpackContext *wpc);",
+      "description": "Return the input file size in bytes truncated to 32 bits (if available).",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "For large files, prefer WavpackGetFileSize64."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetFileSize64",
+      "signature": "int64_t WavpackGetFileSize64(WavpackContext *wpc);",
+      "description": "Return the input file size in bytes as a 64-bit value (if available).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetRatio",
+      "signature": "double WavpackGetRatio(WavpackContext *wpc);",
+      "description": "Return the compression ratio achieved (compressed size vs. original).",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetAverageBitrate",
+      "signature": "double WavpackGetAverageBitrate(WavpackContext *wpc, int count_wvc);",
+      "description": "Return the average bitrate of the stream; optionally include the correction file contribution.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "count_wvc nonzero includes .wvc data in the bitrate if present."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetInstantBitrate",
+      "signature": "double WavpackGetInstantBitrate(WavpackContext *wpc);",
+      "description": "Return an instantaneous or recent average bitrate during decoding.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNumTagItems",
+      "signature": "int WavpackGetNumTagItems(WavpackContext *wpc);",
+      "description": "Return the number of text tag (APEv2/ID3v1) items present and readable in the current file.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "OPEN_TAGS or a seekable file may be required to read tags (as noted by OPEN_TAGS define)."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetTagItem",
+      "signature": "int WavpackGetTagItem(WavpackContext *wpc, const char *item, char *value, int size);",
+      "description": "Retrieve the value of a specified text tag item into the provided buffer.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "item must be a valid, null-terminated tag name.",
+        "value must point to a writable buffer of at least size bytes; the function writes up to size including terminator.",
+        "Returns the number of bytes written or required semantics are not fully specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetTagItemIndexed",
+      "signature": "int WavpackGetTagItemIndexed(WavpackContext *wpc, int index, char *item, int size);",
+      "description": "Retrieve the tag name (and optionally value in a separate call) by index into the tag list, storing the item name into the provided buffer.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "index must be in the range [0, WavpackGetNumTagItems(wpc)-1].",
+        "item must point to a writable buffer of at least size bytes.",
+        "Return value semantics not fully specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetNumBinaryTagItems",
+      "signature": "int WavpackGetNumBinaryTagItems(WavpackContext *wpc);",
+      "description": "Return the number of binary tag items present.",
+      "requirements": [
+        "wpc must be a valid WavpackContext."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetBinaryTagItem",
+      "signature": "int WavpackGetBinaryTagItem(WavpackContext *wpc, const char *item, char *value, int size);",
+      "description": "Retrieve a specified binary tag’s data into the provided buffer.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "item must be a valid, null-terminated binary tag name.",
+        "value must point to a writable buffer of at least size bytes; function writes up to size bytes.",
+        "Return value semantics not fully specified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetBinaryTagItemIndexed",
+      "signature": "int WavpackGetBinaryTagItemIndexed(WavpackContext *wpc, int index, char *item, int size);",
+      "description": "Retrieve the name (and possibly size) of a binary tag by index, writing the name into the provided buffer.",
+      "requirements": [
+        "wpc must be a valid WavpackContext.",
+        "index must be in the range [0, WavpackGetNumBinaryTagItems(wpc)-1].",
+        "item must point to a writable buffer of at least size bytes."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackAppendTagItem",
+      "signature": "int WavpackAppendTagItem(WavpackContext *wpc, const char *item, const char *value, int vsize);",
+      "description": "Append or update a text tag item intended for later writing back to the file/stream.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened with OPEN_EDIT_TAGS to allow editing.",
+        "item must be a valid, null-terminated tag name.",
+        "value must point to tag data; vsize specifies its byte length.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackAppendBinaryTagItem",
+      "signature": "int WavpackAppendBinaryTagItem(WavpackContext *wpc, const char *item, const char *value, int vsize);",
+      "description": "Append or update a binary tag item to be written on commit.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened with OPEN_EDIT_TAGS.",
+        "item must be a valid, null-terminated tag name.",
+        "value points to binary data; vsize is its byte length.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackDeleteTagItem",
+      "signature": "int WavpackDeleteTagItem(WavpackContext *wpc, const char *item);",
+      "description": "Mark a tag item for deletion and/or remove it from pending tag edits.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened with OPEN_EDIT_TAGS.",
+        "item must be a valid, null-terminated tag name.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackWriteTag",
+      "signature": "int WavpackWriteTag(WavpackContext *wpc);",
+      "description": "Commit pending tag edits to the underlying file/stream using the writer callback (if provided).",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened with OPEN_EDIT_TAGS.",
+        "Underlying stream must be seekable and writable via the supplied callbacks for tag updates to succeed.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackOpenFileOutput",
+      "signature": "WavpackContext *WavpackOpenFileOutput(WavpackBlockOutput blockout, void *wv_id, void *wvc_id);",
+      "description": "Create an encoding context for writing WavPack blocks, using a callback to output encoded data to application-provided handles for .wv and optional .wvc.",
+      "requirements": [
+        "blockout must be a valid callback of type WavpackBlockOutput that will be called to write encoded blocks.",
+        "wv_id is an application-defined handle passed to blockout for main output.",
+        "wvc_id may be NULL or a handle for correction output when CONFIG_CREATE_WVC is used.",
+        "Returns non-NULL WavpackContext on success; NULL on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackSetFileInformation",
+      "signature": "void WavpackSetFileInformation(WavpackContext *wpc, char *file_extension, unsigned char file_format);",
+      "description": "Inform the encoder of the intended source file extension and format code (WP_FORMAT_*), used for embedding wrapper metadata appropriately.",
+      "requirements": [
+        "wpc must be a valid WavpackContext created for encoding.",
+        "file_extension must be a valid, null-terminated extension string (without dot).",
+        "file_format should be one of WP_FORMAT_* constants."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackSetConfiguration",
+      "signature": "int WavpackSetConfiguration(WavpackContext *wpc, WavpackConfig *config, uint32_t total_samples);",
+      "description": "Provide encoder configuration parameters and the total number of samples (32-bit) to the encoding context.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened for encoding.",
+        "config must point to a properly initialized WavpackConfig structure.",
+        "total_samples is the total sample frames to be encoded, or a sentinel if unknown (not specified here).",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackSetConfiguration64",
+      "signature": "int WavpackSetConfiguration64(WavpackContext *wpc, WavpackConfig *config, int64_t total_samples, const unsigned char *chan_ids);",
+      "description": "Provide encoder configuration (including optional per-channel identity codes) and the total number of samples (64-bit) to the encoder.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened for encoding.",
+        "config must point to a properly initialized WavpackConfig.",
+        "total_samples may be -1 for unknown (implied by header macros for totals).",
+        "chan_ids may be NULL or point to an array of per-channel identities with one byte per channel.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackSetChannelLayout",
+      "signature": "int WavpackSetChannelLayout(WavpackContext *wpc, uint32_t layout_tag, const unsigned char *reorder);",
+      "description": "Specify the channel layout and optional reordering map for encoding so decoders can reconstruct speaker order.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened for encoding.",
+        "layout_tag encodes the channel layout (e.g., Microsoft channel mask); exact encoding not specified here.",
+        "reorder may be NULL or point to an array mapping input channel order to standard order, one entry per channel.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackAddWrapper",
+      "signature": "int WavpackAddWrapper(WavpackContext *wpc, void *data, uint32_t bcount);",
+      "description": "Provide container wrapper bytes (headers/trailers) to be stored in the WavPack file for later restoration (e.g., RIFF chunks).",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened for encoding.",
+        "data must point to bcount bytes of wrapper data to store.",
+        "bcount is the size of the wrapper data in bytes.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackStoreMD5Sum",
+      "signature": "int WavpackStoreMD5Sum(WavpackContext *wpc, unsigned char data[16]);",
+      "description": "Store the MD5 checksum of the source audio in the encoded stream for later verification.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened for encoding.",
+        "data must point to a 16-byte MD5 digest.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackPackInit",
+      "signature": "int WavpackPackInit(WavpackContext *wpc);",
+      "description": "Finalize encoder initialization after configuration and before feeding samples.",
+      "requirements": [
+        "wpc must be a valid WavpackContext configured via WavpackSetConfiguration/64.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackPackSamples",
+      "signature": "int WavpackPackSamples(WavpackContext *wpc, int32_t *sample_buffer, uint32_t sample_count);",
+      "description": "Submit interleaved PCM samples to the encoder for compression.",
+      "requirements": [
+        "wpc must be a valid WavpackContext initialized for encoding (WavpackPackInit called).",
+        "sample_buffer must point to at least sample_count × channels samples of 32-bit integers in the configured format/order.",
+        "sample_count is the number of sample frames per channel.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackFlushSamples",
+      "signature": "int WavpackFlushSamples(WavpackContext *wpc);",
+      "description": "Flush any pending samples through the encoder to produce final blocks (but does not close the context).",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened for encoding.",
+        "Call after the last WavpackPackSamples to ensure all data is output.",
+        "Returns nonzero on success, 0 on failure."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackUpdateNumSamples",
+      "signature": "void WavpackUpdateNumSamples(WavpackContext *wpc, void *first_block);",
+      "description": "Update the number-of-samples field in the first block after encoding when the total was initially unknown.",
+      "requirements": [
+        "wpc must be a valid WavpackContext opened for encoding.",
+        "first_block must be a pointer to the first encoded block buffer previously produced by the encoder (as required to update its header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetWrapperLocation",
+      "signature": "void *WavpackGetWrapperLocation(void *first_block, uint32_t *size);",
+      "description": "Locate the stored wrapper within the provided first block and return a pointer to it along with its size.",
+      "requirements": [
+        "first_block must point to a valid encoded first block that contains a wrapper.",
+        "size must be a valid pointer to receive the wrapper size in bytes.",
+        "Returned pointer refers to memory within the provided block; do not free separately."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetEncodedNoise",
+      "signature": "double WavpackGetEncodedNoise(WavpackContext *wpc, double *peak);",
+      "description": "For hybrid mode, return the encoded noise estimate; optionally return the peak noise value via peak pointer.",
+      "requirements": [
+        "wpc must be a valid WavpackContext (typically encoding/analysis context).",
+        "peak may be NULL or a pointer to receive the peak noise value."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackFloatNormalize",
+      "signature": "void WavpackFloatNormalize(int32_t *values, int32_t num_values, int delta_exp);",
+      "description": "Adjust an array of 32-bit float-represented values by a power-of-two exponent delta (used for float normalization bookkeeping).",
+      "requirements": [
+        "values must point to an array of at least num_values 32-bit elements representing float data in integer form.",
+        "num_values is the count of elements to process.",
+        "delta_exp is the exponent adjustment; semantics implied by name, exact details not specified."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackLittleEndianToNative",
+      "signature": "void WavpackLittleEndianToNative(void *data, char *format);",
+      "description": "Convert little-endian byte-ordered structures in data to native endianness according to a compact format string (e.g., \"4L\", \"SSLL...\").",
+      "requirements": [
+        "data must point to a buffer containing the structure(s) to convert in-place.",
+        "format must be a valid null-terminated format string describing the structure layout (see ChunkHeaderFormat/WaveHeaderFormat examples)."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackNativeToLittleEndian",
+      "signature": "void WavpackNativeToLittleEndian(void *data, char *format);",
+      "description": "Convert native-endian structures in data to little-endian according to the provided format string.",
+      "requirements": [
+        "data must point to a buffer to convert in-place.",
+        "format must be a valid format string."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackBigEndianToNative",
+      "signature": "void WavpackBigEndianToNative(void *data, char *format);",
+      "description": "Convert big-endian byte-ordered structures in data to native endianness according to the format string.",
+      "requirements": [
+        "data must point to a buffer to convert in-place.",
+        "format must be a valid format string."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackNativeToBigEndian",
+      "signature": "void WavpackNativeToBigEndian(void *data, char *format);",
+      "description": "Convert native-endian structures in data to big-endian according to the format string.",
+      "requirements": [
+        "data must point to a buffer to convert in-place.",
+        "format must be a valid format string."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetLibraryVersion",
+      "signature": "uint32_t WavpackGetLibraryVersion(void);",
+      "description": "Return the library version as a 32-bit integer (encoding not specified here).",
+      "requirements": [
+        "No arguments; callable anytime after linking to the library."
+      ],
+      "error": null
+    },
+    {
+      "name": "WavpackGetLibraryVersionString",
+      "signature": "const char *WavpackGetLibraryVersionString(void);",
+      "description": "Return a human-readable string describing the library version.",
+      "requirements": [
+        "Returned pointer is to static storage owned by the library; do not modify or free."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "WavpackOpenRawDecoder",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Generate main bitstream buffer (required)\nstd::string main_buf = FUZZ_PARAM_STR();\nvoid *main_data = (void *)main_buf.data();\nint32_t main_size = (int32_t) (main_buf.size() & 0x7FFFFFFF);\nif (main_size <= 0) { FUZZ_BAIL(); }\n\n// Optionally generate correction stream buffer\nint use_corr = (int)(*FUZZ_PARAM(unsigned int) & 1);\nstd::string corr_buf;\nvoid *corr_data = nullptr;\nint32_t corr_size = 0;\nif (use_corr) {\n    corr_buf = FUZZ_PARAM_STR();\n    corr_data = (void *)corr_buf.data();\n    corr_size = (int32_t) (corr_buf.size() & 0x7FFFFFFF);\n    if (corr_size <= 0) { // if enabled, must be non-empty\n        FUZZ_BAIL();\n    }\n}\n\n// Version, flags, and normalization offset\nint16_t version = (int16_t)(*FUZZ_PARAM(unsigned int) & 0xFFFF);\nint flags = (int)(*FUZZ_PARAM(unsigned int));\nint norm_offset = (int)(*FUZZ_PARAM(unsigned int));\n\n// Optional error buffer\nchar errbuf[128];\nchar *error = ((int)(*FUZZ_PARAM(unsigned int) & 1)) ? errbuf : nullptr;\n\n// Call target\nWavpackContext *wpc = WavpackOpenRawDecoder(main_data, main_size, corr_data, corr_size, version, error, flags, norm_offset);\nif (!wpc) { FUZZ_BAIL(); }\n\n// Track context properties: raw decoder is generally non-seekable, decoding mode\nFUZZ_SET_ATTR_INT(wpc, \"opened_for_decode\", 1);\nFUZZ_SET_ATTR_INT(wpc, \"seekable\", 0);\n// Provide as output for pool persistence\n\n// Validation: Ensures non-empty buffers passed, handles optional correction stream, and bails on open failure."
+    },
+    {
+      "name": "WavpackOpenFileInput",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Filename with random data; library will attempt to open\nconst char *infilename = FUZZ_PARAM_FILENAME();\n\n// Optional error buffer\nchar errbuf[128];\nchar *error = ((int)(*FUZZ_PARAM(unsigned int) & 1)) ? errbuf : nullptr;\n\nint flags = (int)(*FUZZ_PARAM(unsigned int));\nint norm_offset = (int)(*FUZZ_PARAM(unsigned int));\n\nWavpackContext *wpc = WavpackOpenFileInput(infilename, error, flags, norm_offset);\nif (!wpc) { FUZZ_BAIL(); }\n\n// Built-in file I/O should be seekable\nFUZZ_SET_ATTR_INT(wpc, \"opened_for_decode\", 1);\nFUZZ_SET_ATTR_INT(wpc, \"seekable\", 1);\n// Provide as output\n\n// Validation: Bails if open fails; records seekability for later stubs."
+    },
+    {
+      "name": "WavpackGetMode",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Require a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\nint mode = WavpackGetMode(wpc);\n(void)mode; // value is informational; no assumptions\n\n// Keep context alive\n\n// Validation: Confirms decode context attribute; captures mode without further assumptions."
+    },
+    {
+      "name": "WavpackVerifySingleBlock",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Provide a buffer intended to contain one WavPack block\nstd::string blk = FUZZ_PARAM_STR();\nif (blk.size() == 0) { FUZZ_BAIL(); }\n\nint verify_checksum = (int)(*FUZZ_PARAM(unsigned int) & 1);\nint st = WavpackVerifySingleBlock((unsigned char *)blk.data(), verify_checksum);\n(void)st;\n\n// Validation: Always provides non-empty block; checksum verification toggled; return value not asserted."
+    },
+    {
+      "name": "WavpackGetQualifyMode",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint qm = WavpackGetQualifyMode(wpc);\n(void)qm;\n// Validation: Requires valid context; no assumptions on value."
+    },
+    {
+      "name": "WavpackGetErrorMessage",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nchar *msg = WavpackGetErrorMessage(wpc);\n// Library-owned string; do not modify or free\n(void)msg;\n// Validation: Enforces valid context and respects ownership of returned pointer."
+    },
+    {
+      "name": "WavpackGetVersion",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint ver = WavpackGetVersion(wpc);\n(void)ver;\n// Validation: Checks context; captures version for coverage."
+    },
+    {
+      "name": "WavpackGetFileExtension",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nchar *ext = WavpackGetFileExtension(wpc);\n(void)ext; // library-owned\n// Validation: Requires valid context; does not dereference beyond pointer existence."
+    },
+    {
+      "name": "WavpackGetFileFormat",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nunsigned char fmt = WavpackGetFileFormat(wpc);\n(void)fmt;\n// Validation: Checks context; treats value as opaque code."
+    },
+    {
+      "name": "WavpackUnpackSamples",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint chans = WavpackGetNumChannels(wpc);\nif (chans <= 0) { FUZZ_BAIL(); }\n\n// Choose a small sample request bounded to keep buffer < 2048 bytes\nuint32_t max_frames = (uint32_t) ((2048u / 4u) / (unsigned)chans);\nif (max_frames == 0) { max_frames = 1; }\nuint32_t req = (uint32_t)(*FUZZ_PARAM(unsigned int) % (max_frames)) + 1u;\n\n// Allocate buffer: frames * channels of 32-bit ints\nuint64_t total_vals = (uint64_t)req * (uint64_t)chans;\nif (total_vals > 1u<<20) { FUZZ_BAIL(); } // guard against overflow\nint32_t *buf = new int32_t[(size_t)total_vals];\n\nuint32_t got = WavpackUnpackSamples(wpc, buf, req);\n(void)got;\n\ndelete[] buf;\n// Validation: Enforces positive channels and safe buffer sizing; result count is informational."
+    },
+    {
+      "name": "WavpackGetNumSamples",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t n = WavpackGetNumSamples(wpc);\n(void)n;\n// Validation: Ensures context is valid; treats 0 as permissible unknown."
+    },
+    {
+      "name": "WavpackGetNumSamples64",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint64_t n64 = WavpackGetNumSamples64(wpc);\n(void)n64;\n// Validation: Accepts -1 as unknown; no further assumptions."
+    },
+    {
+      "name": "WavpackGetNumSamplesInFrame",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t nf = WavpackGetNumSamplesInFrame(wpc);\n(void)nf;\n// Validation: Simple getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetSampleIndex",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t idx = WavpackGetSampleIndex(wpc);\n(void)idx;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetSampleIndex64",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint64_t idx64 = WavpackGetSampleIndex64(wpc);\n(void)idx64;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetNumErrors",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint errs = WavpackGetNumErrors(wpc);\n(void)errs;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackLossyBlocks",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint lossy = WavpackLossyBlocks(wpc);\n(void)lossy;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackSeekSample",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be seekable to attempt seeking\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"seekable\")) { FUZZ_BAIL(); }\n\n// Choose a target sample; if length known, keep within range\nuint32_t total = WavpackGetNumSamples(wpc);\nuint32_t target;\nif (total > 0u) {\n    target = (uint32_t)(*FUZZ_PARAM(unsigned int) % total);\n} else {\n    target = (uint32_t)(*FUZZ_PARAM(unsigned int));\n}\n\nint ok = WavpackSeekSample(wpc, target);\n(void)ok;\n// Validation: Enforces seekable context and bounds target if length is known."
+    },
+    {
+      "name": "WavpackSeekSample64",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Require a valid, seekable decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"seekable\")) { FUZZ_BAIL(); }\n\n// Choose a 64-bit target sample; if total length known, constrain within range\nint64_t total64 = WavpackGetNumSamples64(wpc);\nint64_t target64;\nif (total64 > 0) {\n    // keep in range [0, total64)\n    uint64_t r = (uint64_t)(*FUZZ_PARAM(unsigned int));\n    target64 = (int64_t)(r % (uint64_t)total64);\n} else {\n    // unknown length, use arbitrary 64-bit-ish value composed from two 32-bit values\n    uint64_t hi = (uint64_t)(*FUZZ_PARAM(unsigned int));\n    uint64_t lo = (uint64_t)(*FUZZ_PARAM(unsigned int));\n    target64 = (int64_t)((hi << 32) | lo);\n}\n\nint ok = WavpackSeekSample64(wpc, target64);\n(void)ok;\n// Validation: Enforces seekable context and bounds target when length is known; result is informational."
+    },
+    {
+      "name": "WavpackCloseFile",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Close and release the context; after this, wpc must not be used\nWavpackContext *ret = WavpackCloseFile(wpc);\n(void)ret; // conventionally NULL; do not rely on value\n// Do not return wpc as an output to drop it from the pool\n// Validation: Ensures context is closed and ownership is relinquished."
+    },
+    {
+      "name": "WavpackGetSampleRate",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t sr = WavpackGetSampleRate(wpc);\n(void)sr;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetNativeSampleRate",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t nsr = WavpackGetNativeSampleRate(wpc);\n(void)nsr;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetBitsPerSample",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint bps = WavpackGetBitsPerSample(wpc);\n(void)bps;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetBytesPerSample",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint byps = WavpackGetBytesPerSample(wpc);\n(void)byps;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetNumChannels",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint ch = WavpackGetNumChannels(wpc);\n(void)ch;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetChannelMask",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint mask = WavpackGetChannelMask(wpc);\n(void)mask;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetReducedChannels",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint rch = WavpackGetReducedChannels(wpc);\n(void)rch;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetFloatNormExp",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint exp = WavpackGetFloatNormExp(wpc);\n(void)exp;\n// Validation: Getter guarded by valid context."
+    },
+    {
+      "name": "WavpackGetMD5Sum",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nunsigned char md5[16];\nint ok = WavpackGetMD5Sum(wpc, md5);\n// If MD5 is not present, ok may be 0; no further assumptions\n(void)ok;\n// Validation: Supplies a 16-byte buffer as required; respects optional presence of MD5."
+    },
+    {
+      "name": "WavpackGetChannelIdentities",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint chans = WavpackGetNumChannels(wpc);\nif (chans <= 0) { FUZZ_BAIL(); }\n// Allocate identities buffer: one byte per channel\nif (chans > 1024) { FUZZ_BAIL(); } // guard excessive allocation\nunsigned char *ids = new unsigned char[(size_t)chans];\nWavpackGetChannelIdentities(wpc, ids);\n// Do not assume content; just clean up\ndelete[] ids;\n// Validation: Ensures buffer large enough for one byte per channel and keeps allocations bounded."
+    },
+    {
+      "name": "WavpackGetChannelLayout",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint chans = WavpackGetNumChannels(wpc);\nif (chans <= 0) { FUZZ_BAIL(); }\nunsigned char *reorder = nullptr;\nint provide_reorder = (int)(*FUZZ_PARAM(unsigned int) & 1);\nif (provide_reorder) {\n    if (chans > 1024) { FUZZ_BAIL(); }\n    reorder = new unsigned char[(size_t)chans];\n}\nuint32_t tag = WavpackGetChannelLayout(wpc, reorder);\n(void)tag;\nif (reorder) { delete[] reorder; }\n// Validation: Optionally provides a reorder buffer sized to channels; result is informational."
+    },
+    {
+      "name": "WavpackGetWrapperBytes",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t n = WavpackGetWrapperBytes(wpc);\n(void)n;\n// Validation: Getter guarded by valid context; wrapper availability depends on open flags."
+    },
+    {
+      "name": "WavpackGetWrapperData",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t n = WavpackGetWrapperBytes(wpc);\nunsigned char *p = WavpackGetWrapperData(wpc);\nif (n > 0) {\n    // If bytes reported, then pointer should be non-null\n    FUZZ_ASSERT(p != nullptr, \"Wrapper size > 0 but data pointer is null\");\n}\n(void)p;\n// Note: wrapper is library-owned and remains valid until WavpackFreeWrapper() or context advances\n// Validation: Retrieves size first, then data; asserts pointer when size > 0; respects ownership."
+    },
+    {
+      "name": "WavpackFreeWrapper",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n// Free any current wrapper buffer if one is held\nWavpackFreeWrapper(wpc);\n// Keep context alive for further operations\n// Validation: Properly frees library-owned wrapper buffer when present."
+    },
+    {
+      "name": "WavpackSeekTrailingWrapper",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be a valid, seekable input to reach trailing wrapper\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"seekable\")) { FUZZ_BAIL(); }\nWavpackSeekTrailingWrapper(wpc);\n// Validation: Enforces seekability requirement; operation has no direct return value."
+    },
+    {
+      "name": "WavpackGetProgress",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\ndouble prog = WavpackGetProgress(wpc);\n(void)prog;\n// Validation: Getter guarded by valid context; value treated as informational fraction."
+    },
+    {
+      "name": "WavpackGetFileSize",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nuint32_t sz = WavpackGetFileSize(wpc);\n(void)sz;\n// Validation: Getter guarded by valid context; 32-bit truncated size is acceptable."
+    },
+    {
+      "name": "WavpackGetFileSize64",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "if (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nint64_t sz64 = WavpackGetFileSize64(wpc);\n(void)sz64;\n// Validation: Getter guarded by valid context; 64-bit size is informational."
+    },
+    {
+      "name": "WavpackGetRatio",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\ndouble ratio = WavpackGetRatio(wpc);\n(void)ratio; // informational only\n\n// Keep context alive\n// Validation: Ensures valid decode context; treats return as informational."
+    },
+    {
+      "name": "WavpackGetAverageBitrate",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\nint count_wvc = (int)(*FUZZ_PARAM(unsigned int) & 1);\ndouble abr = WavpackGetAverageBitrate(wpc, count_wvc);\n(void)abr;\n\n// Keep context alive\n// Validation: Enforces valid context; toggles inclusion of .wvc contribution."
+    },
+    {
+      "name": "WavpackGetInstantBitrate",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\ndouble ibr = WavpackGetInstantBitrate(wpc);\n(void)ibr;\n\n// Keep context alive\n// Validation: Enforces valid context; treats return as informational."
+    },
+    {
+      "name": "WavpackGetNumTagItems",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context; OPEN_TAGS may affect availability but is not mandatory for calling\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\nint n = WavpackGetNumTagItems(wpc);\n(void)n;\n// Validation: Ensures valid context; no additional assumptions."
+    },
+    {
+      "name": "WavpackGetTagItem",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\n// Tag name (null-terminated)\nstd::string item_s = FUZZ_PARAM_STR();\nconst char *item = item_s.c_str();\n\n// Value buffer sized reasonably (1..256)\nint size = (int)((*FUZZ_PARAM(unsigned int) % 256u) + 1u);\nchar *value = new char[size];\n\nint rv = WavpackGetTagItem(wpc, item, value, size);\n(void)rv;\n\ndelete[] value;\n// Validation: Supplies valid pointers and bounded buffer; treats return semantics as opaque."
+    },
+    {
+      "name": "WavpackGetTagItemIndexed",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\nint count = WavpackGetNumTagItems(wpc);\nint index = 0;\nif (count > 0) {\n    index = (int)((*FUZZ_PARAM(unsigned int)) % (unsigned)count);\n}\n\nint size = (int)((*FUZZ_PARAM(unsigned int) % 256u) + 1u);\nchar *item = new char[size];\n\nint rv = WavpackGetTagItemIndexed(wpc, index, item, size);\n(void)rv;\n\ndelete[] item;\n// Validation: Binds index to valid range when possible; provides bounded buffer."
+    },
+    {
+      "name": "WavpackGetNumBinaryTagItems",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\nint n = WavpackGetNumBinaryTagItems(wpc);\n(void)n;\n// Validation: Simple getter with valid context."
+    },
+    {
+      "name": "WavpackGetBinaryTagItem",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\n// Item name\nstd::string item_s = FUZZ_PARAM_STR();\nconst char *item = item_s.c_str();\n\n// Binary value buffer\nint size = (int)((*FUZZ_PARAM(unsigned int) % 256u) + 1u);\nchar *value = new char[size];\n\nint rv = WavpackGetBinaryTagItem(wpc, item, value, size);\n(void)rv;\n\ndelete[] value;\n// Validation: Supplies valid pointers and bounded size; return semantics are opaque."
+    },
+    {
+      "name": "WavpackGetBinaryTagItemIndexed",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Requires a valid decode context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\nint count = WavpackGetNumBinaryTagItems(wpc);\nint index = 0;\nif (count > 0) {\n    index = (int)((*FUZZ_PARAM(unsigned int)) % (unsigned)count);\n}\n\nint size = (int)((*FUZZ_PARAM(unsigned int) % 256u) + 1u);\nchar *item = new char[size];\n\nint rv = WavpackGetBinaryTagItemIndexed(wpc, index, item, size);\n(void)rv;\n\ndelete[] item;\n// Validation: Index constrained to range when available; bounded output buffer."
+    },
+    {
+      "name": "WavpackAppendTagItem",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Tag editing requires a decode context opened with OPEN_EDIT_TAGS\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_edit_tags\")) { FUZZ_BAIL(); }\n\n// Tag name and value (binary-safe with explicit size)\nstd::string item_s = FUZZ_PARAM_STR();\nconst char *item = item_s.c_str();\nstd::string val = FUZZ_PARAM_STR();\nconst char *value = val.data();\nint vsize = (int)(val.size() & 0x7FFFFFFF);\nif (vsize <= 0) { FUZZ_BAIL(); }\n\nint ok = WavpackAppendTagItem(wpc, item, value, vsize);\n(void)ok;\n// Validation: Enforces edit mode; supplies non-empty value with explicit size."
+    },
+    {
+      "name": "WavpackAppendBinaryTagItem",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Tag editing requires a decode context opened with OPEN_EDIT_TAGS\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_edit_tags\")) { FUZZ_BAIL(); }\n\nstd::string item_s = FUZZ_PARAM_STR();\nconst char *item = item_s.c_str();\nstd::string data = FUZZ_PARAM_STR();\nconst char *value = data.data();\nint vsize = (int)(data.size() & 0x7FFFFFFF);\nif (vsize <= 0) { FUZZ_BAIL(); }\n\nint ok = WavpackAppendBinaryTagItem(wpc, item, value, vsize);\n(void)ok;\n// Validation: Enforces edit mode and provides bounded non-empty binary payload."
+    },
+    {
+      "name": "WavpackDeleteTagItem",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Tag editing requires a decode context opened with OPEN_EDIT_TAGS\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_edit_tags\")) { FUZZ_BAIL(); }\n\nstd::string item_s = FUZZ_PARAM_STR();\nconst char *item = item_s.c_str();\n\nint ok = WavpackDeleteTagItem(wpc, item);\n(void)ok;\n// Validation: Enforces edit mode; supplies a valid tag name."
+    },
+    {
+      "name": "WavpackWriteTag",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Writing tags requires a decode context opened with OPEN_EDIT_TAGS and a seekable, writable stream\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_edit_tags\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"seekable\")) { FUZZ_BAIL(); }\n\nint ok = WavpackWriteTag(wpc);\n(void)ok;\n// Validation: Enforces edit mode and seekability before committing tags."
+    },
+    {
+      "name": "WavpackOpenFileOutput",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Provide a valid block output callback using a non-capturing lambda convertible to function pointer\nWavpackBlockOutput blockout = +[](void *id, void *data, int32_t bcount) -> int {\n    // Simulate a sink that accepts up to bcount bytes; report full acceptance\n    (void)id; (void)data; return bcount;\n};\n\n// Provide opaque IDs for main and optional correction outputs\nvoid *wv_id = (void*)(uintptr_t)(*FUZZ_PARAM(unsigned int));\nvoid *wvc_id = ((int)(*FUZZ_PARAM(unsigned int) & 1)) ? (void*)(uintptr_t)(*FUZZ_PARAM(unsigned int)) : nullptr;\n\nWavpackContext *wpc = WavpackOpenFileOutput(blockout, wv_id, wvc_id);\nif (!wpc) { FUZZ_BAIL(); }\n\n// Track encoder context\nFUZZ_SET_ATTR_INT(wpc, \"opened_for_encode\", 1);\nFUZZ_SET_ATTR_INT(wpc, \"pack_initialized\", 0);\nFUZZ_SET_ATTR_INT(wpc, \"num_channels\", 0);\n// Validation: Supplies a working callback and IDs; bails on failure; marks context as encoder."
+    },
+    {
+      "name": "WavpackSetFileInformation",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nstd::string ext_s = FUZZ_PARAM_STR();\n// Constrain to a short extension (strip dots and limit length)\nstd::string clean;\nfor (char c : ext_s) { if (c == '\\0') break; if (c != '.') clean.push_back(c); if (clean.size() >= 8) break; }\nif (clean.empty()) clean = \"wav\";\nchar *file_extension = (char*)clean.c_str();\nunsigned char file_format = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nWavpackSetFileInformation(wpc, file_extension, file_format);\n// Validation: Enforces encoder context; provides short, null-terminated extension and a format code."
+    },
+    {
+      "name": "WavpackSetConfiguration",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nWavpackConfig cfg = {};\ncfg.bitrate = *(FUZZ_PARAM(float));\ncfg.shaping_weight = *(FUZZ_PARAM(float));\n// Choose sane channel count (1..8) and bits per sample (8..32)\ncfg.num_channels = (int)((*FUZZ_PARAM(unsigned int) % 8u) + 1u);\ncfg.bits_per_sample = (int)((*FUZZ_PARAM(unsigned int) % 25u) + 8u);\ncfg.bytes_per_sample = (cfg.bits_per_sample + 7) / 8;\ncfg.sample_rate = (int32_t)((*FUZZ_PARAM(unsigned int) % 384000u) + 8000u);\ncfg.channel_mask = (int32_t)(*FUZZ_PARAM(unsigned int));\ncfg.flags = (int)(*FUZZ_PARAM(unsigned int));\ncfg.block_samples = (int32_t)((*FUZZ_PARAM(unsigned int) % 4096u) + 16u);\ncfg.worker_threads = (int)(*FUZZ_PARAM(unsigned int) % 4u);\n\nuint32_t total_samples = (uint32_t)(*FUZZ_PARAM(unsigned int));\n\nint ok = WavpackSetConfiguration(wpc, &cfg, total_samples);\n(void)ok;\n\n// Track configured channels for later layout calls\nFUZZ_SET_ATTR_INT(wpc, \"num_channels\", cfg.num_channels);\n// Validation: Enforces encoder context; initializes config with bounded values; records channel count."
+    },
+    {
+      "name": "WavpackSetConfiguration64",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nWavpackConfig cfg = {};\ncfg.bitrate = *(FUZZ_PARAM(float));\ncfg.shaping_weight = *(FUZZ_PARAM(float));\ncfg.num_channels = (int)((*FUZZ_PARAM(unsigned int) % 8u) + 1u);\ncfg.bits_per_sample = (int)((*FUZZ_PARAM(unsigned int) % 25u) + 8u);\ncfg.bytes_per_sample = (cfg.bits_per_sample + 7) / 8;\ncfg.sample_rate = (int32_t)((*FUZZ_PARAM(unsigned int) % 384000u) + 8000u);\ncfg.channel_mask = (int32_t)(*FUZZ_PARAM(unsigned int));\ncfg.flags = (int)(*FUZZ_PARAM(unsigned int));\ncfg.block_samples = (int32_t)((*FUZZ_PARAM(unsigned int) % 4096u) + 16u);\ncfg.worker_threads = (int)(*FUZZ_PARAM(unsigned int) % 4u);\n\n// total_samples may be -1 for unknown; generate either -1 or a random 64-bit value\nint64_t total_samples = ((int)(*FUZZ_PARAM(unsigned int) & 1)) ? (int64_t)-1 : (int64_t)(((uint64_t)(*FUZZ_PARAM(unsigned int)) << 32) | (uint64_t)(*FUZZ_PARAM(unsigned int)));\n\n// Optional channel identity array: one byte per channel\nunsigned char *chan_ids = nullptr;\nif ((int)(*FUZZ_PARAM(unsigned int) & 1)) {\n    if (cfg.num_channels > 0 && cfg.num_channels <= 256) {\n        chan_ids = new unsigned char[(size_t)cfg.num_channels];\n        for (int i = 0; i < cfg.num_channels; ++i) chan_ids[i] = (unsigned char)(i & 0xFF);\n    }\n}\n\nint ok = WavpackSetConfiguration64(wpc, &cfg, total_samples, chan_ids);\n(void)ok;\n\nif (chan_ids) delete[] chan_ids;\nFUZZ_SET_ATTR_INT(wpc, \"num_channels\", cfg.num_channels);\n// Validation: Enforces encoder context; initializes config; handles optional chan_ids with safe bounds."
+    },
+    {
+      "name": "WavpackSetChannelLayout",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nint chans = FUZZ_GET_ATTR_INT(wpc, \"num_channels\");\nif (chans <= 0) { chans = 2; }\n\nuint32_t layout_tag = (uint32_t)(*FUZZ_PARAM(unsigned int));\n\n// Optionally provide a reorder map of one entry per channel\nconst unsigned char *reorder = nullptr;\nunsigned char *tmp = nullptr;\nif ((int)(*FUZZ_PARAM(unsigned int) & 1)) {\n    if (chans > 0 && chans <= 256) {\n        tmp = new unsigned char[(size_t)chans];\n        for (int i = 0; i < chans; ++i) tmp[i] = (unsigned char)i;\n        reorder = tmp;\n    }\n}\n\nint ok = WavpackSetChannelLayout(wpc, layout_tag, reorder);\n(void)ok;\n\nif (tmp) delete[] tmp;\n// Validation: Enforces encoder context; provides optional reorder map sized to channel count."
+    },
+    {
+      "name": "WavpackAddWrapper",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nstd::string data = FUZZ_PARAM_STR();\n// Keep wrapper size modest (< 2048 bytes)\nif (data.size() > 2048) { data.resize(2048); }\nvoid *buf = (void*)data.data();\nuint32_t bcount = (uint32_t)data.size();\nif (bcount == 0) { FUZZ_BAIL(); }\n\nint ok = WavpackAddWrapper(wpc, buf, bcount);\n(void)ok;\n// Validation: Enforces encoder context; supplies non-empty, bounded wrapper buffer."
+    },
+    {
+      "name": "WavpackStoreMD5Sum",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nunsigned char md5[16];\n// Fill with fuzz data\nconst unsigned int *p = FUZZ_PARAM(unsigned int);\nunsigned int v = *p;\nfor (int i = 0; i < 16; ++i) { if ((i & 3) == 0) v = *FUZZ_PARAM(unsigned int); md5[i] = (unsigned char)((v >> ((i & 3) * 8)) & 0xFF); }\n\nint ok = WavpackStoreMD5Sum(wpc, md5);\n(void)ok;\n// Validation: Enforces encoder context; provides exactly 16 bytes of MD5 data."
+    },
+    {
+      "name": "WavpackPackInit",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context configured before pack init\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nint ok = WavpackPackInit(wpc);\n(void)ok;\n// Track initialization state regardless of return to explore both paths\nFUZZ_SET_ATTR_INT(wpc, \"pack_initialized\", ok ? 1 : 0);\n// Validation: Requires encoder context and records initialization result for later PackSamples/Flush."
+    },
+    {
+      "name": "WavpackPackSamples",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context and pack must have been initialized\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\nif (!FUZZ_GET_ATTR_INT(wpc, \"pack_initialized\")) { FUZZ_BAIL(); }\n\nint chans = FUZZ_GET_ATTR_INT(wpc, \"num_channels\");\nif (chans <= 0) { chans = (int)((*FUZZ_PARAM(unsigned int) % 8u) + 1u); }\n\n// Choose a small frame count so that total bytes < 2048\n// total bytes = frames * chans * sizeof(int32_t)\nuint32_t max_frames = (uint32_t)((2048u / 4u) / (unsigned)chans);\nif (max_frames == 0) { max_frames = 1; }\nuint32_t frames = (uint32_t)(*FUZZ_PARAM(unsigned int) % max_frames) + 1u;\n\nuint64_t total_vals = (uint64_t)frames * (uint64_t)chans;\nif (total_vals > (1u<<20)) { FUZZ_BAIL(); }\n\nint32_t *sample_buffer = new int32_t[(size_t)total_vals];\n// Fill the buffer with fuzz data\nfor (size_t i = 0; i < (size_t)total_vals; ++i) {\n    sample_buffer[i] = (int32_t)(*FUZZ_PARAM(unsigned int));\n}\n\nint ok = WavpackPackSamples(wpc, sample_buffer, frames);\n(void)ok;\n\ndelete[] sample_buffer;\n// Validation: Enforces initialized encoder, sizes buffer to channels and frame count under 2048 bytes."
+    },
+    {
+      "name": "WavpackFlushSamples",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Must be an encoder context; flushing is valid after packing samples\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\")) { FUZZ_BAIL(); }\n\nint ok = WavpackFlushSamples(wpc);\n(void)ok;\n// Validation: Ensures encoder context; treats return as success indicator but keeps context alive."
+    },
+    {
+      "name": "WavpackGetEncodedNoise",
+      "inputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wpc",
+          "type": "WavpackContext *"
+        }
+      ],
+      "code": "// Accept either an encode or decode/analysis context\nif (!FUZZ_GET_ATTR_INT(wpc, \"opened_for_encode\") && !FUZZ_GET_ATTR_INT(wpc, \"opened_for_decode\")) { FUZZ_BAIL(); }\n\n// Optionally request peak value\ndouble *peak_ptr = nullptr;\ndouble peak_val = 0.0;\nif ((int)(*FUZZ_PARAM(unsigned int) & 1)) { peak_ptr = &peak_val; }\n\ndouble noise = WavpackGetEncodedNoise(wpc, peak_ptr);\n(void)noise; (void)peak_val;\n// Validation: Accepts valid context (encode or decode); optionally supplies a writable peak pointer."
+    },
+    {
+      "name": "WavpackFloatNormalize",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a small buffer of 32-bit values representing float data packed in int32\nint32_t num_values = (int32_t)((*FUZZ_PARAM(unsigned int) % 256u) + 1u); // 1..256\nint32_t *values = new int32_t[(size_t)num_values];\nfor (int32_t i = 0; i < num_values; ++i) values[i] = (int32_t)(*FUZZ_PARAM(unsigned int));\n\nint delta_exp = (int)(*FUZZ_PARAM(unsigned int));\n\nWavpackFloatNormalize(values, num_values, delta_exp);\n\ndelete[] values;\n// Validation: Supplies writable array and bounded count; delta_exp arbitrary as permitted."
+    },
+    {
+      "name": "WavpackLittleEndianToNative",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a compact, known format and allocate matching buffer size\n// Supported sample formats: \"4L\" (ChunkHeader: 4-byte ID + 32-bit), \"LLLL\" (4 uint32_t), \"SS\" (two uint16_t)\nint fmt_sel = (int)(*FUZZ_PARAM(unsigned int) % 3u);\nconst char *format = (fmt_sel == 0) ? \"4L\" : (fmt_sel == 1) ? \"LLLL\" : \"SS\";\nsize_t bytes = (fmt_sel == 0) ? (4 + 4) : (fmt_sel == 1) ? (4 * 4) : (2 * 2);\n\n// Allocate and fill buffer\nunsigned char *buf = new unsigned char[bytes];\nfor (size_t i = 0; i < bytes; ++i) buf[i] = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nWavpackLittleEndianToNative((void*)buf, (char*)format);\n\ndelete[] buf;\n// Validation: Picks a reasonable format and ensures buffer is large enough for in-place conversion."
+    },
+    {
+      "name": "WavpackNativeToLittleEndian",
+      "inputs": [],
+      "outputs": [],
+      "code": "int fmt_sel = (int)(*FUZZ_PARAM(unsigned int) % 3u);\nconst char *format = (fmt_sel == 0) ? \"4L\" : (fmt_sel == 1) ? \"LLLL\" : \"SS\";\nsize_t bytes = (fmt_sel == 0) ? (4 + 4) : (fmt_sel == 1) ? (4 * 4) : (2 * 2);\n\nunsigned char *buf = new unsigned char[bytes];\nfor (size_t i = 0; i < bytes; ++i) buf[i] = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nWavpackNativeToLittleEndian((void*)buf, (char*)format);\n\ndelete[] buf;\n// Validation: Mirrors LittleEndian converter with matching buffer sizing."
+    },
+    {
+      "name": "WavpackBigEndianToNative",
+      "inputs": [],
+      "outputs": [],
+      "code": "int fmt_sel = (int)(*FUZZ_PARAM(unsigned int) % 3u);\nconst char *format = (fmt_sel == 0) ? \"4L\" : (fmt_sel == 1) ? \"LLLL\" : \"SS\";\nsize_t bytes = (fmt_sel == 0) ? (4 + 4) : (fmt_sel == 1) ? (4 * 4) : (2 * 2);\n\nunsigned char *buf = new unsigned char[bytes];\nfor (size_t i = 0; i < bytes; ++i) buf[i] = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nWavpackBigEndianToNative((void*)buf, (char*)format);\n\ndelete[] buf;\n// Validation: Uses predefined compact formats and ensures sufficient buffer size."
+    },
+    {
+      "name": "WavpackNativeToBigEndian",
+      "inputs": [],
+      "outputs": [],
+      "code": "int fmt_sel = (int)(*FUZZ_PARAM(unsigned int) % 3u);\nconst char *format = (fmt_sel == 0) ? \"4L\" : (fmt_sel == 1) ? \"LLLL\" : \"SS\";\nsize_t bytes = (fmt_sel == 0) ? (4 + 4) : (fmt_sel == 1) ? (4 * 4) : (2 * 2);\n\nunsigned char *buf = new unsigned char[bytes];\nfor (size_t i = 0; i < bytes; ++i) buf[i] = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\n\nWavpackNativeToBigEndian((void*)buf, (char*)format);\n\ndelete[] buf;\n// Validation: Provides buffer sized to format and performs in-place conversion."
+    },
+    {
+      "name": "WavpackGetLibraryVersion",
+      "inputs": [],
+      "outputs": [],
+      "code": "uint32_t v = WavpackGetLibraryVersion();\n(void)v;\n// Validation: No inputs; value is informational."
+    },
+    {
+      "name": "WavpackGetLibraryVersionString",
+      "inputs": [],
+      "outputs": [],
+      "code": "const char *s = WavpackGetLibraryVersionString();\n(void)s; // library-owned static string; do not modify or free\n// Validation: No inputs; respects ownership of returned pointer."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "WavpackOpenFileInputEx64",
+      "reason": "Requires user-supplied function-pointer callbacks (WavpackStreamReader64) which cannot be defined inside the stub without creating new top-level functions."
+    },
+    {
+      "name": "WavpackOpenFileInputEx",
+      "reason": "Requires user-supplied function-pointer callbacks (WavpackStreamReader) which cannot be defined inside the stub without creating new top-level functions."
+    },
+    {
+      "name": "WavpackUpdateNumSamples",
+      "reason": "Requires a pointer to the encoder’s first output block buffer, which cannot be obtained or persisted under the current fuzzer callback model."
+    },
+    {
+      "name": "WavpackGetWrapperLocation",
+      "reason": "Requires a valid encoded first block pointer produced by the encoder, which the fuzzer cannot safely construct or capture."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "WavpackGetMode",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetQualifyMode",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetErrorMessage",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetVersion",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetFileExtension",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetFileFormat",
+      "data_types": []
+    },
+    {
+      "name": "WavpackUnpackSamples",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNumSamples",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNumSamples64",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNumSamplesInFrame",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetSampleIndex",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetSampleIndex64",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNumErrors",
+      "data_types": []
+    },
+    {
+      "name": "WavpackLossyBlocks",
+      "data_types": []
+    },
+    {
+      "name": "WavpackSeekSample",
+      "data_types": []
+    },
+    {
+      "name": "WavpackSeekSample64",
+      "data_types": []
+    },
+    {
+      "name": "WavpackCloseFile",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetSampleRate",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNativeSampleRate",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetBitsPerSample",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetBytesPerSample",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNumChannels",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetChannelMask",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetReducedChannels",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetFloatNormExp",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetMD5Sum",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetChannelIdentities",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetChannelLayout",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetWrapperBytes",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetWrapperData",
+      "data_types": []
+    },
+    {
+      "name": "WavpackFreeWrapper",
+      "data_types": []
+    },
+    {
+      "name": "WavpackSeekTrailingWrapper",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetProgress",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetFileSize",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetFileSize64",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetRatio",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetAverageBitrate",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetInstantBitrate",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNumTagItems",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetTagItemIndexed",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetNumBinaryTagItems",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetBinaryTagItemIndexed",
+      "data_types": []
+    },
+    {
+      "name": "WavpackWriteTag",
+      "data_types": []
+    },
+    {
+      "name": "WavpackOpenFileOutput",
+      "data_types": []
+    },
+    {
+      "name": "WavpackSetConfiguration",
+      "data_types": []
+    },
+    {
+      "name": "WavpackSetConfiguration64",
+      "data_types": []
+    },
+    {
+      "name": "WavpackSetChannelLayout",
+      "data_types": []
+    },
+    {
+      "name": "WavpackStoreMD5Sum",
+      "data_types": []
+    },
+    {
+      "name": "WavpackPackInit",
+      "data_types": []
+    },
+    {
+      "name": "WavpackPackSamples",
+      "data_types": []
+    },
+    {
+      "name": "WavpackFlushSamples",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetEncodedNoise",
+      "data_types": []
+    },
+    {
+      "name": "WavpackFloatNormalize",
+      "data_types": []
+    },
+    {
+      "name": "WavpackLittleEndianToNative",
+      "data_types": []
+    },
+    {
+      "name": "WavpackNativeToLittleEndian",
+      "data_types": []
+    },
+    {
+      "name": "WavpackBigEndianToNative",
+      "data_types": []
+    },
+    {
+      "name": "WavpackNativeToBigEndian",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetLibraryVersion",
+      "data_types": []
+    },
+    {
+      "name": "WavpackGetLibraryVersionString",
+      "data_types": []
+    },
+    {
+      "name": "WavpackOpenRawDecoder",
+      "data_types": [
+        "WavPack block data"
+      ]
+    },
+    {
+      "name": "WavpackOpenFileInput",
+      "data_types": [
+        "WavPack file"
+      ]
+    },
+    {
+      "name": "WavpackVerifySingleBlock",
+      "data_types": [
+        "WavPack block data"
+      ]
+    },
+    {
+      "name": "WavpackGetTagItem",
+      "data_types": [
+        "text tag name"
+      ]
+    },
+    {
+      "name": "WavpackGetBinaryTagItem",
+      "data_types": [
+        "binary tag name"
+      ]
+    },
+    {
+      "name": "WavpackAppendTagItem",
+      "data_types": [
+        "text tag name",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "WavpackAppendBinaryTagItem",
+      "data_types": [
+        "binary tag name",
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "WavpackDeleteTagItem",
+      "data_types": [
+        "text tag name"
+      ]
+    },
+    {
+      "name": "WavpackSetFileInformation",
+      "data_types": [
+        "file extension string"
+      ]
+    },
+    {
+      "name": "WavpackAddWrapper",
+      "data_types": [
+        "container wrapper bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "WavPack block data",
+      "description": "A raw byte buffer containing exactly one or more WavPack bitstream blocks as used in .wv/.wvc streams. Begins with the 4-byte \"wvpk\" signature and includes the WavPack block header and payload. May be main stream data or correction data."
+    },
+    {
+      "data_type": "WavPack file",
+      "description": "A file whose contents are a valid WavPack stream (typically .wv, optionally paired with .wvc). The file contains WavPack blocks possibly wrapped by container metadata."
+    },
+    {
+      "data_type": "text tag name",
+      "description": "A null-terminated ASCII/UTF-8 string naming a textual metadata tag (e.g., \"Title\", \"Artist\"). Should not contain embedded nulls."
+    },
+    {
+      "data_type": "binary tag name",
+      "description": "A null-terminated ASCII/UTF-8 string naming a binary metadata tag (e.g., \"COVER ART (FRONT)\"). Should not contain embedded nulls."
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "description": "An opaque byte buffer whose content is treated as uninterpreted binary payload. May contain any byte values including nulls."
+    },
+    {
+      "data_type": "file extension string",
+      "description": "A short, null-terminated ASCII string representing a filename extension without a leading dot (e.g., \"wav\", \"caf\"). Typically limited to a few characters."
+    },
+    {
+      "data_type": "container wrapper bytes",
+      "description": "Raw bytes copied from or intended to represent container header/trailer data such as RIFF/WAVE, AIFF, or CAF chunks. These bytes are stored and later restored around the encoded audio."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "WavPack block data",
+      "generator": "import random\nimport struct\nimport zlib\n\n# This generator produces valid-looking WavPack 4.x/5.x single blocks (main stream),\n# sufficient for library open/verify paths that only require syntactically valid headers\n# and plausible payload sizes. It does NOT implement full compression; it crafts minimal\n# blocks with headers, flags, and padding payload so they parse as blocks. The checksum\n# (if enabled) is computed over the entire block with the checksum field zeroed first,\n# per WavPack v4 convention (CRC-32 of header+payload, excluding the final 4 bytes of crc).\n#\n# Block layout (v4 style):\n#   0   : 'w','v','p','k'\n#   4   : uint32 le - total block size (including header)\n#   8   : uint16 le - version (e.g., 0x410 for 4.16, or 0x405 for 4.05)\n#   10  : uint8  - block_index high 8 bits (40-bit field split)\n#   11  : uint8  - total_samples high 8 bits (40-bit field split)\n#   12  : uint32 le - total_samples low 32\n#   16  : uint32 le - block_index low 32\n#   20  : uint32 le - block_samples in this block\n#   24  : uint32 le - flags\n#   28  : uint32 le - crc (if flags indicate checksum present; still present in header bytes)\n#   ... : metadata chunks / encoded data (we use padding)\n#\n# We set flags to indicate simple integer PCM, mono/stereo, and optionally CRC present.\n# The payload is synthetic (zeros) but sized consistently with header fields so that\n# the parser can advance.\n\nMAX_TOTAL_SIZE = 4096\nWVPK_MAGIC = b\"wvpk\"\n\n# Some flag bits used in WavPack v4 (subset; chosen to keep parser happy)\nFLAG_INITIAL_BLOCK = 0x80000000  # initial block in multichannel group\nFLAG_FINAL_BLOCK   = 0x40000000  # final block in multichannel group\nFLAG_HYBRID_BLOCK  = 0x00000008  # hybrid (lossy) mode\nFLAG_FLOAT_DATA    = 0x00000004  # float data\nFLAG_HBR           = 0x00000002  # high bitrate mode (hybrid)\nFLAG_DSD_BLOCK     = 0x00000001  # DSD mode\nFLAG_HAS_CHECKSUM  = 0x00000010  # block contains trailing checksum (v4 uses header crc field)\nFLAG_MONO          = 0x00000020  # mono (else stereo)\nFLAG_FALSE_STEREO  = 0x00000040  # stereo but identical channels\nFLAG_BYTES_STORED_SHIFT = 23     # 2 bits indicating bytes/sample-1 (0..3)\nFLAG_SHIFT_BYTES   = 0x00000003  # mask for bytes/sample bits after shift (helper)\n\n\ndef _u32(x: int) -> int:\n    return x & 0xFFFFFFFF\n\n\ndef _pack_header(total_size, version, block_index, total_samples, block_samples, flags, crc):\n    # Split total_samples and block_index to 40-bit hi/lo fields\n    total_samples_hi = (total_samples >> 32) & 0xFF\n    total_samples_lo = _u32(total_samples)\n    block_index_hi = (block_index >> 32) & 0xFF\n    block_index_lo = _u32(block_index)\n\n    return b\"\".join([\n        WVPK_MAGIC,\n        struct.pack('<I', total_size),\n        struct.pack('<H', version),\n        struct.pack('<B', block_index_hi),\n        struct.pack('<B', total_samples_hi),\n        struct.pack('<I', total_samples_lo),\n        struct.pack('<I', block_index_lo),\n        struct.pack('<I', block_samples),\n        struct.pack('<I', flags),\n        struct.pack('<I', crc),\n    ])\n\n\ndef _compute_crc(block_bytes_without_crc_set: bytes) -> int:\n    # Compute CRC over the whole block with CRC field zeroed in header\n    return _u32(zlib.crc32(block_bytes_without_crc_set))\n\n\ndef _choose_channels(r: random.Random):\n    # Return (channels, mono_flag)\n    choice = r.randrange(3)\n    if choice == 0:\n        return 1, True\n    elif choice == 1:\n        return 2, False\n    else:\n        # pretend multichannel by using stereo but not setting mono; many decoders accept >=2\n        return 2, False\n\n\ndef _choose_bits_per_sample(r: random.Random):\n    # choose common BPS values for WavPack\n    return r.choice([8, 12, 16, 20, 24, 32])\n\n\ndef _bytes_per_sample_from_bps(bps: int) -> int:\n    if bps <= 8:\n        return 1\n    elif bps <= 16:\n        return 2\n    elif bps <= 24:\n        return 3\n    else:\n        return 4\n\n\ndef _build_flags(r: random.Random, mono: bool, bps: int) -> int:\n    flags = 0\n    # Randomly decide initial/final markers\n    if r.random() < 0.7:\n        flags |= FLAG_INITIAL_BLOCK\n    if r.random() < 0.7:\n        flags |= FLAG_FINAL_BLOCK\n\n    # Prefer integer PCM; occasionally set hybrid bits or float to exercise paths\n    mode_pick = r.random()\n    if mode_pick < 0.15:\n        flags |= FLAG_HYBRID_BLOCK\n        if r.random() < 0.5:\n            flags |= FLAG_HBR\n    elif mode_pick < 0.25:\n        flags |= FLAG_FLOAT_DATA\n    # no DSD here; keep PCM simple\n\n    # channel flag\n    if mono:\n        flags |= FLAG_MONO\n\n    # bytes/sample encoding: store (bytes-1) in bits 23..24\n    bps_bytes = _bytes_per_sample_from_bps(bps)\n    flags |= ((bps_bytes - 1) & 0x3) << FLAG_BYTES_STORED_SHIFT\n\n    # sometimes include checksum\n    if r.random() < 0.8:\n        flags |= FLAG_HAS_CHECKSUM\n\n    return _u32(flags)\n\n\ndef _pick_counts(r: random.Random, channels: int, bps_bytes: int):\n    # Choose a modest number of samples to keep total size <= 4096\n    # Payload here is synthetic and not actual encoded data; keep small\n    block_samples = r.randint(16, 256)\n    total_samples = r.randint(block_samples, block_samples * r.randint(1, 8))\n    block_index = r.randint(0, max(0, total_samples - block_samples))\n\n    # Estimate payload size to target overall limit; use small metadata padding\n    # We'll allocate a dummy payload of N bytes unrelated to PCM size, just to be parsable.\n    payload_size = r.randint(16, 128)\n\n    return block_index, total_samples, block_samples, payload_size\n\n\ndef _build_block(r: random.Random) -> bytes:\n    channels, is_mono = _choose_channels(r)\n    bps = _choose_bits_per_sample(r)\n    bps_bytes = _bytes_per_sample_from_bps(bps)\n\n    flags = _build_flags(r, is_mono, bps)\n\n    block_index, total_samples, block_samples, payload_size = _pick_counts(r, channels, bps_bytes)\n\n    # Choose a plausible version: 0x410 (4.16) or nearby\n    version = r.choice([0x409, 0x40A, 0x410, 0x411, 0x412])\n\n    header_size = 32  # fixed for v4 basic header we construct\n    total_size = header_size + payload_size\n\n    # Prepare header with CRC temporarily zero; we will fill after computing\n    tmp_header = _pack_header(total_size, version, block_index, total_samples, block_samples, flags, 0)\n\n    # Payload: simple bytes; optionally add a tiny metadata-like structure to vary content\n    payload = bytearray(payload_size)\n    # sprinkle some non-zero patterns\n    for i in range(min(payload_size, 16)):\n        payload[i] = r.randrange(256)\n\n    block_wo_crc = tmp_header[:28] + struct.pack('<I', flags) + struct.pack('<I', 0) + payload\n    crc = _compute_crc(block_wo_crc)\n\n    header_with_crc = _pack_header(total_size, version, block_index, total_samples, block_samples, flags, crc)\n    block = header_with_crc + payload\n    return block\n\n\ndef _maybe_make_correction_block(r: random.Random, main_block: bytes) -> bytes:\n    # Create a parallel correction block with similar header but different flags/payload\n    # Not all fuzz stubs require it; but when desired, it should still be a valid block.\n    # We'll reuse some header fields from main and tweak flags.\n    # Parse main header fields\n    if len(main_block) < 32 or main_block[:4] != WVPK_MAGIC:\n        return b\"\"\n    _, total_size, version, bi_hi, ts_hi, ts_lo, bi_lo, blk_samps, flags, crc = struct.unpack('<4sIHB B I I I I I', main_block[:32].replace(b' ', b' '))\n    # The above unpack may not be portable due to spaces; simpler: re-parse with slices\n    total_size = struct.unpack('<I', main_block[4:8])[0]\n    version = struct.unpack('<H', main_block[8:10])[0]\n    bi_hi = main_block[10]\n    ts_hi = main_block[11]\n    ts_lo = struct.unpack('<I', main_block[12:16])[0]\n    bi_lo = struct.unpack('<I', main_block[16:20])[0]\n    blk_samps = struct.unpack('<I', main_block[20:24])[0]\n    flags_main = struct.unpack('<I', main_block[24:28])[0]\n\n    block_index = (bi_hi << 32) | bi_lo\n    total_samples = (ts_hi << 32) | ts_lo\n\n    # Tweak flags: mark hybrid, include checksum\n    flags_corr = (flags_main | FLAG_HYBRID_BLOCK | FLAG_HAS_CHECKSUM) & ~FLAG_FLOAT_DATA\n\n    # Small payload\n    payload_size = max(16, min(64, total_size // 4))\n    header_size = 32\n    total_size_corr = header_size + payload_size\n    tmp_header = _pack_header(total_size_corr, version, block_index, total_samples, blk_samps, flags_corr, 0)\n    payload = bytes(r.getrandbits(8) for _ in range(payload_size))\n    block_wo_crc = tmp_header[:28] + struct.pack('<I', flags_corr) + struct.pack('<I', 0) + payload\n    crc = _compute_crc(block_wo_crc)\n    header_with_crc = _pack_header(total_size_corr, version, block_index, total_samples, blk_samps, flags_corr, crc)\n    return header_with_crc + payload\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Create 1 or more blocks concatenated; both fuzz stubs accept arbitrary non-empty strings,\n    # but VerifySingleBlock expects a single block buffer. We choose to generate exactly one block\n    # to satisfy both: the raw decoder can open from a single block, and verify can check it.\n    main_block = _build_block(r)\n\n    # Occasionally, append a second block to exercise multi-block sequences in WavpackOpenRawDecoder\n    if r.random() < 0.25:\n        second = _build_block(r)\n        combined = main_block + second\n        if len(combined) <= MAX_TOTAL_SIZE:\n            main_block = combined\n\n    # Keep under size limit\n    return bytes(main_block[:MAX_TOTAL_SIZE])\n"
+    },
+    {
+      "data_type": "WavPack file",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# This generator creates a minimal, valid WavPack 4.x-like .wv file with a single block\n# containing silent PCM samples (all zeros). It aims to satisfy WavpackOpenFileInput().\n# The format used here follows the common WavPack 4.x block layout sufficiently for\n# most decoders to accept it:\n# - 32-byte WavPack block header starting with \"wvpk\"\n# - Version 0x410 (1040) typical of WavPack 4.10; many decoders accept 0x402..0x410\n# - Flags indicate integer PCM, stereo/mono, bit depth, and sample rate index\n# - Metadata sub-blocks: ID 0xD (SRATE, if needed), 0x4 (CHANS), 0x2 (BPS), 0x1 (DSIZE)\n# - Decoding data payload for mono 16-bit PCM zeros of small sample count\n# This is not an encoder; it crafts a simple, consistent block that typical WavPack\n# decoders can open and query properties from.\n\n# Helper to build a simple WavPack 4.x header and minimal metadata for silent audio.\n\n# WavPack 4.x block header (little-endian):\n# char ckID[4] = \"wvpk\"\n# uint32_t ckSize (header size minus 8, or total block size minus 8 depending on impl)\n# uint16_t version\n# uint8_t block_index_hi (high 8 bits of 40-bit index)\n# uint8_t total_samples_hi (high 8 bits of 40-bit total)\n# uint32_t total_samples_lo\n# uint32_t block_index_lo\n# uint32_t block_samples\n# uint32_t flags\n# uint32_t crc\n\n# For a single-block file, block_index = 0, total_samples = block_samples, simple flags.\n\nSRATE_TABLE = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000]\n\n\ndef _choose(params: List[Tuple[int, int, int]]) -> int:\n    # params: list of (value, weight_min, weight_max) interpreted by random range\n    r = random.random()\n    acc = 0.0\n    weights = []\n    for _, lo, hi in params:\n        weights.append(max(1e-6, (lo + hi) / 2.0))\n    total = sum(weights)\n    r *= total\n    for (val, _lo, _hi), w in zip(params, weights):\n        if r < w:\n            return val\n        r -= w\n    return params[-1][0]\n\n\ndef _pack_le(fmt: str, *vals) -> bytes:\n    return struct.pack('<' + fmt, *vals)\n\n\ndef _wp_flag_bits(num_ch: int, bps: int, sample_rate: int, block_samples: int) -> Tuple[int, List[Tuple[int, bytes]]]:\n    # Construct a minimal flags field and associated metadata chunks required.\n    # We'll set integer mode, no hybrid, no joint-stereo extras, etc.\n    # Flags layout reference (simplified subset used):\n    # bits 0..4: sr index (5 bits) with 31 meaning extended SRATE meta follows\n    # bits 5..9: bps index (we will keep in meta BPS)\n    # bits 13: mono (1) else stereo (0) in older defs; but we rely on CHANS meta\n    # bits 18: integer data (set)\n    # bits 23..22: initial block/ final block not set (single block implicit)\n    # For robustness, we include explicit CHANS and BPS metadata and use SRATE meta when needed.\n\n    # Determine sr index (or extended)\n    try:\n        sr_index = SRATE_TABLE.index(sample_rate)\n    except ValueError:\n        sr_index = 31  # extended SRATE meta\n\n    flags = 0\n    flags |= (sr_index & 0x1F)  # sample rate index (5 bits)\n    flags |= (1 << 18)  # integer data\n\n    # Channel count in metadata; set mono/stereo hint bit for <= 2 channels\n    if num_ch == 1:\n        flags |= (1 << 13)  # mono hint\n    # else leave 0 for stereo/multichan (decoder will use CHANS meta anyway)\n\n    # Bits per sample hint in flags in legacy uses 3 bits; keep 0 and rely on BPS meta\n\n    # Metadata sub-blocks list: tuples of (id, payload)\n    meta: List[Tuple[int, bytes]] = []\n\n    # SRATE extended if needed\n    if sr_index == 31:\n        meta.append((0xD, _pack_le('I', sample_rate)))\n\n    # CHANS: store number of channels\n    meta.append((0x4, _pack_le('I', num_ch)))\n\n    # BPS: store bits per sample\n    meta.append((0x2, _pack_le('I', bps)))\n\n    # DSIZE: decoded bytes per sample frame (per frame across channels)\n    bytes_per_sample = (bps + 7) // 8\n    dsize = bytes_per_sample * num_ch\n    meta.append((0x1, _pack_le('I', dsize)))\n\n    return flags, meta\n\n\ndef _build_metadata(meta: List[Tuple[int, bytes]]) -> bytes:\n    out = bytearray()\n    for mid, payload in meta:\n        size = len(payload)\n        # WavPack 4 meta header: 1 byte id, 1 or 3 bytes length depending on id bit 5\n        # We will use simple form (length in one byte if < 256) with no odd-size padding flag.\n        if size < 255:\n            out.append(mid & 0x3F)\n            out.append(size & 0xFF)\n        else:\n            out.append((mid & 0x3F) | 0x80)\n            out += _pack_le('H', size)\n        out += payload\n        if size & 1:\n            out.append(0)  # padding to even size\n    return bytes(out)\n\n\ndef _crc32_le(data: bytes) -> int:\n    # WavPack 4 uses a special CRC for audio; for header we can place 0 and many decoders ignore.\n    # To be safer, use standard CRC32 of the whole block (not strictly required). Use binascii.\n    import binascii\n    return binascii.crc32(data) & 0xFFFFFFFF\n\n\ndef _make_wv_block(num_ch: int, bps: int, sample_rate: int, samples: int) -> bytes:\n    # Build header with placeholder sizes, then assemble metadata and data, then fix sizes and CRC.\n    flags, meta = _wp_flag_bits(num_ch, bps, sample_rate, samples)\n\n    # For simplicity, store raw decoded PCM zeros as the block data using \"uncompressed\" coding path\n    # Many decoders accept blocks with only metadata and no audio subblocks if block_samples=0,\n    # but we provide small zero data so UnpackSamples returns data.\n    bytes_per_sample = (bps + 7) // 8\n    frame_bytes = bytes_per_sample * num_ch\n    pcm = b\"\\x00\" * (samples * frame_bytes)\n\n    metadata_bytes = _build_metadata(meta)\n\n    # Prepare header with placeholder sizes\n    ckID = b\"wvpk\"\n    version = 0x410  # 4.10 typical\n    block_index = 0\n    total_samples = samples\n    block_samples = samples\n    crc_placeholder = 0\n\n    # We'll compute ckSize after assembling full block; ckSize is total_bytes - 8\n    header_wo_cksize = bytearray()\n    header_wo_cksize += ckID\n    header_wo_cksize += b\"\\x00\\x00\\x00\\x00\"  # ckSize placeholder\n    header_wo_cksize += _pack_le('H', version)\n    header_wo_cksize += struct.pack('<B', (block_index >> 32) & 0xFF)\n    header_wo_cksize += struct.pack('<B', (total_samples >> 32) & 0xFF)\n    header_wo_cksize += _pack_le('I', total_samples & 0xFFFFFFFF)\n    header_wo_cksize += _pack_le('I', block_index & 0xFFFFFFFF)\n    header_wo_cksize += _pack_le('I', block_samples)\n    header_wo_cksize += _pack_le('I', flags)\n    header_wo_cksize += _pack_le('I', crc_placeholder)\n\n    body = metadata_bytes + pcm\n\n    total_size = len(header_wo_cksize) + len(body)\n    ckSize = total_size - 8\n\n    header = bytearray()\n    header += ckID\n    header += _pack_le('I', ckSize)\n    header += header_wo_cksize[8:]  # rest of fields already packed\n\n    # Compute CRC over block excluding the first 12 bytes per typical implementations\n    # But many decoders accept any CRC; we compute over body for determinism.\n    crc = _crc32_le(body)\n\n    # Patch CRC in header (last 4 bytes)\n    header[-4:] = _pack_le('I', crc)\n\n    return bytes(header) + body\n\n\ndef _pick_params(rng: random.Random) -> Tuple[int, int, int, int]:\n    # Choose plausible parameters emphasizing common cases, seeded by rng\n    num_ch = rng.choice([1, 2])\n    bps = rng.choice([16, 24, 32])\n    sr = rng.choice([44100, 48000, 22050, 96000, 8000, 11025, 88200, 32000, 24000, 16000])\n    samples = rng.randint(16, 1024)  # small frame to keep under size limits\n    # Ensure buffer stays small\n    max_samples = max(16, 4096 // max(2, (bps // 8) * num_ch))\n    samples = min(samples, max_samples)\n    return num_ch, bps, sr, samples\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    num_ch, bps, sr, samples = _pick_params(rng)\n    # Build a single-block .wv file buffer\n    wv = _make_wv_block(num_ch, bps, sr, samples)\n\n    # Occasionally prepend a small RIFF-like wrapper chunk to simulate container bytes\n    # that some decoders may ignore when opening raw .wv via filename fuzz stub.\n    # However WavpackOpenFileInput expects a WavPack file; keep pure WV by default.\n    return wv\n"
+    },
+    {
+      "data_type": "text tag name",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for valid WavPack text tag names and accompanying values, aimed at\n# exercising tag read/append/delete fuzz stubs. We output a single bytes buffer\n# intended to seed the fuzzer's FUZZ_PARAM_STR and size draws so that:\n# - Tag names are null-terminated, ASCII/UTF-8 without embedded NULs\n# - Values (for append) are non-empty and binary-safe; the stub uses size=val.size()\n# We concatenate multiple zero-terminated strings so different FUZZ_PARAM_STR\n# calls can consume distinct items from the same buffer.\n\nCOMMON_TAGS = [\n    \"Title\", \"Artist\", \"Album\", \"Track\", \"Year\", \"Genre\", \"Comment\",\n    \"Album Artist\", \"Composer\", \"Discnumber\", \"Totaldiscs\", \"Tracknumber\",\n    \"Totaltracks\", \"ReplayGain_Track_Gain\", \"ReplayGain_Track_Peak\",\n    \"ReplayGain_Album_Gain\", \"ReplayGain_Album_Peak\", \"ISRC\", \"CatalogNumber\",\n    \"Encoder\", \"Tool\", \"Language\", \"Lyrics\", \"Publisher\", \"Copyright\",\n    \"Album Sort\", \"Artist Sort\", \"MusicBrainz Artist Id\", \"MusicBrainz Album Id\",\n]\n\nUNICODE_SAMPLES = [\n    \"Título\", \"Артист\", \"作曲\", \"앨범\", \"🎵 Title\", \"艺术家\", \"العنوان\",\n]\n\nBINARY_VALUE_SETS = [\n    b\"Simple value\",\n    b\"UTF-8 value \\xf0\\x9f\\x8e\\xb5\",\n    bytes(range(1, 33)),  # 1..32 non-zero bytes\n    b\"Large\\x00inside?\".replace(b\"\\x00\", b\"\"),  # ensure non-NUL\n]\n\nSAFE_ASCII = string.ascii_letters + string.digits + \" -_+.:;/()[]{}#&'$,@!\"\n\ndef _rand_ascii(r: random.Random, min_len: int, max_len: int) -> str:\n    n = r.randint(min_len, max_len)\n    return \"\".join(r.choice(SAFE_ASCII) for _ in range(n)).strip()\n\ndef _rand_tag_name(r: random.Random) -> str:\n    choice = r.random()\n    if choice < 0.5:\n        # Common, known names to hit library fast-paths\n        name = r.choice(COMMON_TAGS)\n    elif choice < 0.75:\n        # Mixed-case custom name\n        base = _rand_ascii(r, 3, 16)\n        name = base.title()\n    else:\n        # Include some unicode but still a valid text tag name without NULs\n        name = r.choice(UNICODE_SAMPLES)\n    # Ensure non-empty and no embedded NULs\n    name = name.replace(\"\\x00\", \"\")\n    if not name:\n        name = \"Name\"\n    return name\n\ndef _rand_value_bytes(r: random.Random) -> bytes:\n    kind = r.randrange(5)\n    if kind == 0:\n        return r.choice(BINARY_VALUE_SETS)\n    if kind == 1:\n        # ASCII paragraph-like value\n        txt = _rand_ascii(r, 5, 64)\n        return txt.encode('utf-8')\n    if kind == 2:\n        # UTF-8 with multi-byte\n        txt = r.choice(UNICODE_SAMPLES) + \" - \" + _rand_ascii(r, 3, 12)\n        return txt.encode('utf-8')\n    if kind == 3:\n        # Numeric-like string\n        txt = str(r.randint(1, 9999))\n        return txt.encode('ascii')\n    # Binary chunk without zeros\n    size = r.randint(8, 96)\n    data = bytearray(r.getrandbits(8) or 1 for _ in range(size))\n    for i, b in enumerate(data):\n        if b == 0:\n            data[i] = 1\n    return bytes(data)\n\ndef _nz_bytes(term: bytes) -> bytes:\n    # ensure no embedded NULs in tag names/strings, and append NUL terminator\n    term = term.replace(b\"\\x00\", b\"\")\n    return term + b\"\\x00\"\n\ndef _nz_str(term: str) -> bytes:\n    # sanitize string and NUL-terminate as bytes\n    term = term.replace(\"\\x00\", \"\")\n    return term.encode('utf-8') + b\"\\x00\"\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Compose a sequence of strings to satisfy multiple FUZZ_PARAM_STR calls in\n    # various stubs (GetTagItem, AppendTagItem, DeleteTagItem). We include:\n    # - Several tag names (null-terminated)\n    # - Several value strings (null-terminated) for cases where the fuzzer uses the\n    #   same buffer for item and value, or draws multiple strings.\n    # The target fuzzer ensures vsize > 0 using the string length; hence values\n    # must be non-empty.\n\n    parts: List[bytes] = []\n\n    # Start with a cluster of well-known tag names\n    for _ in range(r.randint(2, 6)):\n        parts.append(_nz_str(_rand_tag_name(r)))\n\n    # Add some duplicates and case variants to trigger replace/update vs append\n    base = r.choice(COMMON_TAGS)\n    parts.append(_nz_str(base))\n    parts.append(_nz_str(base.upper()))\n    parts.append(_nz_str(base.lower()))\n\n    # Add some value strings (binary-safe). The stub uses std::string and passes\n    # value.data() with explicit size, so binary is fine.\n    for _ in range(r.randint(2, 6)):\n        vb = _rand_value_bytes(r)\n        if not vb:\n            vb = b\"x\"\n        parts.append(_nz_bytes(vb))\n        # Provide a textual variant as well (for consumers expecting readable strings)\n        txt = vb.decode('utf-8', errors='ignore')\n        if not txt:\n            txt = 'val'\n        parts.append(_nz_str(txt))\n\n    # Ensure presence of tag names that include spaces and underscores\n    special_tags = [\"Album Artist\", \"MusicBrainz Artist Id\", \"ReplayGain_Track_Gain\"]\n    for t in special_tags:\n        parts.append(_nz_str(t))\n\n    # Keep total under 4096 bytes\n    blob = b\"\".join(parts)\n    if len(blob) > 4096:\n        blob = blob[:4095] + b\"\\x00\"\n\n    return blob\n"
+    },
+    {
+      "data_type": "binary tag name",
+      "generator": "import random\nimport struct\nimport string\nfrom typing import List\n\n# Generator for valid binary tag names suitable for WavPack binary tags\n# Examples of common binary tag names (APEv2 style) include various cover art forms\nCOMMON_BINARY_TAGS: List[str] = [\n    \"COVER ART (FRONT)\",\n    \"COVER ART (BACK)\",\n    \"COVER ART (LEAFLET)\",\n    \"COVER ART (MEDIA)\",\n    \"COVER ART (ICON)\",\n    \"COVER ART (ARTIST)\",\n    \"COVER ART (PUBLISHER)\",\n    \"COVER ART (LOGO)\",\n    \"METADATA_BLOCK_PICTURE\",\n    \"PICTURE\",\n    # Generic binary items users might store\n    \"LYRICS_BLOB\",\n    \"EMBEDDED_CUESHEET\",\n    \"EMBEDDED_LOGO\",\n    \"EMBEDDED_BOOKLET\",\n]\n\nMIME_TYPES = [\n    b\"image/jpeg\", b\"image/png\", b\"image/bmp\", b\"image/gif\", b\"image/webp\",\n    b\"application/octet-stream\",\n]\n\nDESCRIPTORS = [\n    \"front cover\", \"back cover\", \"artist\", \"publisher logo\", \"icon\", \"leaflet\",\n    \"scan\", \"photo\", \"poster\", \"sticker\"\n]\n\n\ndef rand_ascii(rng: random.Random, min_len: int, max_len: int) -> str:\n    if max_len < min_len:\n        max_len = min_len\n    length = rng.randint(min_len, max_len)\n    alphabet = string.ascii_letters + string.digits + \" _-()[]{}.,+&'!#@$%^~\"\n    return ''.join(rng.choice(alphabet) for _ in range(length))\n\n\ndef make_tag_name(rng: random.Random) -> str:\n    # Choose common tag with some chance, otherwise synthesize a valid name\n    if rng.random() < 0.75:\n        base = rng.choice(COMMON_BINARY_TAGS)\n        # Occasionally vary case or add qualifiers\n        if rng.random() < 0.3:\n            base = base.upper()\n        if rng.random() < 0.2:\n            base = f\"{base} {rng.randint(1, 3)}\"\n        return base\n    # Synthesize: ensure ASCII/UTF-8 with no NUL\n    words = [rand_ascii(rng, 3, 10) for _ in range(rng.randint(1, 3))]\n    name = ' '.join(words)\n    # Occasionally wrap like COVER ART (X)\n    if rng.random() < 0.3:\n        name = f\"COVER ART ({name[:12]})\"\n    return name\n\n\ndef make_picture_payload(rng: random.Random, max_data: int) -> bytes:\n    # Generate a plausible picture block value layout used by WavPack APEv2 helper:\n    # mime\\0description\\0binary_data\n    if max_data <= 0:\n        return b\"\"\n    mime = rng.choice(MIME_TYPES)\n    desc = rng.choice(DESCRIPTORS).encode('utf-8')\n    headers = [\n        b\"\\x89PNG\\r\\n\\x1a\\n\",          # PNG signature\n        b\"\\xFF\\xD8\\xFF\\xE0JFIF\\x00\",   # JPEG JFIF\n        b\"GIF89a\",                         # GIF\n        b\"BM\" + b\"\\x00\" * 12,             # BMP-like\n    ]\n    head = rng.choice(headers)\n\n    # Compute remaining budget after fixed parts\n    fixed = len(mime) + 1 + len(desc) + 1 + len(head)\n    remain_max = max(0, max_data - fixed)\n\n    # Choose a safe data length (>=0 and <= remain_max)\n    if remain_max == 0:\n        data_len = 0\n    else:\n        # Prefer at least 32 bytes if space allows, otherwise use remaining\n        min_data = min(32, remain_max)\n        high = min(remain_max, min_data + 1024)\n        if high < min_data:\n            high = min_data\n        data_len = rng.randint(min_data, high)\n\n    body = bytes(rng.getrandbits(8) for _ in range(data_len))\n    return mime + b\"\\x00\" + desc + b\"\\x00\" + head + body\n\n\ndef make_opaque_blob(rng: random.Random, size: int) -> bytes:\n    if size <= 0:\n        return b\"\"\n    choice = rng.random()\n    if choice < 0.33:\n        # Repeating pattern\n        pat_len = max(1, min(8, size))\n        pat = bytes([rng.randrange(256) for _ in range(rng.randint(1, pat_len))])\n        return (pat * (size // len(pat) + 1))[:size]\n    elif choice < 0.66:\n        # Length-prefixed segments\n        out = bytearray()\n        while len(out) < size:\n            seg = rng.randrange(1, min(32, max(1, size - len(out))) + 1)\n            out += struct.pack('<H', seg)\n            out += bytes(rng.getrandbits(8) for _ in range(seg))\n        return bytes(out[:size])\n    else:\n        # ASCII text blob\n        s = rand_ascii(rng, max(1, min(8, size)), size)\n        return s.encode('utf-8')[:size]\n\n\ndef make_value_payload(rng: random.Random, budget: int) -> bytes:\n    if budget <= 0:\n        return b\"\"\n    if budget < 8:\n        return bytes(rng.getrandbits(8) for _ in range(budget))\n    if rng.random() < 0.6:\n        return make_picture_payload(rng, budget)\n    return make_opaque_blob(rng, budget)\n\n\ndef pack_length_prefixed_strings(item: str, value: bytes) -> bytes:\n    # Encode: [u16 item_len][item bytes][u16 value_len][value]\n    item_bytes = item.encode('utf-8')\n    item_bytes = item_bytes.replace(b\"\\x00\", b\" \")\n    # Ensure headers fit within 4096 cap by clipping value if necessary\n    header_size = 2 + len(item_bytes) + 2\n    max_value_len = max(0, 4096 - header_size)\n    value = value[:max_value_len]\n    hdr = struct.pack('<H', len(item_bytes)) + item_bytes + struct.pack('<H', len(value)) + value\n    return hdr\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose total budget up to 2048 bytes (under 4096 limit)\n    total_budget = rng.randint(128, 2048)\n\n    item = make_tag_name(rng)\n\n    # Bias payload size toward <=256, sometimes larger\n    if rng.random() < 0.7:\n        payload_budget = rng.randint(16, 240)\n    else:\n        # Ensure at least some room for headers\n        payload_budget = rng.randint(256, max(256, total_budget - 8))\n\n    value = make_value_payload(rng, min(payload_budget, max(0, total_budget - 8)))\n\n    blob = pack_length_prefixed_strings(item, value)\n    return blob[:4096]\n"
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\nimport string\n\n# We generate arbitrary binary data buffers to be consumed by FUZZ_PARAM_STR in the\n# tag-editing stubs. The stubs require two strings: item (tag name) and value/data\n# (binary-safe) with vsize > 0. Our generator should provide a single bytes buffer\n# that the harness will split across multiple FUZZ_PARAM_STR calls. We therefore\n# concatenate two length-prefixed chunks to maximize the chance both FUZZ_PARAM_STR\n# calls receive valid, interesting data.\n#\n# Format we emit:\n#   [item_len:2le] [item_bytes] [value_len:4le] [value_bytes]\n#\n# Choices for item:\n#   - Common tag names (TITLE, ARTIST, ALBUM, COMMENT, TRACKNUMBER, DATE, GENRE,\n#     DISCNUMBER, ALBUMARTIST, COMPOSER, LYRICS, COPYRIGHT)\n#   - Mixed case and Unicode-like bytes\n#   - Random ASCII sequences\n#\n# Choices for value/data:\n#   - For text tags: UTF-8-like text with varying sizes\n#   - For binary tags: random binary, plausible image headers (PNG/JPEG), MD5-like 16 bytes\n#   - Repeated patterns, zero bytes, high-entropy bytes\n# Value size kept <= 3500 to stay within 4096 total.\n\nCOMMON_ITEMS = [\n    b\"TITLE\", b\"Artist\", b\"ALBUM\", b\"comment\", b\"TRACKNUMBER\", b\"DATE\",\n    b\"GENRE\", b\"DISCNUMBER\", b\"ALBUMARTIST\", b\"COMPOSER\", b\"LYRICS\",\n    b\"COPYRIGHT\", b\"ENCODER\", b\"ALBUM ARTIST\", b\"replaygain_track_gain\",\n    b\"replaygain_album_gain\", b\"cover art (front)\", b\"METADATA_BLOCK_PICTURE\"\n]\n\nASCII = string.ascii_letters + string.digits + \"-_ .:/#()[]{}+,&'\\\"\"\n\nPNG_HEADER = bytes.fromhex(\n    '89504E470D0A1A0A0000000D4948445200000001000000010802000000907724'\n)  # valid PNG signature + partial IHDR\nJPEG_HEADER = bytes.fromhex('FFD8FFE000104A464946000101')  # JPEG SOI + JFIF\nWAV_HEADER = b'RIFF' + b'\\x24\\x80\\x00\\x00' + b'WAVEfmt '  # partial WAV\n\n\ndef _rand_ascii(rng: random.Random, n: int) -> bytes:\n    return ''.join(rng.choice(ASCII) for _ in range(n)).encode('utf-8')\n\n\ndef _rand_item(rng: random.Random) -> bytes:\n    choice = rng.randint(0, 5)\n    if choice == 0 and COMMON_ITEMS:\n        base = rng.choice(COMMON_ITEMS)\n        # Randomly tweak case or add variant suffix/prefix\n        mods = [base,\n                base.lower(),\n                base.upper(),\n                base.title(),\n                base + b\"\\x00\",  # include NUL inside\n                b\"X-\" + base,\n                base + b\";vendor=example\"]\n        return rng.choice(mods)\n    elif choice == 1:\n        # Random ASCII item name length 3..24\n        return _rand_ascii(rng, rng.randint(3, 24))\n    elif choice == 2:\n        # UTF-8-ish with multibyte sequences\n        s = _rand_ascii(rng, rng.randint(3, 16)).decode('utf-8')\n        extras = [\"å\", \"é\", \"中\", \"✓\", \"–\", \"·\", \"œ\"]\n        for _ in range(rng.randint(1, 4)):\n            s += rng.choice(extras)\n        return s.encode('utf-8')\n    elif choice == 3:\n        # Binary-ish item (allowed by fuzzer, library may sanitize)\n        length = rng.randint(3, 16)\n        return bytes(rng.getrandbits(8) for _ in range(length))\n    else:\n        # Known binary tag names often used by APEv2\n        return rng.choice([b\"COVER ART (FRONT)\", b\"COVER ART (BACK)\", b\"METADATA_BLOCK_PICTURE\", b\"ALBUM ARTIST\"])  # noqa: E501\n\n\ndef _rand_value(rng: random.Random) -> bytes:\n    kind = rng.randint(0, 7)\n    if kind == 0:\n        # Short UTF-8 text value\n        return _rand_ascii(rng, rng.randint(1, 64))\n    elif kind == 1:\n        # Long UTF-8 text paragraph\n        words = [\n            \"lorem\", \"ipsum\", \"dolor\", \"sit\", \"amet\", \"consectetur\",\n            \"adipiscing\", \"elit\", \"wavpack\", \"encoder\", \"decoder\",\n            \"tag\", \"binary\", \"music\", \"sample\", \"bitrate\", \"channels\"\n        ]\n        n = rng.randint(10, 120)\n        s = ' '.join(rng.choice(words) for _ in range(n))\n        return s.encode('utf-8')\n    elif kind == 2:\n        # MD5-like 16 bytes\n        return bytes(rng.getrandbits(8) for _ in range(16))\n    elif kind == 3:\n        # PNG-like binary blob\n        pad = bytes(rng.getrandbits(8) for _ in range(rng.randint(16, 256)))\n        return PNG_HEADER + pad\n    elif kind == 4:\n        # JPEG-like binary blob\n        pad = bytes(rng.getrandbits(8) for _ in range(rng.randint(64, 512)))\n        return JPEG_HEADER + pad\n    elif kind == 5:\n        # Repeated pattern with nulls\n        unit = bytes([0x00, 0xFF, 0x55, 0xAA])\n        reps = rng.randint(8, 400)\n        return unit * reps\n    elif kind == 6:\n        # High-entropy random chunk\n        size = rng.randint(32, 3500)\n        return bytes(rng.getrandbits(8) for _ in range(size))\n    else:\n        # Container header-like\n        pad = bytes(rng.getrandbits(8) for _ in range(rng.randint(20, 200)))\n        return WAV_HEADER + pad\n\n\ndef _cap_lengths(item: bytes, value: bytes) -> tuple[bytes, bytes]:\n    # Ensure total size <= 4096 with our length prefixes\n    overhead = 2 + 4\n    max_total = 4096\n    max_value_len = max_total - overhead - len(item)\n    if max_value_len < 1:\n        # Trim item aggressively if needed\n        item = item[:min(len(item), 64)]\n        max_value_len = max_total - overhead - len(item)\n    if len(value) > max_value_len:\n        value = value[:max(1, max_value_len)]\n    if len(value) == 0:\n        value = b\"x\"\n    return item, value\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    item = _rand_item(rng)\n    value = _rand_value(rng)\n\n    # Occasionally generate multiple concatenated values to exercise larger sizes\n    if rng.random() < 0.25:\n        parts = [value]\n        for _ in range(rng.randint(1, 3)):\n            parts.append(_rand_value(rng))\n        value = b\"\".join(parts)\n\n    # Cap sizes to stay within budget\n    item, value = _cap_lengths(item, value)\n\n    # Length-prefix the two fields: item (uint16 LE), value (uint32 LE)\n    item_len = len(item)\n    value_len = len(value)\n\n    buf = bytearray()\n    buf += struct.pack('<H', item_len)\n    buf += item\n    buf += struct.pack('<I', value_len)\n    buf += value\n\n    return bytes(buf)\n"
+    },
+    {
+      "data_type": "file extension string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator targets inputs consumed by FUZZ_PARAM_STR for a file extension string\n# used by WavpackSetFileInformation fuzzer stub. The stub strips dots, stops at NUL, and\n# truncates to 8 chars; if result empty, it substitutes \"wav\". We therefore generate\n# a variety of interesting, yet valid ASCII extensions with optional leading dots,\n# embedded NULs, mixed case, numerics, and maximum length boundaries to drive different\n# code paths. The output is a single bytes buffer intended to be consumed by the fuzzing\n# framework as the source for FUZZ_PARAM_STR.\n\nMAX_TOTAL_LEN = 4096\n\nCOMMON_EXTS = [\n    \"wav\", \"wave\", \"wv\", \"wvc\", \"caf\", \"aiff\", \"aif\", \"au\", \"snd\",\n    \"raw\", \"pcm\", \"flac\", \"mp3\", \"ogg\", \"opus\",\n]\n\n# Extensions to hit boundary conditions (<= 8 significant non-dot chars)\nBOUNDARY_EXTS = [\n    \"a\",                     # minimal\n    \"wv\",                    # two chars\n    \"WAV\",                   # uppercase\n    \"wAvP\",                  # mixed case\n    \"ext123\",                # alnum\n    \"12345678\",              # exactly 8\n    \"123456789\",             # 9 -> will be truncated to 8 by fuzzer cleaning\n    \"abcd\\x00efg\",           # embedded NUL so cleaning stops early\n    \".hidden\",               # leading dot removed\n    \"..double\",              # multiple dots\n    \".....\",                 # only dots -> will become empty and default to \"wav\"\n]\n\n# Some unusual yet ASCII-safe tokens\nEXOTIC_EXTS = [\n    \"dsd\", \"dff\", \"dsf\", \"bwf\", \"rf64\", \"wvx\", \"wvpack\",\n    \"mixEd123\", \"_ext\", \"x.y\",  # includes dot inside\n]\n\nALNUM = \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\"\n\n\ndef rand_ascii_ext(rng: random.Random, max_len: int = 12) -> str:\n    # Generate an extension with possible leading dots and embedded NUL chance\n    # but ensure overall bytes are valid for FUZZ_PARAM_STR consumption.\n    length = rng.randint(0, max_len)\n    s = []\n    # Optional leading dots (0-3)\n    for _ in range(rng.randint(0, 3)):\n        s.append('.')\n    for _ in range(length):\n        ch = rng.choice(ALNUM)\n        # Occasionally insert a dot inside\n        if rng.random() < 0.15:\n            ch = '.'\n        s.append(ch)\n    # Occasionally insert a NUL terminator early to test early-stop behavior\n    if rng.random() < 0.2 and len(s) > 0:\n        pos = rng.randrange(len(s))\n        s[pos] = '\\x00'\n    return ''.join(s)\n\n\ndef choose_extension(rng: random.Random) -> str:\n    bucket = rng.random()\n    if bucket < 0.35:\n        return rng.choice(COMMON_EXTS)\n    elif bucket < 0.65:\n        return rng.choice(BOUNDARY_EXTS)\n    elif bucket < 0.85:\n        return rng.choice(EXOTIC_EXTS)\n    else:\n        return rand_ascii_ext(rng)\n\n\ndef assemble_buffer(ext: str) -> bytes:\n    # FUZZ_PARAM_STR reads a std::string from the fuzzer input source.\n    # We provide the raw bytes for that string; typical harnesses either take\n    # the entire buffer or a length-prefixed segment. Since we cannot know the\n    # exact framing, we keep it simple: just emit the extension bytes. Harness\n    # parts that ignore extra data will be fine. We cap total size.\n    data = ext.encode('latin-1', errors='ignore')\n    if len(data) > MAX_TOTAL_LEN:\n        data = data[:MAX_TOTAL_LEN]\n    return data\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Create a small set of candidate extensions and pick one based on seed-derived randomness\n    candidates: List[str] = []\n    # Ensure we include a few deterministic interesting cases influenced by seed\n    candidates.append(choose_extension(rng))\n    candidates.append(choose_extension(rng))\n    candidates.append(choose_extension(rng))\n\n    # Insert a crafted sequence to drive corner behaviors\n    # 1) Only dots -> becomes empty -> fuzzer substitutes \"wav\"\n    candidates.append(\"...\")\n    # 2) Exactly 8 chars\n    candidates.append(\"ABCDEFGH\")\n    # 3) 9 chars (will be truncated by the stub to 8)\n    candidates.append(\"abcdefghi\")\n    # 4) Embedded NUL to stop early\n    candidates.append(\"abc\\x00def\")\n\n    ext = rng.choice(candidates)\n\n    return assemble_buffer(ext)\n"
+    },
+    {
+      "data_type": "container wrapper bytes",
+      "generator": "import random\nimport struct\nfrom typing import List, Tuple\n\n# Generator for valid container wrapper bytes appropriate for WavpackAddWrapper.\n# We focus on realistic RIFF/WAVE wrappers, but also occasionally emit AIFF and CAF\n# minimal headers. Sizes are made self-consistent and kept under 2048 bytes.\n\nMAX_SIZE = 2048\n\n# Helpers\n\ndef _riff_chunk(chunk_id: bytes, payload: bytes) -> bytes:\n    # RIFF-style chunk: 4-byte id, 32-bit little-endian size, payload, pad to even size\n    size = len(payload)\n    out = chunk_id + struct.pack('<I', size) + payload\n    if size % 2:\n        out += b'\\x00'\n    return out\n\ndef _fmt_chunk_pcm(num_channels: int, sample_rate: int, bits_per_sample: int) -> bytes:\n    byte_rate = sample_rate * num_channels * ((bits_per_sample + 7) // 8)\n    block_align = num_channels * ((bits_per_sample + 7) // 8)\n    # WAVEFORMATEX (PCM)\n    fmt = struct.pack('<HHIIHH', 0x0001, num_channels, sample_rate, byte_rate, block_align, bits_per_sample)\n    return _riff_chunk(b'fmt ', fmt)\n\ndef _fmt_chunk_extensible(num_channels: int, sample_rate: int, bits_per_sample: int, channel_mask: int, subformat_pcm: bool) -> bytes:\n    bytes_per_sample = (bits_per_sample + 7) // 8\n    byte_rate = sample_rate * num_channels * bytes_per_sample\n    block_align = num_channels * bytes_per_sample\n    cbSize = 22\n    valid_bits = bits_per_sample\n    # KSDATAFORMAT_SUBTYPE_PCM or IEEE_FLOAT (we only do PCM here by flag)\n    # GUID layout in WAVEFORMATEXTENSIBLE is 16 bytes: first 4/2/2 LE, then 8 bytes\n    if subformat_pcm:\n        guid = b\"\\x01\\x00\\x00\\x00\\x10\\x00\\x80\\x00\\x00\\xaa\\x00\\x38\\x9b\\x71\"  # missing first two? We'll build properly\n    # Build GUID for PCM: {00000001-0000-0010-8000-00AA00389B71}\n    guid = struct.pack('<IHH', 0x00000001, 0x0000, 0x0010) + b\"\\x80\\x00\\x00\\xaa\\x00\\x38\\x9b\\x71\"\n    base = struct.pack(\n        '<HHIIHH', 0xFFFE, num_channels, sample_rate, byte_rate, block_align, bits_per_sample\n    )\n    ext = struct.pack('<HHI', cbSize, valid_bits, channel_mask) + guid\n    return _riff_chunk(b'fmt ', base + ext)\n\ndef _fact_chunk(total_samples: int) -> bytes:\n    return _riff_chunk(b'fact', struct.pack('<I', total_samples))\n\ndef _list_info_chunk(pairs: List[Tuple[bytes, bytes]]) -> bytes:\n    # LIST INFO with simple text entries\n    payload = b'INFO'\n    for fourcc, value in pairs:\n        # Values in RIFF INFO are usually null-terminated and padded to even\n        v = value + (b'\\x00' if not value.endswith(b'\\x00') else b'')\n        payload += _riff_chunk(fourcc, v)\n    return _riff_chunk(b'LIST', payload)\n\ndef _cue_chunk(points: int, total_samples: int) -> bytes:\n    # Minimal CUE chunk\n    entries = []\n    for i in range(points):\n        # id, position, dataChunkID, chunkStart, blockStart, sampleOffset\n        entries.append(struct.pack('<IIIIII', i+1, 0, 0x61746164, 0, 0, min(total_samples, (i+1) * (total_samples // (points+1) + 1))))\n    return _riff_chunk(b'cue ', struct.pack('<I', points) + b''.join(entries))\n\ndef _wav_wrapper(rng: random.Random) -> bytes:\n    # Build a realistic WAVE header with optional extra chunks, without data\n    num_channels = rng.choice([1, 2, 6])\n    sample_rate = rng.choice([8000, 11025, 16000, 22050, 32000, 44100, 48000, 96000])\n    bits = rng.choice([8, 16, 24, 32])\n\n    use_extensible = (bits > 16 and num_channels > 2) or rng.random() < 0.25\n\n    if use_extensible:\n        fmt = _fmt_chunk_extensible(num_channels, sample_rate, bits, channel_mask=0, subformat_pcm=True)\n        # For extensible, include a fact chunk sometimes for non-PCM, but PCM extensible can omit.\n        fact = b''\n    else:\n        fmt = _fmt_chunk_pcm(num_channels, sample_rate, bits)\n        fact = b''\n\n    # Optional metadata chunks\n    info_pairs = []\n    if rng.random() < 0.7:\n        # Choose a few INFO fields\n        possible = [\n            (b'INAM', b'Test Audio'),\n            (b'IART', b'Fuzz Author'),\n            (b'ICRD', b'2025-01-01'),\n            (b'IGNR', b'Noise'),\n            (b'ICMT', b'Wrapper for fuzzing')\n        ]\n        rng.shuffle(possible)\n        for k, v in possible[:rng.randint(1, 3)]:\n            info_pairs.append((k, v))\n    list_info = _list_info_chunk(info_pairs) if info_pairs else b''\n\n    cue = _cue_chunk(points=rng.randint(0, 3), total_samples=rng.randint(1000, 200000)) if rng.random() < 0.3 else b''\n\n    # Assemble RIFF\n    payload = b'WAVE' + fmt + fact + list_info + cue\n    riff = b'RIFF' + struct.pack('<I', len(payload)) + payload\n    if len(riff) % 2:\n        riff += b'\\x00'\n    return riff\n\n# Minimal AIFF wrapper\n\ndef _aiff_chunk(chunk_id: bytes, payload: bytes) -> bytes:\n    # AIFF uses big-endian sizes without padding requirement here for simplicity\n    return chunk_id + struct.pack('>I', len(payload)) + payload\n\ndef _aiff_comm(num_channels: int, total_frames: int, bits: int, sample_rate: int) -> bytes:\n    # AIFF 10-byte extended sample rate; we use a common 80-bit float approximation for standard rates\n    # For simplicity, encode common rate 44100 as the standard 80-bit extended representation\n    def ieee_80_from_rate(rate: int) -> bytes:\n        # Basic enc: exponent 16398 for 44100/48000 ranges, but we supply fixed for common rates\n        table = {\n            44100: b\"\\x40\\x0e\\xbb\\x80\\x00\\x00\\x00\\x00\\x00\\x00\",  # approx 44100\n            48000: b\"\\x40\\x0e\\xbb\\x80\\x00\\x00\\x00\\x00\\x00\\x00\",\n            96000: b\"\\x40\\x0f\\xbb\\x80\\x00\\x00\\x00\\x00\\x00\\x00\",\n            22050: b\"\\x40\\x0d\\xbb\\x80\\x00\\x00\\x00\\x00\\x00\\x00\",\n        }\n        return table.get(rate, table[44100])\n    rate80 = ieee_80_from_rate(sample_rate)\n    comm = struct.pack('>hIh', num_channels, total_frames, bits) + rate80\n    return _aiff_chunk(b'COMM', comm)\n\ndef _aiff_wrapper(rng: random.Random) -> bytes:\n    num_channels = rng.choice([1, 2])\n    bits = rng.choice([16, 24])\n    sample_rate = rng.choice([22050, 44100, 48000])\n    total_frames = rng.randint(0, 100000)\n    comm = _aiff_comm(num_channels, total_frames, bits, sample_rate)\n    # Minimal FORM AIFF without SSND data payload (wrapper bytes often include header only)\n    form_payload = b'AIFF' + comm\n    return b'FORM' + struct.pack('>I', len(form_payload)) + form_payload\n\n# Minimal CAF header\n\ndef _caf_header(sample_rate: float, format_id: bytes = b'lpcm', flags: int = 0, bytes_per_packet: int = 0,\n                frames_per_packet: int = 1, channels: int = 2, bits: int = 16) -> bytes:\n    # CAF: big-endian, header + Audio Description chunk\n    header = b'caff' + struct.pack('>I', 1) + struct.pack('>I', 0)  # version=1, flags=0\n    # Audio Description chunk\n    # mSampleRate (Float64), mFormatID (4cc), mFormatFlags (U32), mBytesPerPacket (U32),\n    # mFramesPerPacket (U32), mChannelsPerFrame (U32), mBitsPerChannel (U32)\n    desc_payload = struct.pack('>d4sIIIIII', float(sample_rate), format_id, flags,\n                               bytes_per_packet, frames_per_packet, channels, bits, 0)\n    desc = b'desc' + struct.pack('>Q', len(desc_payload)) + desc_payload\n    return header + desc\n\ndef _caf_wrapper(rng: random.Random) -> bytes:\n    sample_rate = rng.choice([22050.0, 44100.0, 48000.0, 96000.0])\n    channels = rng.choice([1, 2])\n    bits = rng.choice([16, 24, 32])\n    return _caf_header(sample_rate, channels=channels, bits=bits)\n\n# Public API\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    choice = rng.random()\n\n    if choice < 0.7:\n        data = _wav_wrapper(rng)\n    elif choice < 0.85:\n        data = _aiff_wrapper(rng)\n    else:\n        data = _caf_wrapper(rng)\n\n    # Ensure non-empty and <= 2048 as required by stub\n    if not data:\n        data = b'RIFF\\x04\\x00\\x00\\x00WAVE'  # trivial fallback\n\n    if len(data) > MAX_SIZE:\n        data = data[:MAX_SIZE]\n\n    return data\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6460,
+            "output_tokens": 1301,
+            "total_tokens": 7761
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6038,
+            "output_tokens": 543,
+            "total_tokens": 6581
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7068,
+            "output_tokens": 7606,
+            "total_tokens": 14674
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 72592,
+            "output_tokens": 18795,
+            "total_tokens": 91387
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12691,
+            "output_tokens": 539,
+            "total_tokens": 13230
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 706.558358669281,
+    "scan_objects": 22.621368646621704,
+    "validate_objects": 0.5775535106658936,
+    "scan_functions": 246.75333833694458,
+    "synthesis": 321.8964104652405,
+    "fill": 0,
+    "classify": 41.76909136772156,
+    "build_generators": 72.9390823841095
+  }
+}

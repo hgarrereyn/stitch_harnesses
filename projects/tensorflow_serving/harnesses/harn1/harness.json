@@ -1,0 +1,395 @@
+{
+  "objects": [
+    {
+      "ptr_type": "tensorflow::serving::AnyPtr *",
+      "aliases": [],
+      "definition": "namespace tensorflow {\nnamespace serving {\n\nclass AnyPtr {\n public:\n  /// AnyPtr is void and null by default.\n  AnyPtr() : type_id_(FastTypeId<void>()), ptr_(nullptr) {}\n\n  /// Implicit construction from nullptr.\n  AnyPtr(std::nullptr_t) : AnyPtr() {}  // NOLINT\n\n  /// Construct from a pointer to any type.\n  template <typename T>\n  AnyPtr(T* ptr)  // NOLINT\n      : type_id_(FastTypeId<T>()),\n        // We need a double cast here, first to drop the type, and second to\n        // drop constness. We always cast back to the appropriate type and\n        // constness in get<>(), since FastTypeId is different for a const and\n        // non-const T.\n        ptr_(const_cast<void*>(reinterpret_cast<const void*>(ptr))) {}\n\n  /// Accessor for the underlying pointer if it is of type T, otherwise null.\n  template <typename T>\n  T* get() const {\n    if (type_id_ != FastTypeId<T>()) {\n      return nullptr;\n    }\n    return reinterpret_cast<T*>(ptr_);\n  }\n\n private:\n  template <typename Type>\n  static size_t FastTypeId() {\n    // Use a static variable to get a unique per-type address.\n    static int dummy;\n    return reinterpret_cast<std::size_t>(&dummy);\n  }\n\n  // The code for the type of 'ptr_'.\n  std::size_t type_id_;\n\n  // The underlying pointer.\n  void* ptr_;\n};\n\n}  // namespace serving\n}  // namespace tensorflow",
+      "description": "A small value-type type-tagged pointer wrapper that can hold a pointer to any single concrete type and later be queried for that same type; if queried with a different type, get<T>() returns nullptr. It does not own the pointee. Copyable and cheap; no allocations. Type identity is implemented via per-type static address (FastTypeId).",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "tensorflow::serving::UniqueAnyPtr *"
+      ]
+    },
+    {
+      "ptr_type": "tensorflow::serving::UniqueAnyPtr *",
+      "aliases": [],
+      "definition": "namespace tensorflow {\nnamespace serving {\n\nclass UniqueAnyPtr {\n public:\n  /// UniqueAnyPtr is void and null by default.\n  UniqueAnyPtr() = default;\n  UniqueAnyPtr(std::nullptr_t) : UniqueAnyPtr() {}  // NOLINT\n\n  /// Construct from a unique pointer to any type.\n  template <typename T>\n  explicit UniqueAnyPtr(std::unique_ptr<T> ptr)\n      : ptr_(ptr.release()), deleter_(DeleterForType<T>()) {}\n\n  ~UniqueAnyPtr() { deleter_(ptr_); }\n\n  // Disable copy.\n  UniqueAnyPtr(const UniqueAnyPtr& other) = delete;\n  UniqueAnyPtr& operator=(const UniqueAnyPtr& other) = delete;\n\n  // Allow move.\n  UniqueAnyPtr(UniqueAnyPtr&& other) { swap(other); }\n\n  UniqueAnyPtr& operator=(UniqueAnyPtr&& other) {\n    swap(other);\n    return *this;\n  }\n\n  /// Accessor for the underlying pointer if it is of type T, otherwise null.\n  template <typename T>\n  T* get() const {\n    return ptr_.get<T>();\n  }\n\n  /// Accessor for the underlying pointer as an AnyPtr.\n  const AnyPtr& as_any_ptr() const { return ptr_; }\n\n  void swap(UniqueAnyPtr& other) {\n    using ::std::swap;\n    swap(ptr_, other.ptr_);\n    swap(deleter_, other.deleter_);\n  }\n\n private:\n  // We use a raw function pointer. This eliminates the copy and calling\n  // overhead of std::function.\n  using Deleter = void (*)(AnyPtr ptr);\n\n  // Returns a 'Deleter' that will delete it's argument as an instance of 'T'.\n  // Always returns the same value for the same 'T'.\n  template <typename T>\n  static Deleter DeleterForType() {\n    return [](AnyPtr ptr) { delete ptr.get<T>(); };\n  }\n\n  static Deleter NoOpDeleter() {\n    return [](AnyPtr ptr) {};\n  }\n\n  AnyPtr ptr_ = nullptr;\n  Deleter deleter_ = NoOpDeleter();\n};\n\n}  // namespace serving\n}  // namespace tensorflow",
+      "description": "A move-only owning counterpart to AnyPtr. It type-erases ownership of a single heap-allocated object, deleting it with the correct type on destruction via a stored deleter. Constructible from std::unique_ptr<T>. Not copyable; movable. get<T>() returns the stored pointer if T matches the stored type; otherwise nullptr.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "tensorflow::serving::Executor *",
+      "aliases": [],
+      "definition": "namespace tensorflow {\nnamespace serving {\n\nclass Executor {\n public:\n  virtual ~Executor() = default;\n\n  /// Schedule the specified 'fn' for execution in this executor. Depending on\n  /// the subclass implementation, this may block in some situations.\n  virtual void Schedule(std::function<void()> fn) = 0;\n};\n\n}  // namespace serving\n}  // namespace tensorflow",
+      "description": "Abstract interface for scheduling and executing closures. Implementations must be thread-safe. Provides a virtual destructor and a pure-virtual Schedule method that accepts a std::function<void()> to run.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "tensorflow::serving::AnyPtr::AnyPtr",
+      "signature": "tensorflow::serving::AnyPtr::AnyPtr()",
+      "description": "Default-constructs an AnyPtr representing a null pointer with an internal type tag of void. Use when you need an empty/cleared AnyPtr.",
+      "requirements": [
+        "Constructs a null AnyPtr; no managed lifetime.",
+        "Safe to copy and assign; value type.",
+        "Pointer is null until constructed from a real pointer."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::AnyPtr::AnyPtr",
+      "signature": "tensorflow::serving::AnyPtr::AnyPtr(std::nullptr_t)",
+      "description": "Constructs an AnyPtr from nullptr, equivalent to the default constructor. Useful for explicit null initialization or resetting.",
+      "requirements": [
+        "Results in a null AnyPtr with type tag void.",
+        "No ownership or lifetime management."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::AnyPtr::get",
+      "signature": "template <typename T>\nT* tensorflow::serving::AnyPtr::get() const",
+      "description": "Returns the stored pointer reinterpreted as T* if and only if the AnyPtr was constructed with the exact same type T (including const-qualification); otherwise returns nullptr. Enables type-checked retrieval from a type-erased pointer.",
+      "requirements": [
+        "Must be called with the exact same type T used when constructing the AnyPtr (const and non-const are distinct).",
+        "Return may be nullptr either because the stored pointer was null or because T does not match.",
+        "Returned pointer is non-owning; caller must not delete it unless they own the object.",
+        "Caller must not dereference the returned pointer if it is null."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr",
+      "signature": "tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr() = default",
+      "description": "Default-constructs an empty UniqueAnyPtr with no managed object. Behaves like a moved-from or null unique owner.",
+      "requirements": [
+        "Constructs with a null internal pointer and a no-op deleter.",
+        "No ownership until constructed from a unique_ptr or moved from another UniqueAnyPtr."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr",
+      "signature": "tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr(std::nullptr_t)",
+      "description": "Constructs a null UniqueAnyPtr, equivalent to the default constructor.",
+      "requirements": [
+        "Results in an empty UniqueAnyPtr with a no-op deleter."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr",
+      "signature": "template <typename T>\nexplicit tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr(std::unique_ptr<T> ptr)",
+      "description": "Takes ownership of ptr, erasing its type while retaining a type-specific deleter that will delete the object as T upon destruction. Provides type-checked access via get<T>().",
+      "requirements": [
+        "ptr may be null; if non-null, ownership is transferred and ptr is released (becomes null).",
+        "The stored deleter deletes as exactly T; callers must use the same T for get<T>() to retrieve a non-null pointer.",
+        "After construction, the original unique_ptr must not be used to delete the object (it has been released)."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::~UniqueAnyPtr",
+      "signature": "tensorflow::serving::UniqueAnyPtr::~UniqueAnyPtr()",
+      "description": "Destroys the UniqueAnyPtr, invoking its stored deleter on the managed pointer (no-op if null). Ensures owned object is deleted as the recorded type.",
+      "requirements": [
+        "Destructor may be called on empty or non-empty instances.",
+        "No action required by caller; ensures single ownership semantics."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::operator=",
+      "signature": "tensorflow::serving::UniqueAnyPtr& tensorflow::serving::UniqueAnyPtr::operator=(tensorflow::serving::UniqueAnyPtr&& other)",
+      "description": "Move-assigns from other by swapping internal pointer and deleter with other. After assignment, this owns other's former object; other becomes the previous state of this.",
+      "requirements": [
+        "Self-move-assignment is safe via swap but typically unnecessary.",
+        "After assignment, other is valid but unspecified (effectively the previous state of this).",
+        "Copy assignment is deleted; only move assignment is allowed."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::get",
+      "signature": "template <typename T>\nT* tensorflow::serving::UniqueAnyPtr::get() const",
+      "description": "Returns the stored pointer as T* if the internal type tag matches exactly T (including const-qualification); otherwise returns nullptr. Non-owning view into the owned object.",
+      "requirements": [
+        "Must request the exact same type T that was used to construct the UniqueAnyPtr from std::unique_ptr<T>.",
+        "Return may be nullptr if no object is owned or if T does not match.",
+        "Returned pointer remains valid while the UniqueAnyPtr remains alive and owning the object; do not delete it manually."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::as_any_ptr",
+      "signature": "const tensorflow::serving::AnyPtr& tensorflow::serving::UniqueAnyPtr::as_any_ptr() const",
+      "description": "Returns a const reference to an AnyPtr view of the stored pointer, enabling type-checked access without transferring ownership.",
+      "requirements": [
+        "The returned AnyPtr reference is valid only as long as the UniqueAnyPtr object remains alive and unchanged.",
+        "Do not store the returned reference beyond the lifetime of the UniqueAnyPtr."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::swap",
+      "signature": "void tensorflow::serving::UniqueAnyPtr::swap(tensorflow::serving::UniqueAnyPtr& other)",
+      "description": "Swaps the stored pointer and deleter with other. Useful for implementing move operations and for exception-safe ownership transfers.",
+      "requirements": [
+        "other must be a valid UniqueAnyPtr instance (may be empty).",
+        "Safe to call with self, though it is a no-op."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::Executor::~Executor",
+      "signature": "virtual tensorflow::serving::Executor::~Executor() = default",
+      "description": "Virtual default destructor for the Executor interface. Allows proper cleanup via base-class pointers.",
+      "requirements": [
+        "Subclass destructors must be virtual-compatible (inherited from this).",
+        "No special caller requirements; invoked automatically when objects are destroyed."
+      ],
+      "error": null
+    },
+    {
+      "name": "tensorflow::serving::Executor::Schedule",
+      "signature": "virtual void tensorflow::serving::Executor::Schedule(std::function<void()> fn) = 0",
+      "description": "Schedules the provided callable for execution by the executor. Concrete executors define the execution policy (e.g., thread pool, inline, queued). May block depending on the implementation.",
+      "requirements": [
+        "fn must be a valid callable; it should be safe to invoke with no arguments and must not throw exceptions unless the executor documents handling.",
+        "Implementations must be thread-safe; callers may invoke Schedule concurrently.",
+        "As a pure virtual function, must be overridden by subclasses."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "tensorflow::serving::AnyPtr::AnyPtr",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "any",
+          "type": "tensorflow::serving::AnyPtr *"
+        }
+      ],
+      "code": "// Default-construct a null AnyPtr with type tag void.\n// No inputs required; value is empty and non-owning.\n\ntensorflow::serving::AnyPtr *any = new tensorflow::serving::AnyPtr();\n// Track that this AnyPtr currently holds null.\nFUZZ_SET_ATTR_INT(any, \"is_null\", 1);\n// Provide the newly created AnyPtr to the pool as an output."
+    },
+    {
+      "name": "tensorflow::serving::AnyPtr::get",
+      "inputs": [
+        {
+          "name": "any",
+          "type": "tensorflow::serving::AnyPtr *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "any",
+          "type": "tensorflow::serving::AnyPtr *"
+        }
+      ],
+      "code": "// Exercise AnyPtr::get<T>() with both matching and mismatched T.\n// We temporarily store a pointer of a chosen type into *any, validate get<T>(),\n// then reset *any back to null to avoid dangling pointers and delete our temp.\n\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 3; // 0=int, 1=const int, 2=double\nif (choice == 0) {\n  int *p = new int((int)(*FUZZ_PARAM(unsigned int) & 0x7FFF));\n  *any = tensorflow::serving::AnyPtr(p);\n  // Matching type succeeds\n  int *got_i = any->get<int>();\n  FUZZ_ASSERT(got_i != nullptr, \"AnyPtr::get<int> must succeed for stored int*\");\n  // Mismatched type returns nullptr\n  const int *got_ci = any->get<const int>();\n  (void)got_ci; // may be nullptr\n  double *got_d = any->get<double>();\n  (void)got_d; // expected nullptr\n  // Reset AnyPtr to null before deleting user-owned pointee.\n  *any = tensorflow::serving::AnyPtr(nullptr);\n  delete p;\n  FUZZ_SET_ATTR_INT(any, \"is_null\", 1);\n} else if (choice == 1) {\n  // Store as const int to exercise const-qualification matching.\n  int *p_nc = new int((int)(*FUZZ_PARAM(unsigned int) & 0x7FFF));\n  const int *p = p_nc;\n  *any = tensorflow::serving::AnyPtr(p);\n  const int *got_ci = any->get<const int>();\n  FUZZ_ASSERT(got_ci != nullptr, \"AnyPtr::get<const int> must succeed for stored const int*\");\n  int *got_i = any->get<int>();\n  (void)got_i; // expected nullptr due to const mismatch\n  // Clean up\n  *any = tensorflow::serving::AnyPtr(nullptr);\n  delete p_nc; // AnyPtr is non-owning; we delete our allocation.\n  FUZZ_SET_ATTR_INT(any, \"is_null\", 1);\n} else {\n  double *p = new double((double)(*FUZZ_PARAM(unsigned int) % 10000) / 13.0);\n  *any = tensorflow::serving::AnyPtr(p);\n  double *got_d = any->get<double>();\n  FUZZ_ASSERT(got_d != nullptr, \"AnyPtr::get<double> must succeed for stored double*\");\n  int *got_i = any->get<int>();\n  (void)got_i; // expected nullptr\n  // Clean up\n  *any = tensorflow::serving::AnyPtr(nullptr);\n  delete p;\n  FUZZ_SET_ATTR_INT(any, \"is_null\", 1);\n}\n// Return 'any' so it remains available to future stubs (now reset to null)."
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "u",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "code": "// Default-construct an empty UniqueAnyPtr (no-op deleter, null pointer).\n\ntensorflow::serving::UniqueAnyPtr *u = new tensorflow::serving::UniqueAnyPtr();\nFUZZ_SET_ATTR_STR(u, \"type\", \"empty\");\n// Provide as output."
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::~UniqueAnyPtr",
+      "inputs": [
+        {
+          "name": "u",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Drop the UniqueAnyPtr from the pool so its destructor runs and deletes any owned object.\n// We do not return it as an output, intentionally transferring no ownership back to the pool.\n// No additional action is needed; destructor handles null and non-null cases.\n(void)u; // explicit no-op to clarify intentional drop\n// Not returning 'u' causes the runtime to destroy it now."
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::operator=",
+      "inputs": [
+        {
+          "name": "dst",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        },
+        {
+          "name": "src",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dst",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        },
+        {
+          "name": "src",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "code": "// Move-assign from src to dst. Self-assignment is allowed and implemented via swap.\n// To improve coverage, optionally ensure 'src' holds an object while 'dst' may be empty or not.\n\n// If 'src' appears empty (by attribute), populate it with a small int or double payload.\nconst char *stype = FUZZ_GET_ATTR_STR(src, \"type\");\nif (stype[0] == '\\0' || !strcmp(stype, \"empty\")) {\n  if ((*FUZZ_PARAM(unsigned int) & 1u) == 0u) {\n    std::unique_ptr<int> up(new int((int)(*FUZZ_PARAM(unsigned int) & 0x7FFF)));\n    tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n    *src = std::move(tmp);\n    FUZZ_SET_ATTR_STR(src, \"type\", \"int\");\n  } else {\n    std::unique_ptr<double> up(new double((double)(*FUZZ_PARAM(unsigned int) % 10000) / 5.0));\n    tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n    *src = std::move(tmp);\n    FUZZ_SET_ATTR_STR(src, \"type\", \"double\");\n  }\n}\n// Perform move assignment: dst takes ownership of src's current object; src becomes previous dst state.\n*dst = std::move(*src);\n// Swap-based move means both pointers remain valid; update simple attributes to reflect unknown/changed state.\nFUZZ_SET_ATTR_STR(dst, \"type\", \"moved_to_dst\");\nFUZZ_SET_ATTR_STR(src, \"type\", \"moved_from_src\");\n// Return both objects so the pool manages their lifetimes."
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::get",
+      "inputs": [
+        {
+          "name": "u",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "u",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "code": "// Ensure 'u' owns a known-typed object via move-assign from a temporary, then probe get<T>().\n\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 2; // 0=int, 1=double\nif (choice == 0) {\n  std::unique_ptr<int> up(new int((int)(*FUZZ_PARAM(unsigned int) & 0x7FFF)));\n  tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n  *u = std::move(tmp);\n  FUZZ_SET_ATTR_STR(u, \"type\", \"int\");\n  int *pi = u->get<int>();\n  FUZZ_ASSERT(pi != nullptr, \"UniqueAnyPtr::get<int> must succeed when constructed from unique_ptr<int>\");\n  double *pd = u->get<double>();\n  (void)pd; // expected nullptr\n} else {\n  std::unique_ptr<double> up(new double((double)(*FUZZ_PARAM(unsigned int) % 10000) / 11.0));\n  tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n  *u = std::move(tmp);\n  FUZZ_SET_ATTR_STR(u, \"type\", \"double\");\n  double *pd = u->get<double>();\n  FUZZ_ASSERT(pd != nullptr, \"UniqueAnyPtr::get<double> must succeed when constructed from unique_ptr<double>\");\n  int *pi = u->get<int>();\n  (void)pi; // expected nullptr\n}\n// Return 'u' so it remains available to future stubs."
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::as_any_ptr",
+      "inputs": [
+        {
+          "name": "u",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "u",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "code": "// Populate 'u' with a known type, then obtain an AnyPtr view and validate typed access.\n\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 2; // 0=int, 1=double\nif (choice == 0) {\n  std::unique_ptr<int> up(new int((int)(*FUZZ_PARAM(unsigned int) & 0x7FFF)));\n  tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n  *u = std::move(tmp);\n  FUZZ_SET_ATTR_STR(u, \"type\", \"int\");\n  const tensorflow::serving::AnyPtr &ap = u->as_any_ptr();\n  int *pi = ap.get<int>();\n  FUZZ_ASSERT(pi != nullptr, \"as_any_ptr().get<int>() must match stored int type\");\n  double *pd = ap.get<double>();\n  (void)pd; // expected nullptr\n} else {\n  std::unique_ptr<double> up(new double((double)(*FUZZ_PARAM(unsigned int) % 10000) / 17.0));\n  tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n  *u = std::move(tmp);\n  FUZZ_SET_ATTR_STR(u, \"type\", \"double\");\n  const tensorflow::serving::AnyPtr &ap = u->as_any_ptr();\n  double *pd = ap.get<double>();\n  FUZZ_ASSERT(pd != nullptr, \"as_any_ptr().get<double>() must match stored double type\");\n  int *pi = ap.get<int>();\n  (void)pi; // expected nullptr\n}\n// Return 'u' to keep it in the pool."
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::swap",
+      "inputs": [
+        {
+          "name": "a",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        },
+        {
+          "name": "b",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        },
+        {
+          "name": "b",
+          "type": "tensorflow::serving::UniqueAnyPtr *"
+        }
+      ],
+      "code": "// Swap the contents of two UniqueAnyPtr objects. Safe even if a==b.\n// Optionally initialize one side to increase coverage of swapping empty/non-empty.\n\nif (!strcmp(FUZZ_GET_ATTR_STR(a, \"type\"), \"empty\")) {\n  if ((*FUZZ_PARAM(unsigned int) & 1u) == 0u) {\n    std::unique_ptr<int> up(new int((int)(*FUZZ_PARAM(unsigned int) & 0x7FFF)));\n    tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n    *a = std::move(tmp);\n    FUZZ_SET_ATTR_STR(a, \"type\", \"int\");\n  } else {\n    std::unique_ptr<double> up(new double((double)(*FUZZ_PARAM(unsigned int) % 10000) / 19.0));\n    tensorflow::serving::UniqueAnyPtr tmp(std::move(up));\n    *a = std::move(tmp);\n    FUZZ_SET_ATTR_STR(a, \"type\", \"double\");\n  }\n}\n// Perform swap\na->swap(*b);\n// Update coarse attributes to reflect that contents have exchanged.\nconst char *atype = FUZZ_GET_ATTR_STR(a, \"type\");\nconst char *btype = FUZZ_GET_ATTR_STR(b, \"type\");\nFUZZ_SET_ATTR_STR(a, \"type\", btype[0] ? btype : \"unknown\");\nFUZZ_SET_ATTR_STR(b, \"type\", atype[0] ? atype : \"unknown\");\n// Return both so the pool continues to manage their lifetimes."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "tensorflow::serving::Executor::~Executor",
+      "reason": "Executor is an abstract interface; without a concrete subclass instance, its virtual destructor cannot be meaningfully exercised."
+    },
+    {
+      "name": "tensorflow::serving::Executor::Schedule",
+      "reason": "Schedule is pure virtual and requires a concrete Executor implementation, which is unavailable in this harness."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "tensorflow::serving::AnyPtr::AnyPtr",
+      "data_types": []
+    },
+    {
+      "name": "tensorflow::serving::AnyPtr::get",
+      "data_types": []
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::UniqueAnyPtr",
+      "data_types": []
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::~UniqueAnyPtr",
+      "data_types": []
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::operator=",
+      "data_types": []
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::get",
+      "data_types": []
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::as_any_ptr",
+      "data_types": []
+    },
+    {
+      "name": "tensorflow::serving::UniqueAnyPtr::swap",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2299,
+            "output_tokens": 1302,
+            "total_tokens": 3601
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1877,
+            "output_tokens": 164,
+            "total_tokens": 2041
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2467,
+            "output_tokens": 2443,
+            "total_tokens": 4910
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 6638,
+            "output_tokens": 6184,
+            "total_tokens": 12822
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 160.82664132118225,
+    "scan_objects": 11.258058547973633,
+    "validate_objects": 0.7792971134185791,
+    "scan_functions": 28.983532190322876,
+    "synthesis": 119.73411893844604,
+    "fill": 0,
+    "classify": 0.07076334953308105,
+    "build_generators": 0.00008034706115722656
+  }
+}

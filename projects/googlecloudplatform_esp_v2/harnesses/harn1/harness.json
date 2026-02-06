@@ -1,0 +1,880 @@
+{
+  "objects": [
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::HttpTemplate *",
+      "aliases": [],
+      "definition": "namespace espv2 {\nnamespace api_proxy {\nnamespace path_matcher {\n\nclass HttpTemplate {\n public:\n  static std::unique_ptr<HttpTemplate> Parse(const std::string& ht);\n  const std::vector<std::string>& segments() const { return segments_; }\n  const std::string& verb() const { return verb_; }\n\n  // The info about a variable binding {variable=subpath} in the template.\n  struct Variable {\n    // Specifies the range of segments [start_segment, end_segment) the\n    // variable binds to. Both start_segment and end_segment are 0 based.\n    // end_segment can also be negative, which means that the position is\n    // specified relative to the end such that -1 corresponds to the end\n    // of the path.\n    int start_segment;\n    int end_segment;\n\n    // The path of the protobuf field the variable binds to.\n    std::vector<std::string> field_path;\n\n    // Do we have a ** in the variable template?\n    bool has_wildcard_path;\n  };\n\n  std::vector<Variable>& Variables() { return variables_; }\n\n  // '/.': match any single path segment.\n  static const char kSingleParameterKey[];\n  // '*': Wildcard match for one path segment.\n  static const char kWildCardPathPartKey[];\n  // '**': Wildcard match the remaining path.\n  static const char kWildCardPathKey[];\n\n private:\n  HttpTemplate(std::vector<std::string>&& segments, std::string&& verb,\n               std::vector<Variable>&& variables)\n      : segments_(std::move(segments)),\n        verb_(std::move(verb)),\n        variables_(std::move(variables)) {}\n  const std::vector<std::string> segments_;\n  std::string verb_;\n  std::vector<Variable> variables_;\n};\n\n}  // namespace path_matcher\n}  // namespace api_proxy\n}  // namespace espv2\n",
+      "description": "Represents a parsed HTTP path template with optional custom verb and variable bindings. Provides access to path segments, custom verb, and variables extracted from the template. Construction is via the static Parse factory which returns a unique_ptr. Variables include segment ranges, field path, and whether a wildcard path was used.",
+      "direct_api_constructors": [
+        "espv2::api_proxy::path_matcher::HttpTemplate::Parse"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::HttpTemplate::Variable *",
+      "aliases": [],
+      "definition": "struct Variable {\n    int start_segment;\n    int end_segment;\n    std::vector<std::string> field_path;\n    bool has_wildcard_path;\n  };",
+      "description": "Nested struct describing a single variable binding within an HttpTemplate. It records the segment range in the path bound to the variable, the protobuf field path to bind into, and whether the binding used a wildcard '**'. Instances are owned by HttpTemplate and typically moved into PathMatcher MethodData.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "espv2::api_proxy::path_matcher::HttpTemplate",
+        "espv2::api_proxy::path_matcher::PathMatcher<Method>::MethodData"
+      ]
+    },
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::PathMatcherLookupResult *",
+      "aliases": [],
+      "definition": "namespace espv2 {\nnamespace api_proxy {\nnamespace path_matcher {\n\nstruct PathMatcherLookupResult {\n  PathMatcherLookupResult() : data(nullptr), is_multiple(false) {}\n\n  PathMatcherLookupResult(void* data, bool is_multiple)\n      : data(data), is_multiple(is_multiple) {}\n\n  // The WrapperGraph that is registered to a method (or HTTP path).\n  void* data;\n  // Whether the method (or path) has been registered for more than once.\n  bool is_multiple;\n};\n\n}  // namespace path_matcher\n}  // namespace api_proxy\n}  // namespace espv2\n",
+      "description": "Result container for trie lookups in PathMatcherNode. Holds an opaque pointer to registered method data and a flag indicating duplicate registrations. data is nullptr when no match was found.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::PathMatcherNode *",
+      "aliases": [],
+      "definition": "class PathMatcherNode {\n public:\n  // Provides information for inserting templates into the trie. Clients can\n  // instantiate PathInfo with the provided Builder.\n  class PathInfo {\n   public:\n    class Builder {\n     public:\n      friend class PathInfo;\n      Builder() : path_() {}\n      ~Builder() {}\n\n      PathMatcherNode::PathInfo Build() const;\n\n      Builder& AppendLiteralNode(std::string name);\n      Builder& AppendSingleParameterNode();\n     private:\n      std::vector<std::string> path_;\n    };  // class Builder\n\n    ~PathInfo() {}\n    const std::vector<std::string>& path_info() const { return path_; }\n   private:\n    explicit PathInfo(const Builder& builder) : path_(builder.path_) {}\n    std::vector<std::string> path_;\n  };  // class PathInfo\n\n  using RequestPathParts = std::vector<std::string>;\n\n  // Creates a Root node with an empty WrapperGraph map.\n  PathMatcherNode() : result_map_(), children_(), wildcard_(false) {}\n\n  ~PathMatcherNode();\n\n  std::unique_ptr<PathMatcherNode> Clone() const;\n\n  void LookupPath(const RequestPathParts::const_iterator current,\n                  const RequestPathParts::const_iterator end,\n                  HttpMethod http_method,\n                  PathMatcherLookupResult* result) const;\n\n  bool InsertPath(const PathInfo& node_path_info, std::string http_method,\n                  void* method_data, bool mark_duplicates);\n\n  void set_wildcard(bool wildcard) { wildcard_ = wildcard; }\n\n private:\n  bool InsertTemplate(const std::vector<std::string>::const_iterator current,\n                      const std::vector<std::string>::const_iterator end,\n                      HttpMethod http_method, void* method_data,\n                      bool mark_duplicates);\n\n  bool LookupPathFromChild(const std::string child_key,\n                           const RequestPathParts::const_iterator current,\n                           const RequestPathParts::const_iterator end,\n                           HttpMethod http_method,\n                           PathMatcherLookupResult* result) const;\n\n  bool GetResultForHttpMethod(HttpMethod key,\n                              PathMatcherLookupResult* result) const;\n\n  std::map<HttpMethod, PathMatcherLookupResult> result_map_;\n  std::unordered_map<std::string, std::unique_ptr<PathMatcherNode>> children_;\n  bool wildcard_;\n};",
+      "description": "Trie node representing a segment in the HTTP path matcher. Stores children keyed by segment strings and results per HTTP method. Supports insertion of paths and lookup. Also tracks a wildcard '**' node. Not thread-safe for mutation; lookups are thread-compatible.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *",
+      "aliases": [],
+      "definition": "class PathInfo {\n   public:\n    class Builder {\n     public:\n      friend class PathInfo;\n      Builder() : path_() {}\n      ~Builder() {}\n\n      PathMatcherNode::PathInfo Build() const;\n      Builder& AppendLiteralNode(std::string name);\n      Builder& AppendSingleParameterNode();\n     private:\n      std::vector<std::string> path_;\n    };  // class Builder\n\n    ~PathInfo() {}\n    const std::vector<std::string>& path_info() const { return path_; }\n   private:\n    explicit PathInfo(const Builder& builder) : path_(builder.path_) {}\n    std::vector<std::string> path_;\n  };",
+      "description": "Helper value object carrying a vector of path components to be inserted into a PathMatcherNode trie. Constructed via its nested Builder, which can append literal and single-parameter nodes, then Build to produce a PathInfo.",
+      "direct_api_constructors": [
+        "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::Build"
+      ],
+      "owned_by": [
+        "espv2::api_proxy::path_matcher::PathMatcherNode"
+      ]
+    },
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *",
+      "aliases": [],
+      "definition": "class Builder {\n     public:\n      friend class PathInfo;\n      Builder() : path_() {}\n      ~Builder() {}\n\n      PathMatcherNode::PathInfo Build() const;\n      Builder& AppendLiteralNode(std::string name);\n      Builder& AppendSingleParameterNode();\n     private:\n      std::vector<std::string> path_;\n    };",
+      "description": "Fluent builder to compose a sequence of path components for PathInfo: append literal or single-parameter markers; Build creates a PathInfo snapshot.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo"
+      ]
+    },
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::VariableBinding *",
+      "aliases": [],
+      "definition": "struct VariableBinding {\n  std::vector<std::string> field_path;\n  std::string value;\n};\n\ninline bool operator==(const VariableBinding& b1, const VariableBinding& b2) {\n  return b1.field_path == b2.field_path && b1.value == b2.value;\n}",
+      "description": "Represents a single binding of a value extracted from the URL path to a protobuf field path during HTTP-to-gRPC transcoding. Equality operator provided for comparisons.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "espv2::api_proxy::path_matcher::HttpMethod *",
+      "aliases": [],
+      "definition": "using HttpMethod = std::string;",
+      "description": "Type alias for HTTP method strings (e.g., \"GET\", \"POST\"). Used as a key in matcher maps.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::Parse",
+      "signature": "static std::unique_ptr<espv2::api_proxy::path_matcher::HttpTemplate> Parse(const std::string& ht)",
+      "description": "Parses an HTTP template string into a HttpTemplate instance. Used to convert path templates (with literals, variables, and wildcards) into structured segments, verb, and variable metadata. Returns nullptr if the template string is invalid.",
+      "requirements": [
+        "ht must be a valid HTTP template string; if invalid the function returns nullptr (as inferred from Register usage).",
+        "Behavior on empty strings is unknown; callers should be prepared for a nullptr result."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::segments",
+      "signature": "const std::vector<std::string>& segments() const",
+      "description": "Accessor returning the parsed path segments of the HTTP template. Useful for constructing trie paths and for debugging.",
+      "requirements": [
+        "The HttpTemplate object must be a valid instance produced by Parse or equivalent.",
+        "Returned reference remains valid as long as the HttpTemplate instance is alive."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::verb",
+      "signature": "const std::string& verb() const",
+      "description": "Accessor returning the custom verb parsed from the HTTP template, if any; otherwise an empty string. Used to populate the set of custom verbs for request parsing.",
+      "requirements": [
+        "The HttpTemplate object must be a valid instance.",
+        "Returned reference remains valid as long as the HttpTemplate instance is alive."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::Variables",
+      "signature": "std::vector<espv2::api_proxy::path_matcher::HttpTemplate::Variable>& Variables()",
+      "description": "Returns a modifiable reference to the list of variable bindings parsed from the template (e.g., {field=subpath}). Used to extract and later move variable metadata into matcher structures.",
+      "requirements": [
+        "Caller must ensure any modifications maintain consistency with the original template semantics (no explicit constraints provided).",
+        "If the caller moves from the returned vector (e.g., std::move(ht->Variables())), the vector inside HttpTemplate becomes moved-from; do not rely on its contents afterward."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::Build",
+      "signature": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo Build() const",
+      "description": "Constructs an immutable PathInfo from the Builder’s accumulated path parts for insertion into the PathMatcher trie.",
+      "requirements": [
+        "The Builder should have been configured with zero or more appended nodes before calling Build (empty paths are allowed; behavior when empty is not explicitly documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::AppendLiteralNode",
+      "signature": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder& AppendLiteralNode(std::string name)",
+      "description": "Appends a literal path segment that must match exactly one request path part. Used to build concrete paths like a/b/c.",
+      "requirements": [
+        "name represents a single path segment (no slashes).",
+        "The strings \"/.\" and \"/..\" are disallowed (explicitly stated).",
+        "Behavior for empty name is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::AppendSingleParameterNode",
+      "signature": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder& AppendSingleParameterNode()",
+      "description": "Appends a single-parameter node that matches any single request path part (wildcard for exactly one segment).",
+      "requirements": [
+        "No additional constraints documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::path_info",
+      "signature": "const std::vector<std::string>& path_info() const",
+      "description": "Returns the underlying vector of path parts that describe the path to insert into the trie.",
+      "requirements": [
+        "The PathInfo instance must have been created (e.g., via Builder::Build).",
+        "Returned reference remains valid while the PathInfo object is alive."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathMatcherNode",
+      "signature": "PathMatcherNode()",
+      "description": "Constructs a root/empty PathMatcher trie node with no children, an empty result map, and wildcard disabled.",
+      "requirements": [
+        "Thread-compatible usage as documented for the node class (do not share a single instance across threads without external synchronization)."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::~PathMatcherNode",
+      "signature": "~PathMatcherNode()",
+      "description": "Destroys this trie node and its owned children, releasing any resources associated with the subtrie.",
+      "requirements": [
+        "All pointers stored in result_map_ (data fields) are non-owning; the lifetime of pointed-to objects must be managed externally and must not be freed by the node."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::Clone",
+      "signature": "std::unique_ptr<espv2::api_proxy::path_matcher::PathMatcherNode> Clone() const",
+      "description": "Creates a deep copy of this node and its subtrie, including children and result mappings.",
+      "requirements": [
+        "Source node must be in a valid state; no concurrent mutation during cloning (class is thread-compatible, not thread-safe)."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::LookupPath",
+      "signature": "void LookupPath(const RequestPathParts::const_iterator current, const RequestPathParts::const_iterator end, HttpMethod http_method, PathMatcherLookupResult* result) const",
+      "description": "Traverses the trie from the given iterator range of path parts to find a method mapping for the specified HTTP method. On match, writes the corresponding PathMatcherLookupResult to result.",
+      "requirements": [
+        "current and end must be valid iterators into the same RequestPathParts container and define a valid range [current, end].",
+        "http_method must be the HTTP method key used during registration (string).",
+        "result must be a non-null pointer to receive the output (nullability is not documented; pass non-null).",
+        "No concurrent mutation of the trie during lookup."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::InsertPath",
+      "signature": "bool InsertPath(const PathInfo& node_path_info, std::string http_method, void* method_data, bool mark_duplicates)",
+      "description": "Inserts a path described by node_path_info into the trie and associates the terminal node with the given HTTP method and opaque method_data. Returns true if the path/method was newly inserted; returns false if the template already existed (and, depending on mark_duplicates, duplicate state is recorded).",
+      "requirements": [
+        "node_path_info must describe a valid sequence of path parts for insertion.",
+        "http_method is a string key; must match the keys used during lookup.",
+        "method_data is stored as a raw pointer and must remain valid for the lifetime of the trie or until deregistration (no ownership is taken).",
+        "If the same path+method is inserted more than once and mark_duplicates is true, duplicate registration is tracked and this function returns false."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::set_wildcard",
+      "signature": "void set_wildcard(bool wildcard)",
+      "description": "Marks this node as representing a wildcard \"**\" path that matches the remaining path.",
+      "requirements": [
+        "Should be called only on nodes that semantically correspond to a \"**\" segment (by convention).",
+        "No thread-safety guarantees; avoid concurrent modification."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcher<Method>::~PathMatcher",
+      "signature": "template <class Method>\n~PathMatcher()",
+      "description": "Destructor for the immutable, thread-safe PathMatcher. Cleans up internal resources (owns the trie and method metadata).",
+      "requirements": [
+        "No special requirements; ensure no concurrent lookups are in progress if the surrounding program requires external synchronization for destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcher<Method>::Lookup",
+      "signature": "template <class Method>\nMethod Lookup(const std::string& http_method, const std::string& path, std::vector<espv2::api_proxy::path_matcher::VariableBinding>* variable_bindings) const",
+      "description": "Looks up the registered method for the given HTTP method and request path, optionally extracting variable bindings from the path. Returns the associated Method or nullptr if not found.",
+      "requirements": [
+        "Method must be a pointer-like type that can hold nullptr (the implementation returns nullptr on miss).",
+        "variable_bindings may be nullptr; if non-null, it will be cleared and then filled with extracted bindings.",
+        "path may include a query string and redundant slashes; these are sanitized internally via ExtractRequestParts.",
+        "If no paths were registered (root_ptr_ == nullptr), returns nullptr."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::PathMatcherBuilder",
+      "signature": "template <class Method>\nPathMatcherBuilder()",
+      "description": "Constructs a PathMatcherBuilder with an empty root trie for registering path-to-method mappings.",
+      "requirements": [
+        "The builder is not thread-safe; use from a single thread during construction."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::~PathMatcherBuilder",
+      "signature": "template <class Method>\n~PathMatcherBuilder()",
+      "description": "Destructor for PathMatcherBuilder. Does not build a matcher automatically; meant to be used prior to Build().",
+      "requirements": [
+        "Ensure Build() has been called if you intend to produce a PathMatcher; otherwise registered data will be discarded with the builder."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::Register",
+      "signature": "template <class Method>\nbool Register(std::string http_method, std::string path, std::string body_field_path, Method method)",
+      "description": "Registers a method under an HTTP method and HTTP template path, along with an optional body field path for request binding. Parses the template, transforms it into trie path info, inserts it, and tracks custom verbs. Returns true on successful registration; false if the template is invalid or the path/method combination already exists.",
+      "requirements": [
+        "path must be a valid HTTP template (HttpTemplate::Parse must succeed).",
+        "method is stored by value inside the matcher metadata; it should be valid to copy/move.",
+        "If InsertPath reports the path already existed (duplicate), this function returns false (despite the comment about replacement).",
+        "If registration succeeds and the template contains a custom verb, that verb is added to the set of custom verbs used for request parsing."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::Build",
+      "signature": "template <class Method>\nstd::unique_ptr<espv2::api_proxy::path_matcher::PathMatcher<Method>> Build()",
+      "description": "Finalizes and returns an immutable, thread-safe PathMatcher containing all registered mappings. Moves internal state from the builder; the builder must not be used afterward.",
+      "requirements": [
+        "Do not use the builder after Build() (its internal state is moved).",
+        "Call from a single thread (builder is not thread-safe)."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::ExtractBindingsFromPath",
+      "signature": "void ExtractBindingsFromPath(const std::vector<espv2::api_proxy::path_matcher::HttpTemplate::Variable>& vars, const std::vector<std::string>& parts, std::vector<espv2::api_proxy::path_matcher::VariableBinding>* bindings)",
+      "description": "Converts matched variables defined in a template (vars) and the actual path parts (parts) into VariableBinding structures suitable for populating a request message.",
+      "requirements": [
+        "bindings must be a non-null pointer to a vector to receive results; typical usage clears it before calling (as done in PathMatcher::Lookup).",
+        "vars should come from the HttpTemplate that matched the path; parts should be the sanitized path parts corresponding to the request."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::ExtractRequestParts",
+      "signature": "std::vector<std::string> ExtractRequestParts(std::string path, const std::set<std::string>& custom_verbs)",
+      "description": "Sanitizes a request path and splits it into slash-separated parts for trie lookup. Strips the query string, collapses extra slashes, identifies a trailing custom verb if present, and returns an empty vector for root (\"/\").",
+      "requirements": [
+        "path may include a query string and redundant slashes; they are handled per the documented rules.",
+        "custom_verbs should contain the set of configured custom verbs; if the path contains a custom verb not in this set, it is treated as a normal path part."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::LookupInPathMatcherNode",
+      "signature": "espv2::api_proxy::path_matcher::PathMatcherLookupResult LookupInPathMatcherNode(const espv2::api_proxy::path_matcher::PathMatcherNode& root, const std::vector<std::string>& parts, const espv2::api_proxy::path_matcher::HttpMethod& http_method)",
+      "description": "Convenience function to perform a lookup on a PathMatcherNode root using pre-extracted request parts and HTTP method. Returns the lookup result with data and duplication flag.",
+      "requirements": [
+        "parts should be produced by ExtractRequestParts for consistent behavior.",
+        "http_method must match the key used during registration."
+      ],
+      "error": null
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::TransformHttpTemplate",
+      "signature": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo TransformHttpTemplate(const espv2::api_proxy::path_matcher::HttpTemplate& ht)",
+      "description": "Converts a parsed HttpTemplate into a PathMatcherNode::PathInfo suitable for insertion into the PathMatcher trie.",
+      "requirements": [
+        "ht must be a valid, parsed HttpTemplate instance."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::Parse",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "code": "// Generate a random HTTP template string. It may be invalid; Parse should return nullptr in that case.\nstd::string tpl = FUZZ_PARAM_STR();\n// Call the target function.\nauto parsed = espv2::api_proxy::path_matcher::HttpTemplate::Parse(tpl);\n// Enforce requirement: if invalid, Parse returns nullptr; we bail to avoid emitting an invalid object.\nif (!parsed) { FUZZ_BAIL(); }\n// Hand off ownership to the fuzzer runtime pool.\nespv2::api_proxy::path_matcher::HttpTemplate *http_template = parsed.release();\n// Optionally attach metadata for downstream use.\nFUZZ_SET_ATTR_INT(http_template, \"segments_size\", (int)http_template->segments().size());\nFUZZ_SET_ATTR_STR(http_template, \"verb\", http_template->verb().c_str());\n// Validation: We only output non-null objects from successful parses and record basic metadata.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::segments",
+      "inputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "code": "// Accessor requires a valid HttpTemplate instance.\nconst std::vector<std::string> &segs = http_template->segments();\n// Light touch for coverage: iterate and compute a checksum-like value.\nsize_t checksum = 0; for (const auto &s : segs) { checksum ^= std::hash<std::string>{}(s) + 0x9e3779b97f4a7c15ULL + (checksum<<6) + (checksum>>2); }\nFUZZ_SET_ATTR_INT(http_template, \"segments_checked\", 1);\n// Validation: Input is passed through; we do not invalidate or modify the object.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::verb",
+      "inputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "code": "// Access the custom verb; empty string means no custom verb.\nconst std::string &v = http_template->verb();\n// Record presence as an attribute for downstream constraints.\nFUZZ_SET_ATTR_INT(http_template, \"has_custom_verb\", v.empty() ? 0 : 1);\n// Validation: Non-mutating accessor; we keep the object in the pool.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::Variables",
+      "inputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "code": "// Obtain a modifiable reference but do not modify to preserve template semantics.\nstd::vector<espv2::api_proxy::path_matcher::HttpTemplate::Variable> &vars = http_template->Variables();\n// Read-only traversal for coverage.\nint wildcard_count = 0; for (const auto &v : vars) { if (v.has_wildcard_path) { ++wildcard_count; } }\nFUZZ_SET_ATTR_INT(http_template, \"vars_size\", (int)vars.size());\nFUZZ_SET_ATTR_INT(http_template, \"vars_wildcards\", wildcard_count);\n// Validation: We avoid mutating the returned vector to maintain consistency.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::Build",
+      "inputs": [
+        {
+          "name": "builder",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path_info",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *"
+        }
+      ],
+      "code": "// Build a PathInfo snapshot from the current builder state.\nespv2::api_proxy::path_matcher::PathMatcherNode::PathInfo built = builder->Build();\n// Allocate a heap copy for the fuzzer runtime pool.\nespv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *path_info = new espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo(built);\n// Validation: We construct a durable heap PathInfo from the by-value Build() result.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::AppendLiteralNode",
+      "inputs": [
+        {
+          "name": "builder",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *"
+        }
+      ],
+      "code": "// Generate a single literal segment; constraints: no slashes, not \"/.\" or \"/..\", preferably non-empty.\nstd::string name = FUZZ_PARAM_STR();\n// Enforce constraints: reject invalid literal names.\nif (name.empty()) { FUZZ_BAIL(); }\nif (name.find('/') != std::string::npos) { FUZZ_BAIL(); }\nif (name == \"/.\" || name == \"/..\") { FUZZ_BAIL(); }\n// Append the literal node.\n(void)builder->AppendLiteralNode(name);\n// Validation: Builder is mutated in-place and returned to the pool.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::AppendSingleParameterNode",
+      "inputs": [
+        {
+          "name": "builder",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *"
+        }
+      ],
+      "code": "// Append a single-parameter wildcard node (matches exactly one segment).\n(void)builder->AppendSingleParameterNode();\n// Validation: No additional constraints; builder is passed through.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::path_info",
+      "inputs": [
+        {
+          "name": "path_info",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "path_info",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *"
+        }
+      ],
+      "code": "// Access the path parts; reference remains valid for the lifetime of path_info.\nconst std::vector<std::string> &parts = path_info->path_info();\n// Light traversal for coverage.\nsize_t acc = 0; for (const auto &p : parts) { acc += p.size(); }\nFUZZ_SET_ATTR_INT(path_info, \"parts_count\", (int)parts.size());\n// Validation: Read-only accessor; path_info is kept alive by returning it as an output.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathMatcherNode",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "code": "// Construct a fresh root node of the trie.\nespv2::api_proxy::path_matcher::PathMatcherNode *node = new espv2::api_proxy::path_matcher::PathMatcherNode();\n// No extra initialization required; wildcard is false by default.\n// Validation: Provide a non-null root node to the pool.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::~PathMatcherNode",
+      "inputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Destroy the trie node. The node does not own the opaque method_data pointers in its result map.\n// We rely on external lifetime management for any method_data stored in the node.\ndelete node;\n// Validation: We release the node and return no outputs to prevent use-after-free.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::Clone",
+      "inputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        },
+        {
+          "name": "cloned_node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "code": "// Clone the entire trie.\nauto uptr = node->Clone();\nFUZZ_ASSERT((bool)uptr, \"Clone() should return a valid unique_ptr\");\nespv2::api_proxy::path_matcher::PathMatcherNode *cloned_node = uptr.release();\n// Validation: We return both original and cloned nodes for further fuzzing, ensuring deep-copy paths are exercised.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::LookupPath",
+      "inputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        },
+        {
+          "name": "lookup_result",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherLookupResult *"
+        }
+      ],
+      "code": "// Prepare request path parts from a fuzzed path string (simple split by '/').\nstd::string raw_path = FUZZ_PARAM_STR();\nstd::vector<std::string> parts; parts.reserve(16);\n{\n  std::string cur; for (char c : raw_path) { if (c == '/') { if (!cur.empty()) { parts.push_back(cur); cur.clear(); } } else { cur.push_back(c); } }\n  if (!cur.empty()) { parts.push_back(cur); }\n}\n// Choose an HTTP method key (use common verbs to increase hit rate in tries built elsewhere).\nconst char *methods[] = {\"GET\",\"POST\",\"PUT\",\"PATCH\",\"DELETE\",\"HEAD\",\"OPTIONS\"};\nunsigned idx = *FUZZ_PARAM(unsigned int) % (sizeof(methods)/sizeof(methods[0]));\nespv2::api_proxy::path_matcher::HttpMethod http_method = methods[idx];\n// Prepare the output container and call the lookup.\nespv2::api_proxy::path_matcher::PathMatcherLookupResult tmp_res;\nnode->LookupPath(parts.cbegin(), parts.cend(), http_method, &tmp_res);\n// Hand a heap copy to the pool.\nespv2::api_proxy::path_matcher::PathMatcherLookupResult *lookup_result = new espv2::api_proxy::path_matcher::PathMatcherLookupResult(tmp_res);\n// Validation: Iterators are valid over a local vector; result is non-null and returned.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::InsertPath",
+      "inputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        },
+        {
+          "name": "path_info",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *"
+        },
+        {
+          "name": "method_data",
+          "type": "void *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        },
+        {
+          "name": "path_info",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *"
+        }
+      ],
+      "code": "// Select an HTTP method token from a fixed set to maximize realistic coverage.\nconst char *methods[] = {\"GET\",\"POST\",\"PUT\",\"PATCH\",\"DELETE\",\"HEAD\",\"OPTIONS\"};\nunsigned midx = *FUZZ_PARAM(unsigned int) % (sizeof(methods)/sizeof(methods[0]));\nstd::string http_method = methods[midx];\n// Duplicate tracking flag.\nbool mark_duplicates = (*FUZZ_PARAM(unsigned int) & 1u) != 0u;\n// The PathInfo must be valid; InsertPath will traverse its parts.\n// method_data is opaque and must remain valid for the lifetime of the trie; we do not free it here.\n// For sanity, ensure method_data is tagged once so future stubs can understand its origin.\nif (!FUZZ_GET_ATTR_INT(method_data, \"md_tagged\")) { FUZZ_SET_ATTR_INT(method_data, \"md_tagged\", 1); }\n// Perform the insertion.\n(void)node->InsertPath(*path_info, std::move(http_method), method_data, mark_duplicates);\n// Validation: We keep both node and path_info alive; method_data ownership remains external.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::set_wildcard",
+      "inputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "code": "// Set or unset the \"**\" wildcard behavior on this node using a fuzzed boolean.\nbool wildcard = (*FUZZ_PARAM(unsigned int) & 1u) != 0u;\nnode->set_wildcard(wildcard);\nFUZZ_SET_ATTR_INT(node, \"wildcard\", wildcard ? 1 : 0);\n// Validation: Node remains valid and is returned to the pool for further operations.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::ExtractBindingsFromPath",
+      "inputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "code": "// Use variables parsed from the provided HttpTemplate.\nconst std::vector<espv2::api_proxy::path_matcher::HttpTemplate::Variable> &vars = http_template->Variables();\n// Prepare a vector of request parts from a fuzzed path string by splitting on '/'.\nstd::string raw_path = FUZZ_PARAM_STR();\nstd::vector<std::string> parts; parts.reserve(32);\n{\n  std::string cur; cur.reserve(raw_path.size());\n  for (char c : raw_path) { if (c == '/') { if (!cur.empty()) { parts.push_back(cur); cur.clear(); } } else { cur.push_back(c); } }\n  if (!cur.empty()) { parts.push_back(cur); }\n}\n// Prepare a non-null output vector for bindings, as required by the API.\nstd::vector<espv2::api_proxy::path_matcher::VariableBinding> bindings;\nbindings.clear();\n// Invoke the target to extract bindings based on vars and parts.\nespv2::api_proxy::path_matcher::ExtractBindingsFromPath(vars, parts, &bindings);\n// Light processing for coverage and basic sanity; no correctness assumptions made.\nsize_t acc = 0; for (const auto &b : bindings) { acc += b.value.size(); acc += b.field_path.size(); }\nFUZZ_SET_ATTR_INT(http_template, \"last_bindings_count\", (int)bindings.size());\n// Validation: Passed a non-null bindings pointer and a vars vector from a valid HttpTemplate; http_template remains alive as an output."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::ExtractRequestParts",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random request path; may contain query and redundant slashes.\nstd::string path = FUZZ_PARAM_STR();\n// Create a set of custom verbs; include 0-3 entries, possibly empty.\nstd::set<std::string> custom_verbs;\n{\n  unsigned count = *FUZZ_PARAM(unsigned int) % 4u; // up to 3 verbs\n  const char *candidates[] = {\":audit\",\":search\",\":download\",\":lock\",\":custom\"};\n  for (unsigned i = 0; i < count; ++i) { custom_verbs.insert(candidates[*FUZZ_PARAM(unsigned int) % (sizeof(candidates)/sizeof(candidates[0]))]); }\n}\n// Call the target and lightly traverse the result for coverage.\nstd::vector<std::string> parts = espv2::api_proxy::path_matcher::ExtractRequestParts(std::move(path), custom_verbs);\nsize_t total = 0; for (const auto &p : parts) { total ^= p.size() + (total<<5) + (total>>2); }\n// Validation: Function is pure; we ensure reasonable inputs and perform non-intrusive traversal of outputs."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::LookupInPathMatcherNode",
+      "inputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "node",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode *"
+        },
+        {
+          "name": "lookup_result",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherLookupResult *"
+        }
+      ],
+      "code": "// Build a realistic path string with potential query; then extract parts per API guidance.\nstd::string raw = FUZZ_PARAM_STR();\n// Construct a small set of potential custom verbs to influence extraction.\nstd::set<std::string> custom_verbs;\nconst char *verbs[] = {\":audit\",\":search\",\":download\"};\nif ((*FUZZ_PARAM(unsigned int) & 1u) != 0u) { custom_verbs.insert(verbs[*FUZZ_PARAM(unsigned int) % 3]); }\nstd::vector<std::string> parts = espv2::api_proxy::path_matcher::ExtractRequestParts(raw, custom_verbs);\n// Choose an HTTP method token from common ones.\nconst char *methods[] = {\"GET\",\"POST\",\"PUT\",\"PATCH\",\"DELETE\",\"HEAD\",\"OPTIONS\"};\nespv2::api_proxy::path_matcher::HttpMethod http_method = methods[*FUZZ_PARAM(unsigned int) % (sizeof(methods)/sizeof(methods[0]))];\n// Execute the lookup on the provided trie root.\nespv2::api_proxy::path_matcher::PathMatcherLookupResult res = espv2::api_proxy::path_matcher::LookupInPathMatcherNode(*node, parts, http_method);\n// Return a heap copy of the result to the pool for downstream checks.\nespv2::api_proxy::path_matcher::PathMatcherLookupResult *lookup_result = new espv2::api_proxy::path_matcher::PathMatcherLookupResult(res);\n// Validation: Iterators/containers remain valid during the call; node is returned as output and result is materialized on the heap."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::TransformHttpTemplate",
+      "inputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "http_template",
+          "type": "espv2::api_proxy::path_matcher::HttpTemplate *"
+        },
+        {
+          "name": "path_info",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *"
+        }
+      ],
+      "code": "// Transform the parsed HttpTemplate into a PathInfo suitable for trie insertion.\nespv2::api_proxy::path_matcher::PathMatcherNode::PathInfo value = espv2::api_proxy::path_matcher::TransformHttpTemplate(*http_template);\n// Hand a heap-allocated copy back to the pool to persist beyond this call.\nespv2::api_proxy::path_matcher::PathMatcherNode::PathInfo *path_info = new espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo(value);\n// Record basic metadata for downstream usage.\nFUZZ_SET_ATTR_INT(path_info, \"parts_count\", (int)path_info->path_info().size());\n// Validation: Input HttpTemplate is valid from Parse; we return both the original template and the produced PathInfo."
+    },
+    {
+      "name": "void *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "method_data",
+          "type": "void *"
+        }
+      ],
+      "code": "// Produce an opaque pointer suitable for APIs that accept void* (e.g., PathMatcherNode::InsertPath method_data).\n// Allocate a small heap buffer to ensure stable lifetime beyond this call.\nunsigned sz = (*FUZZ_PARAM(unsigned int) % 256u) + 1u; // keep small (< 257 bytes)\nunsigned char *buf = new unsigned char[sz];\n// Fill with fuzz data to vary contents.\nstd::string seed = FUZZ_PARAM_STR();\nfor (unsigned i = 0; i < sz; ++i) { buf[i] = static_cast<unsigned char>(i ^ (seed.empty() ? 0x5Au : seed[i % seed.size()])); }\n// Tag with metadata so downstream stubs know how to use it.\nvoid *method_data = static_cast<void*>(buf);\nFUZZ_SET_ATTR_INT(method_data, \"md_tagged\", 1);           // marks as valid method_data\nFUZZ_SET_ATTR_INT(method_data, \"buffer_size\", (int)sz);    // record size for potential consumers\nFUZZ_SET_ATTR_STR(method_data, \"kind\", \"byte_buffer\");    // indicate the nature of the opaque object\n// Validation: We return a non-null, heap-backed opaque pointer and tag it for safe downstream usage.\n"
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "builder",
+          "type": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *"
+        }
+      ],
+      "code": "// Construct a fresh Builder for composing PathInfo paths.\nespv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *builder = new espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder();\n// Record initial metadata; zero parts until Append* stubs mutate it.\nFUZZ_SET_ATTR_INT(builder, \"parts_count\", 0);\n// Validation: Builder is heap-allocated, non-null, and ready for Append* and Build operations in downstream stubs.\n"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcher<Method>::~PathMatcher",
+      "reason": "Template-dependent type Method is unknown at fuzz time, preventing safe instantiation and invocation of the destructor."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcher<Method>::Lookup",
+      "reason": "Lookup depends on the unresolved template parameter Method and cannot be meaningfully exercised without choosing a concrete Method type."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::PathMatcherBuilder",
+      "reason": "The builder is a class template requiring a concrete Method type which is not specified in this harness."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::~PathMatcherBuilder",
+      "reason": "Destructor belongs to a class template that cannot be instantiated without a concrete Method type."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::Register",
+      "reason": "Register requires selecting a concrete Method template argument; without it, the API and stored method type are undefined."
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherBuilder<Method>::Build",
+      "reason": "Build returns a PathMatcher templated on an unknown Method, which cannot be constructed or returned by the harness."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::segments",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::verb",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::Variables",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::Build",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::AppendSingleParameterNode",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::path_info",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathMatcherNode",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::~PathMatcherNode",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::Clone",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::InsertPath",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::set_wildcard",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::TransformHttpTemplate",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder *",
+      "data_types": []
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::HttpTemplate::Parse",
+      "data_types": [
+        "HTTP template string"
+      ]
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::PathInfo::Builder::AppendLiteralNode",
+      "data_types": [
+        "URL path segment"
+      ]
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::PathMatcherNode::LookupPath",
+      "data_types": [
+        "URL path string",
+        "HTTP method token"
+      ]
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::ExtractBindingsFromPath",
+      "data_types": [
+        "URL path string"
+      ]
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::ExtractRequestParts",
+      "data_types": [
+        "URL path with optional query"
+      ]
+    },
+    {
+      "name": "espv2::api_proxy::path_matcher::LookupInPathMatcherNode",
+      "data_types": [
+        "URL path with optional query",
+        "HTTP method token"
+      ]
+    },
+    {
+      "name": "void *",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "HTTP template string",
+      "description": "A string describing an HTTP path template used for transcoding/matching, potentially including literal segments, path parameters in braces, and wildcards. Examples: \"/v1/books/{bookId}\", \"/v1/{name=projects/*}/topics/**\", and may include a custom verb suffix like \":audit\". Must not contain a query and follows HTTP template grammar."
+    },
+    {
+      "data_type": "URL path segment",
+      "description": "A single slash-delimited component of a URL path without any slash characters. Used as a literal segment in route building. Typically non-empty; examples: \"users\", \"123\", \"foo-bar\"."
+    },
+    {
+      "data_type": "URL path string",
+      "description": "A raw path portion of a URL that may contain slashes and is split on '/'. It should not include a scheme/host; examples: \"/a/b/c\", \"a/b\", or empty string. Query strings may or may not be present depending on the API; when present they are usually stripped before processing."
+    },
+    {
+      "data_type": "HTTP method token",
+      "description": "An HTTP method name string such as \"GET\", \"POST\", \"PUT\", \"PATCH\", \"DELETE\", \"HEAD\", or \"OPTIONS\"."
+    },
+    {
+      "data_type": "URL path with optional query",
+      "description": "A URL path string that may include a query component starting with '?'. Examples: \"/v1/books?page=2\", \"/a//b/:audit\", \"/\". Consumers typically sanitize by removing the query and collapsing redundant slashes; may contain custom verb suffixes like \":search\"."
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "description": "An uninterpreted buffer of bytes with no required structure. Used via a void* pointer; size may be provided out-of-band. Contents can be any binary data."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "HTTP template string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Generator for valid Google-style HTTP path templates used by espv2 path matcher.\n# Focus: literals, variables with single-segment and multi-segment bindings, wildcards *, **, and custom verb suffixes.\n# Must return bytes <= 4096.\n\nLIT_CHARS = string.ascii_letters + string.digits + \"-._~\"  # conservative URL-safe\nFIELD_CHARS = string.ascii_lowercase + string.digits + \"_\"\n\nCUSTOM_VERBS = [\n    \"audit\", \"get\", \"list\", \"create\", \"update\", \"delete\",\n    \"cancel\", \"batchGet\", \"search\", \"setIamPolicy\", \"getIamPolicy\"\n]\n\n# Common literal segment dictionaries to improve coverage\nCOMMON_SEGS = [\n    \"v1\", \"v2\", \"beta\", \"books\", \"shelves\", \"publishers\", \"users\",\n    \"projects\", \"locations\", \"instances\", \"topics\", \"subscriptions\",\n    \"policies\", \"operations\", \"images\", \"items\", \"datasets\", \"models\"\n]\n\n# Helper to build a random literal segment (no slashes)\ndef rand_literal(rng: random.Random) -> str:\n    # Bias towards common segments; otherwise random\n    if rng.random() < 0.6:\n        return rng.choice(COMMON_SEGS)\n    n = rng.randint(1, 12)\n    return ''.join(rng.choice(LIT_CHARS) for _ in range(n))\n\n# Helper to build a protobuf-like field path (a.b.c)\ndef rand_field_path(rng: random.Random) -> str:\n    parts = []\n    k = rng.randint(1, 3)\n    for _ in range(k):\n        n = rng.randint(1, 12)\n        s = ''.join(rng.choice(FIELD_CHARS) for _ in range(n))\n        parts.append(s)\n    return '.'.join(parts)\n\n# Variable binding patterns supported by google api http template grammar:\n# {name} binds a single segment\n# {name=literal/*} binds single wildcard after a literal prefix\n# {name=**} binds remaining path\n# {name=literal/**} binds remaining after literal prefix\n# {name=projects/*/locations/*} multiple single wildcards\n# We avoid malformed constructs.\n\ndef rand_variable_pattern(rng: random.Random, allow_globstar: bool) -> Tuple[str, List[str]]:\n    # returns (template_piece_without_slashes_on_edges, list_of_segments_when_expanded_hint)\n    # We only need the template text; the hint list is unused here but kept for clarity.\n    field = rand_field_path(rng)\n    kind = rng.choices([\n        \"single\",        # {f}\n        \"pref_single\",   # {f=lit/*}\n        \"multi_singles\", # {f=proj/*/loc/*}\n        \"globstar\",      # {f=**}\n        \"pref_globstar\"  # {f=lit/**}\n    ], weights=[40, 20, 20, 10, 10])[0]\n\n    if kind == \"globstar\" and not allow_globstar:\n        kind = \"single\"\n    if kind == \"pref_globstar\" and not allow_globstar:\n        kind = \"pref_single\"\n\n    if kind == \"single\":\n        return f\"{{{field}}}\", []\n    if kind == \"pref_single\":\n        prefix = rand_literal(rng)\n        return f\"{{{field}={prefix}/*}}\", []\n    if kind == \"multi_singles\":\n        # Build sequences like projects/*/locations/*[/instances/*]\n        labels = []\n        count = rng.randint(2, 4)\n        for _ in range(count):\n            labels.append(rand_literal(rng))\n            labels.append(\"*\")\n        # Join like label/*/label/*\n        pattern = \"/\".join(sum(([labels[i], labels[i+1]] for i in range(0, len(labels), 2)), []))\n        return f\"{{{field}={pattern}}}\", []\n    if kind == \"globstar\":\n        return f\"{{{field}=**}}\", []\n    if kind == \"pref_globstar\":\n        prefix = rand_literal(rng)\n        return f\"{{{field}={prefix}/**}}\", []\n    return f\"{{{field}}}\", []\n\n# Build a path consisting of segments. Ensure it starts with '/'. Optionally add a custom verb.\ndef build_template(rng: random.Random) -> str:\n    segs: List[str] = []\n    # Decide approximate length\n    length_choice = rng.random()\n    if length_choice < 0.2:\n        nseg = rng.randint(0, 1)   # allow root or one segment\n    elif length_choice < 0.8:\n        nseg = rng.randint(2, 6)\n    else:\n        nseg = rng.randint(6, 10)\n\n    used_globstar = False\n\n    for i in range(nseg):\n        # Choose segment type\n        # weights: literals common, variables common, single wildcard '*', and allow '**' once.\n        seg_type = rng.choices([\n            \"lit\", \"var\", \"single_wc\", \"globstar\"\n        ], weights=[45, 40, 10, 5])[0]\n\n        if seg_type == \"lit\":\n            segs.append(rand_literal(rng))\n            continue\n\n        if seg_type == \"single_wc\":\n            segs.append(\"*\")\n            continue\n\n        if seg_type == \"globstar\":\n            if used_globstar:\n                # fallback to literal if already used\n                segs.append(rand_literal(rng))\n            else:\n                segs.append(\"**\")\n                used_globstar = True\n            continue\n\n        # variable\n        allow_glob = not used_globstar  # avoid multiple ** semantics\n        vp, _ = rand_variable_pattern(rng, allow_glob)\n        # If variable contains **, mark used_globstar\n        if \"**\" in vp:\n            used_globstar = True\n        segs.append(vp)\n\n    # If zero segments -> root '/'\n    path = \"/\" + \"/\".join(segs)\n\n    # Optionally append a custom verb suffix :verb\n    if rng.random() < 0.35:\n        verb = rng.choice(CUSTOM_VERBS)\n        path = path + \":\" + verb\n\n    return path\n\n# Public API\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Produce a mix of diverse templates in a single buffer to feed FUZZ_PARAM_STR.\n    # However, the stub calls Parse once on the returned string, so we should emit a single valid template.\n    # We'll bias towards valid and rich constructs.\n\n    # Occasionally produce canonical examples known from Google API HTTP rules\n    examples = [\n        \"/v1/books/{book_id}\",\n        \"/v1/{name=projects/*/locations/*}\",\n        \"/v1/{name=projects/*}/topics/**\",\n        \"/v1/{name=**}\",\n        \"/v1/shelves/{shelf}/books/{book}\",\n        \"/v1/{resource=projects/*/instances/*}:get\",\n    ]\n    if rng.random() < 0.25:\n        tpl = rng.choice(examples)\n    else:\n        tpl = build_template(rng)\n\n    # Ensure size limit\n    b = tpl.encode('utf-8')[:4096]\n    return b\n"
+    },
+    {
+      "data_type": "URL path segment",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Data type: URL path segment (single component, no slashes). Constraints per stub:\n# - Non-empty\n# - Must not contain '/'\n# - Must not be \"/.\" or \"/..\" (those include '/' anyway, but avoid them explicitly)\n# This generator returns a newline-delimited corpus of valid segments.\n\nSAFE_STARTS = list(string.ascii_letters + string.digits)\nSAFE_BODY = list(string.ascii_letters + string.digits + \"-_ .:@~%$+\")\n\n# Curated examples\nBASE_SEGMENTS = [\n    \"a\", \"A\", \"0\", \"user\", \"users\", \"u\", \"id\", \"v1\", \"api\", \"home\",\n    \"foo-bar\", \"foo_bar\", \"foo--bar\", \"_hidden\", \"dash-\", \"_\", \"-\",\n    \"123\", \"000\", \"9\", \"42\", \"1e10\", \"deadbeef\",\n    \"email@example.com\", \"name.suffix\", \"file.name\", \":colon\", \"tilde~\",\n    \"percent%25\", \"plus+sign\", \"at@sign\", \"space here\", \"dots...\",\n    \"token_abcdef\", \"session-XYZ\", \"resource:read\", \"v1.2.3\", \"x-y_z\",\n]\n\ndef rand_segment(r: random.Random) -> str:\n    # Biased random lengths\n    lengths = [1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 48, 64]\n    weights = [10, 10, 10, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1]\n    length = r.choices(lengths, weights=weights, k=1)[0]\n    s = [r.choice(SAFE_STARTS)]\n    for _ in range(max(1, length) - 1):\n        s.append(r.choice(SAFE_BODY))\n    seg = \"\".join(s)\n    seg = seg.replace('/', '-')\n    if seg in (\"/.\", \"/..\"):\n        seg = seg.strip(\"/\") or \"dot\"\n    return seg\n\n\ndef weighted_segments(r: random.Random, count: int) -> List[str]:\n    out: List[str] = []\n    base = BASE_SEGMENTS.copy()\n    r.shuffle(base)\n    out.extend(base[: min(len(base), max(5, count // 4))])\n\n    # Edge length segments\n    edge_lengths = [1, 2, 3, 15, 31, 63, 64, 127, 255]\n    for L in edge_lengths:\n        s = [r.choice(SAFE_STARTS)]\n        if L > 1:\n            s += [r.choice(SAFE_BODY) for _ in range(L - 1)]\n        seg = \"\".join(s).replace('/', '-')\n        if seg in (\"/.\", \"/..\"):\n            seg = \"seg\"\n        out.append(seg)\n\n    while len(out) < count:\n        out.append(rand_segment(r))\n\n    # Deduplicate and enforce constraints\n    seen = set()\n    uniq = []\n    for s in out:\n        if s and ('/' not in s) and (s not in (\"/.\", \"/..\")) and s not in seen:\n            seen.add(s)\n            uniq.append(s)\n    return uniq\n\n\ndef build_corpus(r: random.Random) -> bytes:\n    target_count = r.randint(20, 120)\n    segs = weighted_segments(r, target_count)\n    r.shuffle(segs)\n    blob = \"\\n\".join(segs)\n    data = blob.encode(\"utf-8\")\n    if len(data) <= 4096:\n        return data\n    trimmed = data[:4096]\n    nl = trimmed.rfind(b\"\\n\")\n    if nl == -1:\n        first = segs[0].encode(\"utf-8\")\n        return first[:4096]\n    return trimmed[:nl]\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    return build_corpus(r)\n"
+    },
+    {
+      "data_type": "URL path string",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# This generator targets fuzzers that expect a single bytes buffer used by\n# FUZZ_PARAM_STR (path strings). We craft valid and interesting URL path\n# strings that, when split on '/', exercise different code paths:\n# - Literal segments, numeric, unicode, percent-enc, dots\n# - Wildcard-like tokens (\"*\", \"**\", \".\") as literal parts\n# - Custom verbs suffix (\":verb\") and common HTTP method-like tokens inside\n# - Variable-looking parts that HttpTemplate might parse against\n# - Empty and root-only, leading/trailing/multiple slashes (splitter collapses\n#   them so we place empty vs non-empty segments deliberately)\n# - Long segments and varying segment counts, within 4096 bytes\n# The fuzzer stub splits on '/' without query handling, but the library often\n# strips queries; we include both with and without '?'.\n\nMAX_SIZE = 4096\n\nLITERALS = [\n    \"a\", \"b\", \"c\", \"users\", \"projects\", \"v1\", \"v2\", \"items\",\n    \"get\", \"list\", \"update\", \"delete\", \"123\", \"42\", \"0\",\n    \"..\", \".\", \"-\", \"_\", \"~\", \"%2F\", \"%2f\", \"%7B\", \"%7D\",\n    \"ä\", \"ñ\", \"тест\", \"漢字\",\n]\n\nWILDCARDISH = [\"*\", \"**\", \".\"]\n\nCUSTOM_VERBS = [\":run\", \":batchGet\", \":custom\", \":upload\", \":download\"]\n\nQUERY_SAMPLES = [\n    \"\", \"?x=1\", \"?a=b&c=d\", \"?q=abc%2Fdef\", \"?empty=\", \"?flag\"\n]\n\n# Variable-like field paths commonly seen in templates (as literals here)\nFIELDISH = [\n    \"name\", \"parent\", \"id\", \"resource\", \"book\", \"shelf\", \"userId\",\n    \"foo.bar\", \"foo_bar\", \"x.y.z\"\n]\n\nSAFE_CHARS = string.ascii_letters + string.digits + \"-_.~\"\n\n\ndef _rand(rng: random.Random, seq):\n    return seq[rng.randrange(len(seq))]\n\n\ndef rand_segment(rng: random.Random) -> str:\n    choice = rng.random()\n    if choice < 0.15:\n        # long alnum\n        n = rng.randint(8, 48)\n        return ''.join(rng.choice(SAFE_CHARS) for _ in range(n))\n    if choice < 0.30:\n        # numeric\n        return str(rng.randint(0, 10**9))\n    if choice < 0.45:\n        return _rand(rng, LITERALS)\n    if choice < 0.55:\n        return _rand(rng, FIELDISH)\n    if choice < 0.65:\n        # percent-encoded style\n        n = rng.randint(1, 5)\n        parts = []\n        for _ in range(n):\n            parts.append(\"%\" + ''.join(rng.choice(\"0123456789ABCDEF\") for _ in range(2)))\n        return ''.join(parts)\n    if choice < 0.75:\n        # unicode mix\n        uni = [\"ä\", \"ø\", \"ß\", \"ñ\", \"é\", \"漢\", \"字\", \"테\", \"스트\"]\n        n = rng.randint(1, 4)\n        return ''.join(rng.choice(uni) for _ in range(n))\n    if choice < 0.85:\n        return _rand(rng, WILDCARDISH)\n    # dotted segments resembling extensions or field paths\n    parts = [ ''.join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(1,4))) for _ in range(rng.randint(2,4)) ]\n    return '.'.join(parts)\n\n\ndef build_path(rng: random.Random) -> str:\n    # Decide overall pattern to hit different logic in consumers\n    mode = rng.randrange(0, 10)\n\n    if mode == 0:\n        # root\n        base = \"/\"\n    elif mode == 1:\n        # empty (no parts)\n        base = \"\"\n    elif mode == 2:\n        # single segment\n        base = \"/\" + rand_segment(rng)\n    elif mode == 3:\n        # multi segments with potential custom verb suffix\n        count = rng.randint(2, 6)\n        segs = [rand_segment(rng) for _ in range(count)]\n        if rng.random() < 0.5:\n            segs[-1] = segs[-1] + _rand(rng, CUSTOM_VERBS)\n        base = \"/\" + \"/\".join(segs)\n    elif mode == 4:\n        # include redundant slashes (splitter collapses to drop empties)\n        segs = [rand_segment(rng) for _ in range(rng.randint(2, 5))]\n        base = \"/\" + \"/\".join(segs)\n        # randomly inject duplicate slashes\n        inserts = rng.randint(1, 3)\n        for _ in range(inserts):\n            pos = rng.randint(1, len(base)-1)\n            base = base[:pos] + \"/\" + base[pos:]\n    elif mode == 5:\n        # trailing slash\n        segs = [rand_segment(rng) for _ in range(rng.randint(1, 5))]\n        base = \"/\" + \"/\".join(segs) + \"/\"\n    elif mode == 6:\n        # mixture including wildcard-like tokens as literal parts\n        segs = []\n        for _ in range(rng.randint(3, 7)):\n            if rng.random() < 0.3:\n                segs.append(_rand(rng, WILDCARDISH))\n            else:\n                segs.append(rand_segment(rng))\n        base = \"/\" + \"/\".join(segs)\n    elif mode == 7:\n        # dot and dotdot as segments\n        segs = [\".\", \"..\"] + [rand_segment(rng) for _ in range(rng.randint(1,3))]\n        base = \"/\" + \"/\".join(segs)\n    elif mode == 8:\n        # long-ish path near limit\n        segs = []\n        while True:\n            seg = rand_segment(rng)\n            if not seg:\n                continue\n            candidate = (\"/\" if not segs else \"/\".join([\"\" ] + segs + [seg]))\n            if len(candidate) > MAX_SIZE - 32:\n                break\n            segs.append(seg)\n        base = \"/\" + \"/\".join(segs)\n    else:\n        # include query string tail\n        segs = [rand_segment(rng) for _ in range(rng.randint(1, 5))]\n        base = \"/\" + \"/\".join(segs) + _rand(rng, QUERY_SAMPLES)\n\n    # Occasionally prepend without leading slash (relative path)\n    if rng.random() < 0.2 and base.startswith(\"/\"):\n        base = base[1:]\n\n    # Ensure final size cap\n    if len(base.encode('utf-8')) > MAX_SIZE:\n        base = base.encode('utf-8')[:MAX_SIZE].decode('utf-8', errors='ignore')\n\n    return base\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    path = build_path(rng)\n    # Return as bytes; the fuzzer infra will feed it to FUZZ_PARAM_STR\n    return path.encode('utf-8')\n"
+    },
+    {
+      "data_type": "HTTP method token",
+      "generator": "import random\nimport string\nfrom typing import List\n\ndef _rand_choice(rng: random.Random, seq):\n    return seq[rng.randrange(len(seq))]\n\nCOMMON_METHODS = [b\"GET\", b\"POST\", b\"PUT\", b\"PATCH\", b\"DELETE\", b\"HEAD\", b\"OPTIONS\"]\nCUSTOM_VERBS = [b\":audit\", b\":search\", b\":download\"]\n\n# Build realistic path strings that exercise ExtractRequestParts and manual split logic.\n# We generate a mix of:\n# - simple literal paths\n# - paths with numeric and hex-like ids\n# - paths with custom verbs (both in and out of advertised set)\n# - paths with redundant slashes\n# - paths with query strings and fragments\n# - empty/root and trailing slash cases\n# - segments that look like wildcards or parameters to populate trie keys in other components\nSEG_LITERALS = [\n    b\"users\", b\"projects\", b\"v1\", b\"v2\", b\"items\", b\"orders\", b\"files\",\n    b\"metadata\", b\"config\", b\"status\", b\"logs\", b\"search\", b\"download\",\n]\n\nPARAM_LIKE = [b\"-\", b\"_\", b\".\", b\"%2E\", b\"*\", b\"**\", b\"-.\", b\"..\", b\"--\", b\"id\"]\n\nHEX_CHARS = b\"0123456789abcdef\"\nALNUM = string.ascii_letters.encode() + b\"0123456789-_\"\n\ndef _rand_hex_bytes(rng: random.Random, n: int) -> bytes:\n    # Build a bytes object of hex characters using integer to bytes conversion\n    return bytes(HEX_CHARS[rng.randrange(len(HEX_CHARS))] for _ in range(n))\n\ndef _rand_id(rng: random.Random) -> bytes:\n    t = rng.randrange(4)\n    if t == 0:\n        # decimal id\n        return str(rng.randrange(0, 10**9)).encode()\n    if t == 1:\n        # hex-ish\n        n = rng.randrange(4, 16)\n        return _rand_hex_bytes(rng, n)\n    if t == 2:\n        # uuid-like (not strict)\n        parts = [8, 4, 4, 4, 12]\n        return b\"-\".join(_rand_hex_bytes(rng, k) for k in parts)\n    # mixed\n    n = rng.randrange(3, 20)\n    return bytes(ALNUM[rng.randrange(len(ALNUM))] for _ in range(n))\n\ndef _maybe_query(rng: random.Random) -> bytes:\n    if rng.random() < 0.6:\n        pairs = []\n        for _ in range(rng.randrange(1, 4)):\n            k = _rand_id(rng)\n            v = _rand_id(rng)\n            pairs.append(k + b\"=\" + v)\n        q = b\"?\" + b\"&\".join(pairs)\n        if rng.random() < 0.2:\n            q += b\"#frag\"\n        return q\n    return b\"\"\n\ndef _build_segments(rng: random.Random) -> List[bytes]:\n    segs: List[bytes] = []\n    n = rng.randrange(0, 6)  # 0 -> root\n    for _ in range(n):\n        choice = rng.randrange(6)\n        if choice == 0:\n            segs.append(_rand_choice(rng, SEG_LITERALS))\n        elif choice == 1:\n            segs.append(_rand_id(rng))\n        elif choice == 2:\n            segs.append(_rand_choice(rng, PARAM_LIKE))\n        elif choice == 3:\n            segs.append(b\".\" + _rand_id(rng))\n        elif choice == 4:\n            segs.append(b\"~\" + _rand_id(rng))\n        else:\n            # mixture\n            segs.append(_rand_choice(rng, SEG_LITERALS) + b\"-\" + _rand_id(rng))\n    return segs\n\ndef _insert_redundant_slashes(rng: random.Random, path: bytes) -> bytes:\n    if not path:\n        return path\n    if rng.random() < 0.5:\n        path = b\"/\" + path\n    if rng.random() < 0.4:\n        path += b\"/\"\n    if rng.random() < 0.5:\n        # replace limited number of slashes with double slashes\n        count = rng.randrange(1, 4)\n        for _ in range(count):\n            path = path.replace(b\"/\", b\"//\", 1)\n    return path\n\ndef _maybe_custom_verb(rng: random.Random) -> bytes:\n    if rng.random() < 0.5:\n        # sometimes choose one from known set, sometimes random to test unknown verbs\n        if rng.random() < 0.7:\n            return _rand_choice(rng, CUSTOM_VERBS)\n        else:\n            return b\":\" + _rand_id(rng)\n    return b\"\"\n\ndef _build_path_string(rng: random.Random) -> bytes:\n    # Special cases to hit edge handling\n    special = rng.random()\n    if special < 0.08:\n        return b\"/\"  # root\n    if special < 0.16:\n        return b\"\"  # empty input\n    if special < 0.24:\n        return b\"///////\"  # many slashes\n\n    segs = _build_segments(rng)\n    path = b\"/\".join(segs)\n    path = _insert_redundant_slashes(rng, path)\n\n    # Optionally append custom verb\n    if segs:\n        verb = _maybe_custom_verb(rng)\n        if verb:\n            path = path.rstrip(b\"/\") + verb\n\n    # Optionally add query\n    path += _maybe_query(rng)\n    return path[:4096]\n\n# The fuzzing harness selects one string via FUZZ_PARAM_STR for both stubs.\n# We return a buffer that concatenates multiple interesting path strings and\n# also an HTTP method token so the pool has realistic data to pick from.\n# The harness pulls data sequentially from the provided bytes.\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    blobs: List[bytes] = []\n\n    # Prepend a valid HTTP method token to improve method selection elsewhere\n    method = _rand_choice(rng, COMMON_METHODS)\n    blobs.append(method + b\"\\n\")\n\n    # Provide a mix of paths that the stubs will split/extract\n    count = rng.randrange(5, 12)\n    for _ in range(count):\n        blobs.append(_build_path_string(rng) + b\"\\n\")\n\n    # Include some paths explicitly covering custom verbs\n    for v in CUSTOM_VERBS:\n        # with and without query\n        base = b\"/\" + _rand_choice(rng, SEG_LITERALS) + b\"/\" + _rand_id(rng)\n        blobs.append(base + v + b\"\\n\")\n        blobs.append(base + v + _maybe_query(rng) + b\"\\n\")\n\n    out = b\"\".join(blobs)\n    return out[:4096]\n"
+    },
+    {
+      "data_type": "URL path with optional query",
+      "generator": "import random\nimport string\nfrom typing import List, Tuple\n\n# Target format: URL path with optional query, may contain redundant slashes and custom verb suffixes\n# Custom verbs candidates used by fuzzers\nVERBS = [\":audit\", \":search\", \":download\", \":lock\", \":custom\"]\nMETHODS = [\"GET\",\"POST\",\"PUT\",\"PATCH\",\"DELETE\",\"HEAD\",\"OPTIONS\"]\n\n# Build a variety of path segments: literals, numeric, hex, unicode-ish, dots, wildcard-like tokens\nLITERAL_SEGMENTS = [\n    \"books\", \"authors\", \"v1\", \"v2\", \"users\", \"profile\", \"items\", \"orders\",\n    \"a\", \"b\", \"c\", \"x\", \"y\", \"z\", \"123\", \"00\", \"deadbeef\", \"ä\", \"β\", \".\", \"..\",\n    \"-\", \"_\", \"~\", \"%25\", \"name%2Fwith%2Fslash\", \"space%20here\"\n]\n\nQUERY_KEYS = [\n    \"page\", \"limit\", \"offset\", \"q\", \"filter\", \"sort\", \"fields\", \"pretty\",\n    \"download\", \"verbose\", \"redirect\", \"empty\"\n]\nQUERY_VALUES = [\n    \"1\", \"2\", \"10\", \"true\", \"false\", \"name\", \"title\", \"new\", \"old\",\n    \"abc%2Fdef\", \"ä\", \"\", \"null\", \"0\"\n]\n\ndef rand_choice(rng: random.Random, seq: List[str]) -> str:\n    return seq[rng.randrange(len(seq))]\n\ndef random_segment(rng: random.Random) -> str:\n    t = rng.randrange(8)\n    if t == 0:\n        # random ascii word\n        length = rng.randint(1, 12)\n        alphabet = string.ascii_letters + string.digits + \"-_~.%\"\n        return ''.join(rng.choice(alphabet) for _ in range(length))\n    elif t == 1:\n        return rand_choice(rng, LITERAL_SEGMENTS)\n    elif t == 2:\n        # numeric\n        return str(rng.randint(0, 999999))\n    elif t == 3:\n        # percent-encoded slash-like content (tests collapsing and verb recognition)\n        return \"name%2Fwith%2Fslash\"\n    elif t == 4:\n        # dot segments (edge handling by extractor)\n        return rand_choice(rng, [\".\", \"..\"])\n    elif t == 5:\n        # empty segment expressed later by inserting extra slashes; here return literal likely to stay\n        return \"\"\n    elif t == 6:\n        # unicode-ish\n        return rand_choice(rng, [\"café\", \"π\", \"файл\", \"テスト\", \"δοκιμή\"])\n    else:\n        # path parameter-like text\n        return rand_choice(rng, [\"id\", \"name\", \"*\", \"**\", \".\", \"-\", \"_hidden\"]) \n\ndef maybe_custom_verb(rng: random.Random) -> str:\n    if rng.random() < 0.5:\n        return \"\"\n    return rand_choice(rng, VERBS)\n\ndef build_path(rng: random.Random) -> str:\n    # Decide base style\n    style = rng.randrange(6)\n    parts: List[str] = []\n\n    if style == 0:\n        # Root\n        parts = []\n    elif style == 1:\n        # Short path 1-3 segments\n        n = rng.randint(1, 3)\n        parts = [random_segment(rng) for _ in range(n)]\n    elif style == 2:\n        # Medium path 3-6 segments with some empties to make //\n        n = rng.randint(3, 6)\n        parts = []\n        for _ in range(n):\n            s = random_segment(rng)\n            if rng.random() < 0.25:\n                parts.append(\"\")  # force redundant slash\n            parts.append(s)\n    elif style == 3:\n        # Versioned API path\n        parts = [rand_choice(rng, [\"v1\", \"v2\", \"v1beta1\"]) , rand_choice(rng, [\"projects\",\"books\",\"users\"])]\n        if rng.random() < 0.7:\n            parts.append(str(rng.randint(1, 9999)))\n        if rng.random() < 0.5:\n            parts.append(rand_choice(rng, [\"topics\",\"shelves\",\"profiles\"]))\n    elif style == 4:\n        # Trailing slash variations\n        n = rng.randint(1, 5)\n        parts = [random_segment(rng) for _ in range(n)]\n        # Represent extra trailing slashes by adding empty tail markers later\n        if rng.random() < 0.7:\n            parts.append(\"\")\n            if rng.random() < 0.3:\n                parts.append(\"\")\n    else:\n        # Include dot segments and encoded items\n        parts = [\".\", \"..\", rand_choice(rng, [\"a\",\"b\",\"c\"]) , \"abc%2Fdef\"]\n        if rng.random() < 0.5:\n            parts.append(\"..\")\n\n    # Assemble with slashes, keeping empty parts to yield //\n    base = \"/\" + \"/\".join(parts)\n    # Possibly collapse or expand with leading slashes\n    if rng.random() < 0.2:\n        base = \"/\" * rng.randint(1, 3) + base.lstrip(\"/\")\n\n    # Append custom verb sometimes\n    verb = maybe_custom_verb(rng)\n    if verb:\n        base = base.rstrip(\"/\") + verb\n\n    # Optionally add query string with 0-5 pairs and noise\n    if rng.random() < 0.8:\n        qcount = rng.randint(0, 5)\n        if qcount > 0 or rng.random() < 0.2:\n            qs = []\n            for _ in range(qcount):\n                k = rand_choice(rng, QUERY_KEYS)\n                v = rand_choice(rng, QUERY_VALUES)\n                if rng.random() < 0.2:\n                    # repeated key\n                    k = k\n                if rng.random() < 0.2:\n                    # no value\n                    qs.append(k)\n                else:\n                    qs.append(f\"{k}={v}\")\n            # Add fragments or stray separators occasionally\n            if rng.random() < 0.2:\n                qs.append(\"\")\n            base += \"?\" + \"&\".join(qs)\n            if rng.random() < 0.15:\n                base += \"#fragment\"\n    return base\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Produce between 1 and 3 plausible request lines concatenated with newlines,\n    # so a consumer picking FUZZ_PARAM_STR may take any slice; primary use expects one path.\n    count = rng.randint(1, 2)\n    paths = [build_path(rng) for _ in range(count)]\n    data = \"\\n\".join(paths)\n    b = data.encode(\"utf-8\", errors=\"surrogatepass\")\n    if len(b) > 4096:\n        b = b[:4096]\n    return b\n"
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "generator": "import random\nfrom typing import List\n\n# We need to generate an arbitrary binary blob (opaque void* payload) that is\n# interesting yet valid for consumers in the fuzzing stubs. The stub records\n# attributes like buffer_size and kind=byte_buffer, but only the raw bytes come\n# from this generator. We'll produce structured-but-generic patterns to cover\n# diverse content (printable text, path-like strings, HTTP methods, wildcards,\n# zero bytes, high-entropy sections), while keeping within 4096 bytes.\n\nHTTP_METHODS = [\n    b\"GET\", b\"POST\", b\"PUT\", b\"PATCH\", b\"DELETE\", b\"HEAD\", b\"OPTIONS\", b\"TRACE\"\n]\n# Common path template samples that PathMatcher/HttpTemplate-like code may see.\nTEMPLATES = [\n    b\"/\",  # root\n    b\"/v1/projects\", \n    b\"/v1/projects/{project}\",\n    b\"/v1/projects/{project}/locations/{location}\",\n    b\"/v1/{name=projects/*}\",\n    b\"/v1/{name=projects/*/locations/*}\",\n    b\"/v1/{name=projects/*/**}\",\n    b\"/v1/shelves/{shelf}/books/{book}\",\n    b\"/v1/files/**\",  # wildcard remaining path\n    b\"/v1/items/*\",   # single segment wildcard\n    b\"/v1/resources:customVerb\",  # custom verb\n]\n\nPRINTABLE = bytes([c for c in range(0x20, 0x7F)])\n\ndef _rand_bytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.getrandbits(8) for _ in range(n))\n\ndef _repeat_pattern(r: random.Random, base: bytes, min_rep: int, max_rep: int) -> bytes:\n    reps = r.randint(min_rep, max_rep)\n    return base * reps\n\ndef _make_text_block(r: random.Random) -> bytes:\n    # Mix path templates, HTTP methods, and random printable sequences\n    parts: List[bytes] = []\n    # Randomly choose 1-3 HTTP methods\n    for _ in range(r.randint(1, 3)):\n        parts.append(r.choice(HTTP_METHODS))\n        parts.append(b\" \")\n    # Include one or two templates\n    for _ in range(r.randint(1, 2)):\n        parts.append(r.choice(TEMPLATES))\n        parts.append(b\"\\n\")\n    # Add a printable random string\n    plen = r.randint(8, 64)\n    p = bytes(r.choice(PRINTABLE) for _ in range(plen))\n    parts.append(p)\n    return b\"\".join(parts)\n\ndef _make_binary_block(r: random.Random) -> bytes:\n    # High-entropy block with some zeros and 0xFF runs sprinkled in\n    n = r.randint(32, 256)\n    base = bytearray(_rand_bytes(r, n))\n    if n >= 8:\n        # Insert a zero run\n        zlen = r.randint(4, min(32, n))\n        zpos = r.randint(0, n - zlen)\n        base[zpos:zpos+zlen] = b\"\\x00\" * zlen\n    if n >= 8:\n        # Insert an 0xFF run\n        flen = r.randint(4, min(32, n))\n        fpos = r.randint(0, n - flen)\n        base[fpos:fpos+flen] = b\"\\xFF\" * flen\n    return bytes(base)\n\ndef _make_structured_paths(r: random.Random) -> bytes:\n    # Produce multiple newline-separated path-like strings including query strings,\n    # redundant slashes, and custom verbs to exercise ExtractRequestParts-like logic.\n    def mk_one() -> bytes:\n        base = r.choice(TEMPLATES)\n        # Randomly add query, duplicate slashes, or trailing slash\n        s = bytearray(base)\n        if r.random() < 0.4:\n            # duplicate slashes\n            s = bytearray(s.replace(b\"/\", b\"//\"))\n        if r.random() < 0.5:\n            s.extend(b\"?\")\n            # simple query\n            qk = _rand_bytes(r, r.randint(1, 4)).hex().encode()\n            qv = _rand_bytes(r, r.randint(0, 4)).hex().encode()\n            s.extend(qk + b\"=\" + qv)\n            if r.random() < 0.5:\n                s.extend(b\"&a=b\")\n        if r.random() < 0.3:\n            s.extend(b\"/\")\n        return bytes(s)\n    lines = [mk_one() for _ in range(r.randint(2, 6))]\n    return b\"\\n\".join(lines)\n\ndef _compose_sections(r: random.Random, target_size: int) -> bytes:\n    sections: List[bytes] = []\n    # Header: magic + size hint\n    magic = b\"VTPL\"  # arbitrary tag for visibility\n    size_hint = target_size.to_bytes(2, 'little')\n    sections.append(magic + size_hint)\n\n    # Include a mix of sections\n    if r.random() < 0.9:\n        sections.append(_make_text_block(r))\n    if r.random() < 0.9:\n        sections.append(b\"\\n--PATHS--\\n\" + _make_structured_paths(r))\n    if r.random() < 0.9:\n        sections.append(b\"\\n--BIN--\\n\" + _make_binary_block(r))\n\n    # Optional repetitions to vary size and layout\n    if r.random() < 0.5:\n        sections.append(_repeat_pattern(r, b\"\\x00\", 1, 32))\n    if r.random() < 0.5:\n        sections.append(_repeat_pattern(r, b\"\\xFF\", 1, 32))\n\n    blob = b\"\".join(sections)\n    # Trim or pad to stay within limit and vary sizes reasonably\n    if len(blob) > target_size:\n        return blob[:target_size]\n    # Optionally pad with random to the target size sometimes\n    if r.random() < 0.3 and len(blob) < target_size:\n        blob += _rand_bytes(r, target_size - len(blob))\n    return blob\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n    # Choose a size biased towards small buffers but sometimes larger\n    choices = [\n        r.randint(16, 64),\n        r.randint(65, 256),\n        r.randint(257, 1024),\n        r.randint(1025, 2048),\n        r.randint(2049, 4096)\n    ]\n    weights = [40, 30, 15, 10, 5]\n    # weighted choice\n    cum = []\n    total = 0\n    for w in weights:\n        total += w\n        cum.append(total)\n    pick = r.randint(1, total)\n    idx = 0\n    for i, c in enumerate(cum):\n        if pick <= c:\n            idx = i\n            break\n    target_size = choices[idx]\n\n    return _compose_sections(r, target_size)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5191,
+            "output_tokens": 2967,
+            "total_tokens": 8158
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4769,
+            "output_tokens": 464,
+            "total_tokens": 5233
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5671,
+            "output_tokens": 4686,
+            "total_tokens": 10357
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 22205,
+            "output_tokens": 9571,
+            "total_tokens": 31776
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 12479,
+            "output_tokens": 1259,
+            "total_tokens": 13738
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9120,
+            "output_tokens": 587,
+            "total_tokens": 9707
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 453.6984803676605,
+    "scan_objects": 39.02267336845398,
+    "validate_objects": 1.6539382934570312,
+    "scan_functions": 116.54512429237366,
+    "synthesis": 185.70403933525085,
+    "fill": 42.72640347480774,
+    "classify": 12.460911512374878,
+    "build_generators": 55.58425712585449
+  }
+}

@@ -1,0 +1,1123 @@
+{
+  "objects": [
+    {
+      "ptr_type": "fp_angles_def *",
+      "aliases": [
+        "struct fp_angles"
+      ],
+      "definition": "typedef struct fp_angles {\n    float roll;\n    float pitch;\n    float yaw;\n} fp_angles_def;",
+      "description": "Structure holding floating-point Euler angles: roll, pitch, yaw (in radians or degrees depending on usage elsewhere; header does not specify). Used as the structured view of fp_angles_t union.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "fp_angles_t"
+      ]
+    },
+    {
+      "ptr_type": "fp_angles_t *",
+      "aliases": [],
+      "definition": "typedef union {\n    float raw[3];\n    fp_angles_def angles;\n} fp_angles_t;",
+      "description": "Union providing two views of a 3-axis attitude: as raw[3] floats or as named angles (roll, pitch, yaw) via fp_angles_def.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "stdev_t *",
+      "aliases": [
+        "struct stdev_s"
+      ],
+      "definition": "typedef struct stdev_s {\n    float m_oldM, m_newM, m_oldS, m_newS;\n    int m_n;\n} stdev_t;",
+      "description": "Online standard deviation/variance accumulator storing running means (old/new), sum of squares (old/new), and count. Works with devClear/devPush/devVariance/devStandardDeviation functions.",
+      "direct_api_constructors": [
+        "devClear"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "filterWithBufferSample_t *",
+      "aliases": [
+        "struct filterWithBufferSample_s"
+      ],
+      "definition": "typedef struct filterWithBufferSample_s {\n    float value;\n    uint32_t timestamp;\n} filterWithBufferSample_t;",
+      "description": "Sample item for a filter-with-buffer implementation, containing a value and its timestamp.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "filterWithBufferState_t"
+      ]
+    },
+    {
+      "ptr_type": "filterWithBufferState_t *",
+      "aliases": [
+        "struct filterWithBufferState_s"
+      ],
+      "definition": "typedef struct filterWithBufferState_s {\n    uint16_t filter_size;\n    uint16_t sample_index;\n    filterWithBufferSample_t * samples;\n} filterWithBufferState_t;",
+      "description": "State for a buffered filter: holds buffer length, current index, and pointer to an array of filterWithBufferSample_t samples. Allocation/ownership of samples is not specified here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "sensorCalibrationState_t *",
+      "aliases": [],
+      "definition": "typedef struct {\n    float XtY[4];\n    float XtX[4][4];\n} sensorCalibrationState_t;",
+      "description": "Working state for sensor calibration linear system solving (accumulate X^T*Y and X^T*X). Used with sensorCalibration* API to push samples and solve for offset/scale.",
+      "direct_api_constructors": [
+        "sensorCalibrationResetState"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "bitarrayElement_t *",
+      "aliases": [],
+      "definition": "typedef uint32_t bitarrayElement_t;",
+      "description": "Element type for bit arrays operated on by bitarray.h helpers. Arrays should be 4-byte aligned. Represents a 32-bit storage unit.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "sensorCalibrationResetState",
+      "signature": "void sensorCalibrationResetState(sensorCalibrationState_t * state);",
+      "description": "Reset/initialize the sensor calibration accumulator/state prior to pushing samples. Typical usage: call once before collecting samples for either offset or scale solutions.",
+      "requirements": [
+        "state must be a valid, writable pointer to a sensorCalibrationState_t.",
+        "Call before using other sensorCalibration* functions for a fresh calibration cycle.",
+        "Thread-safety is unknown; do not share state across threads without external synchronization."
+      ],
+      "error": null
+    },
+    {
+      "name": "sensorCalibrationPushSampleForOffsetCalculation",
+      "signature": "void sensorCalibrationPushSampleForOffsetCalculation(sensorCalibrationState_t * state, float sample[3]);",
+      "description": "Accumulate a single 3-axis sample for computing sensor offset (bias). Use after reset and before solving for offset.",
+      "requirements": [
+        "state must be a valid, writable pointer initialized via sensorCalibrationResetState.",
+        "sample must point to at least 3 floats representing a single 3D measurement.",
+        "Call repeatedly with multiple samples to obtain a solvable system; minimum count unknown.",
+        "Do not modify state concurrently from multiple threads."
+      ],
+      "error": null
+    },
+    {
+      "name": "sensorCalibrationPushSampleForScaleCalculation",
+      "signature": "void sensorCalibrationPushSampleForScaleCalculation(sensorCalibrationState_t * state, int axis, float sample[3], int target);",
+      "description": "Accumulate a single 3-axis sample for computing scale (gain) on a specified axis, likely relative to a known target magnitude/value.",
+      "requirements": [
+        "state must be initialized with sensorCalibrationResetState.",
+        "sample must point to at least 3 floats.",
+        "axis should identify the axis index; valid range is inferred as 0..2 (unknown if other values are accepted).",
+        "target is the expected value for the specified axis; units/scale are domain-specific and not documented.",
+        "Provide sufficient samples before solving; exact minimum unknown.",
+        "Do not modify state concurrently from multiple threads."
+      ],
+      "error": null
+    },
+    {
+      "name": "sensorCalibrationSolveForOffset",
+      "signature": "bool sensorCalibrationSolveForOffset(sensorCalibrationState_t * state, float result[3]);",
+      "description": "Solve the accumulated system to estimate 3-axis offset (bias). Returns true on success and writes the 3-element result vector.",
+      "requirements": [
+        "state must contain samples pushed via sensorCalibrationPushSampleForOffsetCalculation.",
+        "result must point to at least 3 writable floats.",
+        "Returns false if the system is underdetermined or numerically singular; caller should handle a false return.",
+        "Do not pass a null state or result."
+      ],
+      "error": null
+    },
+    {
+      "name": "sensorCalibrationSolveForScale",
+      "signature": "bool sensorCalibrationSolveForScale(sensorCalibrationState_t * state, float result[3]);",
+      "description": "Solve the accumulated system to estimate per-axis scale (gain). Returns true on success and writes the 3-element result vector.",
+      "requirements": [
+        "state must contain samples pushed via sensorCalibrationPushSampleForScaleCalculation.",
+        "result must point to at least 3 writable floats.",
+        "Returns false if insufficient/ill-conditioned data; handle false.",
+        "Do not pass a null state or result."
+      ],
+      "error": null
+    },
+    {
+      "name": "gcd",
+      "signature": "int gcd(int num, int denom);",
+      "description": "Compute the greatest common divisor of two integers. Typical usage for reducing ratios or normalizing fractions.",
+      "requirements": [
+        "denom should not be 0; behavior for zero or negative inputs is unspecified.",
+        "If either argument is negative, sign of the return value is unspecified (commonly non-negative).",
+        "Inputs should be finite integers."
+      ],
+      "error": null
+    },
+    {
+      "name": "applyDeadband",
+      "signature": "int32_t applyDeadband(int32_t value, int32_t deadband);",
+      "description": "Apply a symmetric deadband to value, typically returning 0 when |value| <= deadband and passing through otherwise (exact rescaling specifics unknown).",
+      "requirements": [
+        "deadband should be non-negative.",
+        "No overflow guarantees are given; large values could overflow depending on implementation.",
+        "Behavior is unspecified for negative deadband."
+      ],
+      "error": null
+    },
+    {
+      "name": "applyDeadbandRescaled",
+      "signature": "int32_t applyDeadbandRescaled(int32_t value, int32_t deadband, int32_t min, int32_t max);",
+      "description": "Apply a deadband to value and rescale the remaining range to [min,max] (exact mapping policy is not documented).",
+      "requirements": [
+        "deadband should be non-negative.",
+        "min and max define the output scale; the function name suggests min <= max; behavior if min > max is unspecified.",
+        "Value range before/after rescaling is unspecified; caller should ensure inputs near limits are acceptable."
+      ],
+      "error": null
+    },
+    {
+      "name": "constrain",
+      "signature": "int32_t constrain(int32_t amt, int32_t low, int32_t high);",
+      "description": "Clamp amt to the inclusive range [low, high].",
+      "requirements": [
+        "low should be <= high; if not, behavior is implementation-defined/unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "constrainf",
+      "signature": "float constrainf(float amt, float low, float high);",
+      "description": "Clamp amt to the inclusive range [low, high] in floating point.",
+      "requirements": [
+        "low should be <= high; if not, behavior is implementation-defined/unknown.",
+        "amt, low, and high should be finite floats to avoid NaN propagation."
+      ],
+      "error": null
+    },
+    {
+      "name": "devClear",
+      "signature": "void devClear(stdev_t *dev);",
+      "description": "Initialize/clear an online standard deviation/variance accumulator state prior to pushing samples.",
+      "requirements": [
+        "dev must be a valid, writable pointer.",
+        "Call before devPush/devVariance/devStandardDeviation for a new dataset."
+      ],
+      "error": null
+    },
+    {
+      "name": "devPush",
+      "signature": "void devPush(stdev_t *dev, float x);",
+      "description": "Push a new sample x into the running variance/standard-deviation accumulator.",
+      "requirements": [
+        "dev must have been initialized with devClear.",
+        "Input x should be finite; NaN/Inf handling is unspecified.",
+        "Not thread-safe without external synchronization."
+      ],
+      "error": null
+    },
+    {
+      "name": "devVariance",
+      "signature": "float devVariance(stdev_t *dev);",
+      "description": "Return the current variance from the accumulator dev.",
+      "requirements": [
+        "dev must have been initialized and have at least 1–2 samples; exact minimum for a non-zero variance is typically >=2 but not documented.",
+        "Return value for insufficient samples is unspecified (commonly 0)."
+      ],
+      "error": null
+    },
+    {
+      "name": "devStandardDeviation",
+      "signature": "float devStandardDeviation(stdev_t *dev);",
+      "description": "Return the current standard deviation from the accumulator dev.",
+      "requirements": [
+        "dev must have been initialized and have enough samples for a meaningful result (commonly >=2).",
+        "Result for insufficient samples is unspecified (commonly 0)."
+      ],
+      "error": null
+    },
+    {
+      "name": "degreesToRadians",
+      "signature": "float degreesToRadians(int16_t degrees);",
+      "description": "Convert degrees to radians and return as float.",
+      "requirements": [
+        "Input degrees should be within int16_t range.",
+        "No special constraints; returns finite float for finite input."
+      ],
+      "error": null
+    },
+    {
+      "name": "scaleRange",
+      "signature": "int scaleRange(int x, int srcMin, int srcMax, int destMin, int destMax);",
+      "description": "Linearly map x from [srcMin, srcMax] into [destMin, destMax].",
+      "requirements": [
+        "srcMin and srcMax must not be equal to avoid division by zero.",
+        "Mapping for x outside [srcMin, srcMax] is linear extrapolation; caller should ensure this is acceptable.",
+        "All inputs should be finite integers."
+      ],
+      "error": null
+    },
+    {
+      "name": "scaleRangef",
+      "signature": "float scaleRangef(float x, float srcMin, float srcMax, float destMin, float destMax);",
+      "description": "Linearly map x from [srcMin, srcMax] into [destMin, destMax] in floating point.",
+      "requirements": [
+        "srcMin and srcMax must not be equal.",
+        "Inputs should be finite floats to avoid NaN/Inf results.",
+        "Behavior for x outside source range is linear extrapolation."
+      ],
+      "error": null
+    },
+    {
+      "name": "wrap_18000",
+      "signature": "int32_t wrap_18000(int32_t angle);",
+      "description": "Wrap an angle in centidegrees to the range [-18000, 18000) (inferred from name).",
+      "requirements": [
+        "angle is in centidegrees; units are assumed.",
+        "Exact bounds and handling of limits are inferred; implementation details unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "wrap_180",
+      "signature": "int16_t wrap_180(int16_t angle);",
+      "description": "Wrap an angle in degrees to the range [-180, 180) (inferred from name).",
+      "requirements": [
+        "angle is in degrees.",
+        "Exact edge behavior (e.g., 180) is inferred; implementation details unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "wrap_36000",
+      "signature": "int32_t wrap_36000(int32_t angle);",
+      "description": "Wrap an angle in centidegrees to the range [0, 36000) (inferred from name).",
+      "requirements": [
+        "angle is in centidegrees.",
+        "Exact edge behavior is inferred; implementation details unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "quickMedianFilter3",
+      "signature": "int32_t quickMedianFilter3(int32_t * v);",
+      "description": "Return the median of a 3-sample int32 window quickly. Likely operates on v[0..2].",
+      "requirements": [
+        "v must point to at least 3 int32_t elements.",
+        "Alignment/aliasing requirements are standard for int32_t pointers.",
+        "Behavior with fewer than 3 elements is invalid."
+      ],
+      "error": null
+    },
+    {
+      "name": "quickMedianFilter5",
+      "signature": "int32_t quickMedianFilter5(int32_t * v);",
+      "description": "Return the median of a 5-sample int32 window. Likely uses v[0..4].",
+      "requirements": [
+        "v must point to at least 5 int32_t elements."
+      ],
+      "error": null
+    },
+    {
+      "name": "quickMedianFilter7",
+      "signature": "int32_t quickMedianFilter7(int32_t * v);",
+      "description": "Return the median of a 7-sample int32 window. Likely uses v[0..6].",
+      "requirements": [
+        "v must point to at least 7 int32_t elements."
+      ],
+      "error": null
+    },
+    {
+      "name": "quickMedianFilter9",
+      "signature": "int32_t quickMedianFilter9(int32_t * v);",
+      "description": "Return the median of a 9-sample int32 window. Likely uses v[0..8].",
+      "requirements": [
+        "v must point to at least 9 int32_t elements."
+      ],
+      "error": null
+    },
+    {
+      "name": "quickMedianFilter3_16",
+      "signature": "int16_t quickMedianFilter3_16(int16_t * v);",
+      "description": "Return the median of a 3-sample int16 window. Likely uses v[0..2].",
+      "requirements": [
+        "v must point to at least 3 int16_t elements."
+      ],
+      "error": null
+    },
+    {
+      "name": "quickMedianFilter5_16",
+      "signature": "int16_t quickMedianFilter5_16(int16_t * v);",
+      "description": "Return the median of a 5-sample int16 window. Likely uses v[0..4].",
+      "requirements": [
+        "v must point to at least 5 int16_t elements."
+      ],
+      "error": null
+    },
+    {
+      "name": "sin_approx",
+      "signature": "float sin_approx(float x);",
+      "description": "Fast sine approximation of x (radians). Controlled by FAST_MATH/VERY_FAST_MATH compile-time selection.",
+      "requirements": [
+        "x is in radians.",
+        "Accuracy and valid input range are approximation-dependent; large |x| may reduce accuracy.",
+        "Available only when FAST_MATH or VERY_FAST_MATH is defined in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "cos_approx",
+      "signature": "float cos_approx(float x);",
+      "description": "Fast cosine approximation of x (radians).",
+      "requirements": [
+        "x is in radians.",
+        "Approximation accuracy varies; large |x| may reduce accuracy.",
+        "Available only when FAST_MATH or VERY_FAST_MATH is defined."
+      ],
+      "error": null
+    },
+    {
+      "name": "atan2_approx",
+      "signature": "float atan2_approx(float y, float x);",
+      "description": "Fast approximation of atan2(y, x), returning the angle in radians.",
+      "requirements": [
+        "Inputs should be finite floats.",
+        "Behavior when both x and y are 0 is unspecified.",
+        "Available only when FAST_MATH or VERY_FAST_MATH is defined."
+      ],
+      "error": null
+    },
+    {
+      "name": "acos_approx",
+      "signature": "float acos_approx(float x);",
+      "description": "Fast approximation of arccos(x), returning radians.",
+      "requirements": [
+        "Domain is typically x in [-1, 1]; outside this range behavior is unspecified.",
+        "Available only when FAST_MATH or VERY_FAST_MATH is defined."
+      ],
+      "error": null
+    },
+    {
+      "name": "arraySubInt32",
+      "signature": "void arraySubInt32(int32_t *dest, int32_t *array1, int32_t *array2, int count);",
+      "description": "Compute element-wise subtraction: dest[i] = array1[i] - array2[i] for i in [0, count).",
+      "requirements": [
+        "dest, array1, and array2 must be valid pointers to at least count int32_t elements.",
+        "count must be non-negative; if zero, function performs no operation.",
+        "Aliasing/overlap behavior is unspecified; use non-overlapping buffers for safety."
+      ],
+      "error": null
+    },
+    {
+      "name": "bellCurve",
+      "signature": "float bellCurve(const float x, const float curveWidth);",
+      "description": "Compute a bell-curve-like weighting function of x with a width parameter. Exact formula not documented; likely centered at 0 with width controlling spread.",
+      "requirements": [
+        "curveWidth should be positive to avoid division by zero or degenerate output.",
+        "Inputs should be finite floats."
+      ],
+      "error": null
+    },
+    {
+      "name": "attenuation",
+      "signature": "float attenuation(const float input, const float width);",
+      "description": "Compute an attenuation factor based on input and width (details not documented). Likely returns a [0,1]-like weight decreasing with |input|.",
+      "requirements": [
+        "width should be positive.",
+        "Inputs should be finite floats."
+      ],
+      "error": null
+    },
+    {
+      "name": "gaussian",
+      "signature": "float gaussian(const float x, const float mu, const float sigma);",
+      "description": "Evaluate a Gaussian function at x with mean mu and standard deviation sigma. Returns exp(-0.5 * ((x-mu)/sigma)^2) scaled by 1/(sigma*sqrt(2π)) or a normalized variant (exact normalization unspecified).",
+      "requirements": [
+        "sigma must be > 0 to avoid division by zero.",
+        "Inputs should be finite floats."
+      ],
+      "error": null
+    },
+    {
+      "name": "fast_fsqrtf",
+      "signature": "float fast_fsqrtf(const float value);",
+      "description": "Fast approximation of square root of value.",
+      "requirements": [
+        "value should be >= 0 for real results; behavior for negative inputs is unspecified.",
+        "Input should be a finite float."
+      ],
+      "error": null
+    },
+    {
+      "name": "calc_length_pythagorean_2D",
+      "signature": "float calc_length_pythagorean_2D(const float firstElement, const float secondElement);",
+      "description": "Compute the 2D Euclidean length sqrt(x^2 + y^2).",
+      "requirements": [
+        "Inputs should be finite floats to avoid NaNs.",
+        "May overflow/underflow if inputs are extremely large/small; no special scaling is documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "calc_length_pythagorean_3D",
+      "signature": "float calc_length_pythagorean_3D(const float firstElement, const float secondElement, const float thirdElement);",
+      "description": "Compute the 3D Euclidean length sqrt(x^2 + y^2 + z^2).",
+      "requirements": [
+        "Inputs should be finite floats.",
+        "No overflow/underflow protection is documented."
+      ],
+      "error": null
+    },
+    {
+      "name": "bitArrayGet",
+      "signature": "bool bitArrayGet(const bitarrayElement_t *array, unsigned bit);",
+      "description": "Return the boolean value of the specified bit index in a 4-byte-aligned bit array.",
+      "requirements": [
+        "array must point to a bit array declared with BITARRAY_DECLARE or otherwise 4-byte aligned.",
+        "bit must be within the bounds of the allocated array; no size parameter is provided, so the caller must ensure validity.",
+        "Pointer must be readable."
+      ],
+      "error": null
+    },
+    {
+      "name": "bitArraySet",
+      "signature": "void bitArraySet(bitarrayElement_t *array, unsigned bit);",
+      "description": "Set the specified bit in a 4-byte-aligned bit array.",
+      "requirements": [
+        "array must be 4-byte aligned (use BITARRAY_DECLARE).",
+        "bit must be within bounds of the allocated array.",
+        "Pointer must be writable."
+      ],
+      "error": null
+    },
+    {
+      "name": "bitArrayClr",
+      "signature": "void bitArrayClr(bitarrayElement_t *array, unsigned bit);",
+      "description": "Clear the specified bit in a 4-byte-aligned bit array.",
+      "requirements": [
+        "array must be 4-byte aligned (use BITARRAY_DECLARE).",
+        "bit must be within bounds of the allocated array.",
+        "Pointer must be writable."
+      ],
+      "error": null
+    },
+    {
+      "name": "bitArraySetAll",
+      "signature": "void bitArraySetAll(bitarrayElement_t *array, size_t size);",
+      "description": "Set all bits in the bit array to 1. The size parameter is the size of the array in bytes.",
+      "requirements": [
+        "array must be 4-byte aligned (use BITARRAY_DECLARE).",
+        "size must equal the size in bytes of the underlying array; prefer using BITARRAY_SET_ALL(array) macro to avoid mistakes.",
+        "Pointer must be writable."
+      ],
+      "error": null
+    },
+    {
+      "name": "bitArrayClrAll",
+      "signature": "void bitArrayClrAll(bitarrayElement_t *array, size_t size);",
+      "description": "Clear all bits in the bit array to 0. The size parameter is the size of the array in bytes.",
+      "requirements": [
+        "array must be 4-byte aligned (use BITARRAY_DECLARE).",
+        "size must equal the size in bytes of the underlying array; prefer using BITARRAY_CLR_ALL(array) macro.",
+        "Pointer must be writable."
+      ],
+      "error": null
+    },
+    {
+      "name": "bitArrayFindFirstSet",
+      "signature": "int bitArrayFindFirstSet(const bitarrayElement_t *array, unsigned start_bit, size_t size);",
+      "description": "Return the index of the first set bit at or after start_bit, or -1 if none. Size must be the array size in bytes.",
+      "requirements": [
+        "array must be 4-byte aligned (use BITARRAY_DECLARE).",
+        "size must equal the size in bytes of the array; prefer BITARRAY_FIND_FIRST_SET(array, start_bit).",
+        "start_bit may be any value; if >= total bits, -1 is returned.",
+        "Pointer must be readable."
+      ],
+      "error": null
+    },
+    {
+      "name": "arm_sub_f32",
+      "signature": "void arm_sub_f32(float * pSrcA, float * pSrcB, float * pDst, uint32_t blockSize);",
+      "description": "Element-wise subtraction: pDst[i] = pSrcA[i] - pSrcB[i] for i in [0, blockSize). Provided for SITL builds as a replacement for CMSIS-DSP.",
+      "requirements": [
+        "Available only when SITL_BUILD is defined.",
+        "pSrcA, pSrcB, and pDst must point to at least blockSize floats.",
+        "blockSize is the number of elements to process.",
+        "Buffers should be non-overlapping or safely handled; overlap behavior is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "arm_scale_f32",
+      "signature": "void arm_scale_f32(float * pSrc, float scale, float * pDst, uint32_t blockSize);",
+      "description": "Element-wise scaling: pDst[i] = pSrc[i] * scale for i in [0, blockSize). Provided for SITL builds.",
+      "requirements": [
+        "Available only when SITL_BUILD is defined.",
+        "pSrc and pDst must point to at least blockSize floats.",
+        "blockSize is the number of elements to process.",
+        "Overlap behavior is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "arm_mult_f32",
+      "signature": "void arm_mult_f32(float * pSrcA, float * pSrcB, float * pDst, uint32_t blockSize);",
+      "description": "Element-wise multiplication: pDst[i] = pSrcA[i] * pSrcB[i] for i in [0, blockSize). Provided for SITL builds.",
+      "requirements": [
+        "Available only when SITL_BUILD is defined.",
+        "pSrcA, pSrcB, and pDst must point to at least blockSize floats.",
+        "blockSize is the number of elements to process.",
+        "Overlap behavior is unspecified."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "sensorCalibrationResetState",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "code": "// Allocate a fresh calibration state and reset it\nsensorCalibrationState_t *state = new sensorCalibrationState_t();\n// Initialize the state prior to any pushes/solves\nsensorCalibrationResetState(state);\n// Track initialization and sample counters for downstream stubs\nFUZZ_SET_ATTR_INT(state, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(state, \"offset_count\", 0);\nFUZZ_SET_ATTR_INT(state, \"scale_count\", 0);\n// Provide the state to the object pool as an output"
+    },
+    {
+      "name": "sensorCalibrationPushSampleForOffsetCalculation",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "code": "// Enforce that the state was initialized via sensorCalibrationResetState\nif (FUZZ_GET_ATTR_INT(state, \"initialized\") != 1) { FUZZ_BAIL(); }\n// Prepare a 3-element sample buffer\nconst float (*rand3)[3] = FUZZ_PARAM(float[3]);\nfloat sample[3] = { (*rand3)[0], (*rand3)[1], (*rand3)[2] };\n// Accumulate a single sample for offset calculation\nsensorCalibrationPushSampleForOffsetCalculation(state, sample);\n// Update sample count metadata\nint n = FUZZ_GET_ATTR_INT(state, \"offset_count\");\nFUZZ_SET_ATTR_INT(state, \"offset_count\", n + 1);\n// State persists; return it as an output"
+    },
+    {
+      "name": "sensorCalibrationPushSampleForScaleCalculation",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "code": "// Enforce that the state was initialized via sensorCalibrationResetState\nif (FUZZ_GET_ATTR_INT(state, \"initialized\") != 1) { FUZZ_BAIL(); }\n// Axis must be in [0,2]\nint axis = (int)(*FUZZ_PARAM(unsigned int) % 3u);\n// Prepare a 3-element sample buffer\nconst float (*rand3)[3] = FUZZ_PARAM(float[3]);\nfloat sample[3] = { (*rand3)[0], (*rand3)[1], (*rand3)[2] };\n// Target is domain-specific; generate an integer in a modest range\nint target = (int)((int32_t)*FUZZ_PARAM(uint32_t) % 20001) - 10000; // [-10000,10000]\n// Accumulate for scale calculation on the selected axis\nsensorCalibrationPushSampleForScaleCalculation(state, axis, sample, target);\n// Update sample count metadata\nint n = FUZZ_GET_ATTR_INT(state, \"scale_count\");\nFUZZ_SET_ATTR_INT(state, \"scale_count\", n + 1);\n// State persists; return it as an output"
+    },
+    {
+      "name": "sensorCalibrationSolveForOffset",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "code": "// State must be initialized and have had samples pushed (count checked leniently)\nif (FUZZ_GET_ATTR_INT(state, \"initialized\") != 1) { FUZZ_BAIL(); }\n// Result buffer (3 floats)\nfloat result[3] = {0.0f, 0.0f, 0.0f};\n// Solve; false is allowed and indicates underdetermined/singular\nbool ok = sensorCalibrationSolveForOffset(state, result);\nFUZZ_SET_ATTR_INT(state, \"last_offset_solve\", ok ? 1 : 0);\n// State persists; return it as an output"
+    },
+    {
+      "name": "sensorCalibrationSolveForScale",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "sensorCalibrationState_t *"
+        }
+      ],
+      "code": "// State must be initialized and have had samples pushed (count checked leniently)\nif (FUZZ_GET_ATTR_INT(state, \"initialized\") != 1) { FUZZ_BAIL(); }\n// Result buffer (3 floats)\nfloat result[3] = {0.0f, 0.0f, 0.0f};\n// Solve; false is allowed\nbool ok = sensorCalibrationSolveForScale(state, result);\nFUZZ_SET_ATTR_INT(state, \"last_scale_solve\", ok ? 1 : 0);\n// State persists; return it as an output"
+    },
+    {
+      "name": "gcd",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate non-zero denominator and an arbitrary numerator\nint denom = (int)((int32_t)*FUZZ_PARAM(uint32_t));\nif (denom == 0) { denom = 1; }\nint num = (int)((int32_t)*FUZZ_PARAM(uint32_t));\n// Invoke gcd; sign/negative handling is implementation-defined\n(void)gcd(num, denom);\n// No outputs"
+    },
+    {
+      "name": "applyDeadband",
+      "inputs": [],
+      "outputs": [],
+      "code": "int32_t value = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t deadband = (int32_t)(*FUZZ_PARAM(uint32_t) % 100000); // non-negative\n(void)applyDeadband(value, deadband);\n// No outputs"
+    },
+    {
+      "name": "applyDeadbandRescaled",
+      "inputs": [],
+      "outputs": [],
+      "code": "int32_t value = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t deadband = (int32_t)(*FUZZ_PARAM(uint32_t) % 100000); // non-negative\nint32_t minv = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t maxv = (int32_t)*FUZZ_PARAM(uint32_t);\n// Enforce min <= max by swapping if needed\nif (minv > maxv) { int32_t tmp = minv; minv = maxv; maxv = tmp; }\n(void)applyDeadbandRescaled(value, deadband, minv, maxv);\n// No outputs"
+    },
+    {
+      "name": "constrain",
+      "inputs": [],
+      "outputs": [],
+      "code": "int32_t amt = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t low = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t high = (int32_t)*FUZZ_PARAM(uint32_t);\nif (low > high) { int32_t t = low; low = high; high = t; }\nint32_t out = constrain(amt, low, high);\n// Assert the defining property of constrain\nFUZZ_ASSERT(out >= low && out <= high, \"constrain must clamp into [low,high]\");"
+    },
+    {
+      "name": "constrainf",
+      "inputs": [],
+      "outputs": [],
+      "code": "float amt = *FUZZ_PARAM(float);\nfloat low = *FUZZ_PARAM(float);\nfloat high = *FUZZ_PARAM(float);\nif (low > high) { float t = low; low = high; high = t; }\nfloat out = constrainf(amt, low, high);\n// Assert defining property\nFUZZ_ASSERT(out >= low && out <= high, \"constrainf must clamp into [low,high]\");"
+    },
+    {
+      "name": "devClear",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "dev",
+          "type": "stdev_t *"
+        }
+      ],
+      "code": "// Allocate and initialize a new running variance/STD accumulator\nstdev_t *dev = new stdev_t();\ndevClear(dev);\n// Track initialization and sample count\nFUZZ_SET_ATTR_INT(dev, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(dev, \"count\", 0);\n// Provide dev as an output for subsequent dev* calls"
+    },
+    {
+      "name": "devPush",
+      "inputs": [
+        {
+          "name": "dev",
+          "type": "stdev_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dev",
+          "type": "stdev_t *"
+        }
+      ],
+      "code": "// Ensure accumulator was initialized via devClear\nif (FUZZ_GET_ATTR_INT(dev, \"initialized\") != 1) { FUZZ_BAIL(); }\nfloat x = *FUZZ_PARAM(float);\ndevPush(dev, x);\n// Increment sample count metadata\nint n = FUZZ_GET_ATTR_INT(dev, \"count\");\nFUZZ_SET_ATTR_INT(dev, \"count\", n + 1);\n// dev persists; return it as an output"
+    },
+    {
+      "name": "devVariance",
+      "inputs": [
+        {
+          "name": "dev",
+          "type": "stdev_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dev",
+          "type": "stdev_t *"
+        }
+      ],
+      "code": "// Enforce initialized state\nif (FUZZ_GET_ATTR_INT(dev, \"initialized\") != 1) { FUZZ_BAIL(); }\n// Query variance; result may be zero for insufficient samples\n( void )devVariance(dev );\n// dev persists; return it as an output"
+    },
+    {
+      "name": "devStandardDeviation",
+      "inputs": [
+        {
+          "name": "dev",
+          "type": "stdev_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dev",
+          "type": "stdev_t *"
+        }
+      ],
+      "code": "// Enforce initialized state\nif (FUZZ_GET_ATTR_INT(dev, \"initialized\") != 1) { FUZZ_BAIL(); }\n( void )devStandardDeviation(dev );\n// dev persists; return it as an output"
+    },
+    {
+      "name": "degreesToRadians",
+      "inputs": [],
+      "outputs": [],
+      "code": "int16_t degrees = *FUZZ_PARAM(int16_t);\n( void )degreesToRadians(degrees);\n// No outputs"
+    },
+    {
+      "name": "scaleRange",
+      "inputs": [],
+      "outputs": [],
+      "code": "int x = (int)((int32_t)*FUZZ_PARAM(uint32_t));\nint srcMin = (int)((int32_t)*FUZZ_PARAM(uint32_t));\nint srcMax = (int)((int32_t)*FUZZ_PARAM(uint32_t));\n// Avoid division by zero in mapping by ensuring srcMin != srcMax\nif (srcMin == srcMax) { srcMax = srcMin + 1; }\nint destMin = (int)((int32_t)*FUZZ_PARAM(uint32_t));\nint destMax = (int)((int32_t)*FUZZ_PARAM(uint32_t));\n( void )scaleRange(x, srcMin, srcMax, destMin, destMax);\n// No outputs"
+    },
+    {
+      "name": "scaleRangef",
+      "inputs": [],
+      "outputs": [],
+      "code": "float x = *FUZZ_PARAM(float);\nfloat srcMin = *FUZZ_PARAM(float);\nfloat srcMax = *FUZZ_PARAM(float);\nif (srcMin == srcMax) { srcMax = srcMin + 1.0f; }\nfloat destMin = *FUZZ_PARAM(float);\nfloat destMax = *FUZZ_PARAM(float);\n( void )scaleRangef(x, srcMin, srcMax, destMin, destMax);\n// No outputs"
+    },
+    {
+      "name": "wrap_18000",
+      "inputs": [],
+      "outputs": [],
+      "code": "int32_t angle = (int32_t)*FUZZ_PARAM(uint32_t);\n( void )wrap_18000(angle);\n// No outputs"
+    },
+    {
+      "name": "wrap_180",
+      "inputs": [],
+      "outputs": [],
+      "code": "int16_t angle = *FUZZ_PARAM(int16_t);\n( void )wrap_180(angle);\n// No outputs"
+    },
+    {
+      "name": "wrap_36000",
+      "inputs": [],
+      "outputs": [],
+      "code": "int32_t angle = (int32_t)*FUZZ_PARAM(uint32_t);\n( void )wrap_36000(angle);\n// No outputs"
+    },
+    {
+      "name": "quickMedianFilter3",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a 3-sample window and invoke the median filter\nconst int32_t (*src)[3] = FUZZ_PARAM(int32_t[3]);\nint32_t v[3] = { (*src)[0], (*src)[1], (*src)[2] };\n( void )quickMedianFilter3(v);\n// No outputs; function is pure w.r.t. external state"
+    },
+    {
+      "name": "quickMedianFilter5",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a 5-sample window and invoke the median filter\nconst int32_t (*src)[5] = FUZZ_PARAM(int32_t[5]);\nint32_t v[5] = { (*src)[0], (*src)[1], (*src)[2], (*src)[3], (*src)[4] };\n( void )quickMedianFilter5(v);\n// No outputs"
+    },
+    {
+      "name": "quickMedianFilter7",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a 7-sample window and invoke the median filter\nconst int32_t (*src)[7] = FUZZ_PARAM(int32_t[7]);\nint32_t v[7] = { (*src)[0], (*src)[1], (*src)[2], (*src)[3], (*src)[4], (*src)[5], (*src)[6] };\n( void )quickMedianFilter7(v);\n// No outputs"
+    },
+    {
+      "name": "quickMedianFilter9",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a 9-sample window and invoke the median filter\nconst int32_t (*src)[9] = FUZZ_PARAM(int32_t[9]);\nint32_t v[9] = { (*src)[0], (*src)[1], (*src)[2], (*src)[3], (*src)[4], (*src)[5], (*src)[6], (*src)[7], (*src)[8] };\n( void )quickMedianFilter9(v);\n// No outputs"
+    },
+    {
+      "name": "quickMedianFilter3_16",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a 3-sample int16 window and invoke the median filter\nconst int16_t (*src)[3] = FUZZ_PARAM(int16_t[3]);\nint16_t v[3] = { (*src)[0], (*src)[1], (*src)[2] };\n( void )quickMedianFilter3_16(v);\n// No outputs"
+    },
+    {
+      "name": "quickMedianFilter5_16",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a 5-sample int16 window and invoke the median filter\nconst int16_t (*src)[5] = FUZZ_PARAM(int16_t[5]);\nint16_t v[5] = { (*src)[0], (*src)[1], (*src)[2], (*src)[3], (*src)[4] };\n( void )quickMedianFilter5_16(v);\n// No outputs"
+    },
+    {
+      "name": "arraySubInt32",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a small, non-zero count to bound work and ensure valid buffers\nuint32_t maxN = 64u;\nuint32_t count = (*FUZZ_PARAM(uint32_t) % maxN) + 1u; // [1,64]\n// Source buffers with at least 'count' elements\nconst int32_t (*srcA64)[64] = FUZZ_PARAM(int32_t[64]);\nconst int32_t (*srcB64)[64] = FUZZ_PARAM(int32_t[64]);\nint32_t a[64];\nint32_t b[64];\nfor (uint32_t i = 0; i < count; ++i) { a[i] = (*srcA64)[i]; b[i] = (*srcB64)[i]; }\n// Destination buffer separate from sources to avoid overlap semantics\nint32_t dst[64];\narraySubInt32(dst, a, b, (int)count);\n// No outputs"
+    },
+    {
+      "name": "bellCurve",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate finite inputs; width must be positive\nint32_t xi = (int32_t)*FUZZ_PARAM(uint32_t);\nfloat x = (float)xi;\nuint32_t wraw = *FUZZ_PARAM(uint32_t);\nfloat curveWidth = (float)((wraw % 1000u) + 1u) / 10.0f; // (0, 100.1]\n( void )bellCurve(x, curveWidth);\n// No outputs"
+    },
+    {
+      "name": "attenuation",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate finite inputs; width must be positive\nint32_t ii = (int32_t)*FUZZ_PARAM(uint32_t);\nfloat input = (float)ii;\nuint32_t wraw = *FUZZ_PARAM(uint32_t);\nfloat width = (float)((wraw % 1000u) + 1u) / 10.0f; // (0, 100.1]\n( void )attenuation(input, width);\n// No outputs"
+    },
+    {
+      "name": "gaussian",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Finite inputs with strictly positive sigma\nint32_t xi = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t mi = (int32_t)*FUZZ_PARAM(uint32_t);\nuint32_t sraw = *FUZZ_PARAM(uint32_t);\nfloat x = (float)xi;\nfloat mu = (float)mi;\nfloat sigma = (float)((sraw % 1000u) + 1u) / 100.0f; // (0, 10.01]\n( void )gaussian(x, mu, sigma);\n// No outputs"
+    },
+    {
+      "name": "fast_fsqrtf",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure non-negative finite input; keep magnitude reasonable for speed\nfloat value = (float)((*FUZZ_PARAM(uint32_t)) % 1000000u);\n( void )fast_fsqrtf(value);\n// No outputs"
+    },
+    {
+      "name": "calc_length_pythagorean_2D",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Finite float inputs derived from integers\nint32_t a = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t b = (int32_t)*FUZZ_PARAM(uint32_t);\nfloat x = (float)a;\nfloat y = (float)b;\n( void )calc_length_pythagorean_2D(x, y);\n// No outputs"
+    },
+    {
+      "name": "calc_length_pythagorean_3D",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Finite float inputs derived from integers\nint32_t a = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t b = (int32_t)*FUZZ_PARAM(uint32_t);\nint32_t c = (int32_t)*FUZZ_PARAM(uint32_t);\nfloat x = (float)a;\nfloat y = (float)b;\nfloat z = (float)c;\n( void )calc_length_pythagorean_3D(x, y, z);\n// No outputs"
+    },
+    {
+      "name": "bitArrayGet",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a small, 4-byte-aligned bit array and query within bounds\nbitarrayElement_t buf[8]; // 8 * 32 = 256 bits max\nconst bitarrayElement_t (*seed)[8] = FUZZ_PARAM(bitarrayElement_t[8]);\nfor (int i = 0; i < 8; ++i) { buf[i] = (*seed)[i]; }\nunsigned elements = (unsigned)((*FUZZ_PARAM(uint32_t) % 8u) + 1u); // [1,8]\nunsigned totalBits = elements * 32u;\nunsigned bit = (*FUZZ_PARAM(uint32_t)) % totalBits; // in-bounds\n( void )bitArrayGet(buf, bit);\n// No outputs"
+    },
+    {
+      "name": "bitArraySet",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare writable bit array and set an in-bounds bit\nbitarrayElement_t buf[8];\nconst bitarrayElement_t (*seed)[8] = FUZZ_PARAM(bitarrayElement_t[8]);\nfor (int i = 0; i < 8; ++i) { buf[i] = (*seed)[i]; }\nunsigned elements = (unsigned)((*FUZZ_PARAM(uint32_t) % 8u) + 1u);\nunsigned totalBits = elements * 32u;\nunsigned bit = (*FUZZ_PARAM(uint32_t)) % totalBits; // in-bounds per requirements\nbitArraySet(buf, bit);\n// No outputs"
+    },
+    {
+      "name": "bitArrayClr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare writable bit array and clear an in-bounds bit\nbitarrayElement_t buf[8];\nconst bitarrayElement_t (*seed)[8] = FUZZ_PARAM(bitarrayElement_t[8]);\nfor (int i = 0; i < 8; ++i) { buf[i] = (*seed)[i]; }\nunsigned elements = (unsigned)((*FUZZ_PARAM(uint32_t) % 8u) + 1u);\nunsigned totalBits = elements * 32u;\nunsigned bit = (*FUZZ_PARAM(uint32_t)) % totalBits; // in-bounds\nbitArrayClr(buf, bit);\n// No outputs"
+    },
+    {
+      "name": "bitArraySetAll",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a writable, 4-byte-aligned bit array and set all bits\nbitarrayElement_t buf[8];\nconst bitarrayElement_t (*seed)[8] = FUZZ_PARAM(bitarrayElement_t[8]);\nfor (int i = 0; i < 8; ++i) { buf[i] = (*seed)[i]; }\n// Choose a valid element count and compute the exact size in bytes as required\nunsigned elements = (unsigned)((*FUZZ_PARAM(uint32_t) % 8u) + 1u); // [1,8]\nsize_t sizeBytes = (size_t)elements * sizeof(bitarrayElement_t);\n// Enforce requirements: pointer writable and size matches underlying array size\nbitArraySetAll(buf, sizeBytes);\n// No outputs; function mutates buf in-place"
+    },
+    {
+      "name": "bitArrayClrAll",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a writable, 4-byte-aligned bit array and clear all bits\nbitarrayElement_t buf[8];\nconst bitarrayElement_t (*seed)[8] = FUZZ_PARAM(bitarrayElement_t[8]);\nfor (int i = 0; i < 8; ++i) { buf[i] = (*seed)[i]; }\n// Select array length and compute exact size in bytes\nunsigned elements = (unsigned)((*FUZZ_PARAM(uint32_t) % 8u) + 1u); // [1,8]\nsize_t sizeBytes = (size_t)elements * sizeof(bitarrayElement_t);\n// Call with correct size per requirements\nbitArrayClrAll(buf, sizeBytes);\n// No outputs; buf is modified in-place"
+    },
+    {
+      "name": "bitArrayFindFirstSet",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a readable, 4-byte-aligned bit array\nbitarrayElement_t buf[8];\nconst bitarrayElement_t (*seed)[8] = FUZZ_PARAM(bitarrayElement_t[8]);\nfor (int i = 0; i < 8; ++i) { buf[i] = (*seed)[i]; }\n// Choose the active length and compute size in bytes\nunsigned elements = (unsigned)((*FUZZ_PARAM(uint32_t) % 8u) + 1u); // [1,8]\nsize_t sizeBytes = (size_t)elements * sizeof(bitarrayElement_t);\nunsigned totalBits = elements * 32u;\n// Start bit may be inside or beyond bounds to exercise -1 path\nunsigned start_bit = (*FUZZ_PARAM(uint32_t)) % (totalBits + 65u);\nint idx = bitArrayFindFirstSet(buf, start_bit, sizeBytes);\n// Property: if start_bit is beyond the last valid bit, result must be -1\nif (start_bit >= totalBits) { FUZZ_ASSERT(idx == -1, \"start_bit >= totalBits must return -1\"); }\n// No outputs; function is query-only"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "sin_approx",
+      "reason": "Requires FAST_MATH or VERY_FAST_MATH compile-time flags which the fuzzer environment cannot guarantee."
+    },
+    {
+      "name": "cos_approx",
+      "reason": "Requires FAST_MATH or VERY_FAST_MATH compile-time flags which the fuzzer environment cannot guarantee."
+    },
+    {
+      "name": "atan2_approx",
+      "reason": "Requires FAST_MATH or VERY_FAST_MATH compile-time flags which the fuzzer environment cannot guarantee."
+    },
+    {
+      "name": "acos_approx",
+      "reason": "Requires FAST_MATH or VERY_FAST_MATH compile-time flags which the fuzzer environment cannot guarantee."
+    },
+    {
+      "name": "arm_sub_f32",
+      "reason": "This function is only available when compiled with SITL_BUILD defined, which the harness cannot guarantee."
+    },
+    {
+      "name": "arm_scale_f32",
+      "reason": "This function is only available when compiled with SITL_BUILD defined, which the harness cannot guarantee."
+    },
+    {
+      "name": "arm_mult_f32",
+      "reason": "This function is only available when compiled with SITL_BUILD defined, which the harness cannot guarantee."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "sensorCalibrationResetState",
+      "data_types": []
+    },
+    {
+      "name": "sensorCalibrationPushSampleForOffsetCalculation",
+      "data_types": []
+    },
+    {
+      "name": "sensorCalibrationPushSampleForScaleCalculation",
+      "data_types": []
+    },
+    {
+      "name": "sensorCalibrationSolveForOffset",
+      "data_types": []
+    },
+    {
+      "name": "sensorCalibrationSolveForScale",
+      "data_types": []
+    },
+    {
+      "name": "gcd",
+      "data_types": []
+    },
+    {
+      "name": "applyDeadband",
+      "data_types": []
+    },
+    {
+      "name": "applyDeadbandRescaled",
+      "data_types": []
+    },
+    {
+      "name": "constrain",
+      "data_types": []
+    },
+    {
+      "name": "constrainf",
+      "data_types": []
+    },
+    {
+      "name": "devClear",
+      "data_types": []
+    },
+    {
+      "name": "devPush",
+      "data_types": []
+    },
+    {
+      "name": "devVariance",
+      "data_types": []
+    },
+    {
+      "name": "devStandardDeviation",
+      "data_types": []
+    },
+    {
+      "name": "degreesToRadians",
+      "data_types": []
+    },
+    {
+      "name": "scaleRange",
+      "data_types": []
+    },
+    {
+      "name": "scaleRangef",
+      "data_types": []
+    },
+    {
+      "name": "wrap_18000",
+      "data_types": []
+    },
+    {
+      "name": "wrap_180",
+      "data_types": []
+    },
+    {
+      "name": "wrap_36000",
+      "data_types": []
+    },
+    {
+      "name": "quickMedianFilter3",
+      "data_types": []
+    },
+    {
+      "name": "quickMedianFilter5",
+      "data_types": []
+    },
+    {
+      "name": "quickMedianFilter7",
+      "data_types": []
+    },
+    {
+      "name": "quickMedianFilter9",
+      "data_types": []
+    },
+    {
+      "name": "quickMedianFilter3_16",
+      "data_types": []
+    },
+    {
+      "name": "quickMedianFilter5_16",
+      "data_types": []
+    },
+    {
+      "name": "arraySubInt32",
+      "data_types": []
+    },
+    {
+      "name": "bellCurve",
+      "data_types": []
+    },
+    {
+      "name": "attenuation",
+      "data_types": []
+    },
+    {
+      "name": "gaussian",
+      "data_types": []
+    },
+    {
+      "name": "fast_fsqrtf",
+      "data_types": []
+    },
+    {
+      "name": "calc_length_pythagorean_2D",
+      "data_types": []
+    },
+    {
+      "name": "calc_length_pythagorean_3D",
+      "data_types": []
+    },
+    {
+      "name": "bitArrayGet",
+      "data_types": []
+    },
+    {
+      "name": "bitArraySet",
+      "data_types": []
+    },
+    {
+      "name": "bitArrayClr",
+      "data_types": []
+    },
+    {
+      "name": "bitArraySetAll",
+      "data_types": []
+    },
+    {
+      "name": "bitArrayClrAll",
+      "data_types": []
+    },
+    {
+      "name": "bitArrayFindFirstSet",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3644,
+            "output_tokens": 667,
+            "total_tokens": 4311
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3222,
+            "output_tokens": 239,
+            "total_tokens": 3461
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3921,
+            "output_tokens": 4936,
+            "total_tokens": 8857
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 35079,
+            "output_tokens": 10852,
+            "total_tokens": 45931
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 230.93752455711365,
+    "scan_objects": 9.023517847061157,
+    "validate_objects": 0.38030385971069336,
+    "scan_functions": 48.25306820869446,
+    "synthesis": 173.22499108314514,
+    "fill": 0,
+    "classify": 0.05470633506774902,
+    "build_generators": 0.00008344650268554688
+  }
+}

@@ -1,0 +1,1931 @@
+{
+  "objects": [
+    {
+      "ptr_type": "wson_buffer *",
+      "aliases": [],
+      "definition": "typedef struct wson_buffer{\n    void* data;\n    uint32_t position;\n    uint32_t length;\n} wson_buffer;",
+      "description": "Mutable byte buffer used by the WSON serialization API to build and parse WSON-encoded data. It owns a data pointer and tracks the current read/write position and total length. Construction and destruction are managed via wson_buffer_new, wson_buffer_from, and wson_buffer_free. The buffer is advanced as values are pushed/read; callers must ensure capacity using helper functions before writing.",
+      "direct_api_constructors": [
+        "wson_buffer_new",
+        "wson_buffer_from"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "u16string *",
+      "aliases": [],
+      "definition": "typedef std::basic_string<uint16_t, std::char_traits<uint16_t>, std::allocator<uint16_t> > u16string;",
+      "description": "Alias for a UTF-16 string container implemented as std::basic_string<uint16_t>. Useful for handling UTF-16 data when working with WSON. Memory is managed by the C++ standard library; construction is the same as std::basic_string<uint16_t>.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "wson_parser *",
+      "aliases": [],
+      "definition": "class wson_parser {\n\npublic:\n    wson_parser(const char* data);\n    wson_parser(const char* data, int length);\n    ~wson_parser();\n\n    inline bool hasNext(){\n        return wson_has_next(this->wsonBuffer);\n    }\n\n    inline uint8_t nextType(){\n        if(wsonBuffer->data && wson_has_next(wsonBuffer)){\n            return  wson_next_type(wsonBuffer);\n        }\n        return WSON_NULL_TYPE;\n    }\n\n    inline void backType(){\n        if(wsonBuffer && wsonBuffer->position > 0){\n            wsonBuffer->position--;\n        }\n    }\n\n    inline bool isMap(uint8_t type){\n        return type == WSON_MAP_TYPE;\n    }\n\n    inline bool isArray(uint8_t type){\n        return type == WSON_ARRAY_TYPE;\n    }\n\n    inline bool isString(uint8_t type){\n        return type == WSON_STRING_TYPE\n               || type == WSON_UINT8_STRING_TYPE\n               || type == WSON_NUMBER_BIG_INT_TYPE\n               || type == WSON_NUMBER_BIG_DECIMAL_TYPE;\n    }\n\n    inline bool isBool(uint8_t type){\n        return type == WSON_BOOLEAN_TYPE_FALSE || type == WSON_BOOLEAN_TYPE_TRUE;\n    }\n\n    inline bool isNumber(uint8_t type){\n        return type == WSON_NUMBER_INT_TYPE\n               || type == WSON_NUMBER_FLOAT_TYPE\n               || type == WSON_NUMBER_LONG_TYPE\n               || type == WSON_NUMBER_DOUBLE_TYPE;\n    }\n\n    inline bool isNull(uint8_t type){\n        return type == WSON_NULL_TYPE;\n    }\n\n    inline  int  nextMapSize(){\n        return wson_next_uint(wsonBuffer);\n    }\n\n    inline  int  nextArraySize(){\n        return wson_next_uint(wsonBuffer);\n    }\n\n    std::string nextMapKeyUTF8();\n\n    std::string nextStringUTF8(uint8_t type);\n\n    double nextNumber(uint8_t type);\n\n    bool  nextBool(uint8_t type);\n\n    void skipValue(uint8_t type);\n\n    inline void  resetState(){\n        if(this->wsonBuffer){\n            this->wsonBuffer->position = 0;\n        }\n    }\n\n    inline int getState(){\n        return this->wsonBuffer->position;\n    }\n\n    inline int restoreToState(int state){\n        return this->wsonBuffer->position = state;\n    }\n    \n    std::string toStringUTF8();\n\n\nprivate:\n    wson_buffer* wsonBuffer;\n    void toJSONtring(std::string &builder);\n\n    char *requireDecodingBuffer(int length);\n    char* decodingBuffer = nullptr;\n    int  decodingBufferSize = 0;\n};",
+      "description": "C++ helper class that wraps the C WSON API to parse WSON-encoded data. It holds an internal wson_buffer and provides typed navigation, conversion to UTF-8 strings, number and boolean extraction, skipping values, state save/restore, and JSON conversion. Lifetimes: constructed from raw data in its constructors; destructor is expected to release any allocated buffers. Methods rely on wson.h functions for low-level parsing.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "wson_buffer_new",
+      "signature": "wson_buffer* wson_buffer_new(void);",
+      "description": "Allocate and initialize a new, empty wson_buffer suitable for subsequent push/parse operations.",
+      "requirements": [
+        "Must be paired with wson_buffer_free to avoid memory leaks."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_buffer_require",
+      "signature": "void wson_buffer_require(wson_buffer *buffer, size_t size);",
+      "description": "Ensure the buffer has at least the specified additional capacity available for writing (may grow the buffer).",
+      "requirements": [
+        "buffer must be a valid pointer returned by wson_buffer_new or wson_buffer_from.",
+        "size must be >= 0. If growth occurs, previous buffer->data may be reallocated; do not keep stale raw pointers into buffer->data across calls."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_boolean",
+      "signature": "void wson_push_type_boolean(wson_buffer *buffer, uint8_t value);",
+      "description": "Append a boolean value with WSON type signature (WSON_BOOLEAN_TYPE_TRUE or WSON_BOOLEAN_TYPE_FALSE) to the buffer.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "value should be 0 or 1 (other values are unspecified).",
+        "Buffer must have or be able to acquire sufficient capacity (use wson_buffer_require or rely on internal growth if implemented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_int",
+      "signature": "void wson_push_type_int(wson_buffer *buffer, int32_t num);",
+      "description": "Append a 32-bit integer value with WSON integer type signature to the buffer.",
+      "requirements": [
+        "buffer must be valid and writeable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_long",
+      "signature": "void wson_push_type_long(wson_buffer *buffer, int64_t num);",
+      "description": "Append a 64-bit integer value with WSON long type signature to the buffer.",
+      "requirements": [
+        "buffer must be valid and writeable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_double",
+      "signature": "void wson_push_type_double(wson_buffer *buffer, double num);",
+      "description": "Append a double-precision floating-point value with WSON double type signature to the buffer.",
+      "requirements": [
+        "buffer must be valid and writeable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_float",
+      "signature": "void wson_push_type_float(wson_buffer *buffer, float num);",
+      "description": "Append a single-precision floating-point value with WSON float type signature to the buffer.",
+      "requirements": [
+        "buffer must be valid and writeable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_string",
+      "signature": "void wson_push_type_string(wson_buffer *buffer, const void *src, int32_t length);",
+      "description": "Append a byte string (UTF-8/byte sequence) with WSON string type signature and length to the buffer.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "src must point to at least length bytes; can be null only if length == 0.",
+        "length must be >= 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_uint8_string",
+      "signature": "void wson_push_type_uint8_string(wson_buffer *buffer, const uint8_t *src, int32_t length);",
+      "description": "Append a uint8_t string (UTF-16/other 8-bit data semantics vary) with WSON UINT8 string type signature and length to the buffer.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "src must point to at least length bytes; can be null only if length == 0.",
+        "length must be >= 0.",
+        "Exact encoding semantics are not documented; only the raw bytes and length are required."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_null",
+      "signature": "void wson_push_type_null(wson_buffer *buffer);",
+      "description": "Append a WSON null value with WSON null type signature.",
+      "requirements": [
+        "buffer must be valid and writeable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_map",
+      "signature": "void wson_push_type_map(wson_buffer *buffer, uint32_t size);",
+      "description": "Begin a WSON map/object by appending the map type signature and entry count.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "size is the number of key-value pairs to follow; must be accurate for correct parsing."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_array",
+      "signature": "void wson_push_type_array(wson_buffer *buffer, uint32_t size);",
+      "description": "Begin a WSON array by appending the array type signature and element count.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "size is the number of array elements to follow; must be accurate for correct parsing."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_extend",
+      "signature": "void wson_push_type_extend(wson_buffer *buffer, const void *src, int32_t length);",
+      "description": "Append an extended/opaque payload with the WSON extend type signature and length.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "src must point to at least length bytes; can be null only if length == 0.",
+        "length must be >= 0.",
+        "The interpretation of the payload is application-defined (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_ensure_size",
+      "signature": "void wson_push_ensure_size(wson_buffer *buffer, uint32_t dataSize);",
+      "description": "Ensure the buffer has capacity for at least dataSize bytes to be written as a contiguous block.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "dataSize must be >= 0. May reallocate internal storage; do not hold raw pointers into buffer->data across calls."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type_string_length",
+      "signature": "void wson_push_type_string_length(wson_buffer *buffer, int32_t length);",
+      "description": "Append only the WSON string type and its length prefix without writing the string bytes themselves (bytes should be written separately).",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "length must be >= 0 and must match the number of bytes subsequently written for the string payload."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_property",
+      "signature": "void wson_push_property(wson_buffer *buffer, const void *src, int32_t length);",
+      "description": "Append a map key/property name as a string field, typically for use inside a WSON map.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "src must point to at least length bytes; can be null only if length == 0.",
+        "length must be >= 0.",
+        "Caller should ensure it is used in a map context and that the overall map size matches the number of pushed properties/values."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_int",
+      "signature": "void wson_push_int(wson_buffer *buffer, int32_t num);",
+      "description": "Append a 32-bit integer to the buffer without any WSON type signature (raw payload only).",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "Caller must manage/precede with appropriate type information to keep the stream parseable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_uint",
+      "signature": "void wson_push_uint(wson_buffer *buffer, uint32_t num);",
+      "description": "Append a 32-bit unsigned integer to the buffer without any WSON type signature (raw payload only).",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "Caller must manage/precede with appropriate type information to keep the stream parseable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_byte",
+      "signature": "void wson_push_byte(wson_buffer *buffer, uint8_t bt);",
+      "description": "Append a single byte to the buffer (no type signature).",
+      "requirements": [
+        "buffer must be valid and writeable."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_type",
+      "signature": "void wson_push_type(wson_buffer *buffer, uint8_t bt);",
+      "description": "Append a single byte used as a WSON type signature.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "bt should be one of the defined WSON_*_TYPE constants."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_double",
+      "signature": "void wson_push_double(wson_buffer *buffer, double num);",
+      "description": "Append a double-precision value to the buffer without any WSON type signature (raw payload only).",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "Caller must ensure the stream has or will have the correct type signature before this payload."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_float",
+      "signature": "void wson_push_float(wson_buffer *buffer, float num);",
+      "description": "Append a single-precision float to the buffer without any WSON type signature (raw payload only).",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "Caller must ensure the stream carries the appropriate type signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_ulong",
+      "signature": "void wson_push_ulong(wson_buffer *buffer, uint64_t num);",
+      "description": "Append an unsigned 64-bit integer to the buffer without any WSON type signature (raw payload only).",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "Caller must ensure the stream carries the appropriate type signature."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_push_bytes",
+      "signature": "void wson_push_bytes(wson_buffer *buffer, const void *src, int32_t length);",
+      "description": "Append an arbitrary sequence of bytes to the buffer without any WSON type signature.",
+      "requirements": [
+        "buffer must be valid and writeable.",
+        "src must point to at least length bytes; can be null only if length == 0.",
+        "length must be >= 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_buffer_free",
+      "signature": "void wson_buffer_free(wson_buffer *buffer);",
+      "description": "Release the memory associated with a wson_buffer created by wson_buffer_new or adopting allocated storage, and invalidate it.",
+      "requirements": [
+        "buffer may be null (no-op is expected; exact behavior unknown).",
+        "Buffer must not be used after free."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_byte",
+      "signature": "int8_t wson_next_byte(wson_buffer *buffer);",
+      "description": "Read and return the next raw byte from the buffer, advancing position by 1.",
+      "requirements": [
+        "buffer must be valid and have at least 1 remaining byte.",
+        "Position must be within [0, length)."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_type",
+      "signature": "int8_t wson_next_type(wson_buffer *buffer);",
+      "description": "Read and return the next WSON type signature byte from the buffer, advancing position by 1.",
+      "requirements": [
+        "buffer must be valid and have at least 1 remaining byte.",
+        "The stream should be aligned at a type boundary for correct parsing."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_int",
+      "signature": "int32_t wson_next_int(wson_buffer *buffer);",
+      "description": "Read and return the next 32-bit integer payload from the buffer (no type read), advancing position accordingly.",
+      "requirements": [
+        "buffer must be valid and have enough remaining bytes for a 32-bit integer payload.",
+        "Caller must have already consumed and validated the corresponding type signature if present."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_uint",
+      "signature": "uint32_t wson_next_uint(wson_buffer *buffer);",
+      "description": "Read and return the next 32-bit unsigned integer payload from the buffer (no type read), advancing position accordingly.",
+      "requirements": [
+        "buffer must be valid and have enough remaining bytes for a 32-bit unsigned integer payload.",
+        "Caller must have already consumed and validated the corresponding type signature if present."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_double",
+      "signature": "double wson_next_double(wson_buffer *buffer);",
+      "description": "Read and return the next double-precision payload from the buffer (no type read), advancing position accordingly.",
+      "requirements": [
+        "buffer must be valid and have enough remaining bytes for a double payload.",
+        "Caller must have already consumed and validated the corresponding type signature if present."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_float",
+      "signature": "float wson_next_float(wson_buffer *buffer);",
+      "description": "Read and return the next single-precision float payload from the buffer (no type read), advancing position accordingly.",
+      "requirements": [
+        "buffer must be valid and have enough remaining bytes for a float payload.",
+        "Caller must have already consumed and validated the corresponding type signature if present."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_long",
+      "signature": "int64_t wson_next_long(wson_buffer *buffer);",
+      "description": "Read and return the next 64-bit integer payload from the buffer (no type read), advancing position accordingly.",
+      "requirements": [
+        "buffer must be valid and have enough remaining bytes for a 64-bit integer payload.",
+        "Caller must have already consumed and validated the corresponding type signature if present."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_ulong",
+      "signature": "uint64_t wson_next_ulong(wson_buffer *buffer);",
+      "description": "Read and return the next unsigned 64-bit integer payload from the buffer (no type read), advancing position accordingly.",
+      "requirements": [
+        "buffer must be valid and have enough remaining bytes for a 64-bit unsigned integer payload.",
+        "Caller must have already consumed and validated the corresponding type signature if present."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_next_bts",
+      "signature": "uint8_t* wson_next_bts(wson_buffer *buffer, uint32_t length);",
+      "description": "Return a pointer to the next length bytes in the buffer and advance position by length. Does not copy data.",
+      "requirements": [
+        "buffer must be valid and have at least length remaining bytes.",
+        "length must be >= 0.",
+        "The returned pointer becomes invalid if the buffer is reallocated or freed; use or copy immediately."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_has_next",
+      "signature": "bool wson_has_next(wson_buffer *buffer);",
+      "description": "Return true if there are remaining unread bytes in the buffer (position < length).",
+      "requirements": [
+        "buffer must be valid (non-null)."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_buffer_from",
+      "signature": "wson_buffer* wson_buffer_from(void* data, uint32_t length);",
+      "description": "Construct a wson_buffer view over an existing memory block of the given length, with initial position at start.",
+      "requirements": [
+        "data must be non-null if length > 0.",
+        "length must be >= 0.",
+        "The lifetime of data must outlive the wson_buffer unless the implementation copies it (unknown). Avoid freeing data while the buffer is in use."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::wson_parser",
+      "signature": "wson_parser::wson_parser(const char* data);",
+      "description": "Construct a wson_parser from a pointer to WSON-encoded bytes. Length handling is unspecified in the header; likely parses until a terminator or embedded lengths.",
+      "requirements": [
+        "data must be a valid pointer to a WSON byte sequence; must remain valid for the lifetime of the parser unless the implementation copies it.",
+        "Exact data termination/length semantics are unknown from the header."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::~wson_parser",
+      "signature": "wson_parser::~wson_parser();",
+      "description": "Destroy the parser and release any associated resources/buffers.",
+      "requirements": [
+        "Do not use the parser after destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::hasNext",
+      "signature": "bool wson_parser::hasNext();",
+      "description": "Return whether there are more unread bytes in the underlying buffer.",
+      "requirements": [
+        "Parser must have been successfully constructed."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::nextType",
+      "signature": "uint8_t wson_parser::nextType();",
+      "description": "Return the next WSON type byte and advance the parser. Returns WSON_NULL_TYPE if no data is available.",
+      "requirements": [
+        "Parser must have been successfully constructed.",
+        "Underlying buffer must contain at least one byte to read a real type."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::backType",
+      "signature": "void wson_parser::backType();",
+      "description": "Step the parser position back by one byte to undo a previous type read.",
+      "requirements": [
+        "Current position must be > 0."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::isMap",
+      "signature": "bool wson_parser::isMap(uint8_t type);",
+      "description": "Return true if the provided type byte denotes a WSON map (object).",
+      "requirements": [
+        "Argument must be a previously read type byte."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::isArray",
+      "signature": "bool wson_parser::isArray(uint8_t type);",
+      "description": "Return true if the provided type byte denotes a WSON array.",
+      "requirements": [
+        "Argument must be a previously read type byte."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::isString",
+      "signature": "bool wson_parser::isString(uint8_t type);",
+      "description": "Return true if the provided type byte denotes a WSON string-like type (string, uint8 string, big int, big decimal).",
+      "requirements": [
+        "Argument must be a previously read type byte."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::isBool",
+      "signature": "bool wson_parser::isBool(uint8_t type);",
+      "description": "Return true if the provided type byte denotes a WSON boolean.",
+      "requirements": [
+        "Argument must be a previously read type byte."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::isNumber",
+      "signature": "bool wson_parser::isNumber(uint8_t type);",
+      "description": "Return true if the provided type byte denotes a numeric WSON type (int, float, long, double).",
+      "requirements": [
+        "Argument must be a previously read type byte."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::isNull",
+      "signature": "bool wson_parser::isNull(uint8_t type);",
+      "description": "Return true if the provided type byte denotes a WSON null.",
+      "requirements": [
+        "Argument must be a previously read type byte."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::nextMapSize",
+      "signature": "int wson_parser::nextMapSize();",
+      "description": "Read and return the size (entry count) of a WSON map, advancing the parser position accordingly.",
+      "requirements": [
+        "The next value in the stream must be a map size field; typically call after reading a map type."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::nextArraySize",
+      "signature": "int wson_parser::nextArraySize();",
+      "description": "Read and return the size (element count) of a WSON array, advancing the parser position accordingly.",
+      "requirements": [
+        "The next value in the stream must be an array size field; typically call after reading an array type."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::nextMapKeyUTF8",
+      "signature": "std::string wson_parser::nextMapKeyUTF8();",
+      "description": "Read the next map key and return it as a UTF-8 std::string, performing any required decoding.",
+      "requirements": [
+        "The parser should be positioned at a map key.",
+        "Underlying data must contain a valid string key in expected encoding."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::nextStringUTF8",
+      "signature": "std::string wson_parser::nextStringUTF8(uint8_t type);",
+      "description": "Read the next value of the specified type and return it as a UTF-8 std::string, converting from string/number representations as needed.",
+      "requirements": [
+        "type should be a string-like or numeric type supported by conversion.",
+        "The stream must contain a valid payload for the provided type."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::nextNumber",
+      "signature": "double wson_parser::nextNumber(uint8_t type);",
+      "description": "Read the next value of the specified type and return it as a double. If type is string, converts the string to a number.",
+      "requirements": [
+        "type should denote a numeric or string type that can be converted to a number.",
+        "The stream must contain a valid payload for the provided type."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::nextBool",
+      "signature": "bool wson_parser::nextBool(uint8_t type);",
+      "description": "Read the next value of the specified type and return it as a boolean.",
+      "requirements": [
+        "type should denote a boolean or a type convertible to boolean per implementation.",
+        "The stream must contain a valid payload for the provided type."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::skipValue",
+      "signature": "void wson_parser::skipValue(uint8_t type);",
+      "description": "Skip over the next value of the given type without decoding it, advancing the parser position accordingly.",
+      "requirements": [
+        "type must correspond to the next value in the stream.",
+        "The parser must be positioned at the beginning of that value."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::resetState",
+      "signature": "void wson_parser::resetState();",
+      "description": "Reset the parser position to the start of the buffer.",
+      "requirements": [
+        "Parser must have been successfully constructed."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::getState",
+      "signature": "int wson_parser::getState();",
+      "description": "Return the current byte position within the underlying buffer.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "wson_parser::restoreToState",
+      "signature": "int wson_parser::restoreToState(int state);",
+      "description": "Set the parser position to a previously saved state and return the new position.",
+      "requirements": [
+        "state must be within [0, buffer length]."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson_parser::toStringUTF8",
+      "signature": "std::string wson_parser::toStringUTF8();",
+      "description": "Convert the entire WSON payload to a JSON-like UTF-8 string representation.",
+      "requirements": [
+        "Underlying data must be valid WSON; behavior is undefined for malformed streams."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_string",
+      "signature": "void wson::utf16_convert_to_utf8_string(uint16_t *utf16, int length, char* decodingBuffer, std::string& utf8);",
+      "description": "Convert a UTF-16 sequence to UTF-8, using a caller-provided temporary buffer, and append/write to utf8.",
+      "requirements": [
+        "utf16 must point to at least length 16-bit code units.",
+        "length must be >= 0.",
+        "decodingBuffer must be large enough to hold the converted UTF-8 (size requirement depends on input; up to ~4 bytes/code unit in worst cases).",
+        "utf8 string reference must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_quote_string",
+      "signature": "void wson::utf16_convert_to_utf8_quote_string(uint16_t *utf16, int length, char* decodingBuffer, std::string& utf8);",
+      "description": "Convert a UTF-16 sequence to a JSON-quoted and escaped UTF-8 string, using a caller-provided temporary buffer, and append/write to utf8.",
+      "requirements": [
+        "utf16 must point to at least length 16-bit code units.",
+        "length must be >= 0.",
+        "decodingBuffer must be large enough for the converted and escaped UTF-8.",
+        "utf8 string reference must be valid."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_cstr",
+      "signature": "int wson::utf16_convert_to_utf8_cstr(uint16_t *utf16, int length, char* buffer);",
+      "description": "Convert a UTF-16 sequence to UTF-8 and write it into buffer as a C string. Returns the number of bytes written (likely excluding the null terminator).",
+      "requirements": [
+        "utf16 must point to at least length 16-bit code units.",
+        "length must be >= 0.",
+        "buffer must be large enough to hold the converted string plus a null terminator."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_quote_cstr",
+      "signature": "int wson::utf16_convert_to_utf8_quote_cstr(uint16_t *utf16, int length, char* buffer);",
+      "description": "Convert a UTF-16 sequence to a JSON-quoted and escaped UTF-8 C string. Returns the number of bytes written (likely excluding the null terminator).",
+      "requirements": [
+        "utf16 must point to at least length 16-bit code units.",
+        "length must be >= 0.",
+        "buffer must be large enough to hold the converted and escaped UTF-8 string plus a null terminator."
+      ],
+      "error": null
+    },
+    {
+      "name": "wson::str_append_number",
+      "signature": "void wson::str_append_number(std::string& str, double num);",
+      "description": "Append a textual representation of a double to the supplied string.",
+      "requirements": [
+        "str reference must be valid."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "wson_buffer_new",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Create a fresh buffer via API constructor.\nwson_buffer *buffer = wson_buffer_new();\n// Validate allocation succeeded; otherwise bail to avoid leaking undefined state.\nif (!buffer) { FUZZ_BAIL(); }\n// No additional initialization required here. Persistent buffer is returned as output.\n// Validation: Returns a non-null, newly allocated wson_buffer suitable for subsequent write/read operations."
+    },
+    {
+      "name": "wson_buffer_require",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Generate a small additional capacity request (kept modest for fuzzer performance).\nsize_t add_cap = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u);\n// Enforce that buffer is assumed valid (provided by runtime) and avoid holding raw pointers across growth.\nwson_buffer_require(buffer, add_cap);\n// Validation: Size is >= 0 by construction; we do not retain any raw pointers into buffer->data across this call."
+    },
+    {
+      "name": "wson_push_type_boolean",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Constrain value to 0 or 1 as required.\nuint8_t b = (uint8_t)(*FUZZ_PARAM(unsigned int) & 1u);\n// Ensure capacity conservatively (optional; API may grow internally).\nwson_push_ensure_size(buffer, 1);\nwson_push_type_boolean(buffer, b);\n// Validation: buffer assumed valid; boolean value is constrained to 0/1."
+    },
+    {
+      "name": "wson_push_type_int",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "int32_t v = (int32_t)*FUZZ_PARAM(int32_t);\n// Reserve space for type+payload conservatively.\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(int32_t)));\nwson_push_type_int(buffer, v);\n// Validation: buffer is valid; integer payload is arbitrary 32-bit value."
+    },
+    {
+      "name": "wson_push_type_long",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "int64_t v = (int64_t)*FUZZ_PARAM(int64_t);\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(int64_t)));\nwson_push_type_long(buffer, v);\n// Validation: buffer is valid; 64-bit integer value appended with type."
+    },
+    {
+      "name": "wson_push_type_double",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "double v = (double)*FUZZ_PARAM(double);\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(double)));\nwson_push_type_double(buffer, v);\n// Validation: buffer is valid; double value appended with type."
+    },
+    {
+      "name": "wson_push_type_float",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "float v = (float)*FUZZ_PARAM(float);\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(float)));\nwson_push_type_float(buffer, v);\n// Validation: buffer is valid; float value appended with type."
+    },
+    {
+      "name": "wson_push_type_string",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Produce a random byte string; cap to <= 512 bytes for speed.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 512) { s.resize(512); }\nint32_t len = (int32_t)s.size();\nconst void *src = len > 0 ? (const void*)s.data() : nullptr;\n// Ensure capacity for type + length prefix + data (over-approximate).\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(int32_t) + (len > 0 ? (uint32_t)len : 0)));\nwson_push_type_string(buffer, src, len);\n// Validation: length >= 0 and src is non-null iff len > 0."
+    },
+    {
+      "name": "wson_push_type_uint8_string",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "std::string s = FUZZ_PARAM_STR();\nif (s.size() > 512) { s.resize(512); }\nint32_t len = (int32_t)s.size();\nconst uint8_t *src = len > 0 ? reinterpret_cast<const uint8_t*>(s.data()) : nullptr;\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(int32_t) + (len > 0 ? (uint32_t)len : 0)));\nwson_push_type_uint8_string(buffer, src, len);\n// Validation: length >= 0 and src is non-null iff len > 0; raw bytes are accepted regardless of encoding."
+    },
+    {
+      "name": "wson_push_type_null",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Null has only a type signature.\nwson_push_ensure_size(buffer, 1);\nwson_push_type_null(buffer);\n// Validation: buffer is valid and writeable."
+    },
+    {
+      "name": "wson_push_type_map",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// For correctness without needing to append entries, use an empty map of size 0.\nuint32_t count = 0u;\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(uint32_t)));\nwson_push_type_map(buffer, count);\n// Validation: size is accurate (0), avoiding mismatch with subsequent writes."
+    },
+    {
+      "name": "wson_push_type_array",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// For a self-contained write, push an empty array of size 0.\nuint32_t count = 0u;\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(uint32_t)));\nwson_push_type_array(buffer, count);\n// Validation: size is accurate (0)."
+    },
+    {
+      "name": "wson_push_type_extend",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Application-defined payload: provide arbitrary bytes, capped for speed.\nstd::string payload = FUZZ_PARAM_STR();\nif (payload.size() > 512) { payload.resize(512); }\nint32_t len = (int32_t)payload.size();\nconst void *src = len > 0 ? (const void*)payload.data() : nullptr;\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(int32_t) + (len > 0 ? (uint32_t)len : 0)));\nwson_push_type_extend(buffer, src, len);\n// Validation: length >= 0 and src is non-null iff len > 0."
+    },
+    {
+      "name": "wson_push_ensure_size",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Request a modest contiguous space reservation.\nuint32_t need = (uint32_t)(*FUZZ_PARAM(unsigned int) % 1024u);\nwson_push_ensure_size(buffer, need);\n// Validation: dataSize >= 0; we do not retain raw pointers invalidated by potential reallocation."
+    },
+    {
+      "name": "wson_push_type_string_length",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// To satisfy the requirement that the payload length matches, we will also write the bytes using wson_push_bytes.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 512) { s.resize(512); }\nint32_t len = (int32_t)s.size();\nconst void *src = len > 0 ? (const void*)s.data() : nullptr;\n// Reserve space for type+length, then the payload written separately.\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(int32_t)));\nwson_push_type_string_length(buffer, len);\nif (len > 0) {\n    wson_push_ensure_size(buffer, (uint32_t)len);\n    wson_push_bytes(buffer, src, len);\n}\n// Validation: Declared length equals bytes written, maintaining stream consistency if parsed later."
+    },
+    {
+      "name": "wson_push_property",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Use in a correct map context: open a map with one entry, write the property key, then a simple null value.\nstd::string key = FUZZ_PARAM_STR();\nif (key.size() > 128) { key.resize(128); }\nint32_t klen = (int32_t)key.size();\nconst void *ksrc = klen > 0 ? (const void*)key.data() : nullptr;\n// Begin a map with exactly one key-value pair.\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(uint32_t)));\nwson_push_type_map(buffer, 1u);\n// Push the property name (string field for key).\nwson_push_ensure_size(buffer, (uint32_t)(1 + sizeof(int32_t) + (klen > 0 ? (uint32_t)klen : 0)));\nwson_push_property(buffer, ksrc, klen);\n// Push a simple null value as the corresponding entry to honor the declared size.\nwson_push_ensure_size(buffer, 1);\nwson_push_type_null(buffer);\n// Validation: Map size is accurate (1), key src is non-null iff length > 0; overall map is well-formed."
+    },
+    {
+      "name": "wson_push_int",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "int32_t v = (int32_t)*FUZZ_PARAM(int32_t);\n// Caller is responsible for type information; we only ensure capacity and write raw payload.\nwson_push_ensure_size(buffer, (uint32_t)sizeof(int32_t));\nwson_push_int(buffer, v);\n// Validation: Raw payload appended; stream typing is left to surrounding context (not enforced here)."
+    },
+    {
+      "name": "wson_push_uint",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "uint32_t v = (uint32_t)*FUZZ_PARAM(uint32_t);\nwson_push_ensure_size(buffer, (uint32_t)sizeof(uint32_t));\nwson_push_uint(buffer, v);\n// Validation: Raw unsigned 32-bit payload appended; no type signature is added by design."
+    },
+    {
+      "name": "wson_push_byte",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "uint8_t bt = (uint8_t)*FUZZ_PARAM(uint8_t);\nwson_push_ensure_size(buffer, 1);\nwson_push_byte(buffer, bt);\n// Validation: Appended a single raw byte; buffer remains valid and owned by the runtime."
+    },
+    {
+      "name": "wson_push_type",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Generate a candidate type byte; actual constant set is unknown, but any byte is accepted by this API.\nuint8_t type_bt = (uint8_t)*FUZZ_PARAM(uint8_t);\nwson_push_ensure_size(buffer, 1);\nwson_push_type(buffer, type_bt);\n// Validation: Appended a single type byte; correctness of the specific value depends on downstream consumers."
+    },
+    {
+      "name": "wson_push_double",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Append a raw double payload (no type). Caller is responsible for preceding type elsewhere.\ndouble v = (double)*FUZZ_PARAM(double);\n// Ensure enough contiguous space for the payload.\nwson_push_ensure_size(buffer, (uint32_t)sizeof(double));\nwson_push_double(buffer, v);\n// Validation: buffer is valid; wrote sizeof(double) bytes without a type prefix."
+    },
+    {
+      "name": "wson_push_float",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Append a raw float payload (no type). Caller must manage type markers.\nfloat v = (float)*FUZZ_PARAM(float);\nwson_push_ensure_size(buffer, (uint32_t)sizeof(float));\nwson_push_float(buffer, v);\n// Validation: buffer is valid; wrote sizeof(float) bytes; stream typing left to context."
+    },
+    {
+      "name": "wson_push_ulong",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Append a raw unsigned 64-bit payload (no type).\nuint64_t v = (uint64_t)*FUZZ_PARAM(uint64_t);\nwson_push_ensure_size(buffer, (uint32_t)sizeof(uint64_t));\nwson_push_ulong(buffer, v);\n// Validation: buffer is valid; wrote sizeof(uint64_t) bytes; no type signature is added."
+    },
+    {
+      "name": "wson_push_bytes",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Generate arbitrary bytes to append; cap size for performance.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 512) { s.resize(512); }\nint32_t len = (int32_t)s.size();\nconst void *src = len > 0 ? (const void*)s.data() : nullptr;\n// Ensure space for the payload.\nwson_push_ensure_size(buffer, (uint32_t)(len > 0 ? (uint32_t)len : 0));\nwson_push_bytes(buffer, src, len);\n// Validation: length >= 0 and src is non-null iff len > 0; appended raw bytes without any type."
+    },
+    {
+      "name": "wson_buffer_free",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [],
+      "code": "// If this buffer was created from external backing via wson_buffer_from in our harness,\n// free that backing before freeing the buffer to avoid leaks. We assume API does not free external memory.\nvoid *backing = FUZZ_GET_ATTR_PTR(buffer, \"external_backing_ptr\");\nif (backing) {\n    // backing was allocated with new[] in our harness\n    delete[] reinterpret_cast<char*>(backing);\n    FUZZ_SET_ATTR_PTR(buffer, \"external_backing_ptr\", nullptr);\n}\n// Now free the buffer via API. Buffer may be null; API is expected to no-op.\nwson_buffer_free(buffer);\n// Validation: We avoid use-after-free by not returning the buffer as output; any external backing is released exactly once."
+    },
+    {
+      "name": "wson_next_byte",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Enforce precondition: at least 1 remaining byte.\nif (!buffer || buffer->position >= buffer->length) { FUZZ_BAIL(); }\n( void ) wson_next_byte(buffer);\n// Validation: Only read when at least one byte remains; buffer is returned for continued use."
+    },
+    {
+      "name": "wson_next_type",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Need at least 1 byte to read a type signature.\nif (!buffer || buffer->position >= buffer->length) { FUZZ_BAIL(); }\n( void ) wson_next_type(buffer);\n// Validation: Stream advanced by one when possible; we do not assert alignment beyond size precondition."
+    },
+    {
+      "name": "wson_next_int",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Require enough bytes for a 32-bit integer payload.\nif (!buffer || (buffer->length - buffer->position) < sizeof(int32_t)) { FUZZ_BAIL(); }\n( void ) wson_next_int(buffer);\n// Validation: Only read when sufficient bytes remain; caller elsewhere manages any type prefix."
+    },
+    {
+      "name": "wson_next_uint",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Require enough bytes for a 32-bit unsigned integer payload.\nif (!buffer || (buffer->length - buffer->position) < sizeof(uint32_t)) { FUZZ_BAIL(); }\n( void ) wson_next_uint(buffer);\n// Validation: Size precondition enforced; type signature handling is out of scope here."
+    },
+    {
+      "name": "wson_next_double",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Require enough bytes for a double payload.\nif (!buffer || (buffer->length - buffer->position) < sizeof(double)) { FUZZ_BAIL(); }\n( void ) wson_next_double(buffer);\n// Validation: Only decode when enough bytes remain; type prefix assumed already handled by caller."
+    },
+    {
+      "name": "wson_next_float",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Require enough bytes for a float payload.\nif (!buffer || (buffer->length - buffer->position) < sizeof(float)) { FUZZ_BAIL(); }\n( void ) wson_next_float(buffer);\n// Validation: Size precondition enforced prior to reading payload."
+    },
+    {
+      "name": "wson_next_long",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Require enough bytes for a 64-bit integer payload.\nif (!buffer || (buffer->length - buffer->position) < sizeof(int64_t)) { FUZZ_BAIL(); }\n( void ) wson_next_long(buffer);\n// Validation: Sufficient bytes guaranteed; raw payload read without checking preceding type."
+    },
+    {
+      "name": "wson_next_ulong",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Require enough bytes for an unsigned 64-bit payload.\nif (!buffer || (buffer->length - buffer->position) < sizeof(uint64_t)) { FUZZ_BAIL(); }\n( void ) wson_next_ulong(buffer);\n// Validation: Size precondition enforced to prevent out-of-bounds reads."
+    },
+    {
+      "name": "wson_next_bts",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Choose a slice length within remaining bytes (capped for speed).\nif (!buffer) { FUZZ_BAIL(); }\nuint32_t remaining = (buffer->length > buffer->position) ? (buffer->length - buffer->position) : 0u;\nif (remaining == 0u) { FUZZ_BAIL(); }\nuint32_t cap = remaining < 512u ? remaining : 512u;\nuint32_t len = cap == 0u ? 0u : ((uint32_t)*FUZZ_PARAM(uint32_t) % cap);\n// Ensure non-zero to actually advance, otherwise bail to respect precondition intent.\nif (len == 0u) { len = 1u; if (len > remaining) { FUZZ_BAIL(); } }\n( void ) wson_next_bts(buffer, len);\n// Validation: length >= 1 and within remaining; returned pointer is ignored immediately to avoid invalidation issues."
+    },
+    {
+      "name": "wson_has_next",
+      "inputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// API requires non-null buffer; simply query and ignore result for coverage.\nif (!buffer) { FUZZ_BAIL(); }\n( void ) wson_has_next(buffer);\n// Validation: Non-null precondition enforced; buffer returned unchanged."
+    },
+    {
+      "name": "wson_buffer_from",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "buffer",
+          "type": "wson_buffer *"
+        }
+      ],
+      "code": "// Create stable backing storage whose lifetime we manage across stubs.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 1024) { s.resize(1024); }\nuint32_t len = (uint32_t)s.size();\nchar *backing = nullptr;\nconst void *src = nullptr;\nif (len > 0) {\n    backing = new char[len];\n    // Copy fuzz data into our stable heap buffer.\n    for (uint32_t i = 0; i < len; ++i) { backing[i] = s[i]; }\n    src = backing;\n}\n// Construct the buffer view; data may be null iff length == 0 per contract.\nwson_buffer *buffer = wson_buffer_from((void*)src, len);\nif (!buffer) {\n    // Cleanup on failure and bail.\n    if (backing) { delete[] backing; }\n    FUZZ_BAIL();\n}\n// Track external backing so we can free it when the buffer is freed.\nif (backing) {\n    FUZZ_SET_ATTR_PTR(buffer, \"external_backing_ptr\", (void*)backing);\n}\n// Validation: data non-null iff len>0; lifetime guaranteed by harness-managed backing; buffer returned as persistent output."
+    },
+    {
+      "name": "wson_parser::wson_parser",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Build stable backing bytes that outlive the parser object across stubs.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 1024) { s.resize(1024); }\n// Ensure at least 1 byte so constructor has something to read; if zero, provide a minimal byte.\nif (s.size() == 0) { s.push_back('\\0'); }\nsize_t len = s.size();\nchar *backing = new char[len];\nfor (size_t i = 0; i < len; ++i) { backing[i] = s[i]; }\n// Construct parser with pointer to our stable backing.\nwson_parser *parser = new wson_parser((const char*)backing);\nif (!parser) {\n    delete[] backing;\n    FUZZ_BAIL();\n}\n// Record backing so we can free it when parser is destroyed.\nFUZZ_SET_ATTR_PTR(parser, \"external_backing_ptr\", (void*)backing);\nFUZZ_SET_ATTR_INT(parser, \"external_backing_len\", (int)len);\n// Validation: Parser is constructed successfully; input bytes persist via harness-managed heap buffer."
+    },
+    {
+      "name": "wson_parser::~wson_parser",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Retrieve and release any harness-managed external backing before destroying the parser.\nvoid *backing = FUZZ_GET_ATTR_PTR(parser, \"external_backing_ptr\");\nif (backing) {\n    delete[] reinterpret_cast<char*>(backing);\n    FUZZ_SET_ATTR_PTR(parser, \"external_backing_ptr\", nullptr);\n}\n// Destroy the parser instance.\ndelete parser;\n// Validation: Parser is not returned, preventing use-after-free; any external backing is freed exactly once."
+    },
+    {
+      "name": "wson_parser::hasNext",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Ensure parser is non-null; then exercise hasNext.\nif (!parser) { FUZZ_BAIL(); }\n( void ) parser->hasNext();\n// Validation: Simple query; parser remains valid and is returned for further operations."
+    },
+    {
+      "name": "wson_parser::nextType",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Ensure parser is non-null; then read and advance one type byte if possible.\nif (!parser) { FUZZ_BAIL(); }\n( void ) parser->nextType();\n// Validation: Method advances internal state; we do not assert content semantics here; parser returned for continued use."
+    },
+    {
+      "name": "wson_parser::backType",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Precondition: position must be > 0 to step back.\nif (!parser) { FUZZ_BAIL(); }\nint pos = parser->getState();\nif (pos <= 0) { FUZZ_BAIL(); }\nparser->backType();\n// Validation: Ensured pos > 0 before calling backType; parser returned for continued use."
+    },
+    {
+      "name": "wson_parser::isMap",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Obtain a previously read type byte by advancing once, then query isMap.\nif (!parser) { FUZZ_BAIL(); }\n// Ensure at least one byte remains for nextType to read.\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos = parser->getState();\nif (len - pos < 1) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->isMap(t);\n// Validation: We read a type byte first to satisfy API contract; parser is preserved."
+    },
+    {
+      "name": "wson_parser::isArray",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type byte first, then check array predicate.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos = parser->getState();\nif (len - pos < 1) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->isArray(t);\n// Validation: Ensured at least one byte to read a type; parser is returned."
+    },
+    {
+      "name": "wson_parser::isString",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type byte first, then query string-like classification.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos = parser->getState();\nif (len - pos < 1) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->isString(t);\n// Validation: Type byte is obtained from the stream; result ignored; parser preserved."
+    },
+    {
+      "name": "wson_parser::isBool",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type byte first, then query boolean classification.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos = parser->getState();\nif (len - pos < 1) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->isBool(t);\n// Validation: Satisfies \"argument must be a previously read type byte\"; parser preserved."
+    },
+    {
+      "name": "wson_parser::isNumber",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type byte first, then query numeric classification.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos = parser->getState();\nif (len - pos < 1) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->isNumber(t);\n// Validation: Obtained a prior type byte; parser returned."
+    },
+    {
+      "name": "wson_parser::isNull",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type byte first, then query null classification.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos = parser->getState();\nif (len - pos < 1) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->isNull(t);\n// Validation: Ensured one byte available to read a type; parser preserved."
+    },
+    {
+      "name": "wson_parser::nextMapSize",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Must follow a map type and have enough bytes for a 32-bit size field.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos_before = parser->getState();\n// Need at least 1 (type) + 4 (size) bytes\nif (len - pos_before < 5) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\nif (!parser->isMap(t)) { FUZZ_BAIL(); }\n( void ) parser->nextMapSize();\n// Validation: Enforced map type and ensured >=4 payload bytes remain; parser returned."
+    },
+    {
+      "name": "wson_parser::nextArraySize",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Must follow an array type and have enough bytes for a 32-bit size field.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos_before = parser->getState();\nif (len - pos_before < 5) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\nif (!parser->isArray(t)) { FUZZ_BAIL(); }\n( void ) parser->nextArraySize();\n// Validation: Enforced array type and >=4 remaining bytes; parser preserved."
+    },
+    {
+      "name": "wson_parser::nextMapKeyUTF8",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Position should be at a map key; minimally ensure at least one byte remains to avoid empty stream.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos = parser->getState();\nif (len - pos < 1) { FUZZ_BAIL(); }\n( void ) parser->nextMapKeyUTF8();\n// Validation: Guarded against empty buffer; returned string is ignored; parser preserved."
+    },
+    {
+      "name": "wson_parser::nextStringUTF8",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type and then decode it as UTF-8 text; ensure sufficient bytes to read at least a type and 1 payload byte.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos_before = parser->getState();\nif (len - pos_before < 2) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->nextStringUTF8(t);\n// Validation: Ensured at least minimal remaining size; parser preserved for further operations."
+    },
+    {
+      "name": "wson_parser::nextNumber",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type and interpret next value as a number; ensure minimal remaining bytes.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos_before = parser->getState();\nif (len - pos_before < 2) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->nextNumber(t);\n// Validation: Basic size guard applied; numeric conversion exercised; parser preserved."
+    },
+    {
+      "name": "wson_parser::nextBool",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Read a type and interpret next value as boolean; ensure minimal remaining bytes.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos_before = parser->getState();\nif (len - pos_before < 2) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\n( void ) parser->nextBool(t);\n// Validation: Ensured at least a type + 1 byte remain; parser preserved."
+    },
+    {
+      "name": "wson_parser::skipValue",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Obtain the next type and skip that value; ensure at least one byte to read the type.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nint pos_before = parser->getState();\nif (len - pos_before < 1) { FUZZ_BAIL(); }\nuint8_t t = parser->nextType();\nparser->skipValue(t);\n// Validation: Avoided reading type from empty stream; skip executed; parser returned."
+    },
+    {
+      "name": "wson_parser::resetState",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Simply reset parser position to start.\nif (!parser) { FUZZ_BAIL(); }\nparser->resetState();\n// Validation: Parser remains valid and is returned for further use."
+    },
+    {
+      "name": "wson_parser::getState",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Query current position; ensure parser is valid.\nif (!parser) { FUZZ_BAIL(); }\n( void ) parser->getState();\n// Validation: Non-mutating call; parser returned."
+    },
+    {
+      "name": "wson_parser::restoreToState",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Choose a valid state within [0, length] and restore to it.\nif (!parser) { FUZZ_BAIL(); }\nint len = FUZZ_GET_ATTR_INT(parser, \"external_backing_len\");\nif (len < 0) { FUZZ_BAIL(); }\nunsigned int rnd = *FUZZ_PARAM(unsigned int);\nint target = (len == 0) ? 0 : (int)(rnd % (unsigned int)(len + 1));\n( void ) parser->restoreToState(target);\n// Validation: Target state constrained within valid range; parser returned."
+    },
+    {
+      "name": "wson_parser::toStringUTF8",
+      "inputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "parser",
+          "type": "wson_parser *"
+        }
+      ],
+      "code": "// Convert entire payload to a UTF-8 string representation.\nif (!parser) { FUZZ_BAIL(); }\n( void ) parser->toStringUTF8();\n// Validation: Non-throwing usage assumed; parser preserved for subsequent calls."
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a small UTF-16 input sequence and a sufficiently large decoding buffer.\nint length = (int)(*FUZZ_PARAM(unsigned int) % 256u); // cap for speed\nu16string u16;\nu16.resize(length);\nfor (int i = 0; i < length; ++i) {\n    u16[i] = (uint16_t)(*FUZZ_PARAM(uint16_t));\n}\n// Worst-case ~4 bytes per code unit plus slack.\nint bufSize = length * 4 + 8;\nif (bufSize < 8) bufSize = 8;\nstd::string out;\n// Allocate temporary buffer; ensure non-null and large enough.\nstd::string tmp;\ntmp.resize((size_t)bufSize);\nchar *dec = tmp.data();\n// Call conversion routine.\nwson::utf16_convert_to_utf8_string(u16.data(), length, dec, out);\n// Basic property: output should not exceed our temporary capacity per call contract."
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_quote_string",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate UTF-16 data and adequate decoding buffer for quoted output (allow extra for escapes).\nint length = (int)(*FUZZ_PARAM(unsigned int) % 256u);\nu16string u16;\nu16.resize(length);\nfor (int i = 0; i < length; ++i) {\n    u16[i] = (uint16_t)(*FUZZ_PARAM(uint16_t));\n}\n// Allow up to ~6 bytes per code unit for escaped content.\nint bufSize = length * 6 + 8;\nif (bufSize < 8) bufSize = 8;\nstd::string out;\nstd::string tmp;\ntmp.resize((size_t)bufSize);\nchar *dec = tmp.data();\n// Invoke quoted conversion.\nwson::utf16_convert_to_utf8_quote_string(u16.data(), length, dec, out);\n// Validation: Provided buffer is sized conservatively; out is a local that is discarded."
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_cstr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a UTF-16 sequence and a sufficiently large C-string buffer.\nint length = (int)(*FUZZ_PARAM(unsigned int) % 256u); // cap for performance and bounded buffer sizing\nu16string u16; u16.resize(length);\nfor (int i = 0; i < length; ++i) { u16[i] = (uint16_t)(*FUZZ_PARAM(uint16_t)); }\n// Worst-case UTF-8 expansion is ~4 bytes per 16-bit code unit, plus NUL terminator.\nint bufSize = length * 4 + 1; if (bufSize < 1) bufSize = 1; // ensure space for at least the terminator\n// Keep allocations modest per call.\nif (bufSize > 2048) { bufSize = 2048; }\nstd::string tmp; tmp.resize((size_t)bufSize);\nchar *cbuf = tmp.data();\n// Invoke conversion; contract requires buffer large enough for string + NUL.\nint written = wson::utf16_convert_to_utf8_cstr(u16.data(), length, cbuf);\n// Validate result range and NUL termination assumption (written excludes NUL per spec note).\nif (written < 0 || written >= bufSize) { FUZZ_BAIL(); }\nFUZZ_ASSERT(cbuf[written] == '\\0', \"utf16_convert_to_utf8_cstr must NUL-terminate the output\");\n// Validation: Buffer sized conservatively (4x + 1), result bounds-checked, and NUL terminator verified."
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_quote_cstr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate UTF-16 input and prepare a C-string buffer for quoted/escaped output.\nint length = (int)(*FUZZ_PARAM(unsigned int) % 256u);\nu16string u16; u16.resize(length);\nfor (int i = 0; i < length; ++i) { u16[i] = (uint16_t)(*FUZZ_PARAM(uint16_t)); }\n// Quoted strings can expand further due to escapes; allow ~6 bytes per unit + NUL.\nint bufSize = length * 6 + 1; if (bufSize < 1) bufSize = 1;\nif (bufSize > 2048) { bufSize = 2048; }\nstd::string tmp; tmp.resize((size_t)bufSize);\nchar *cbuf = tmp.data();\nint written = wson::utf16_convert_to_utf8_quote_cstr(u16.data(), length, cbuf);\n// Ensure the reported byte count fits the provided buffer and output is NUL-terminated.\nif (written < 0 || written >= bufSize) { FUZZ_BAIL(); }\nFUZZ_ASSERT(cbuf[written] == '\\0', \"utf16_convert_to_utf8_quote_cstr must NUL-terminate the output\");\n// Validation: Conservative buffer sizing for escapes, checked bounds, and verified NUL termination."
+    },
+    {
+      "name": "wson::str_append_number",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a target string and a random double to append as text.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 128) { s.resize(128); } // keep initial size modest\nsize_t before = s.size();\ndouble num = (double)*FUZZ_PARAM(double);\n// Append textual representation of the number.\nwson::str_append_number(s, num);\n// Property: function should not shrink the string.\nFUZZ_ASSERT(s.size() >= before, \"str_append_number should not shrink the target string\");\n// Validation: Exercises the append path with arbitrary doubles; verifies non-decreasing size invariant."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "wson_buffer_new",
+      "data_types": []
+    },
+    {
+      "name": "wson_buffer_require",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_boolean",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_int",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_long",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_double",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_float",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_null",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_map",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_array",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_ensure_size",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_int",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_uint",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_byte",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_double",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_float",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_ulong",
+      "data_types": []
+    },
+    {
+      "name": "wson_buffer_free",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_byte",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_type",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_int",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_uint",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_double",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_float",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_long",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_ulong",
+      "data_types": []
+    },
+    {
+      "name": "wson_next_bts",
+      "data_types": []
+    },
+    {
+      "name": "wson_has_next",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::~wson_parser",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::hasNext",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::nextType",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::backType",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::isMap",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::isArray",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::isString",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::isBool",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::isNumber",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::isNull",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::nextMapSize",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::nextArraySize",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::nextMapKeyUTF8",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::nextStringUTF8",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::nextNumber",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::nextBool",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::skipValue",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::resetState",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::getState",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::restoreToState",
+      "data_types": []
+    },
+    {
+      "name": "wson_parser::toStringUTF8",
+      "data_types": []
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_string",
+      "data_types": []
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_quote_string",
+      "data_types": []
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_cstr",
+      "data_types": []
+    },
+    {
+      "name": "wson::utf16_convert_to_utf8_quote_cstr",
+      "data_types": []
+    },
+    {
+      "name": "wson_push_type_string",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson_push_type_uint8_string",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson_push_type_extend",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson_push_type_string_length",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson_push_property",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson_push_bytes",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson_buffer_from",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson_parser::wson_parser",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "wson::str_append_number",
+      "data_types": []
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary bytes",
+      "description": "A sequence of raw bytes of any value and length. No specific encoding or structure is required (may contain binary data, UTF-8 text, or any other arbitrary content). Used when APIs accept a pointer and length to uninterpreted data or generic byte strings."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary bytes",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List, Tuple\n\n# This generator produces valid WSON-like payload bytes tailored to the provided fuzzing stubs.\n# It avoids malformed constructs and stays under 4096 bytes.\n\nWSON_NULL_TYPE = 0x00\nWSON_BOOLEAN_TYPE_FALSE = 0x01\nWSON_BOOLEAN_TYPE_TRUE = 0x02\nWSON_NUMBER_INT_TYPE = 0x10\nWSON_NUMBER_FLOAT_TYPE = 0x11\nWSON_NUMBER_LONG_TYPE = 0x12\nWSON_NUMBER_DOUBLE_TYPE = 0x13\nWSON_STRING_TYPE = 0x20\nWSON_UINT8_STRING_TYPE = 0x21\nWSON_NUMBER_BIG_INT_TYPE = 0x22\nWSON_NUMBER_BIG_DECIMAL_TYPE = 0x23\nWSON_MAP_TYPE = 0x30\nWSON_ARRAY_TYPE = 0x31\nWSON_EXTEND_TYPE = 0x40\n\n# Little-endian packers\n\ndef u32(n: int) -> bytes:\n    return struct.pack('<I', n & 0xFFFFFFFF)\n\ndef i32(n: int) -> bytes:\n    # struct handles range checking; do not mask signed values\n    return struct.pack('<i', int(n))\n\ndef u64(n: int) -> bytes:\n    return struct.pack('<Q', n & 0xFFFFFFFFFFFFFFFF)\n\ndef i64(n: int) -> bytes:\n    return struct.pack('<q', int(n))\n\ndef f32(x: float) -> bytes:\n    return struct.pack('<f', float(x))\n\ndef f64(x: float) -> bytes:\n    return struct.pack('<d', float(x))\n\n# Content generators\n\ndef rand_utf8(rng: random.Random, max_len: int) -> bytes:\n    # Generate valid UTF-8 with mixed ranges, up to max_len bytes\n    if max_len <= 0:\n        return b\"\"\n    choices = [chr(c) for c in range(0x20, 0x7F)]\n    choices += ['\\t', '\\n', '\\r', ' ', '\"', '\\\\']\n    multiranges = [\n        (0x00A1, 0x00FF),\n        (0x0100, 0x017F),\n        (0x0400, 0x04FF),\n        (0x0370, 0x03FF),\n        (0x4E00, 0x4F8F),\n        (0x20AC, 0x20AC),\n        (0x1F600, 0x1F64F),\n    ]\n    target = rng.randint(0, max_len)\n    s: List[str] = []\n    while True:\n        b = ''.join(s).encode('utf-8')\n        if len(b) >= target:\n            return b[:target]\n        if rng.random() < 0.7:\n            s.append(rng.choice(choices))\n        else:\n            lo, hi = rng.choice(multiranges)\n            s.append(chr(rng.randint(lo, hi)))\n\n\ndef rand_bytes(rng: random.Random, max_len: int) -> bytes:\n    if max_len <= 0:\n        return b\"\"\n    ln = rng.randint(0, max_len)\n    if ln == 0:\n        return b\"\"\n    if rng.random() < 0.4:\n        # Segmented mixture\n        parts: List[bytes] = []\n        remaining = ln\n        while remaining > 0:\n            seg = rng.randint(1, min(32, remaining))\n            kind = rng.random()\n            if kind < 0.25:\n                parts.append(os.urandom(seg))\n            elif kind < 0.5:\n                parts.append(bytes([rng.randrange(256)]) * seg)\n            elif kind < 0.75:\n                parts.append(rand_utf8(rng, seg))\n            else:\n                parts.append(bytes(rng.randrange(256) for _ in range(seg)))\n            remaining -= seg\n        return b\"\".join(parts)[:ln]\n    elif rng.random() < 0.7:\n        return rand_utf8(rng, ln)\n    else:\n        # Simple patterns\n        return rng.choice([b\"\\x00\"*ln, b\"\\xFF\"*ln, b\"A\"*ln, (b\"\\x00\\xFF\"*(ln//2)) + (b\"\\x00\" if ln%2 else b\"\")])\n\n# WSON builders\n\ndef wson_string(rng: random.Random, max_payload: int = 512) -> bytes:\n    payload = rand_utf8(rng, max_payload)\n    return bytes([WSON_STRING_TYPE]) + i32(len(payload)) + payload\n\n\ndef wson_uint8_string(rng: random.Random, max_payload: int = 512) -> bytes:\n    payload = rand_bytes(rng, max_payload)\n    return bytes([WSON_UINT8_STRING_TYPE]) + i32(len(payload)) + payload\n\n\ndef wson_extend(rng: random.Random, max_payload: int = 512) -> bytes:\n    payload = rand_bytes(rng, max_payload)\n    return bytes([WSON_EXTEND_TYPE]) + i32(len(payload)) + payload\n\n\ndef wson_string_length_then_bytes(rng: random.Random, max_payload: int = 512) -> bytes:\n    payload = rand_utf8(rng, max_payload)\n    # Same wire form as push_type_string followed by payload bytes\n    return bytes([WSON_STRING_TYPE]) + i32(len(payload)) + payload\n\n\ndef wson_property_map_single(rng: random.Random) -> bytes:\n    key = rand_utf8(rng, 128)\n    b = bytearray()\n    b.append(WSON_MAP_TYPE)\n    b += u32(1)\n    b.append(WSON_STRING_TYPE)\n    b += i32(len(key))\n    b += key\n    b.append(WSON_NULL_TYPE)\n    return bytes(b)\n\n\ndef wson_number(rng: random.Random) -> bytes:\n    choice = rng.choice(['i32', 'i64', 'f32', 'f64'])\n    if choice == 'i32':\n        return bytes([WSON_NUMBER_INT_TYPE]) + i32(rng.randint(-2**31, 2**31 - 1))\n    if choice == 'i64':\n        # Avoid bit-masking; give a valid int64 in range\n        n = rng.randint(-2**63 + 1, 2**63 - 1)  # exclude exact -2**63 to avoid edge in some libs\n        return bytes([WSON_NUMBER_LONG_TYPE]) + i64(n)\n    if choice == 'f32':\n        vals = [0.0, -0.0, 1.0, -1.0, 3.14159, float('inf'), float('-inf'), rng.uniform(-1e6, 1e6)]\n        v = rng.choice(vals)\n        return bytes([WSON_NUMBER_FLOAT_TYPE]) + f32(v)\n    vals = [0.0, -0.0, 1.0, -1.0, 3.1415926535, float('inf'), float('-inf'), rng.uniform(-1e12, 1e12)]\n    v = rng.choice(vals)\n    return bytes([WSON_NUMBER_DOUBLE_TYPE]) + f64(v)\n\n\ndef wson_bool(rng: random.Random) -> bytes:\n    return bytes([WSON_BOOLEAN_TYPE_TRUE if rng.random() < 0.5 else WSON_BOOLEAN_TYPE_FALSE])\n\n\ndef wson_string_like_numeric(rng: random.Random) -> bytes:\n    txt = str(rng.choice([0, 1, -1, 42, -273, 2147483647, -2147483648, 3.14159, -0.0001, 1e9]))\n    payload = txt.encode('utf-8')\n    t = rng.choice([WSON_STRING_TYPE, WSON_UINT8_STRING_TYPE, WSON_NUMBER_BIG_INT_TYPE, WSON_NUMBER_BIG_DECIMAL_TYPE])\n    return bytes([t]) + i32(len(payload)) + payload\n\n\ndef wson_array(rng: random.Random, budget: int) -> bytes:\n    items: List[bytes] = []\n    max_items = min(6, max(0, budget // 8))\n    n = rng.randint(0, max_items) if max_items > 0 else 0\n    for _ in range(n):\n        item = wson_value(rng, max(8, budget // max(1, n)))\n        items.append(item)\n    b = bytearray()\n    b.append(WSON_ARRAY_TYPE)\n    b += u32(len(items))\n    for it in items:\n        b += it\n    return bytes(b)\n\n\ndef wson_map(rng: random.Random, budget: int) -> bytes:\n    entries: List[Tuple[bytes, bytes]] = []\n    max_items = min(6, max(0, budget // 16))\n    n = rng.randint(0, max_items) if max_items > 0 else 0\n    for _ in range(n):\n        key = rand_utf8(rng, 32)\n        key_field = bytes([WSON_STRING_TYPE]) + i32(len(key)) + key\n        val = wson_value(rng, max(8, budget // max(1, n)))\n        entries.append((key_field, val))\n    b = bytearray()\n    b.append(WSON_MAP_TYPE)\n    b += u32(len(entries))\n    for k, v in entries:\n        b += k\n        b += v\n    return bytes(b)\n\n\ndef wson_value(rng: random.Random, budget: int) -> bytes:\n    choices = [\n        lambda: wson_string(rng, min(64, budget)),\n        lambda: wson_uint8_string(rng, min(64, budget)),\n        lambda: wson_extend(rng, min(64, budget)),\n        lambda: wson_string_length_then_bytes(rng, min(64, budget)),\n        lambda: wson_number(rng),\n        lambda: wson_bool(rng),\n        lambda: bytes([WSON_NULL_TYPE]),\n        lambda: wson_property_map_single(rng),\n        lambda: wson_string_like_numeric(rng),\n        lambda: wson_array(rng, max(32, budget // 2)),\n        lambda: wson_map(rng, max(32, budget // 2)),\n    ]\n    weights = [10, 8, 5, 7, 9, 6, 4, 3, 5, 4, 4]\n    choice = rng.choices(choices, weights=weights, k=1)[0]\n    return choice()\n\n\ndef build_blob_for_stub_family(rng: random.Random) -> bytes:\n    parts: List[bytes] = []\n    builders = [\n        lambda: wson_string(rng, 200),\n        lambda: wson_uint8_string(rng, 200),\n        lambda: wson_extend(rng, 200),\n        lambda: wson_string_length_then_bytes(rng, 200),\n        lambda: wson_property_map_single(rng),\n        lambda: wson_number(rng),\n        lambda: wson_bool(rng),\n        lambda: bytes([WSON_NULL_TYPE]),\n        lambda: wson_array(rng, 128),\n        lambda: wson_map(rng, 128),\n    ]\n    rng.shuffle(builders)\n    for b in builders:\n        chunk = b()\n        parts.append(chunk)\n        if sum(len(p) for p in parts) > 1024:\n            break\n    return b\"\".join(parts)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    strategy = rng.choices([0, 1, 2], weights=[5, 3, 2], k=1)[0]\n\n    if strategy == 0:\n        builder = rng.choice([\n            lambda: wson_string(rng, 512),\n            lambda: wson_uint8_string(rng, 512),\n            lambda: wson_extend(rng, 512),\n            lambda: wson_string_length_then_bytes(rng, 512),\n            lambda: wson_property_map_single(rng),\n            lambda: wson_number(rng),\n            lambda: wson_bool(rng),\n            lambda: bytes([WSON_NULL_TYPE]),\n            lambda: wson_array(rng, 256),\n            lambda: wson_map(rng, 256),\n        ])\n        blob = builder()\n    elif strategy == 1:\n        blob = build_blob_for_stub_family(rng)\n    else:\n        blob = rand_bytes(rng, 1024)\n\n    return blob[:4096]\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3453,
+            "output_tokens": 1054,
+            "total_tokens": 4507
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3031,
+            "output_tokens": 434,
+            "total_tokens": 3465
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3942,
+            "output_tokens": 7117,
+            "total_tokens": 11059
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 60949,
+            "output_tokens": 16376,
+            "total_tokens": 77325
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9759,
+            "output_tokens": 228,
+            "total_tokens": 9987
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 507.06289529800415,
+    "scan_objects": 21.133051872253418,
+    "validate_objects": 0.37439775466918945,
+    "scan_functions": 86.71314787864685,
+    "synthesis": 294.3518180847168,
+    "fill": 0,
+    "classify": 4.46965479850769,
+    "build_generators": 100.01948690414429
+  }
+}

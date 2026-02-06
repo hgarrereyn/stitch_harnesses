@@ -1,0 +1,333 @@
+{
+  "objects": [
+    {
+      "ptr_type": "enum receiver_type *",
+      "aliases": [
+        "receiver_type *"
+      ],
+      "definition": "enum receiver_type {\n  Unicast, Multicast, SharedMem, Pcap\n};",
+      "description": "Enumeration of receiver transport types. Values likely select how data is received (unicast UDP/TCP, multicast, shared memory, or pcap source). Exact semantics are not documented here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "enum output_type *",
+      "aliases": [
+        "output_type *"
+      ],
+      "definition": "enum output_type {\n  Raw, Alsa, Pulseaudio, Jack, Sndio\n};",
+      "description": "Enumeration of audio output backends or formats: raw output or specific audio subsystems (ALSA, PulseAudio, JACK, sndio).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "receiver_format_t *",
+      "aliases": [
+        "struct receiver_format *"
+      ],
+      "definition": "typedef struct receiver_format {\n  unsigned char sample_rate;\n  unsigned char sample_size;\n  unsigned char channels;\n  uint16_t channel_map;\n} receiver_format_t;",
+      "description": "Audio format description for received data, including sample rate, sample size, channel count, and a bitmask channel map. Note: sample_rate/sample_size are 8-bit fields; the units/encoding (e.g., Hz code vs actual Hz) are not specified here.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "receiver_data_t *"
+      ]
+    },
+    {
+      "ptr_type": "receiver_data_t *",
+      "aliases": [
+        "struct receiver_data *"
+      ],
+      "definition": "typedef struct receiver_data {\n  receiver_format_t format;\n  unsigned int audio_size;\n  unsigned char* audio;\n} receiver_data_t;",
+      "description": "Container for a received audio buffer, including its format, size in bytes, and pointer to the audio data buffer. Ownership/allocation semantics for 'audio' are not defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "rctx_network_t *",
+      "aliases": [
+        "struct rctx_network *"
+      ],
+      "definition": "typedef struct rctx_network {\n  int sockfd;\n  struct sockaddr_in servaddr;\n  struct ip_mreq imreq;\n  unsigned char buf[MAX_SO_PACKETSIZE];\n} rctx_network_t;",
+      "description": "Network runtime context holding a UDP socket descriptor, destination/server address, multicast request settings, and a receive buffer sized to the socket payload plus header. Intended to be passed around to functions managing network I/O for the receiver. Exact lifecycle and ownership policies are not documented here; caller is expected to allocate and initialize via the provided API before use.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct shmheader *",
+      "aliases": [],
+      "definition": "struct shmheader {\n  uint32_t magic;\n  uint16_t write_idx;\n  uint8_t  offset;\n  uint16_t max_chunks;\n  uint32_t chunk_size;\n  uint8_t  sample_rate;\n  uint8_t  sample_size;\n  uint8_t  channels;\n  uint16_t channel_map;\n};",
+      "description": "Shared-memory header structure describing a circular buffer of audio-like data. Fields include magic identifier, producer write index, consumer-producer offset, number of chunks, per-chunk size, and basic audio parameters (sample rate, sample size, channels, channel map). Exact semantics beyond names are not documented in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "rctx_shmem_t *",
+      "aliases": [
+        "struct rctx_shmem *"
+      ],
+      "definition": "typedef struct rctx_shmem {\n  unsigned char* mmap;\n  uint16_t read_idx;\n} rctx_shmem_t;",
+      "description": "Reader context for shared memory. Holds the mmap'ed region pointer and the consumer read index used when receiving from the shared-memory ring buffer. Lifecycle and synchronization details are not specified in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "receiver_data_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "Incomplete type referenced from this header. It is not defined here; likely provided by scream.h. Purpose appears to represent data destined for a receiver in the raw output module, but details are unknown due to missing definition.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "init_network",
+      "signature": "int init_network(enum receiver_type receiver_mode, in_addr_t interface, int port, char* multicast_group);",
+      "description": "Initializes the networking layer for the receiver, likely creating and configuring a UDP socket and, depending on receiver_mode, optionally joining a multicast group. Typical usage is to call this once during startup, prior to any packet reception via rcv_network. Return value semantics are not documented here; consult the implementation or headers for exact success/failure indicators. DEFAULT_MULTICAST_GROUP and DEFAULT_PORT macros suggest typical defaults when the caller does not specify custom values.",
+      "requirements": [
+        "Must be called before any calls to rcv_network.",
+        "port should be a valid IPv4 UDP port number in the range 1–65535; using 0 (ephemeral) is unlikely to be supported for a receiver.",
+        "multicast_group, if used, must point to a NUL-terminated string containing an IPv4 address; if operating in multicast mode it should be a valid multicast address (224.0.0.0–239.255.255.255).",
+        "interface must be a valid IPv4 interface address (in_addr_t); INADDR_ANY may be acceptable for binding to all interfaces, but the exact expectation (host vs. network byte order) is unknown from this header.",
+        "The function likely performs socket-related operations and may fail due to system errors (e.g., inability to bind/join multicast); callers must check the return value and handle failure appropriately (exact return convention unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "rcv_network",
+      "signature": "void rcv_network(receiver_data_t* receiver_data);",
+      "description": "Receives network packets and delivers them into the receiver’s data structures pointed to by receiver_data. Intended to be called after successful initialization via init_network. It likely blocks or polls on the configured socket and processes inbound packets according to the receiver pipeline defined in scream.h.",
+      "requirements": [
+        "receiver_data must be a valid, non-NULL pointer to an initialized receiver_data_t as defined in scream.h.",
+        "init_network must have been successfully called prior to invoking this function, so that the underlying socket and network state are configured.",
+        "Thread-safety and reentrancy are not specified; do not call concurrently from multiple threads unless documented elsewhere.",
+        "Error reporting behavior is not specified; since the function returns void, any error handling is likely internal or via fields/callbacks in receiver_data_t (unknown from this header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "init_shmem",
+      "signature": "int init_shmem(char* shmem_device_file, int target_latency_ms);",
+      "description": "Initializes access to a shared-memory region used by the receiver. Based on the header contents (shmheader and rctx_shmem_t), this likely opens and mmaps a device/file that backs a ring buffer carrying audio or similar streaming data, preparing internal state for subsequent receive operations. Typical usage: call once during startup with the path to the shared-memory device/file and a target latency in milliseconds, then proceed to receive data with rcv_shmem. Return-value semantics are not documented here; callers should check and handle the returned int according to the implementation or project docs.",
+      "requirements": [
+        "shmem_device_file must be a non-NULL, NUL-terminated C string path to the shared-memory device/file.",
+        "The process must have permission to open/map the specified device/file (filesystem and OS permissions).",
+        "target_latency_ms is expected to be a non-negative integer representing milliseconds; exact range/meaning is not documented.",
+        "Must be called before any calls to rcv_shmem to ensure shared-memory context is initialized.",
+        "Thread-safety and reentrancy are not documented; assume not thread-safe unless implementation states otherwise.",
+        "Return-value conventions (e.g., 0 on success vs. negative on failure) are not documented; callers must consult the implementation and handle all non-success values."
+      ],
+      "error": null
+    },
+    {
+      "name": "rcv_shmem",
+      "signature": "void rcv_shmem(receiver_data_t* receiver_data);",
+      "description": "Receives data from the shared-memory transport into the provided receiver context. The function likely reads from the mmapped ring buffer described by shmheader and delivers data into or via receiver_data (type defined in scream.h). Typical usage: after successful init_shmem, call rcv_shmem in a loop or from a receive thread to pull incoming data; behavior regarding blocking or callbacks is not documented here.",
+      "requirements": [
+        "receiver_data must be a valid, non-NULL pointer to a receiver_data_t object as defined in scream.h.",
+        "receiver_data must be initialized/prepared according to scream.h and project conventions before calling this function (exact initialization requirements not documented here).",
+        "init_shmem must have completed successfully before calling rcv_shmem, so that shared memory is open and mapped.",
+        "Calling context/thread-safety, blocking behavior, and lifetime requirements are not documented; avoid concurrent calls unless implementation guarantees safety."
+      ],
+      "error": null
+    },
+    {
+      "name": "raw_output_init",
+      "signature": "int raw_output_init();",
+      "description": "Initializes the raw output subsystem used by this module. Typically called before sending any data via raw_output_send. Returns an int status code; the specific success/failure convention is not documented here. Details of what is initialized are unknown due to missing documentation.",
+      "requirements": [
+        "Must be called before using raw_output_send (inferred from naming and common library patterns).",
+        "Caller should check the returned int to determine success or failure; exact conventions are unknown.",
+        "Thread-safety, idempotency, and lifetime semantics are unknown from the header alone."
+      ],
+      "error": null
+    },
+    {
+      "name": "raw_output_send",
+      "signature": "int raw_output_send(receiver_data_t *data);",
+      "description": "Sends raw output using the provided receiver_data_t payload. Intended to transmit or process a unit of receiver data after initialization by raw_output_init. Returns an int status code; exact success/failure semantics are not documented here. The structure receiver_data_t is defined in scream.h and its required fields/format are unknown from this header.",
+      "requirements": [
+        "data must not be NULL (inferred from pointer argument).",
+        "data must point to a valid, initialized receiver_data_t as defined in scream.h (inferred).",
+        "raw_output_init should have been successfully called before invoking this function (inferred from typical init/send patterns).",
+        "Caller should check the returned int to determine success or failure; exact conventions are unknown.",
+        "Ownership and lifetime of data after the call are unspecified; assume caller retains ownership unless documented elsewhere."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "init_network",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid receiver_mode from the enum range [0,3]\nunsigned int mode_idx = *FUZZ_PARAM(unsigned int) % 4; // Unicast, Multicast, SharedMem, Pcap\nenum receiver_type mode = static_cast<enum receiver_type>(mode_idx);\n\n// Generate an interface address (in_addr_t). Endianness expectation is unspecified; we pass the raw value.\nin_addr_t interface = static_cast<in_addr_t>(*FUZZ_PARAM(uint32_t));\n\n// Constrain port to valid UDP port range [1, 65535]\nint port = static_cast<int>((*FUZZ_PARAM(unsigned int) % 65535) + 1);\n\n// multicast_group: only provide a valid IPv4 address string when in Multicast mode; otherwise pass NULL.\n// Build a syntactically valid IPv4 address string. For Multicast, first octet in [224,239].\nstd::string multicast_str;\nconst char *multicast_group_c = nullptr;\nif (mode == Multicast) {\n    unsigned int o1 = 224 + (*FUZZ_PARAM(unsigned int) % 16); // 224-239\n    unsigned int o2 = *FUZZ_PARAM(unsigned int) % 256;\n    unsigned int o3 = *FUZZ_PARAM(unsigned int) % 256;\n    unsigned int o4 = *FUZZ_PARAM(unsigned int) % 256;\n    multicast_str = std::to_string(o1) + \".\" + std::to_string(o2) + \".\" + std::to_string(o3) + \".\" + std::to_string(o4);\n    multicast_group_c = multicast_str.c_str();\n} else {\n    multicast_group_c = nullptr; // not used for non-multicast modes\n}\n\n// Invoke the target function; treat non-zero return as failure per typical C conventions when unspecified.\nint rc = init_network(mode, interface, port, const_cast<char *>(multicast_group_c));\nif (rc != 0) { FUZZ_BAIL(); }\n\n// Record successful initialization for downstream stubs like rcv_network\nFUZZ_SET_ATTR_INT_GLOBAL(\"network_initialized\", 1);\nFUZZ_SET_ATTR_INT_GLOBAL(\"network_mode\", static_cast<int>(mode));\n\n// Validation: Ensured port range and multicast address constraints; recorded success in global attributes for later checks."
+    },
+    {
+      "name": "rcv_network",
+      "inputs": [
+        {
+          "name": "receiver_data",
+          "type": "receiver_data_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "receiver_data",
+          "type": "receiver_data_t *"
+        }
+      ],
+      "code": "// Enforce that init_network has completed successfully before receiving\ntypedef receiver_data_t RD;\nint net_init = FUZZ_GET_ATTR_INT_GLOBAL(\"network_initialized\");\nif (net_init != 1) { FUZZ_BAIL(); }\n\n// receiver_data must be non-null; runtime guarantees inputs are non-null.\n// Initialize fields to a safe baseline so the callee can populate them as needed.\nreceiver_data->format.sample_rate = 0;\nreceiver_data->format.sample_size = 0;\nreceiver_data->format.channels    = 0;\nreceiver_data->format.channel_map = 0;\nreceiver_data->audio_size = 0;\nreceiver_data->audio = nullptr; // avoid dangling pointers; callee may set/allocate\n\n// Call the target function; it may block or poll internally. Assumed fast in fuzzer context.\nrcv_network(receiver_data);\n\n// Return receiver_data as an output so the fuzzer runtime retains any state populated by rcv_network.\n\n// Validation: Guarded by global init flag and ensured input struct is initialized; ownership is preserved by returning receiver_data."
+    },
+    {
+      "name": "init_shmem",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a valid filename to a fuzz-created file; ensure NUL-terminated C string\nconst char *path_const = FUZZ_PARAM_FILENAME();\n// API expects a mutable char*, but we will not modify it; cast is safe for call sites that only read\nchar *path = const_cast<char *>(path_const);\n\n// Constrain latency to a small, non-negative range to keep runtime fast\nunsigned int raw = *FUZZ_PARAM(unsigned int);\nint target_latency_ms = (int)(raw % 2000); // [0,1999] ms\n\n// Call the target function\nint rc = init_shmem(path, target_latency_ms);\n\n// Track initialization state for dependent stubs (e.g., rcv_shmem)\nFUZZ_SET_ATTR_INT_GLOBAL(\"shmem_last_rc\", rc);\nFUZZ_SET_ATTR_INT_GLOBAL(\"shmem_ready\", (rc == 0) ? 1 : 0);\n\n// Validation summary: We ensure path is a valid filename and latency is non-negative and bounded.\n// We record rc and a boolean \"shmem_ready\" (rc==0) for downstream checks; no objects are returned."
+    },
+    {
+      "name": "receiver_data_t *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "receiver_data",
+          "type": "receiver_data_t *"
+        }
+      ],
+      "code": "// Construct a standalone receiver_data_t with a self-owned audio buffer.\n// This type appears user-managed with no API constructor; we allocate and initialize it here.\n\n// Choose reasonable audio parameters within safe bounds.\nunsigned int ch_raw = *FUZZ_PARAM(unsigned int);\nunsigned char channels = static_cast<unsigned char>((ch_raw % 8) + 1); // [1..8]\n\n// Choose sample size in bits from a common set {8,16,24,32}\nunsigned int ss_idx = *FUZZ_PARAM(unsigned int) % 4;\nunsigned char sample_bits = (ss_idx == 0 ? 8 : (ss_idx == 1 ? 16 : (ss_idx == 2 ? 24 : 32)));\nunsigned int sample_bytes = sample_bits / 8; // 1,2,3,4\nif (sample_bytes == 0) { FUZZ_BAIL(); }\n\n// Choose an 8-bit sample rate code; store common kHz values that fit in a byte\nunsigned int sr_idx = *FUZZ_PARAM(unsigned int) % 8;\nconst unsigned char sr_table[8] = {8, 11, 16, 22, 32, 44, 48, 96}; // kHz codes; semantics not guaranteed but valid u8\nunsigned char sample_rate_code = sr_table[sr_idx];\n\n// Build a channel map with the lowest \"channels\" bits set\nuint16_t channel_map = (channels >= 16) ? 0xFFFFu : (uint16_t)((1u << channels) - 1u);\n\n// Compute a frame size and an audio buffer size within limits, aligned to whole frames.\nunsigned int frame_size = (unsigned int)channels * (unsigned int)sample_bytes; // bytes per frame\nif (frame_size == 0) { FUZZ_BAIL(); }\n\nunsigned int max_bytes = 1536; // keep allocations small (<2048)\nunsigned int max_frames = max_bytes / frame_size;\nif (max_frames == 0) { FUZZ_BAIL(); }\nunsigned int frames = (unsigned int)((*FUZZ_PARAM(unsigned int) % max_frames) + 1); // [1..max_frames]\nunsigned int audio_size_u = frames * frame_size;\n\n// Allocate the receiver_data_t object and its audio buffer.\nreceiver_data_t *receiver_data = (receiver_data_t*)malloc(sizeof(receiver_data_t));\nif (!receiver_data) { FUZZ_BAIL(); }\nunsigned char *audio_buf = (unsigned char*)malloc(audio_size_u);\nif (!audio_buf) { free(receiver_data); FUZZ_BAIL(); }\n\n// Fill audio buffer with fuzz data, padding with zeros if needed.\nstd::string blob = FUZZ_PARAM_STR();\nsize_t to_copy = blob.size() < (size_t)audio_size_u ? blob.size() : (size_t)audio_size_u;\nif (to_copy > 0) { memcpy(audio_buf, blob.data(), to_copy); }\nif (to_copy < (size_t)audio_size_u) { memset(audio_buf + to_copy, 0, (size_t)audio_size_u - to_copy); }\n\n// Initialize the format and container fields.\nreceiver_data->format.sample_rate = sample_rate_code; // 8-bit code/value\nreceiver_data->format.sample_size = sample_bits;      // bits per sample (fits in u8)\nreceiver_data->format.channels    = channels;\nreceiver_data->format.channel_map = channel_map;\nreceiver_data->audio_size         = audio_size_u;\nreceiver_data->audio              = audio_buf;\n\n// Properties we expect to always hold by construction.\nFUZZ_ASSERT((receiver_data->audio_size % frame_size) == 0, \"audio_size must be a multiple of frame size\");\nFUZZ_ASSERT(receiver_data->audio != nullptr, \"audio buffer must be allocated\");\n\n// Track useful attributes for downstream stubs (e.g., raw_output_send or receivers).\nFUZZ_SET_ATTR_INT(receiver_data, \"channels\", channels);\nFUZZ_SET_ATTR_INT(receiver_data, \"sample_bits\", sample_bits);\nFUZZ_SET_ATTR_INT(receiver_data, \"frame_size\", (int)frame_size);\nFUZZ_SET_ATTR_INT(receiver_data, \"audio_size\", (int)audio_size_u);\n\n// Validation summary: We allocate a fresh receiver_data_t with a bounded, frame-aligned audio buffer\n// and initialize its format consistently; attributes record key invariants for later checks."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "rcv_shmem",
+      "reason": "rcv_shmem depends on a live shared-memory producer and may block waiting for data, which cannot be safely ensured in the fuzzer environment."
+    },
+    {
+      "name": "raw_output_init",
+      "reason": "Linking pulls in raw.o which references external global symbol 'verbosity'; defining globals is disallowed by the harness constraints."
+    },
+    {
+      "name": "raw_output_send",
+      "reason": "The implementation references an external global 'verbosity' causing unresolved symbol at link time, and the harness cannot provide global definitions."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "init_network",
+      "data_types": []
+    },
+    {
+      "name": "rcv_network",
+      "data_types": []
+    },
+    {
+      "name": "init_shmem",
+      "data_types": [
+        "filesystem path",
+        "arbitrary binary data file"
+      ]
+    },
+    {
+      "name": "receiver_data_t *",
+      "data_types": [
+        "arbitrary binary blob"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "filesystem path",
+      "description": "A NUL-terminated string representing a valid path in the local filesystem. It may be absolute or relative, and must be suitable for opening as a file/device by OS APIs."
+    },
+    {
+      "data_type": "arbitrary binary data file",
+      "description": "A file whose contents are arbitrary bytes with no prescribed structure. The filename points to this file, and the callee is expected to read bytes from it."
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "description": "An in-memory byte buffer with no required format or encoding. The content may be any sequence of bytes of arbitrary length."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport struct\n\n# Generator for a valid filesystem path to back init_shmem(shmem_device_file, target_latency_ms)\n# The fuzzer stub uses FUZZ_PARAM_FILENAME() to create a file and pass its path.\n# We will generate a plausible path and embed initial file content that resembles a valid\n# shared-memory device file with a shmheader followed by ring buffer chunks.\n# This helps downstream code that might mmap/read and validate the header.\n#\n# shmheader layout (from header):\n# struct shmheader {\n#   uint32_t magic;\n#   uint16_t write_idx;\n#   uint8_t  offset;\n#   uint16_t max_chunks;\n#   uint32_t chunk_size;\n#   uint8_t  sample_rate;\n#   uint8_t  sample_size;\n#   uint8_t  channels;\n#   uint16_t channel_map;\n# };\n# Total size: 4 + 2 + 1 + 2 + 4 + 1 + 1 + 1 + 2 = 18 bytes.\n# We assume little-endian unless otherwise specified; many projects on Linux use native-endian.\n#\n# We will construct a header with consistent values and append N chunks of zero/pattern data.\n# The returned bytes buffer will be a small container format for the fuzz harness to write to disk\n# (FUZZ_PARAM_FILENAME provides a file already; in some setups the initial bytes are used to seed\n# that file). Keeping under 4096 bytes total as requested.\n\nMIN_CHUNKS = 2\nMAX_CHUNKS = 32\nMIN_CHUNK_SIZE = 64\nMAX_CHUNK_SIZE = 1024\n\nSAMPLE_RATES = [8, 11, 12, 16, 22, 24, 32, 44, 48, 88, 96, 176, 192]  # kHz codes (assumed)\nSAMPLE_SIZES = [8, 16, 24, 32]  # bits per sample\nCHANNEL_CONFIGS = [\n    (1, 0x0001),           # mono\n    (2, 0x0003),           # stereo L+R\n    (6, 0x003F),           # 5.1\n    (8, 0x00FF),           # 7.1\n]\n\nMAGIC_VALUES = [0x53484D52, 0xDEADBEEF, 0xA11CE5CE]  # 'SHMR' plus common sentinels\n\ndef _pick(rng):\n    # Create a coherent random but valid configuration\n    magic = rng.choice(MAGIC_VALUES)\n    max_chunks = rng.randint(MIN_CHUNKS, MAX_CHUNKS)\n    chunk_size = rng.randrange(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE + 1, 16)\n    write_idx = rng.randrange(0, max_chunks)\n    # offset in range [0, max_chunks-1]\n    offset = rng.randrange(0, max_chunks) if max_chunks > 0 else 0\n\n    # pick audio params\n    sr_khz = rng.choice(SAMPLE_RATES)\n    # Most fields are uint8; clamp to 255\n    sample_rate_code = max(1, min(255, sr_khz))\n    ss_bits = rng.choice(SAMPLE_SIZES)\n    sample_size_code = max(1, min(255, ss_bits))\n    channels, chmap = rng.choice(CHANNEL_CONFIGS)\n    channels_code = max(1, min(255, channels))\n    channel_map = chmap & 0xFFFF\n\n    return {\n        'magic': magic,\n        'write_idx': write_idx,\n        'offset': offset,\n        'max_chunks': max_chunks,\n        'chunk_size': chunk_size,\n        'sample_rate': sample_rate_code,\n        'sample_size': sample_size_code,\n        'channels': channels_code,\n        'channel_map': channel_map,\n    }\n\n\ndef _build_header(cfg):\n    # Little-endian packing of the shmheader\n    return struct.pack(\n        '<I H B H I B B B H',\n        cfg['magic'],\n        cfg['write_idx'],\n        cfg['offset'],\n        cfg['max_chunks'],\n        cfg['chunk_size'],\n        cfg['sample_rate'],\n        cfg['sample_size'],\n        cfg['channels'],\n        cfg['channel_map'],\n    )\n\n\ndef _build_chunks(cfg, rng):\n    # Build max_chunks chunks of chunk_size each.\n    # Use simple patterns that are valid audio-like payloads.\n    chunks = []\n    for i in range(cfg['max_chunks']):\n        # choose a pattern per chunk\n        mode = rng.randint(0, 3)\n        size = cfg['chunk_size']\n        if mode == 0:\n            # silence (zeros)\n            chunks.append(b'\\x00' * size)\n        elif mode == 1:\n            # 0xFF pattern\n            chunks.append(b'\\xFF' * size)\n        elif mode == 2:\n            # sawtooth byte pattern\n            base = rng.randrange(0, 256)\n            chunk = bytes(((base + j) & 0xFF) for j in range(size))\n            chunks.append(chunk)\n        else:\n            # short repeating word depending on sample size\n            bps = max(1, cfg['sample_size'] // 8)\n            word = bytes((rng.randrange(0, 256) for _ in range(bps)))\n            reps = size // len(word)\n            rem = size % len(word)\n            chunks.append(word * reps + word[:rem])\n    return b''.join(chunks)\n\n\ndef _compose_file(cfg, rng):\n    header = _build_header(cfg)\n    body = _build_chunks(cfg, rng)\n    content = header + body\n    # Respect 4096-byte limit; if exceeded, trim chunk count by reducing body\n    if len(content) > 4096:\n        # compute how many chunks fit\n        header_len = len(header)\n        avail = max(0, 4096 - header_len)\n        max_fit = avail // max(1, cfg['chunk_size'])\n        max_fit = max(1, min(cfg['max_chunks'], max_fit))\n        cfg2 = dict(cfg)\n        cfg2['max_chunks'] = max_fit\n        # Adjust write_idx and offset to be within range\n        cfg2['write_idx'] = cfg['write_idx'] % max_fit\n        cfg2['offset'] = cfg['offset'] % max_fit\n        header = _build_header(cfg2)\n        body = _build_chunks(cfg2, rng)\n        content = header + body\n    return content\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build a coherent shared-memory file with a valid header and payload.\n    cfg = _pick(rng)\n\n    # Slightly bias settings to small sizes sometimes for fast tests\n    if rng.random() < 0.4:\n        cfg['max_chunks'] = rng.randint(MIN_CHUNKS, 8)\n        cfg['chunk_size'] = rng.randrange(MIN_CHUNK_SIZE, 256 + 1, 16)\n        cfg['write_idx'] = cfg['write_idx'] % cfg['max_chunks']\n        cfg['offset'] = cfg['offset'] % cfg['max_chunks']\n\n    data = _compose_file(cfg, rng)\n\n    # Prepend a simple textual path hint region to help harnesses that expect path strings\n    # at the beginning of a filename-backed buffer. Include NUL terminator.\n    # Path is relative, safe characters only.\n    dir_names = [\"shm\", \"dev\", \"tmp\", \"audio\", \"ring\"]\n    fname = f\"{rng.choice(dir_names)}_{cfg['max_chunks']}x{cfg['chunk_size']}.bin\"\n    path = os.path.join(\"./\", fname).encode('utf-8') + b\"\\x00\"\n\n    # Final buffer layout:\n    # [path NUL][file content]\n    out = path + data\n    # Ensure within 4096 bytes\n    return out[:4096]\n"
+    },
+    {
+      "data_type": "arbitrary binary data file",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# We generate contents for a file (arbitrary binary data) that init_shmem is likely to mmap.\n# Based on shmheader definition, create a plausible header followed by ring buffer data.\n# struct shmheader {\n#   uint32_t magic;\n#   uint16_t write_idx;\n#   uint8_t  offset;\n#   uint16_t max_chunks;\n#   uint32_t chunk_size;\n#   uint8_t  sample_rate;\n#   uint8_t  sample_size;\n#   uint8_t  channels;\n#   uint16_t channel_map;\n# } (assume little-endian typical on Linux)\n# We keep total file size <= 4096 bytes.\n\ndef _pack_header_le(magic: int, write_idx: int, offset: int, max_chunks: int, chunk_size: int,\n                    sample_rate_code: int, sample_size_bits: int, channels: int, channel_map: int) -> bytes:\n    # Little-endian layout: I H B H I B B B H\n    return struct.pack('<IHBHI BBBH'.replace(' ', ''),\n                       magic,\n                       write_idx & 0xFFFF,\n                       offset & 0xFF,\n                       max_chunks & 0xFFFF,\n                       chunk_size & 0xFFFFFFFF,\n                       sample_rate_code & 0xFF,\n                       sample_size_bits & 0xFF,\n                       channels & 0xFF,\n                       channel_map & 0xFFFF)\n\ndef _generate_valid_shm_file(rng: random.Random) -> bytes:\n    header_size = 4 + 2 + 1 + 2 + 4 + 1 + 1 + 1 + 2  # 18 bytes\n\n    # Choose small ring so data fits comfortably\n    max_chunks = rng.choice([4, 8, 16])\n    # Choose small chunk sizes (power-of-two-ish) but leave space\n    chunk_size = rng.choice([64, 128, 256, 512])\n\n    # Ensure total size <= 4096\n    total_data = max_chunks * chunk_size\n    while header_size + total_data > 4096:\n        if chunk_size > 64:\n            chunk_size //= 2\n        elif max_chunks > 4:\n            max_chunks //= 2\n        total_data = max_chunks * chunk_size\n\n    # Sample rate code mapping (not specified). Provide common options; consumer may treat as Hz or code.\n    rate_choices = [8000, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000]\n    sr_val = rng.choice(rate_choices) & 0xFF\n\n    sample_size_bits = rng.choice([8, 16, 24, 32])\n    channels = rng.choice([1, 2, 4])\n\n    # Simple channel maps for 1/2/4 channels\n    ch_map_options = {\n        1: [0x0001],\n        2: [0x0003, 0x0009],\n        4: [0x000F, 0x0033]\n    }\n    channel_map = rng.choice(ch_map_options.get(channels, [0x0003]))\n\n    # Producer indices\n    write_idx = rng.randrange(0, max_chunks)\n    # Offset within ring; keep less than max_chunks\n    offset = rng.randrange(0, max(1, min(8, max_chunks)))\n\n    # Magic number: pick from a few recognizable constants\n    magic = rng.choice([0x53484D31, 0xDEADBEEF, 0xC0DEC0DE, 0x41445531])  # 'SHM1', DEADBEEF, C0DEC0DE, 'ADU1'\n\n    header = _pack_header_le(magic, write_idx, offset, max_chunks, chunk_size,\n                             sr_val, sample_size_bits, channels, channel_map)\n\n    # Generate chunked data. Fill with patterns to exercise code paths: zeros, ramp, noise, silence+peaks.\n    chunks: List[bytes] = []\n\n    def make_zero(n: int) -> bytes:\n        return b\"\\x00\" * n\n\n    def make_ramp(n: int) -> bytes:\n        return bytes((i & 0xFF for i in range(n)))\n\n    def make_noise(n: int) -> bytes:\n        return bytes(rng.getrandbits(8) for _ in range(n))\n\n    def make_alt(n: int) -> bytes:\n        return (b\"\\xFF\\x00\" * (n // 2)) + (b\"\\xFF\" if n % 2 else b\"\")\n\n    patterns = [make_zero, make_ramp, make_noise, make_alt]\n\n    # Build each chunk with a randomly chosen pattern; ensure at least one non-zero chunk\n    non_zero_present = False\n    for _ in range(max_chunks):\n        pattern = rng.choice(patterns)\n        data = pattern(chunk_size)\n        if any(b != 0 for b in data[:32]):\n            non_zero_present = True\n        chunks.append(data)\n\n    if not non_zero_present and chunks:\n        chunks[0] = make_ramp(chunk_size)\n\n    body = b\"\".join(chunks)\n    return header + body\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Randomly choose among a few valid file variants:\n    variant = rng.randrange(0, 5)\n\n    if variant == 0:\n        rng2 = random.Random(rng.getrandbits(64))\n        buf = _generate_valid_shm_file(rng2)\n    elif variant == 1:\n        # Emphasize stereo 16-bit with medium chunks where possible\n        rng2 = random.Random(rng.getrandbits(64))\n        for _ in range(10):\n            buf = _generate_valid_shm_file(rng2)\n            hdr = struct.unpack('<IHBHI BBBH'.replace(' ', ''), buf[:18])\n            _, _, _, _, chunk_size, _, ss, ch, _ = hdr\n            if (ss == 16 and ch == 2 and chunk_size in (128, 256, 512)):\n                break\n    elif variant == 2:\n        # Larger buffer within limit\n        rng2 = random.Random(rng.getrandbits(64))\n        for _ in range(20):\n            buf = _generate_valid_shm_file(rng2)\n            if len(buf) > 2048:\n                break\n    elif variant == 3:\n        # All-zero chunks to simulate silence\n        rng2 = random.Random(rng.getrandbits(64))\n        base = _generate_valid_shm_file(rng2)\n        header = base[:18]\n        body_len = len(base) - 18\n        buf = header + (b\"\\x00\" * body_len)\n    else:\n        rng2 = random.Random(rng.getrandbits(64))\n        buf = _generate_valid_shm_file(rng2)\n\n    return buf[:4096]\n"
+    },
+    {
+      "data_type": "arbitrary binary blob",
+      "generator": "import random\nfrom typing import List, Tuple\n\n# This generator targets FUZZ_PARAM_STR() consumption in the receiver_data_t stub.\n# The stub copies the returned string into an audio buffer whose size is computed as:\n#   frame_size = channels * (sample_bits/8), with channels in [1..8], sample_bits in {8,16,24,32}\n#   audio_size = frames * frame_size, where frames in [1..max_frames] and max_bytes=1536\n# The fuzzer then copies up to audio_size bytes from FUZZ_PARAM_STR into the buffer, zero-padding the rest.\n#\n# Our goal: produce diverse, valid audio-like payloads that exercise different frame sizes, channel counts,\n# and content patterns while staying <=4096 bytes. We cannot control the chosen parameters directly, but\n# we can provide lengths and patterns that are interesting across many combinations.\n#\n# Strategy:\n# - Generate a blob that is composed of multiple segments, any prefix of which yields meaningful data even\n#   if the fuzzer truncates our blob to audio_size.\n# - Include segments tailored to common frame sizes: 1,2,3,4,6,8,12,16,24,32 bytes per frame.\n# - Use patterns: silence (zeros), full-scale ramps, alternating patterns, sine-like LUTs, pink-noise-ish\n#   low-byte noise, and multichannel interleaves. Keep them raw so any truncation still looks valid.\n# - Randomize selection/order/lengths using the provided seed.\n#\n# The function returns bytes to match FUZZ_PARAM_STR consumption.\n\nMAX_TOTAL = 1536  # Keep within stub's max allocation for typical alignment; also << 4096\n\n\ndef _ramp(length: int, start: int, step: int, width: int) -> bytes:\n    mod = 1 << (8 * width)\n    val = start % mod\n    out = bytearray()\n    for _ in range(length // width):\n        for b in range(width):\n            out.append((val >> (8 * b)) & 0xFF)\n        val = (val + step) % mod\n    # pad tail if not multiple of width\n    rem = length - len(out)\n    if rem > 0:\n        out.extend(b\"\\x00\" * rem)\n    return bytes(out[:length])\n\n\ndef _alt_pattern(length: int, width: int, a: int, b: int) -> bytes:\n    # Alternate two sample values of given byte width (little-endian)\n    a_bytes = bytes((a >> (8 * i)) & 0xFF for i in range(width))\n    b_bytes = bytes((b >> (8 * i)) & 0xFF for i in range(width))\n    chunk = a_bytes + b_bytes\n    reps = max(1, length // len(chunk))\n    data = (chunk * reps)[:length]\n    if len(data) < length:\n        data += a_bytes[: (length - len(data))]\n    return data\n\n\ndef _sine_lut(width: int, amplitude: int, dc: int) -> bytes:\n    # Simple 32-point sine-like table mapped into integer range for given width\n    # Using a fixed table to avoid floating point deps in output; precomputed scaled values 0..1 in Q15-ish\n    # Values approximate sin, but exact shape is not critical; we emphasize variety.\n    lut_q15 = [\n        0, 6423, 12539, 18204, 23170, 27245, 30273, 32137,\n        32767, 32137, 30273, 27245, 23170, 18204, 12539, 6423,\n        0, -6423, -12539, -18204, -23170, -27245, -30273, -32137,\n        -32768, -32137, -30273, -27245, -23170, -18204, -12539, -6423,\n    ]\n    max_q15 = 32767\n    vals = []\n    for v in lut_q15:\n        # scale to target amplitude and add dc, then clamp to width\n        scaled = int(dc + (amplitude * v) / max_q15)\n        max_val = (1 << (8 * width)) - 1\n        if scaled < 0:\n            scaled = 0\n        if scaled > max_val:\n            scaled = max_val\n        vals.append(scaled)\n    buf = bytearray()\n    for s in vals:\n        for b in range(width):\n            buf.append((s >> (8 * b)) & 0xFF)\n    return bytes(buf)\n\n\ndef _pinkish_noise(length: int, rnd: random.Random) -> bytes:\n    # Very simple filtered noise: cumulative low-byte with damping\n    x = 0\n    out = bytearray()\n    for _ in range(length):\n        x = (x + rnd.randint(-32, 32)) * 3 // 4\n        val = (x & 0xFF)\n        out.append(val)\n    return bytes(out)\n\n\ndef _interleave(chunks: List[bytes], frame_bytes: int) -> bytes:\n    # Interleave provided per-channel sample streams by frame\n    if not chunks:\n        return b\"\"\n    # Determine per-sample width from frame_bytes and number of channels\n    channels = len(chunks)\n    width = max(1, frame_bytes // max(1, channels))\n    # Create iterators over each channel data in step of width\n    iters = [memoryview(c) for c in chunks]\n    idx = [0] * channels\n    out = bytearray()\n    # Generate up to the shortest channel length\n    max_samples = min(len(c) // width for c in chunks)\n    for s in range(max_samples):\n        for ch in range(channels):\n            start = idx[ch]\n            out.extend(iters[ch][start:start+width])\n            idx[ch] += width\n    return bytes(out)\n\n\ndef _build_segments(rnd: random.Random) -> List[bytes]:\n    segments: List[bytes] = []\n\n    # 1) Silence segment of random length\n    silence_len = rnd.randint(32, 256)\n    segments.append(b\"\\x00\" * silence_len)\n\n    # 2) Byte ramp (8-bit)\n    ramp_len = rnd.randint(64, 384)\n    segments.append(_ramp(ramp_len, start=rnd.randint(0, 255), step=rnd.choice([1, 3, 5, 17]), width=1))\n\n    # 3) 16-bit alternating pattern\n    alt_len = rnd.randint(64, 512)\n    a16 = rnd.randint(0, 0xFFFF)\n    b16 = rnd.randint(0, 0xFFFF)\n    segments.append(_alt_pattern(alt_len, width=2, a=a16, b=b16))\n\n    # 4) 24-bit narrow-range ramp to exercise 3-byte samples\n    ramp24_len = rnd.randint(48, 288)\n    segments.append(_ramp(ramp24_len, start=rnd.randint(0, 0xFFFFFF), step=rnd.choice([257, 1021, 4093]), width=3))\n\n    # 5) 32-bit sine-like table repeated\n    sine_once = _sine_lut(width=4, amplitude=rnd.randint(0x1000000, 0x7FFFFFF), dc=rnd.randint(0, 0xFFFFFFFF >> 2))\n    reps = rnd.randint(1, 4)\n    segments.append((sine_once * reps)[:rnd.randint(64, 512)])\n\n    # 6) Pinkish noise low-byte; useful for 8-bit content and LSBs of larger samples\n    pn_len = rnd.randint(64, 256)\n    segments.append(_pinkish_noise(pn_len, rnd))\n\n    # 7) Multichannel interleave mockups for common frame sizes\n    # Choose a random channel count and sample width to pre-align content\n    channels = rnd.choice([1, 2, 3, 4, 6, 8])\n    width = rnd.choice([1, 2, 3, 4])\n    frame_bytes = channels * width\n    per_ch_len = rnd.randint(32, 128) * width\n    ch_streams = []\n    for ch in range(channels):\n        # Different pattern per channel\n        pattern_choice = rnd.randint(0, 3)\n        if pattern_choice == 0:\n            ch_streams.append(_ramp(per_ch_len, start=rnd.randint(0, (1 << (8*width)) - 1), step=1 + ch, width=width))\n        elif pattern_choice == 1:\n            a = rnd.randint(0, (1 << (8*width)) - 1)\n            b = rnd.randint(0, (1 << (8*width)) - 1)\n            ch_streams.append(_alt_pattern(per_ch_len, width=width, a=a, b=b))\n        elif pattern_choice == 2:\n            # Use truncated sine table width-adjusted\n            sine = _sine_lut(width=width, amplitude=(1 << (8*width-1)) - 1, dc=(1 << (8*width-1)))\n            ch_streams.append((sine * ((per_ch_len // max(1, len(sine))) + 1))[:per_ch_len])\n        else:\n            ch_streams.append(bytes(rnd.getrandbits(8) for _ in range(per_ch_len)))\n    segments.append(_interleave(ch_streams, frame_bytes))\n\n    # 8) Edge-case tails to encourage boundary behavior\n    segments.append(b\"\\xFF\" * rnd.randint(8, 32))  # full-scale bytes\n    segments.append(b\"\\x80\" * rnd.randint(8, 32))  # mid-scale bytes\n\n    # Shuffle some middle segments while keeping the initial silence first for safe start\n    middle = segments[1:-2]\n    rnd.shuffle(middle)\n    return [segments[0]] + middle + segments[-2:]\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Build and concatenate segments up to MAX_TOTAL with random truncation to vary sizes.\n    segments = _build_segments(rnd)\n\n    blob = bytearray()\n    for seg in segments:\n        # With some probability, take only a prefix of a segment to induce varied truncations\n        if rnd.random() < 0.35 and len(seg) > 16:\n            take = rnd.randint(16, len(seg))\n            part = seg[:take]\n        else:\n            part = seg\n        if len(blob) + len(part) > MAX_TOTAL:\n            remaining = MAX_TOTAL - len(blob)\n            if remaining <= 0:\n                break\n            blob.extend(part[:remaining])\n            break\n        blob.extend(part)\n\n    # Optionally pad to align to a randomly chosen frame size to increase chance of exact frame multiples\n    if rnd.random() < 0.6:\n        frame_sizes = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32]\n        fs = rnd.choice(frame_sizes)\n        rem = len(blob) % fs\n        if rem != 0:\n            pad = fs - rem\n            if len(blob) + pad <= MAX_TOTAL:\n                # pad with zeros or pattern\n                pad_byte = rnd.choice([0x00, 0xFF, 0x80])\n                blob.extend(bytes([pad_byte]) * pad)\n\n    return bytes(blob)"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3175,
+            "output_tokens": 943,
+            "total_tokens": 4118
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1487,
+            "output_tokens": 84,
+            "total_tokens": 1571
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3234,
+            "output_tokens": 3550,
+            "total_tokens": 6784
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 21388,
+            "output_tokens": 6818,
+            "total_tokens": 28206
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5753,
+            "output_tokens": 2302,
+            "total_tokens": 8055
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4682,
+            "output_tokens": 180,
+            "total_tokens": 4862
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 248.56605076789856,
+    "scan_objects": 12.658283233642578,
+    "validate_objects": 0.4019913673400879,
+    "scan_functions": 0,
+    "synthesis": 95.29086875915527,
+    "fill": 56.146888971328735,
+    "classify": 3.875804901123047,
+    "build_generators": 80.19145727157593
+  }
+}

@@ -1,0 +1,1257 @@
+{
+  "objects": [
+    {
+      "ptr_type": "QRencodeMode *",
+      "aliases": [],
+      "definition": "typedef enum {\n\tQR_MODE_NUL = -1,   ///< Terminator (NUL character). Internal use only\n\tQR_MODE_NUM = 0,    ///< Numeric mode\n\tQR_MODE_AN,         ///< Alphabet-numeric mode\n\tQR_MODE_8,          ///< 8-bit data mode\n\tQR_MODE_KANJI,      ///< Kanji (shift-jis) mode\n\tQR_MODE_STRUCTURE,  ///< Internal use only\n\tQR_MODE_ECI,        ///< ECI mode\n\tQR_MODE_FNC1FIRST,  ///< FNC1, first position\n\tQR_MODE_FNC1SECOND, ///< FNC1, second position\n} QRencodeMode;",
+      "description": "Enumeration of QR encoding modes used when appending data to inputs or hinting string encoders. Values map to QR specification modes plus internal-use markers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "QRecLevel *",
+      "aliases": [],
+      "definition": "typedef enum {\n\tQR_ECLEVEL_L = 0, ///< lowest\n\tQR_ECLEVEL_M,\n\tQR_ECLEVEL_Q,\n\tQR_ECLEVEL_H      ///< highest\n} QRecLevel;",
+      "description": "Enumeration of error correction levels (L, M, Q, H) per the QR Code specification. Used when creating inputs and encoding.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "QRinput *",
+      "aliases": [
+        "struct _QRinput *"
+      ],
+      "definition": "typedef struct _QRinput QRinput;",
+      "description": "Opaque handle representing a QR input accumulator. You append data chunks with specific modes; version/EC level can be set before encoding.",
+      "direct_api_constructors": [
+        "QRinput_new",
+        "QRinput_new2",
+        "QRinput_newMQR"
+      ],
+      "owned_by": [
+        "QRinput_Struct *"
+      ]
+    },
+    {
+      "ptr_type": "QRinput_Struct *",
+      "aliases": [
+        "struct _QRinput_Struct *"
+      ],
+      "definition": "typedef struct _QRinput_Struct QRinput_Struct;",
+      "description": "Opaque handle representing a collection of QRinput objects for structured-append encoding. Manages parity and insertion of structured headers.",
+      "direct_api_constructors": [
+        "QRinput_Struct_new",
+        "QRinput_splitQRinputToStruct"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "QRcode *",
+      "aliases": [],
+      "definition": "typedef struct {\n\tint version;         ///< version of the symbol\n\tint width;           ///< width of the symbol\n\tunsigned char *data; ///< symbol data\n} QRcode;",
+      "description": "Concrete QR code result object containing version, width, and a width*width byte array of module flags. Free with QRcode_free().",
+      "direct_api_constructors": [
+        "QRcode_encodeInput",
+        "QRcode_encodeString",
+        "QRcode_encodeString8bit",
+        "QRcode_encodeStringMQR",
+        "QRcode_encodeString8bitMQR",
+        "QRcode_encodeData",
+        "QRcode_encodeDataMQR"
+      ],
+      "owned_by": [
+        "QRcode_List *"
+      ]
+    },
+    {
+      "ptr_type": "QRcode_List *",
+      "aliases": [
+        "struct _QRcode_List *"
+      ],
+      "definition": "typedef struct _QRcode_List {\n\tQRcode *code;\n\tstruct _QRcode_List *next;\n} QRcode_List;",
+      "description": "Singly-linked list node holding a QRcode for structured-append results. The list is terminated by NULL. Free with QRcode_List_free().",
+      "direct_api_constructors": [
+        "QRcode_encodeInputStructured",
+        "QRcode_encodeStringStructured",
+        "QRcode_encodeString8bitStructured",
+        "QRcode_encodeDataStructured"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "QRinput_new",
+      "signature": "extern QRinput *QRinput_new(void);",
+      "description": "Instantiate a new QRinput object with version=0 (auto-select) and error correction level=QR_ECLEVEL_L. Returns NULL on error with errno set.",
+      "requirements": [
+        "Caller must check the return value for NULL and use errno to diagnose failures.",
+        "On success, the returned QRinput* must be freed with QRinput_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_new2",
+      "signature": "extern QRinput *QRinput_new2(int version, QRecLevel level);",
+      "description": "Instantiate a QRinput object with an explicit version and error correction level. Returns NULL on error with errno set.",
+      "requirements": [
+        "version must be a valid QR Code version (0 for auto-select or a supported version).",
+        "level must be a valid QRecLevel value.",
+        "Caller must check the return value for NULL and use errno to diagnose failures.",
+        "On success, free with QRinput_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_newMQR",
+      "signature": "extern QRinput *QRinput_newMQR(int version, QRecLevel level);",
+      "description": "Instantiate a Micro QR Code QRinput object. Unlike full-sized QR, the version must be explicitly specified (>0). Returns NULL on error with errno set.",
+      "requirements": [
+        "version must be in the range 1–4 (Micro QR Code) and >0.",
+        "level must be a valid QRecLevel value.",
+        "Caller must check the return value for NULL and use errno to diagnose failures.",
+        "On success, free with QRinput_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_append",
+      "signature": "extern int QRinput_append(QRinput *input, QRencodeMode mode, int size, const unsigned char *data);",
+      "description": "Copy and append a chunk of data to an existing QRinput with the specified encoding mode.",
+      "requirements": [
+        "input must be a valid, initialized QRinput pointer.",
+        "mode must be a valid QRencodeMode suitable for the provided data.",
+        "size is the number of bytes to append; must be >= 0 and consistent with data length.",
+        "data must point to at least size bytes (can include arbitrary bytes).",
+        "Returns 0 on success, -1 on error with errno set (ENOMEM, EINVAL). Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_appendECIheader",
+      "signature": "extern int QRinput_appendECIheader(QRinput *input, unsigned int ecinum);",
+      "description": "Append an ECI (Extended Channel Interpretation) header to the QRinput with the given ECI assignment number.",
+      "requirements": [
+        "input must be a valid, initialized QRinput pointer.",
+        "ecinum must be in the range 0–999999.",
+        "Returns 0 on success, -1 on error with errno set (ENOMEM, EINVAL). Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_getVersion",
+      "signature": "extern int QRinput_getVersion(QRinput *input);",
+      "description": "Retrieve the currently configured version from a QRinput object.",
+      "requirements": [
+        "input must be a valid QRinput pointer."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_setVersion",
+      "signature": "extern int QRinput_setVersion(QRinput *input, int version);",
+      "description": "Set the QR Code version to be used for encoding for a non-Micro QR input.",
+      "requirements": [
+        "input must be a valid QRinput pointer and not a Micro QR Code input.",
+        "version must be a supported version number (0 for auto-select).",
+        "Returns 0 on success, -1 on invalid argument. Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_getErrorCorrectionLevel",
+      "signature": "extern QRecLevel QRinput_getErrorCorrectionLevel(QRinput *input);",
+      "description": "Get the current error correction level set on a QRinput object.",
+      "requirements": [
+        "input must be a valid QRinput pointer."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_setErrorCorrectionLevel",
+      "signature": "extern int QRinput_setErrorCorrectionLevel(QRinput *input, QRecLevel level);",
+      "description": "Set the error correction level for a non-Micro QR input.",
+      "requirements": [
+        "input must be a valid QRinput pointer and not a Micro QR Code input.",
+        "level must be a valid QRecLevel value.",
+        "Returns 0 on success, -1 on invalid argument. Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_setVersionAndErrorCorrectionLevel",
+      "signature": "extern int QRinput_setVersionAndErrorCorrectionLevel(QRinput *input, int version, QRecLevel level);",
+      "description": "Convenience function to set both version and error correction level at once. Recommended for Micro QR Code inputs.",
+      "requirements": [
+        "input must be a valid QRinput pointer.",
+        "version must be a supported version number (0 for auto-select; for Micro QR Code, use 1–4).",
+        "level must be a valid QRecLevel value.",
+        "Returns 0 on success, -1 on invalid argument. Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_free",
+      "signature": "extern void QRinput_free(QRinput *input);",
+      "description": "Free a QRinput object and all data chunks it contains.",
+      "requirements": [
+        "input may be NULL or a valid QRinput pointer (unknown if NULL is allowed; if non-NULL it must be a QRinput allocated by this API).",
+        "Do not use the QRinput after freeing."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_check",
+      "signature": "extern int QRinput_check(QRencodeMode mode, int size, const unsigned char *data);",
+      "description": "Validate a prospective input data chunk against the specified encoding mode and size.",
+      "requirements": [
+        "mode must be a valid QRencodeMode.",
+        "size is the number of bytes to validate; must be >= 0 and consistent with data.",
+        "data must point to at least size bytes.",
+        "Returns 0 on success, -1 on invalid arguments. Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_Struct_new",
+      "signature": "extern QRinput_Struct *QRinput_Struct_new(void);",
+      "description": "Instantiate an empty QRinput_Struct container for building structured-appended symbols. Returns NULL on error with errno set.",
+      "requirements": [
+        "Caller must check the return value for NULL and use errno to diagnose failures.",
+        "On success, free with QRinput_Struct_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_Struct_setParity",
+      "signature": "extern void QRinput_Struct_setParity(QRinput_Struct *s, unsigned char parity);",
+      "description": "Set the parity value used for structured-appended symbols in a QRinput_Struct.",
+      "requirements": [
+        "s must be a valid QRinput_Struct pointer.",
+        "parity is an 8-bit value set by the caller (typically calculated or provided)."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_Struct_appendInput",
+      "signature": "extern int QRinput_Struct_appendInput(QRinput_Struct *s, QRinput *input);",
+      "description": "Append a QRinput to a QRinput_Struct for structured-appended encoding. Inputs created by QRinput_newMQR() are rejected.",
+      "requirements": [
+        "s must be a valid QRinput_Struct pointer.",
+        "input must be a valid QRinput pointer and must NOT be created by QRinput_newMQR().",
+        "Never append the same QRinput object more than once.",
+        "Returns >0 for the new count of inputs in the structure; returns -1 on error with errno set (ENOMEM, EINVAL). Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_Struct_free",
+      "signature": "extern void QRinput_Struct_free(QRinput_Struct *s);",
+      "description": "Free a QRinput_Struct and all contained QRinput objects.",
+      "requirements": [
+        "s may be NULL or a valid QRinput_Struct pointer (unknown if NULL is allowed; if non-NULL it must be created by this API).",
+        "Do not use the structure or contained inputs after freeing."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_splitQRinputToStruct",
+      "signature": "extern QRinput_Struct *QRinput_splitQRinputToStruct(QRinput *input);",
+      "description": "Split a single QRinput into a QRinput_Struct for structured-appended symbols. Computes and sets parity and inserts structured-append headers. Inputs created by QRinput_newMQR() are rejected.",
+      "requirements": [
+        "input must be a valid QRinput pointer with version number and error correction level set.",
+        "Caller must check the return value for NULL and use errno to diagnose failures (ERANGE, EINVAL, ENOMEM).",
+        "On success, the returned structure must be freed with QRinput_Struct_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_Struct_insertStructuredAppendHeaders",
+      "signature": "extern int QRinput_Struct_insertStructuredAppendHeaders(QRinput_Struct *s);",
+      "description": "Insert structured-append headers into each QRinput within a QRinput_Struct. If parity is not set, it is calculated and set.",
+      "requirements": [
+        "s must be a valid QRinput_Struct pointer.",
+        "Returns 0 on success, -1 on error with errno set (EINVAL, ENOMEM). Caller must check the return value."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_setFNC1First",
+      "signature": "extern int QRinput_setFNC1First(QRinput *input);",
+      "description": "Set the FNC1 first position flag on a QRinput (for GS1-like encoding).",
+      "requirements": [
+        "input must be a valid QRinput pointer.",
+        "Return value and specific errors are not documented; caller should check the return value (unknown exact semantics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRinput_setFNC1Second",
+      "signature": "extern int QRinput_setFNC1Second(QRinput *input, unsigned char appid);",
+      "description": "Set the FNC1 second position flag and application identifier (AI) on a QRinput.",
+      "requirements": [
+        "input must be a valid QRinput pointer.",
+        "appid is an application identifier byte.",
+        "Return value and specific errors are not documented; caller should check the return value (unknown exact semantics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeInput",
+      "signature": "extern QRcode *QRcode_encodeInput(QRinput *input);",
+      "description": "Encode the given QRinput into a QRcode symbol. The resulting version may be larger than requested.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "input must be a valid QRinput pointer.",
+        "On success, the returned QRcode* must be freed with QRcode_free().",
+        "Caller must check for NULL return and use errno to diagnose failures (EINVAL, ENOMEM)."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeString",
+      "signature": "extern QRcode *QRcode_encodeString(const char *string, int version, QRecLevel level, QRencodeMode hint, int casesensitive);",
+      "description": "Parse and encode a NUL-terminated C string into a QR Code symbol. Supports hints for Kanji or 8-bit encoding. The resulting version may exceed the requested version.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "string must be a valid NUL-terminated pointer; cannot contain embedded NULs.",
+        "version is 0 for auto-select or a supported version number.",
+        "level must be a valid QRecLevel.",
+        "hint must be QR_MODE_KANJI or QR_MODE_8 for non-alphanumeric content; other modes will cause EINVAL.",
+        "casesensitive must be 0 or 1 to control case sensitivity in parsing.",
+        "Caller must check for NULL return and use errno (EINVAL, ENOMEM, ERANGE).",
+        "On success, free the returned QRcode* with QRcode_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeString8bit",
+      "signature": "extern QRcode *QRcode_encodeString8bit(const char *string, int version, QRecLevel level);",
+      "description": "Encode a NUL-terminated C string into a QR Code symbol with the entire data forced to 8-bit mode.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "string must be a valid NUL-terminated pointer; cannot contain embedded NULs.",
+        "version is 0 for auto-select or a supported version number.",
+        "level must be a valid QRecLevel.",
+        "Caller must check for NULL return and use errno (EINVAL, ENOMEM, ERANGE).",
+        "On success, free the returned QRcode* with QRcode_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeStringMQR",
+      "signature": "extern QRcode *QRcode_encodeStringMQR(const char *string, int version, QRecLevel level, QRencodeMode hint, int casesensitive);",
+      "description": "Micro QR Code version of QRcode_encodeString: encode a NUL-terminated string into a Micro QR symbol.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "string must be a valid NUL-terminated pointer; cannot contain embedded NULs.",
+        "version must be a valid Micro QR version (1–4); no auto-select is stated here.",
+        "level must be a valid QRecLevel.",
+        "hint usage is as in QRcode_encodeString (QR_MODE_KANJI or QR_MODE_8 for non-alphanumerical content).",
+        "casesensitive must be 0 or 1.",
+        "Caller must check for NULL return and use errno to diagnose failures.",
+        "On success, free the returned QRcode* with QRcode_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeString8bitMQR",
+      "signature": "extern QRcode *QRcode_encodeString8bitMQR(const char *string, int version, QRecLevel level);",
+      "description": "Micro QR Code version of QRcode_encodeString8bit: encode a NUL-terminated string into a Micro QR symbol with entire data in 8-bit mode.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "string must be a valid NUL-terminated pointer; cannot contain embedded NULs.",
+        "version must be a valid Micro QR version (1–4).",
+        "level must be a valid QRecLevel.",
+        "Caller must check for NULL return and use errno to diagnose failures.",
+        "On success, free the returned QRcode* with QRcode_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeData",
+      "signature": "extern QRcode *QRcode_encodeData(int size, const unsigned char *data, int version, QRecLevel level);",
+      "description": "Encode arbitrary byte data (may include NUL bytes) into a QR Code symbol in 8-bit mode.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "size must be >= 0 and indicates the number of bytes to read from data.",
+        "data must point to at least size bytes; may contain any values including '\\0'.",
+        "version is 0 for auto-select or a supported version number.",
+        "level must be a valid QRecLevel.",
+        "Caller must check for NULL return and use errno (EINVAL, ENOMEM, ERANGE).",
+        "On success, free the returned QRcode* with QRcode_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeDataMQR",
+      "signature": "extern QRcode *QRcode_encodeDataMQR(int size, const unsigned char *data, int version, QRecLevel level);",
+      "description": "Micro QR Code version of QRcode_encodeData: encode arbitrary bytes in 8-bit mode into a Micro QR symbol.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "size must be >= 0 and indicates the number of bytes to read from data.",
+        "data must point to at least size bytes.",
+        "version must be a valid Micro QR version (1–4).",
+        "level must be a valid QRecLevel.",
+        "Caller must check for NULL return and use errno to diagnose failures.",
+        "On success, free the returned QRcode* with QRcode_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_free",
+      "signature": "extern void QRcode_free(QRcode *qrcode);",
+      "description": "Free a QRcode object returned by an encoding function.",
+      "requirements": [
+        "qrcode may be NULL or a valid QRcode pointer (unknown if NULL is allowed; if non-NULL it must be from this API).",
+        "Do not use the QRcode after freeing."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeInputStructured",
+      "signature": "extern QRcode_List *QRcode_encodeInputStructured(QRinput_Struct *s);",
+      "description": "Encode a QRinput_Struct into a singly-linked list of QRcode symbols (structured append).",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "s must be a valid QRinput_Struct pointer.",
+        "Caller must check for NULL return and use errno to diagnose failures.",
+        "On success, free the list with QRcode_List_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeStringStructured",
+      "signature": "extern QRcode_List *QRcode_encodeStringStructured(const char *string, int version, QRecLevel level, QRencodeMode hint, int casesensitive);",
+      "description": "Parse and encode a NUL-terminated string into a set of structured-appended QR Code symbols.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "string must be a valid NUL-terminated pointer; cannot contain embedded NULs.",
+        "version must be a supported version number (no auto-select stated for structured version; unknown specifics).",
+        "level must be a valid QRecLevel.",
+        "hint usage is as in QRcode_encodeString (QR_MODE_KANJI or QR_MODE_8 for non-alphanumerical content).",
+        "casesensitive must be 0 or 1.",
+        "Caller must check for NULL return and use errno (EINVAL, ENOMEM).",
+        "On success, free the list with QRcode_List_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeString8bitStructured",
+      "signature": "extern QRcode_List *QRcode_encodeString8bitStructured(const char *string, int version, QRecLevel level);",
+      "description": "Encode a NUL-terminated string entirely in 8-bit mode into a set of structured-appended QR Code symbols.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "string must be a valid NUL-terminated pointer; cannot contain embedded NULs.",
+        "version must be a supported version number (unknown specifics).",
+        "level must be a valid QRecLevel.",
+        "Caller must check for NULL return and use errno (EINVAL, ENOMEM).",
+        "On success, free the list with QRcode_List_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_encodeDataStructured",
+      "signature": "extern QRcode_List *QRcode_encodeDataStructured(int size, const unsigned char *data, int version, QRecLevel level);",
+      "description": "Encode arbitrary bytes (may include NUL) entirely in 8-bit mode into a set of structured-appended QR Code symbols.",
+      "requirements": [
+        "This function is thread-unsafe when pthread is disabled; do not call concurrently in that configuration.",
+        "size must be >= 0 and indicates the number of bytes to read from data.",
+        "data must point to at least size bytes.",
+        "version must be a supported version number (unknown specifics).",
+        "level must be a valid QRecLevel.",
+        "Caller must check for NULL return and use errno (EINVAL, ENOMEM).",
+        "On success, free the list with QRcode_List_free()."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_List_size",
+      "signature": "extern int QRcode_List_size(QRcode_List *qrlist);",
+      "description": "Return the number of QRcode symbols in a QRcode_List.",
+      "requirements": [
+        "qrlist should be a pointer to the head of a QRcode_List (may be NULL if the list is empty; unknown if NULL is permitted)."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_List_free",
+      "signature": "extern void QRcode_List_free(QRcode_List *qrlist);",
+      "description": "Free an entire QRcode_List including contained QRcode elements.",
+      "requirements": [
+        "qrlist may be NULL or a valid QRcode_List pointer (unknown if NULL is allowed; if non-NULL it must be created by this API).",
+        "Do not use the list or contained items after freeing."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_APIVersion",
+      "signature": "extern void QRcode_APIVersion(int *major_version, int *minor_version, int *micro_version);",
+      "description": "Retrieve the library API version numbers as separate integers.",
+      "requirements": [
+        "major_version, minor_version, and micro_version must be valid pointers to int where results will be stored."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_APIVersionString",
+      "signature": "extern char *QRcode_APIVersionString(void);",
+      "description": "Return a string that identifies the library version. The string is owned by the library.",
+      "requirements": [
+        "The returned char* must not be freed or modified by the caller; it is held by the library."
+      ],
+      "error": null
+    },
+    {
+      "name": "QRcode_clearCache",
+      "signature": "extern void QRcode_clearCache(void);",
+      "description": "Deprecated: clear internal library cache (exact semantics unspecified).",
+      "requirements": [
+        "Function is deprecated; avoid using in new code.",
+        "No arguments; no return value. Behavior is unspecified beyond clearing cache."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "QRinput_new",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Create a default QRinput (version=0 auto, level=L). Must check for NULL.\nQRinput *input = QRinput_new();\nif (!input) { FUZZ_BAIL(); }\n// Track attributes for downstream API usage and validation.\nFUZZ_SET_ATTR_INT(input, \"is_mqr\", 0);           // regular QR, not Micro\nFUZZ_SET_ATTR_INT(input, \"version\", 0);          // 0 means auto-select\nFUZZ_SET_ATTR_INT(input, \"level\", (int)QR_ECLEVEL_L);\nFUZZ_SET_ATTR_INT(input, \"has_data\", 0);         // no data appended yet\nFUZZ_SET_ATTR_INT(input, \"fnc1_first\", 0);\nFUZZ_SET_ATTR_INT(input, \"fnc1_second\", 0);\n"
+    },
+    {
+      "name": "QRinput_new2",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Choose a supported QR version: 0 (auto) or 1..40.\nint ver = (int)(*FUZZ_PARAM(unsigned int) % 41); // 0..40\n// Choose a valid error correction level 0..3.\nint lvl = (int)(*FUZZ_PARAM(unsigned int) % 4);\nQRinput *input = QRinput_new2(ver, (QRecLevel)lvl);\nif (!input) { FUZZ_BAIL(); }\n// Track attributes for downstream.\nFUZZ_SET_ATTR_INT(input, \"is_mqr\", 0);\nFUZZ_SET_ATTR_INT(input, \"version\", ver);\nFUZZ_SET_ATTR_INT(input, \"level\", lvl);\nFUZZ_SET_ATTR_INT(input, \"has_data\", 0);\nFUZZ_SET_ATTR_INT(input, \"fnc1_first\", 0);\nFUZZ_SET_ATTR_INT(input, \"fnc1_second\", 0);\n"
+    },
+    {
+      "name": "QRinput_newMQR",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Micro QR requires version 1..4, and a valid level 0..3.\nint ver = (int)(*FUZZ_PARAM(unsigned int) % 4) + 1; // 1..4\nint lvl = (int)(*FUZZ_PARAM(unsigned int) % 4);\nQRinput *input = QRinput_newMQR(ver, (QRecLevel)lvl);\nif (!input) { FUZZ_BAIL(); }\n// Track Micro-QR state and params.\nFUZZ_SET_ATTR_INT(input, \"is_mqr\", 1);\nFUZZ_SET_ATTR_INT(input, \"version\", ver);\nFUZZ_SET_ATTR_INT(input, \"level\", lvl);\nFUZZ_SET_ATTR_INT(input, \"has_data\", 0);\nFUZZ_SET_ATTR_INT(input, \"fnc1_first\", 0);\nFUZZ_SET_ATTR_INT(input, \"fnc1_second\", 0);\n"
+    },
+    {
+      "name": "QRinput_append",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Generate a random mode among valid enum values.\nint modePick = (int)(*FUZZ_PARAM(unsigned int) % 8); // covers enum range including internal markers\nQRencodeMode mode = (QRencodeMode)modePick;\n// Generate a random data buffer and choose a size within it.\nstd::string buf = FUZZ_PARAM_STR();\nint size = (int)(buf.size() == 0 ? 0 : (*FUZZ_PARAM(unsigned int) % (buf.size() + 1)));\n// Constrain maximum size for performance.\nif (size > 1024) { size = 1024; }\nconst unsigned char *data = reinterpret_cast<const unsigned char*>(buf.data());\n// Call the target function; caller must check return value.\nint rc = QRinput_append(input, mode, size, data);\nif (rc == -1) { FUZZ_BAIL(); }\n// Mark that input now has data appended (may influence split/encode behavior).\nFUZZ_SET_ATTR_INT(input, \"has_data\", 1);\n"
+    },
+    {
+      "name": "QRinput_appendECIheader",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// ECI assignment number must be 0..999999.\nunsigned int ecinum = (unsigned int)(*FUZZ_PARAM(unsigned int) % 1000000u);\nint rc = QRinput_appendECIheader(input, ecinum);\nif (rc == -1) { FUZZ_BAIL(); }\n// Appending an ECI header also makes the input non-empty in practice.\nFUZZ_SET_ATTR_INT(input, \"has_data\", 1);\n"
+    },
+    {
+      "name": "QRinput_getVersion",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Retrieve and synchronize the tracked version attribute.\nint ver = QRinput_getVersion(input);\n// Store the observed version for downstream consistency checks.\nFUZZ_SET_ATTR_INT(input, \"version\", ver);\n"
+    },
+    {
+      "name": "QRinput_setVersion",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// This setter applies only to non-Micro QR inputs.\nint is_mqr = FUZZ_GET_ATTR_INT(input, \"is_mqr\");\nif (is_mqr) { FUZZ_BAIL(); }\n// Choose version: 0 (auto) or 1..40.\nint ver = (int)(*FUZZ_PARAM(unsigned int) % 41); // 0..40\nint rc = QRinput_setVersion(input, ver);\nif (rc == -1) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(input, \"version\", ver);\n// Optional property check via getter for consistency.\nint got = QRinput_getVersion(input);\nFUZZ_ASSERT(got == ver || ver == 0, \"Version getter should reflect set version unless auto-select\");\n"
+    },
+    {
+      "name": "QRinput_getErrorCorrectionLevel",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Retrieve and synchronize the tracked level attribute.\nQRecLevel lvl = QRinput_getErrorCorrectionLevel(input);\nFUZZ_SET_ATTR_INT(input, \"level\", (int)lvl);\n"
+    },
+    {
+      "name": "QRinput_setErrorCorrectionLevel",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// This setter applies only to non-Micro QR inputs.\nint is_mqr = FUZZ_GET_ATTR_INT(input, \"is_mqr\");\nif (is_mqr) { FUZZ_BAIL(); }\nint lvl = (int)(*FUZZ_PARAM(unsigned int) % 4); // 0..3\nint rc = QRinput_setErrorCorrectionLevel(input, (QRecLevel)lvl);\nif (rc == -1) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(input, \"level\", lvl);\n// Optional property check via getter for consistency.\nQRecLevel got = QRinput_getErrorCorrectionLevel(input);\nFUZZ_ASSERT((int)got == lvl, \"EC level getter should equal the value set\");\n"
+    },
+    {
+      "name": "QRinput_setVersionAndErrorCorrectionLevel",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Choose parameters respecting Micro/non-Micro variants.\nint is_mqr = FUZZ_GET_ATTR_INT(input, \"is_mqr\");\nint ver = is_mqr ? ((int)(*FUZZ_PARAM(unsigned int) % 4) + 1)    // 1..4 for Micro\n                  : (int)(*FUZZ_PARAM(unsigned int) % 41);       // 0..40 for regular\nint lvl = (int)(*FUZZ_PARAM(unsigned int) % 4); // 0..3\nint rc = QRinput_setVersionAndErrorCorrectionLevel(input, ver, (QRecLevel)lvl);\nif (rc == -1) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(input, \"version\", ver);\nFUZZ_SET_ATTR_INT(input, \"level\", lvl);\n"
+    },
+    {
+      "name": "QRinput_free",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free the QRinput; do not return it to the pool.\nQRinput_free(input);\n// No outputs by design; input is consumed and must not be used again.\n"
+    },
+    {
+      "name": "QRinput_check",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate mode, buffer, and size to validate.\nint modePick = (int)(*FUZZ_PARAM(unsigned int) % 8);\nQRencodeMode mode = (QRencodeMode)modePick;\nstd::string buf = FUZZ_PARAM_STR();\nint size = (int)(buf.size() == 0 ? 0 : (*FUZZ_PARAM(unsigned int) % (buf.size() + 1)));\nif (size > 1024) { size = 1024; }\nconst unsigned char *data = reinterpret_cast<const unsigned char*>(buf.data());\n// Validate; caller must check rc per API. Bail on explicit error to keep corpus focused.\nint rc = QRinput_check(mode, size, data);\nif (rc == -1) { FUZZ_BAIL(); }\n"
+    },
+    {
+      "name": "QRinput_Struct_new",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "code": "// Create an empty structured input container.\nQRinput_Struct *s = QRinput_Struct_new();\nif (!s) { FUZZ_BAIL(); }\n// Track parity and internal state.\nFUZZ_SET_ATTR_INT(s, \"parity_set\", 0);\nFUZZ_SET_ATTR_INT(s, \"inserted_headers\", 0);\n"
+    },
+    {
+      "name": "QRinput_Struct_setParity",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "code": "// Set a caller-provided parity byte.\nunsigned char parity = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\nQRinput_Struct_setParity(s, parity);\nFUZZ_SET_ATTR_INT(s, \"parity_set\", 1);\n"
+    },
+    {
+      "name": "QRinput_Struct_appendInput",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        },
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        },
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Inputs created by QRinput_newMQR() are rejected.\nint is_mqr = FUZZ_GET_ATTR_INT(input, \"is_mqr\");\nif (is_mqr) { FUZZ_BAIL(); }\n// Never append the same QRinput more than once (track globally on the QRinput object).\nif (FUZZ_GET_ATTR_INT(input, \"appended_once\")) { FUZZ_BAIL(); }\nint count = QRinput_Struct_appendInput(s, input);\nif (count == -1) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(input, \"appended_once\", 1);\n"
+    },
+    {
+      "name": "QRinput_Struct_free",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free the structured container and all contained inputs.\nQRinput_Struct_free(s);\n// No outputs; s is consumed.\n"
+    },
+    {
+      "name": "QRinput_splitQRinputToStruct",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        },
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "code": "// Reject Micro QR inputs per API.\nif (FUZZ_GET_ATTR_INT(input, \"is_mqr\")) { FUZZ_BAIL(); }\n// Ensure version and level are set; new/new2 initialize attrs, but recheck they are sane.\nint ver = FUZZ_GET_ATTR_INT(input, \"version\");\nint lvl = FUZZ_GET_ATTR_INT(input, \"level\");\n// Minimal sanity: version 0..40 ok for regular; level 0..3.\nif (ver < 0 || ver > 40) { FUZZ_BAIL(); }\nif (lvl < 0 || lvl > 3) { FUZZ_BAIL(); }\nQRinput_Struct *s = QRinput_splitQRinputToStruct(input);\nif (!s) { FUZZ_BAIL(); }\n// Mark structured-append metadata.\nFUZZ_SET_ATTR_INT(s, \"parity_set\", 1); // API states it computes and sets parity\nFUZZ_SET_ATTR_INT(s, \"inserted_headers\", 1);\n"
+    },
+    {
+      "name": "QRinput_Struct_insertStructuredAppendHeaders",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "code": "// Insert structured-append headers; parity is calculated if not set.\nint rc = QRinput_Struct_insertStructuredAppendHeaders(s);\nif (rc == -1) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(s, \"inserted_headers\", 1);\n// If parity was not set previously, assume library has now set it.\nif (!FUZZ_GET_ATTR_INT(s, \"parity_set\")) {\n    FUZZ_SET_ATTR_INT(s, \"parity_set\", 1);\n}\n"
+    },
+    {
+      "name": "QRinput_setFNC1First",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Set the FNC1 first position flag; return semantics unspecified, so check non-error.\nint rc = QRinput_setFNC1First(input);\nif (rc < 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(input, \"fnc1_first\", 1);\n"
+    },
+    {
+      "name": "QRinput_setFNC1Second",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "code": "// Set the FNC1 second position flag and application identifier.\nunsigned char appid = (unsigned char)(*FUZZ_PARAM(unsigned int) & 0xFF);\nint rc = QRinput_setFNC1Second(input, appid);\nif (rc < 0) { FUZZ_BAIL(); }\nFUZZ_SET_ATTR_INT(input, \"fnc1_second\", 1);\n"
+    },
+    {
+      "name": "QRcode_encodeInput",
+      "inputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "input",
+          "type": "QRinput *"
+        },
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "code": "// Encode a prepared QRinput into a QRcode. Works for both regular and Micro QR inputs.\n// Ensure version/level attributes are sane (as tracked by earlier stubs) to avoid invalid-arg paths.\nint ver = FUZZ_GET_ATTR_INT(input, \"version\");\nint lvl = FUZZ_GET_ATTR_INT(input, \"level\");\nif (ver < 0 || lvl < 0 || lvl > 3) { FUZZ_BAIL(); }\n// Call target function and validate result.\nQRcode *qrcode = QRcode_encodeInput(input);\nif (!qrcode) { FUZZ_BAIL(); }\n// Basic property checks: non-zero width implies data pointer present\nFUZZ_ASSERT(qrcode->width >= 0, \"QRcode width must be non-negative\");\nif (qrcode->width > 0) {\n    FUZZ_ASSERT(qrcode->data != nullptr, \"QRcode data must be non-null when width>0\");\n}\n// Return both the original input (still owned by caller) and the newly created QRcode.\n// Validation: Input is preserved for reuse; QRcode is non-null and minimally self-consistent."
+    },
+    {
+      "name": "QRcode_encodeString",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "code": "// Generate a NUL-terminated string without embedded NULs as required by API.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 1024) s.resize(1024);\nfor (size_t i = 0; i < s.size(); ++i) { if (s[i] == '\\0') s[i] = 'A'; }\nconst char *cstr = s.c_str();\n// Choose parameters: version 0..40 (0=auto), level 0..3, hint restricted to valid values, casesensitive 0/1.\nint version = (int)(*FUZZ_PARAM(unsigned int) % 41);\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRencodeMode hint = ((*FUZZ_PARAM(unsigned int) % 2) == 0) ? QR_MODE_8 : QR_MODE_KANJI;\nint casesensitive = (int)(*FUZZ_PARAM(unsigned int) & 1);\n// Call and check for success.\nQRcode *qrcode = QRcode_encodeString(cstr, version, level, hint, casesensitive);\nif (!qrcode) { FUZZ_BAIL(); }\n// Minimal property checks.\nFUZZ_ASSERT(qrcode->width >= 0, \"QRcode width must be non-negative\");\nif (qrcode->width > 0) { FUZZ_ASSERT(qrcode->data != nullptr, \"QRcode data must be non-null when width>0\"); }\n// Output the QRcode for later freeing.\n// Validation: Input constraints enforced (no embedded NULs); successful encode returns a valid QRcode."
+    },
+    {
+      "name": "QRcode_encodeString8bit",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "code": "// Prepare NUL-terminated string without embedded NULs.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 1024) s.resize(1024);\nfor (size_t i = 0; i < s.size(); ++i) { if (s[i] == '\\0') s[i] = 'A'; }\nconst char *cstr = s.c_str();\n// Parameters: version 0..40 (0=auto), level 0..3.\nint version = (int)(*FUZZ_PARAM(unsigned int) % 41);\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRcode *qrcode = QRcode_encodeString8bit(cstr, version, level);\nif (!qrcode) { FUZZ_BAIL(); }\nFUZZ_ASSERT(qrcode->width >= 0, \"QRcode width must be non-negative\");\nif (qrcode->width > 0) { FUZZ_ASSERT(qrcode->data != nullptr, \"QRcode data must be non-null when width>0\"); }\n// Validation: Proper string constraints and parameter ranges are enforced."
+    },
+    {
+      "name": "QRcode_encodeStringMQR",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "code": "// Prepare NUL-terminated string without embedded NULs for Micro QR.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 512) s.resize(512);\nfor (size_t i = 0; i < s.size(); ++i) { if (s[i] == '\\0') s[i] = 'A'; }\nconst char *cstr = s.c_str();\n// Parameters: version 1..4 for Micro, level 0..3, hint valid, casesensitive 0/1.\nint version = (int)(*FUZZ_PARAM(unsigned int) % 4) + 1;\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRencodeMode hint = ((*FUZZ_PARAM(unsigned int) % 2) == 0) ? QR_MODE_8 : QR_MODE_KANJI;\nint casesensitive = (int)(*FUZZ_PARAM(unsigned int) & 1);\nQRcode *qrcode = QRcode_encodeStringMQR(cstr, version, level, hint, casesensitive);\nif (!qrcode) { FUZZ_BAIL(); }\nFUZZ_ASSERT(qrcode->width >= 0, \"QRcode width must be non-negative\");\nif (qrcode->width > 0) { FUZZ_ASSERT(qrcode->data != nullptr, \"QRcode data must be non-null when width>0\"); }\n// Validation: Micro version range and string constraints enforced."
+    },
+    {
+      "name": "QRcode_encodeString8bitMQR",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "code": "// Prepare NUL-terminated string without embedded NULs for Micro QR 8-bit encoding.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 512) s.resize(512);\nfor (size_t i = 0; i < s.size(); ++i) { if (s[i] == '\\0') s[i] = 'A'; }\nconst char *cstr = s.c_str();\n// Parameters: version 1..4 for Micro, level 0..3.\nint version = (int)(*FUZZ_PARAM(unsigned int) % 4) + 1;\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRcode *qrcode = QRcode_encodeString8bitMQR(cstr, version, level);\nif (!qrcode) { FUZZ_BAIL(); }\nFUZZ_ASSERT(qrcode->width >= 0, \"QRcode width must be non-negative\");\nif (qrcode->width > 0) { FUZZ_ASSERT(qrcode->data != nullptr, \"QRcode data must be non-null when width>0\"); }\n// Validation: Enforces Micro QR constraints and checks result."
+    },
+    {
+      "name": "QRcode_encodeData",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "code": "// Prepare arbitrary byte buffer (may include NULs) and choose a size within bounds.\nstd::string buf = FUZZ_PARAM_STR();\nint size = (int)(buf.empty() ? 0 : (*FUZZ_PARAM(unsigned int) % (buf.size() + 1)));\nif (size > 1024) size = 1024;\nconst unsigned char *data = reinterpret_cast<const unsigned char*>(buf.data());\n// Parameters: version 0..40 (0=auto), level 0..3.\nint version = (int)(*FUZZ_PARAM(unsigned int) % 41);\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRcode *qrcode = QRcode_encodeData(size, data, version, level);\nif (!qrcode) { FUZZ_BAIL(); }\nFUZZ_ASSERT(qrcode->width >= 0, \"QRcode width must be non-negative\");\nif (qrcode->width > 0) { FUZZ_ASSERT(qrcode->data != nullptr, \"QRcode data must be non-null when width>0\"); }\n// Validation: Size/data constraints enforced; QRcode produced on success."
+    },
+    {
+      "name": "QRcode_encodeDataMQR",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "code": "// Prepare arbitrary byte buffer and size for Micro QR.\nstd::string buf = FUZZ_PARAM_STR();\nint size = (int)(buf.empty() ? 0 : (*FUZZ_PARAM(unsigned int) % (buf.size() + 1)));\nif (size > 512) size = 512;\nconst unsigned char *data = reinterpret_cast<const unsigned char*>(buf.data());\n// Parameters: Micro version 1..4, level 0..3.\nint version = (int)(*FUZZ_PARAM(unsigned int) % 4) + 1;\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRcode *qrcode = QRcode_encodeDataMQR(size, data, version, level);\nif (!qrcode) { FUZZ_BAIL(); }\nFUZZ_ASSERT(qrcode->width >= 0, \"QRcode width must be non-negative\");\nif (qrcode->width > 0) { FUZZ_ASSERT(qrcode->data != nullptr, \"QRcode data must be non-null when width>0\"); }\n// Validation: Micro size/version constraints enforced; result minimally validated."
+    },
+    {
+      "name": "QRcode_free",
+      "inputs": [
+        {
+          "name": "qrcode",
+          "type": "QRcode *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free a QRcode object; after this it must not be used.\nQRcode_free(qrcode);\n// Validation: No outputs; ownership of qrcode is relinquished."
+    },
+    {
+      "name": "QRcode_encodeInputStructured",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "s",
+          "type": "QRinput_Struct *"
+        },
+        {
+          "name": "qrlist",
+          "type": "QRcode_List *"
+        }
+      ],
+      "code": "// Encode a structured input container into a list of QRcode symbols.\n// Ensure s looks initialized via prior stubs (not strictly required, but helps avoid EINVAL).\nint headers = FUZZ_GET_ATTR_INT(s, \"inserted_headers\");\n(void)headers; // headers may be 0 or 1; library can insert if missing.\nQRcode_List *qrlist = QRcode_encodeInputStructured(s);\nif (!qrlist) { FUZZ_BAIL(); }\n// Return both the original structure (still owned by caller) and the produced list.\n// Validation: Non-null list indicates successful structured encoding."
+    },
+    {
+      "name": "QRcode_encodeStringStructured",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrlist",
+          "type": "QRcode_List *"
+        }
+      ],
+      "code": "// Prepare NUL-terminated string without embedded NULs.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 1024) s.resize(1024);\nfor (size_t i = 0; i < s.size(); ++i) { if (s[i] == '\\0') s[i] = 'A'; }\nconst char *cstr = s.c_str();\n// Choose parameters: version 1..40 (structured variants typically require explicit version), level 0..3.\nint version = (int)(*FUZZ_PARAM(unsigned int) % 40) + 1; // 1..40\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRencodeMode hint = ((*FUZZ_PARAM(unsigned int) % 2) == 0) ? QR_MODE_8 : QR_MODE_KANJI;\nint casesensitive = (int)(*FUZZ_PARAM(unsigned int) & 1);\nQRcode_List *qrlist = QRcode_encodeStringStructured(cstr, version, level, hint, casesensitive);\nif (!qrlist) { FUZZ_BAIL(); }\n// Validation: String constraints and parameter ranges enforced; list is produced."
+    },
+    {
+      "name": "QRcode_encodeString8bitStructured",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrlist",
+          "type": "QRcode_List *"
+        }
+      ],
+      "code": "// Prepare NUL-terminated string without embedded NULs for 8-bit structured encoding.\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 1024) s.resize(1024);\nfor (size_t i = 0; i < s.size(); ++i) { if (s[i] == '\\0') s[i] = 'A'; }\nconst char *cstr = s.c_str();\nint version = (int)(*FUZZ_PARAM(unsigned int) % 40) + 1; // 1..40\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRcode_List *qrlist = QRcode_encodeString8bitStructured(cstr, version, level);\nif (!qrlist) { FUZZ_BAIL(); }\n// Validation: Structured list successfully generated with valid parameters."
+    },
+    {
+      "name": "QRcode_encodeDataStructured",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "qrlist",
+          "type": "QRcode_List *"
+        }
+      ],
+      "code": "// Prepare arbitrary byte buffer and size for structured encoding.\nstd::string buf = FUZZ_PARAM_STR();\nint size = (int)(buf.empty() ? 0 : (*FUZZ_PARAM(unsigned int) % (buf.size() + 1)));\nif (size > 1024) size = 1024;\nconst unsigned char *data = reinterpret_cast<const unsigned char*>(buf.data());\nint version = (int)(*FUZZ_PARAM(unsigned int) % 40) + 1; // 1..40\nQRecLevel level = (QRecLevel)((int)(*FUZZ_PARAM(unsigned int) % 4));\nQRcode_List *qrlist = QRcode_encodeDataStructured(size, data, version, level);\nif (!qrlist) { FUZZ_BAIL(); }\n// Validation: Size/data constraints enforced; non-null list returned."
+    },
+    {
+      "name": "QRcode_List_size",
+      "inputs": [
+        {
+          "name": "qrlist",
+          "type": "QRcode_List *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "qrlist",
+          "type": "QRcode_List *"
+        }
+      ],
+      "code": "// Obtain the number of symbols in the list; preserve the list for future operations.\nint n = QRcode_List_size(qrlist);\n(void)n; // Value observed but not asserted to avoid false positives on implementation details.\n// Validation: The list pointer is not consumed; we return it to the pool."
+    },
+    {
+      "name": "QRcode_List_free",
+      "inputs": [
+        {
+          "name": "qrlist",
+          "type": "QRcode_List *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Free the entire QRcode list including contained QRcode elements.\nQRcode_List_free(qrlist);\n// Validation: No outputs; the list and its QRcodes are consumed."
+    },
+    {
+      "name": "QRcode_APIVersion",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Retrieve API version into local integers.\nint maj = 0, min = 0, mic = 0;\nQRcode_APIVersion(&maj, &min, &mic);\n// Basic property assertions: versions should be non-negative.\nFUZZ_ASSERT(maj >= 0 && min >= 0 && mic >= 0, \"API version components should be non-negative\");\n// Validation: Uses local storage; no pooled objects involved."
+    },
+    {
+      "name": "QRcode_APIVersionString",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Get version string owned by the library; do not free or modify.\nchar *ver = QRcode_APIVersionString();\n// Optionally access a byte to ensure pointer is usable, guarding null.\nif (ver) { volatile char c = ver[0]; (void)c; }\n// Validation: Returned pointer is not stored or freed; no side effects."
+    },
+    {
+      "name": "QRcode_clearCache",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Invoke deprecated cache clear to exercise code path; no args, no return.\nQRcode_clearCache();\n// Validation: No outputs; function called purely for side-effect coverage."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "QRinput_new",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_new2",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_newMQR",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_appendECIheader",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_getVersion",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_setVersion",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_getErrorCorrectionLevel",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_setErrorCorrectionLevel",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_setVersionAndErrorCorrectionLevel",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_free",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_Struct_new",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_Struct_setParity",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_Struct_appendInput",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_Struct_free",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_splitQRinputToStruct",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_Struct_insertStructuredAppendHeaders",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_setFNC1First",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_setFNC1Second",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_encodeInput",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_free",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_encodeInputStructured",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_List_size",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_List_free",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_APIVersion",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_APIVersionString",
+      "data_types": []
+    },
+    {
+      "name": "QRcode_clearCache",
+      "data_types": []
+    },
+    {
+      "name": "QRinput_append",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "QRinput_check",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "QRcode_encodeString",
+      "data_types": [
+        "NUL-terminated string without embedded NUL"
+      ]
+    },
+    {
+      "name": "QRcode_encodeString8bit",
+      "data_types": [
+        "NUL-terminated string without embedded NUL"
+      ]
+    },
+    {
+      "name": "QRcode_encodeStringMQR",
+      "data_types": [
+        "NUL-terminated string without embedded NUL"
+      ]
+    },
+    {
+      "name": "QRcode_encodeString8bitMQR",
+      "data_types": [
+        "NUL-terminated string without embedded NUL"
+      ]
+    },
+    {
+      "name": "QRcode_encodeData",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "QRcode_encodeDataMQR",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "QRcode_encodeStringStructured",
+      "data_types": [
+        "NUL-terminated string without embedded NUL"
+      ]
+    },
+    {
+      "name": "QRcode_encodeString8bitStructured",
+      "data_types": [
+        "NUL-terminated string without embedded NUL"
+      ]
+    },
+    {
+      "name": "QRcode_encodeDataStructured",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary bytes",
+      "description": "A raw byte buffer that may contain any 8-bit values, including NUL (0x00). The caller provides a separate length indicating how many bytes to read from the buffer."
+    },
+    {
+      "data_type": "NUL-terminated string without embedded NUL",
+      "description": "A C-style string consisting of non-NUL bytes terminated by a single NUL (0x00) at the end. The content must not contain embedded NUL characters before the terminator."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary bytes",
+      "generator": "import random\nimport struct\nimport itertools\n\n# Generator for arbitrary bytes targeting libqrencode-style fuzzers.\n# Focus: produce valid, interesting byte buffers that exercise QR encoding paths:\n# - Numeric-only, Alphanumeric, 8-bit binary (including NULs), Kanji-like Shift-JIS pairs\n# - Mixes of segments, varying lengths, repeated patterns, ECI-like markers embedded\n# - Sizes appropriate for normal and Micro QR, structured append, and append/check\n# Output limited to <= 4096 bytes.\n\nALNUM_CHARS = b\"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:\"\nNUMERIC_CHARS = b\"0123456789\"\n\n# Some Shift-JIS Kanji ranges commonly used in QR Kanji mode (JIS X 0208) when mapped to Shift_JIS):\n# We'll craft plausible double-bytes in primary ranges avoid invalid lead/trail combos.\n# Ranges below are heuristics to create many valid-ish SJIS double-byte pairs.\nSJIS_LEADS = list(range(0x81, 0x9F + 1)) + list(range(0xE0, 0xEF + 1))\nSJIS_TRAILS = list(range(0x40, 0x7E + 1)) + list(range(0x80, 0xFC + 1))\n\n# Common prefixes and payloads to exercise ECI/GS1-like content in 8-bit data encode APIs.\nCOMMON_PREFIXES = [\n    b\"HELLO WORLD\",\n    b\"HTTP://EXAMPLE.COM/TEST?A=1&B=2\",\n    b\"WIFI:S:MyNet;T:WPA;P:pass1234;;\",\n    b\"MATMSG:TO:foo@example.com;SUB:Hello;BODY:Test;;\",\n    b\"SMSTO:+1234567890:Meet at 5?\",\n    b\"MAILTO:dev@example.com\",\n    b\"BEGIN:VCARD\\nVERSION:3.0\\nN:Doe;John;;;\\nTEL:+123456\\nEND:VCARD\\n\",\n]\n\nBINARY_PATTERNS = [\n    b\"\\x00\" * 32,                 # many NULs\n    bytes(range(256)),             # 0..255\n    bytes(reversed(range(256))),   # 255..0\n    b\"\\xFF\\x00\" * 64,            # alternating\n    b\"\\xAA\\x55\" * 64,            # pattern\n]\n\n# Some sizes tuned for QR and Micro QR capacities with L/M/Q/H EC levels.\n# We'll cap size selection elsewhere; here we provide baseline target sizes.\nINTERESTING_SIZES = [0, 1, 2, 3, 7, 14, 17, 25, 31, 33, 64, 70, 80, 100, 127, 160, 200, 255, 300, 351, 400, 512, 700, 800, 1024]\n\nMAX_OUT = 4096\n\n\ndef _rand_numeric(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.choice(NUMERIC_CHARS) for _ in range(n))\n\n\ndef _rand_alnum(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.choice(ALNUM_CHARS) for _ in range(n))\n\n\ndef _rand_sjis_kanji(rng: random.Random, n_kanji: int) -> bytes:\n    out = bytearray()\n    for _ in range(n_kanji):\n        lead = rng.choice(SJIS_LEADS)\n        trail = rng.choice(SJIS_TRAILS)\n        out.append(lead)\n        out.append(trail)\n    return bytes(out)\n\n\ndef _rand_binary(rng: random.Random, n: int) -> bytes:\n    return rng.randbytes(n)\n\n\ndef _mix_segments(rng: random.Random, segments: list[bytes]) -> bytes:\n    rng.shuffle(segments)\n    return b\"\".join(segments)\n\n\ndef _with_length_prefix(rng: random.Random, data: bytes) -> bytes:\n    # Some consumers use an external size, but adding an internal length prefix can\n    # exercise code paths that read sub-buffers.\n    # We randomly choose 8/16/32-bit length fields in little/big endian.\n    choice = rng.randrange(6)\n    if choice == 0:\n        return struct.pack(\"<B\", len(data) & 0xFF) + data\n    if choice == 1:\n        return struct.pack(\">B\", len(data) & 0xFF) + data\n    if choice == 2:\n        return struct.pack(\"<H\", len(data) & 0xFFFF) + data\n    if choice == 3:\n        return struct.pack(\">H\", len(data) & 0xFFFF) + data\n    if choice == 4:\n        return struct.pack(\"<I\", len(data) & 0xFFFFFFFF) + data\n    return struct.pack(\">I\", len(data) & 0xFFFFFFFF) + data\n\n\ndef _maybe_insert_nuls(rng: random.Random, data: bytes) -> bytes:\n    # Insert NULs at random positions to ensure QRcode_encodeData paths handle embedded zeros.\n    if not data:\n        return data\n    pieces = []\n    idx = 0\n    while idx < len(data):\n        step = rng.randint(1, max(1, len(data)//8))\n        pieces.append(data[idx:idx+step])\n        if rng.random() < 0.3:\n            pieces.append(b\"\\x00\" * rng.randint(1, 3))\n        idx += step\n    return b\"\".join(pieces)\n\n\ndef _structured_like_chunks(rng: random.Random) -> bytes:\n    # Create content that could be split into multiple symbols: repeated headers and payloads.\n    chunks = []\n    parts = rng.randint(2, 6)\n    base = rng.choice(COMMON_PREFIXES)\n    for i in range(parts):\n        hdr = f\"PART:{i+1}/{parts};\".encode()\n        pay_len = rng.randint(10, 80)\n        payload = _rand_alnum(rng, pay_len)\n        chunks.append(hdr + base[: rng.randint(0, len(base))] + b\";DATA=\" + payload)\n    return b\"|\".join(chunks)\n\n\ndef _eci_like_header(rng: random.Random) -> bytes:\n    # Create a synthetic ECI-like header followed by UTF-8 text; though QRcode_encodeData\n    # treats everything as 8-bit, embedding this may hit library branches around ECI handling\n    # in other stubs.\n    ecinum = rng.randrange(0, 999999)\n    return f\"ECI:{ecinum};\".encode()\n\n\ndef _cap(b: bytes) -> bytes:\n    return b[:MAX_OUT]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Strategy selection: pick a template to generate content.\n    strat = rng.randrange(10)\n\n    if strat == 0:\n        # Pure numeric (QR_MODE_NUM valid input)\n        n = rng.choice([0, 1, 3, 7, 10, 20, 40, 64, 127, 255, 512, 800, 1024])\n        data = _rand_numeric(rng, n)\n        return _cap(data)\n\n    if strat == 1:\n        # Pure alphanumeric (QR_MODE_AN valid input)\n        n = rng.choice([1, 2, 5, 11, 25, 47, 70, 100, 160, 255, 400, 700, 1024])\n        data = _rand_alnum(rng, n)\n        return _cap(data)\n\n    if strat == 2:\n        # Kanji-like Shift-JIS pairs (QR_MODE_KANJI)\n        k = rng.choice([1, 2, 4, 8, 16, 32, 64, 100, 128, 200])\n        data = _rand_sjis_kanji(rng, k)\n        return _cap(data)\n\n    if strat == 3:\n        # Pure binary 8-bit including NULs\n        n = rng.choice([0, 1, 4, 8, 16, 32, 64, 128, 256, 400, 700, 1024])\n        base = _rand_binary(rng, n)\n        # Blend with a known binary pattern to increase structure\n        if rng.random() < 0.6:\n            pat = rng.choice(BINARY_PATTERNS)\n            data = (base + pat)[: max(n, len(pat))]\n        else:\n            data = base\n        data = _maybe_insert_nuls(rng, data)\n        return _cap(data)\n\n    if strat == 4:\n        # Mixed segments: numeric + alnum + binary\n        segs = []\n        segs.append(_rand_numeric(rng, rng.randint(5, 40)))\n        segs.append(_rand_alnum(rng, rng.randint(10, 60)))\n        segs.append(_maybe_insert_nuls(rng, _rand_binary(rng, rng.randint(5, 40))))\n        if rng.random() < 0.5:\n            segs.append(_rand_sjis_kanji(rng, rng.randint(1, 8)))\n        data = _mix_segments(rng, segs)\n        return _cap(data)\n\n    if strat == 5:\n        # Common prefixes + payload, good for encodeData and structured\n        prefix = rng.choice(COMMON_PREFIXES)\n        payload_len = rng.choice([13, 31, 57, 89, 128, 223, 351, 521])\n        payload = _rand_alnum(rng, payload_len)\n        if rng.random() < 0.5:\n            payload = _maybe_insert_nuls(rng, payload)\n        data = prefix + b\"|\" + payload\n        return _cap(data)\n\n    if strat == 6:\n        # Structured-like multi-part content\n        data = _structured_like_chunks(rng)\n        if rng.random() < 0.4:\n            data = _with_length_prefix(rng, data)\n        return _cap(data)\n\n    if strat == 7:\n        # ECI-like header + UTF-8/ASCII content + some binary tail\n        head = _eci_like_header(rng)\n        text = rng.choice(COMMON_PREFIXES)\n        tail = _rand_binary(rng, rng.randint(0, 64))\n        data = head + text + b\";BIN=\" + _maybe_insert_nuls(rng, tail)\n        return _cap(data)\n\n    if strat == 8:\n        # Size-targeted payload: choose an interesting length and fill with safe 8-bit bytes\n        target = rng.choice(INTERESTING_SIZES)\n        # Compose from chunks to reach near target length\n        chunks = []\n        remaining = target\n        while remaining > 0:\n            choice = rng.randrange(4)\n            if choice == 0:\n                c = _rand_alnum(rng, min(remaining, rng.randint(5, 40)))\n            elif choice == 1:\n                c = _rand_numeric(rng, min(remaining, rng.randint(3, 20)))\n            elif choice == 2:\n                kbytes = min(remaining // 2, rng.randint(1, 8)) * 2\n                c = _rand_sjis_kanji(rng, kbytes // 2) if kbytes > 0 else b\"\"\n            else:\n                c = _rand_binary(rng, min(remaining, rng.randint(4, 32)))\n            chunks.append(c)\n            remaining -= len(c)\n            if remaining <= 0:\n                break\n        data = b\"\".join(chunks)\n        if rng.random() < 0.3:\n            data = _maybe_insert_nuls(rng, data)\n        return _cap(data)\n\n    # strat == 9: Prefix with internal length then mixed content\n    base = _mix_segments(\n        rng,\n        [\n            _rand_alnum(rng, rng.randint(10, 50)),\n            _rand_numeric(rng, rng.randint(5, 30)),\n            _rand_binary(rng, rng.randint(5, 25)),\n        ],\n    )\n    if rng.random() < 0.5:\n        base += _rand_sjis_kanji(rng, rng.randint(1, 6))\n    data = _with_length_prefix(rng, base)\n    return _cap(data)\n"
+    },
+    {
+      "data_type": "NUL-terminated string without embedded NUL",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for C NUL-terminated strings without embedded NULs, tailored for QR encoding APIs.\n# The fuzzing stubs call FUZZ_PARAM_STR() to obtain the input string. Our single returned\n# bytes buffer will be used by the harness to seed that source. We therefore craft one\n# interesting string per call, encoded as bytes ending with a single NUL terminator, with\n# no embedded NULs.\n#\n# Goals for coverage:\n# - Exercise different QR content modes the parsers auto-detect:\n#   * Numeric only\n#   * Alphanumeric (QR spec set)\n#   * Mixed ASCII with punctuation\n#   * 8-bit binary-ish but still printable (since embedded NULs are forbidden)\n#   * Shift-JIS Kanji-like sequences represented as UTF-8 text commonly mapped to Kanji\n# - Provide strings sized to push boundaries for Micro QR (very small), small, medium, and near 1024 limit\n# - Include GS1-like patterns (FNC1 related) without using NUL\n# - Avoid embedded NULs; ensure single trailing NUL\n# - Keep total <= 4096 bytes\n\nALNUM_QR_SET = \"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:\"\n\n# Some sample words/phrases across categories that remain NUL-free in UTF-8\nKANJI_LIKE = [\n    \"漢字テスト\",  # Kanji + Katakana\n    \"ｶﾅSJIS\",    # Half-width katakana-like\n    \"日本語QR\",   \n]\n\nNUMERIC_SAMPLES = [\n    \"0\", \"12345\", \"00010203040506070809\", \"314159265358979323846264338327950288419716939\"\n]\n\nALNUM_SAMPLES = [\n    \"HELLO WORLD\", \"QR-CODE/TEST:12345\", \"ABCDEF0123456789$%*+-./:\", \"CASEsensitiveCheck\"\n]\n\nASCII_MIXED = [\n    \"Hello, world!\", \"email:user@example.com?subject=QR\", \"http://example.com/path/to/resource\",\n    \"The quick brown fox jumps over 13 lazy dogs.\",\n]\n\nGS1_LIKE = [\n    \"(01)09501101530003(17)251231(10)ABCD1234\",  # AI patterns\n    \"(01)12345678901231(10)LOT123(21)SN987654\",  \n]\n\nBINARYISH_TABLE: List[bytes] = []\n# Populate some 8-bit looking but non-NUL bytes (0x01..0xFF except 0x00). We'll convert to latin-1 str safely.\nfor start in (1, 17, 63, 129, 193):\n    chunk = bytes(((start + i) & 0xFF or 1) for i in range(64))  # avoid 0x00 by replacing with 0x01\n    BINARYISH_TABLE.append(chunk)\n\n\ndef _repeat_to_target(s: str, target: int) -> str:\n    if not s:\n        return s\n    out = []\n    while sum(len(x) for x in out) < target:\n        out.append(s)\n    joined = \"\".join(out)\n    # Trim without splitting multi-byte boundary; Python slices are codepoint-based so safe for UTF-8 re-encode\n    return joined[:target]\n\n\ndef _build_candidates(rng: random.Random) -> List[str]:\n    cands: List[str] = []\n\n    # Very short strings (Micro QR sweet spot)\n    cands.extend([\"A\", \"1\", \"AB\", \"12\", \"HELLO\", \"123456\"])\n\n    # Numeric-only\n    cands.extend(NUMERIC_SAMPLES)\n\n    # QR alphanumeric set\n    cands.extend(ALNUM_SAMPLES)\n\n    # Mixed ASCII phrases\n    cands.extend(ASCII_MIXED)\n\n    # GS1-like content (FNC1-related parsing when hint/KANJI/8-bit varies)\n    cands.extend(GS1_LIKE)\n\n    # Kanji-like Unicode samples\n    cands.extend(KANJI_LIKE)\n\n    # Version/size stressors\n    cands.append(_repeat_to_target(\"1234567890\", 150))     # numeric long\n    cands.append(_repeat_to_target(\"ABCD\", 200))           # alnum long\n    cands.append(_repeat_to_target(\"HELLO WORLD \", 300))   # spaced alnum long\n    cands.append(_repeat_to_target(\"漢字\", 120))            # UTF-8 multi-byte long\n\n    # Add binary-ish but NUL-free sequences by latin-1 decode to str, then back to bytes on emit\n    for b in BINARYISH_TABLE:\n        cands.append(b.decode('latin-1'))\n\n    # Slight randomization: construct a synthetic token\n    if rng.random() < 0.8:\n        # Compose: prefix + separator + digits + suffix\n        prefix = rng.choice([\"ID\", \"SN\", \"LOT\", \"URL\", \"ITEM\", \"PART\", \"GS1\", \"DATA\"]) \n        digits = ''.join(rng.choice(string.digits) for _ in range(rng.randint(4, 18)))\n        sep = rng.choice([\"-\", \":\", \"/\", \"_\"])\n        suffix = rng.choice([\"A\", \"B\", \"X\", \"Y\", \"Z\", \"ALPHA\", \"BETA\"]) \n        cands.append(f\"{prefix}{sep}{digits}{sep}{suffix}\")\n\n    # Ensure uniqueness and remove empties\n    uniq = []\n    seen = set()\n    for s in cands:\n        if not s:\n            continue\n        if s not in seen:\n            uniq.append(s)\n            seen.add(s)\n    return uniq\n\n\ndef _choose_and_size(rng: random.Random, cands: List[str]) -> bytes:\n    s = rng.choice(cands)\n\n    # Randomly scale length to exercise micro vs regular vs structured limits used by stubs (<=1024/512)\n    target_max = rng.choice([64, 128, 256, 512, 800, 1000])\n\n    # For bytes originally from latin-1 converted binary-ish strings, resizing by codepoints is fine\n    if rng.random() < 0.5:\n        # Repeat or pad\n        if len(s) < target_max:\n            s = _repeat_to_target(s, target_max)\n        else:\n            s = s[:target_max]\n    else:\n        # Keep original length but possibly trim to max bound\n        if len(s) > target_max:\n            s = s[:target_max]\n\n    # Sanitization: ensure no embedded NULs after UTF-8 encoding\n    b = s.encode('utf-8', errors='replace')\n    b = b.replace(b\"\\x00\", b\"A\")\n\n    # Sometimes enforce strict alnum set to drive hint=AN or NUM behavior (still valid general APIs)\n    if rng.random() < 0.2:\n        mode = rng.choice([\"NUM\", \"AN\"]) \n        if mode == \"NUM\":\n            nlen = min(len(b), rng.randint(8, 64))\n            s2 = ''.join(rng.choice(string.digits) for _ in range(nlen))\n            b = s2.encode('ascii')\n        else:\n            nlen = min(len(b), rng.randint(8, 80))\n            s2 = ''.join(rng.choice(ALNUM_QR_SET) for _ in range(nlen))\n            b = s2.encode('ascii')\n\n    # Respect harness limits: 1024 for normal, 512 for Micro. We don't know which stub will consume,\n    # so cap at 1024 and let micro stubs resize further. Keep under 4096 overall.\n    if len(b) > 1024:\n        b = b[:1024]\n\n    # Append a single NUL terminator. Ensure no embedded NULs in content.\n    if b:\n        b = b.replace(b\"\\x00\", b\"A\")\n    return b + b\"\\x00\"\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    cands = _build_candidates(rng)\n    return _choose_and_size(rng, cands)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5588,
+            "output_tokens": 749,
+            "total_tokens": 6337
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5166,
+            "output_tokens": 244,
+            "total_tokens": 5410
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5861,
+            "output_tokens": 4835,
+            "total_tokens": 10696
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 22399,
+            "output_tokens": 11035,
+            "total_tokens": 33434
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 9816,
+            "output_tokens": 338,
+            "total_tokens": 10154
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 404.96640610694885,
+    "scan_objects": 10.464070081710815,
+    "validate_objects": 0.6074638366699219,
+    "scan_functions": 74.72409439086914,
+    "synthesis": 255.11380743980408,
+    "fill": 0,
+    "classify": 6.118281841278076,
+    "build_generators": 57.93762922286987
+  }
+}

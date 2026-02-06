@@ -1,0 +1,450 @@
+{
+  "objects": [
+    {
+      "ptr_type": "FaceRect *",
+      "aliases": [
+        "struct FaceRect_ *"
+      ],
+      "definition": "typedef struct FaceRect_\n{\n    float score;\n    int x;\n    int y;\n    int w;\n    int h;\n    int lm[10];\n}FaceRect;",
+      "description": "Face detection result structure holding a confidence score, bounding box (x,y,w,h), and 10 landmark coordinates (likely 5 points as x/y pairs). Used as the element type returned in std::vector<FaceRect> from detection routines.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "ConvInfoStruct *",
+      "aliases": [
+        "struct ConvInfoStruct_ *"
+      ],
+      "definition": "typedef struct ConvInfoStruct_ {\n    int channels;\n    int num_filters;\n    bool is_depthwise;\n    bool is_pointwise;\n    bool with_relu;\n    float* pWeights;\n    float* pBiases;\n}ConvInfoStruct;",
+      "description": "Parameter pack for a convolution layer description used to initialize Filters<T>. Contains tensor dimensions/flags and raw pointers to weights and biases (float arrays).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "facedetect_cnn",
+      "signature": "int* facedetect_cnn(unsigned char* result_buffer, unsigned char* rgb_image_data, int width, int height, int step);",
+      "description": "Runs CNN-based face detection on a BGR image and writes detection results into the caller-provided result_buffer. Returns a pointer to the result data within result_buffer. Typical usage: allocate a 0x20000-byte buffer, pass a BGR 3-channel image buffer with dimensions and row stride, then parse results from the returned int* per libfacedetection’s format. Notes: despite the parameter name, comments state the input must be BGR (3 channels), not RGB.",
+      "requirements": [
+        "result_buffer must point to writable memory of size exactly 0x20000 bytes.",
+        "rgb_image_data must point to a valid BGR image buffer with 3 channels.",
+        "width, height must be positive integers.",
+        "step must be the number of bytes per image row (>= width*3 for tightly packed BGR).",
+        "The function writes into result_buffer; the caller must ensure the buffer’s lifetime spans the call and subsequent result parsing.",
+        "Return value is an int* pointing into result_buffer; caller should not free it and should not assume ownership beyond parsing."
+      ],
+      "error": null
+    },
+    {
+      "name": "myAlloc",
+      "signature": "void* myAlloc(size_t size);",
+      "description": "Allocates an aligned block of memory sized to at least ‘size’ bytes. Alignment depends on platform SIMD configuration (_MALLOC_ALIGN). Intended to back CDataBlob allocations and other internal buffers.",
+      "requirements": [
+        "size must be the number of bytes to allocate; should be nonzero for meaningful allocation.",
+        "Returned pointer must be freed only with myFree_ (or via the myFree macro wrapper used in this codebase).",
+        "The allocation may be aligned to 128/256/512 bytes depending on compile-time flags; callers that depend on alignment should respect these defines."
+      ],
+      "error": null
+    },
+    {
+      "name": "myFree_",
+      "signature": "void myFree_(void* ptr);",
+      "description": "Frees memory previously allocated by myAlloc. In this codebase, the myFree macro wraps myFree_ and nulls the caller’s pointer.",
+      "requirements": [
+        "ptr must be a pointer returned by myAlloc (or null).",
+        "Do not call myFree_ twice on the same allocation without re-allocation.",
+        "After freeing via the myFree macro, the original pointer lvalue is set to 0; when calling myFree_ directly this does not occur."
+      ],
+      "error": null
+    },
+    {
+      "name": "objectdetect_cnn",
+      "signature": "std::vector<FaceRect> objectdetect_cnn(const unsigned char* rgbImageData, int with, int height, int step);",
+      "description": "Runs CNN-based object (face) detection on an image buffer and returns a vector of FaceRect results. The parameter name ‘with’ appears to be a typo for ‘width’; treat it as the image width. Image format specifics are not documented here.",
+      "requirements": [
+        "rgbImageData must point to a valid image buffer in the expected format (unknown; not specified in this header).",
+        "with and height should be positive integers representing image dimensions.",
+        "step should be the number of bytes per row for rgbImageData.",
+        "Caller owns the returned std::vector<FaceRect>.",
+        "Exact color channel order and channel count are unknown from this declaration; verify against implementation or examples."
+      ],
+      "error": null
+    },
+    {
+      "name": "setDataFrom3x3S2P1to1x1S1P0FromImage",
+      "signature": "CDataBlob<float> setDataFrom3x3S2P1to1x1S1P0FromImage(const unsigned char* inputData, int imgWidth, int imgHeight, int imgChannels, int imgWidthStep, int padDivisor = 32);",
+      "description": "Converts an input image buffer into a CDataBlob<float> arranged for a 3x3 stride-2 pad-1 to 1x1 stride-1 pad-0 pipeline, likely including padding to padDivisor. Used to prepare input data for the CNN.",
+      "requirements": [
+        "inputData must point to a valid image buffer with imgChannels channels and row stride imgWidthStep bytes.",
+        "imgWidth, imgHeight must be positive integers.",
+        "imgChannels must be a positive integer (typically 3 for color).",
+        "imgWidthStep must be >= imgWidth * imgChannels for tightly packed data; otherwise must represent the actual row byte stride.",
+        "padDivisor controls padding granularity; must be a positive integer."
+      ],
+      "error": null
+    },
+    {
+      "name": "convolution",
+      "signature": "CDataBlob<float> convolution(const CDataBlob<float>& inputData, const Filters<float>& filters, bool do_relu = true);",
+      "description": "Applies a convolution using the provided Filters<float> (supports pointwise 1x1 or depthwise 3x3 per Filters settings) to inputData, optionally applying ReLU. Returns the resulting feature map as a CDataBlob<float>.",
+      "requirements": [
+        "inputData must be a properly initialized CDataBlob<float>.",
+        "filters must be initialized with dimensions compatible with inputData (channels must match; filter type supported by Filters).",
+        "If do_relu is true, ReLU activation is applied after convolution."
+      ],
+      "error": null
+    },
+    {
+      "name": "convolutionDP",
+      "signature": "CDataBlob<float> convolutionDP(const CDataBlob<float>& inputData, const Filters<float>& filtersP, const Filters<float>& filtersD, bool do_relu = true);",
+      "description": "Performs a depthwise separable convolution: a pointwise (P) and depthwise (D) combination as configured by filtersP and filtersD, optionally followed by ReLU. Returns the resulting feature map.",
+      "requirements": [
+        "inputData must be initialized and non-empty.",
+        "filtersP must be configured as pointwise (1x1).",
+        "filtersD must be configured as depthwise (3x3).",
+        "Filter channel counts must be compatible with inputData and each other.",
+        "If do_relu is true, ReLU activation is applied after the combined operation."
+      ],
+      "error": null
+    },
+    {
+      "name": "convolution4layerUnit",
+      "signature": "CDataBlob<float> convolution4layerUnit(const CDataBlob<float>& inputData, const Filters<float>& filtersP1, const Filters<float>& filtersD1, const Filters<float>& filtersP2, const Filters<float>& filtersD2, bool do_relu = true);",
+      "description": "Executes a 4-layer unit composed of sequential pointwise/depthwise pairs (P1+D1 then P2+D2), optionally applying ReLU at the end. Returns the resulting feature map.",
+      "requirements": [
+        "inputData must be initialized and non-empty.",
+        "filtersP1 and filtersP2 must be configured as pointwise (1x1).",
+        "filtersD1 and filtersD2 must be configured as depthwise (3x3).",
+        "All filters must be dimensionally compatible across the sequence."
+      ],
+      "error": null
+    },
+    {
+      "name": "maxpooling2x2S2",
+      "signature": "CDataBlob<float> maxpooling2x2S2(const CDataBlob<float>& inputData);",
+      "description": "Applies 2x2 max-pooling with stride 2 to inputData and returns the downsampled feature map.",
+      "requirements": [
+        "inputData must be initialized and non-empty.",
+        "Input spatial dimensions should be at least 2x2 to produce output.",
+        "Behavior for odd dimensions depends on implementation (not specified here)."
+      ],
+      "error": null
+    },
+    {
+      "name": "elementAdd",
+      "signature": "CDataBlob<float> elementAdd(const CDataBlob<float>& inputData1, const CDataBlob<float>& inputData2);",
+      "description": "Performs element-wise addition of two CDataBlob<float> inputs and returns the result.",
+      "requirements": [
+        "inputData1 and inputData2 must be initialized and have identical dimensions (rows, cols, channels, and layout) for valid element-wise addition."
+      ],
+      "error": null
+    },
+    {
+      "name": "upsampleX2",
+      "signature": "CDataBlob<float> upsampleX2(const CDataBlob<float>& inputData);",
+      "description": "Upsamples the input feature map by a factor of 2 in spatial dimensions and returns the result. The specific interpolation method is not specified.",
+      "requirements": [
+        "inputData must be initialized and non-empty."
+      ],
+      "error": null
+    },
+    {
+      "name": "meshgrid",
+      "signature": "CDataBlob<float> meshgrid(int feature_width, int feature_height, int stride, float offset = 0.0f);",
+      "description": "Generates a meshgrid prior grid for detection heads given feature map size, stride, and optional offset. Returns the grid as a CDataBlob<float>.",
+      "requirements": [
+        "feature_width and feature_height must be positive integers.",
+        "stride must be a positive integer.",
+        "offset is a float; optional and defaults to 0.0f."
+      ],
+      "error": null
+    },
+    {
+      "name": "bbox_decode",
+      "signature": "void bbox_decode(CDataBlob<float>& bbox_pred, const CDataBlob<float>& priors, int stride);",
+      "description": "Decodes predicted bounding box deltas (bbox_pred) in-place using priors and stride. Typically converts from network outputs to absolute box coordinates.",
+      "requirements": [
+        "bbox_pred must be an initialized CDataBlob<float> and writable, as it is modified in-place.",
+        "priors must be initialized and dimensionally compatible with bbox_pred.",
+        "stride must be a positive integer."
+      ],
+      "error": null
+    },
+    {
+      "name": "kps_decode",
+      "signature": "void kps_decode(CDataBlob<float>& bbox_pred, const CDataBlob<float>& priors, int stride);",
+      "description": "Decodes predicted keypoint offsets (stored in bbox_pred) in-place using priors and stride. Typically converts network keypoint outputs to absolute landmark coordinates.",
+      "requirements": [
+        "bbox_pred must be an initialized, writable CDataBlob<float>.",
+        "priors must be initialized and compatible in dimensions with bbox_pred.",
+        "stride must be a positive integer."
+      ],
+      "error": null
+    },
+    {
+      "name": "blob2vector",
+      "signature": "template <typename T> CDataBlob<T> blob2vector(const CDataBlob<T>& inputData);",
+      "description": "Converts a multi-dimensional CDataBlob<T> into a 1D vector-like CDataBlob<T> (flattening). Useful for reshaping prior to fully connected or concatenation operations.",
+      "requirements": [
+        "inputData must be initialized and non-empty.",
+        "Template parameter T must match the input blob’s element type."
+      ],
+      "error": null
+    },
+    {
+      "name": "concat3",
+      "signature": "template <typename T> CDataBlob<T> concat3(const CDataBlob<T>& inputData1, const CDataBlob<T>& inputData2, const CDataBlob<T>& inputData3);",
+      "description": "Concatenates three CDataBlob<T> inputs (typically along the channel dimension) and returns the combined blob.",
+      "requirements": [
+        "All three inputs must be initialized and share identical spatial dimensions (rows and cols).",
+        "Template parameter T must be the same for all inputs."
+      ],
+      "error": null
+    },
+    {
+      "name": "sigmoid",
+      "signature": "void sigmoid(CDataBlob<float>& inputData);",
+      "description": "Applies the sigmoid activation function in-place to all elements of inputData.",
+      "requirements": [
+        "inputData must be initialized and writable."
+      ],
+      "error": null
+    },
+    {
+      "name": "detection_output",
+      "signature": "std::vector<FaceRect> detection_output(const CDataBlob<float>& cls, const CDataBlob<float>& reg, const CDataBlob<float>& kps, const CDataBlob<float>& obj, float overlap_threshold, float confidence_threshold, int top_k, int keep_top_k);",
+      "description": "Performs post-processing to produce final face detections. Combines classification scores (cls), bounding box regression (reg), keypoints (kps), and objectness (obj), applies thresholds/NMS, and returns up to keep_top_k FaceRect results.",
+      "requirements": [
+        "cls, reg, kps, obj must be initialized and dimensionally compatible outputs of the detection head.",
+        "overlap_threshold and confidence_threshold should be in [0, 1] (typical for NMS IoU and confidence filtering).",
+        "top_k and keep_top_k should be non-negative integers, with keep_top_k <= top_k in typical usage."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "facedetect_cnn",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare a 0x20000-byte writable result buffer as required\nstd::vector<unsigned char> result_buf_vec(0x20000);\nunsigned char* result_buffer = result_buf_vec.data();\n\n// Generate a small-but-valid BGR image\nint width = (int)(*FUZZ_PARAM(unsigned int) % 256u) + 1;     // >=1\nint height = (int)(*FUZZ_PARAM(unsigned int) % 256u) + 1;    // >=1\n// step must be >= width*3 for 3-channel BGR\nint min_step = width * 3;\nint extra_pad = (int)(*FUZZ_PARAM(unsigned int) % 16u);\nint step = min_step + extra_pad;\n\n// Cap total allocation to keep runtime reasonable\nsize_t img_bytes = (size_t)height * (size_t)step;\nif (img_bytes == 0 || img_bytes > (1u<<21)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\n\n// Fill image with fuzz data (already random due to vector default + not required)\nunsigned char* rgb_image_data = img.data();\n\n// Call the target; it writes into result_buffer and returns a pointer into it\nint* ret = facedetect_cnn(result_buffer, rgb_image_data, width, height, step);\nif (!ret) { FUZZ_BAIL(); }\n// Do not assume ownership of ret; it aliases result_buffer"
+    },
+    {
+      "name": "myAlloc",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ptr",
+          "type": "void *"
+        }
+      ],
+      "code": "// Size: choose non-zero and bounded\nsize_t size = ((size_t)(*FUZZ_PARAM(unsigned int) % 2048u)) + 1u; // 1..2048 bytes\nvoid* ptr = myAlloc(size);\nif (!ptr) { FUZZ_BAIL(); }\n// Mark allocator provenance for safe freeing later\nFUZZ_SET_ATTR_STR(ptr, \"allocator\", \"myAlloc\");\nFUZZ_SET_ATTR_INT(ptr, \"freed\", 0);\n// Return ptr to the pool as an output so it can be freed later"
+    },
+    {
+      "name": "myFree_",
+      "inputs": [
+        {
+          "name": "ptr",
+          "type": "void *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Only free pointers allocated by myAlloc and not yet freed\nconst char* alloc = FUZZ_GET_ATTR_STR(ptr, \"allocator\");\nint was_freed = FUZZ_GET_ATTR_INT(ptr, \"freed\");\nif (!(alloc && alloc[0])) { FUZZ_BAIL(); }\nif (std::string(alloc) != std::string(\"myAlloc\")) { FUZZ_BAIL(); }\nif (was_freed) { FUZZ_BAIL(); }\n\nmyFree_(ptr);\n// Mark as freed to prevent double-free in subsequent misuse\nFUZZ_SET_ATTR_INT(ptr, \"freed\", 1);\n// Do not return ptr as an output; runtime drops it from the pool"
+    },
+    {
+      "name": "setDataFrom3x3S2P1to1x1S1P0FromImage",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a small, valid image and parameters\nint imgWidth = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 2;   // ensure >=2 for downstream ops\nint imgHeight = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 2;\nint imgChannels = (int)(*FUZZ_PARAM(unsigned int) % 3u) + 1; // 1..3\nint imgWidthStep = imgWidth * imgChannels + (int)(*FUZZ_PARAM(unsigned int) % 8u);\nif (imgWidth <= 0 || imgHeight <= 0 || imgChannels <= 0) { FUZZ_BAIL(); }\nif (imgWidthStep < imgWidth * imgChannels) { FUZZ_BAIL(); }\nint padDivisor = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 1; // positive\nsize_t img_bytes = (size_t)imgHeight * (size_t)imgWidthStep;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nconst unsigned char* inputData = img.data();\n\nCDataBlob<float> blob = setDataFrom3x3S2P1to1x1S1P0FromImage(inputData, imgWidth, imgHeight, imgChannels, imgWidthStep, padDivisor);\n// blob is temporary; no persistence required"
+    },
+    {
+      "name": "maxpooling2x2S2",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Produce an input blob via image->blob conversion with dims >=2x2\nint imgWidth = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 2;\nint imgHeight = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 2;\nint imgChannels = 3;\nint imgWidthStep = imgWidth * imgChannels;\nsize_t img_bytes = (size_t)imgHeight * (size_t)imgWidthStep;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nCDataBlob<float> inputBlob = setDataFrom3x3S2P1to1x1S1P0FromImage(img.data(), imgWidth, imgHeight, imgChannels, imgWidthStep);\n\nCDataBlob<float> pooled = maxpooling2x2S2(inputBlob);\n// No outputs to persist"
+    },
+    {
+      "name": "elementAdd",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a single blob and use it as both inputs to guarantee identical dimensions\nint w = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 2;\nint h = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 2;\nint c = 3;\nint step = w * c;\nsize_t img_bytes = (size_t)h * (size_t)step;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nCDataBlob<float> blob = setDataFrom3x3S2P1to1x1S1P0FromImage(img.data(), w, h, c, step);\n\nCDataBlob<float> sum = elementAdd(blob, blob);\n// sum is temporary"
+    },
+    {
+      "name": "upsampleX2",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Produce an input blob\nint w = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 1;\nint h = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 1;\nint c = 3;\nint step = w * c;\nsize_t img_bytes = (size_t)h * (size_t)step;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nCDataBlob<float> blob = setDataFrom3x3S2P1to1x1S1P0FromImage(img.data(), w, h, c, step);\n\nCDataBlob<float> up = upsampleX2(blob);\n// Temporary only"
+    },
+    {
+      "name": "meshgrid",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a small valid meshgrid\nint feature_width = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 1;\nint feature_height = (int)(*FUZZ_PARAM(unsigned int) % 64u) + 1;\nint stride = (int)(*FUZZ_PARAM(unsigned int) % 8u) + 1;\nfloat offset = (float)(*FUZZ_PARAM(unsigned int) % 100u) / 100.0f; // 0.00..0.99\n\nCDataBlob<float> grid = meshgrid(feature_width, feature_height, stride, offset);\n// grid is temporary"
+    },
+    {
+      "name": "blob2vector",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a non-empty blob and flatten it\nint w = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 2;\nint h = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 2;\nint c = 3;\nint step = w * c;\nsize_t img_bytes = (size_t)h * (size_t)step;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nCDataBlob<float> blob = setDataFrom3x3S2P1to1x1S1P0FromImage(img.data(), w, h, c, step);\n\nCDataBlob<float> vec = blob2vector<float>(blob);\n// vec is temporary"
+    },
+    {
+      "name": "concat3",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a blob and reuse it for all three inputs to ensure dims match\nint w = (int)(*FUZZ_PARAM(unsigned int) % 16u) + 4;\nint h = (int)(*FUZZ_PARAM(unsigned int) % 16u) + 4;\nint c = 3;\nint step = w * c;\nsize_t img_bytes = (size_t)h * (size_t)step;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nCDataBlob<float> blob = setDataFrom3x3S2P1to1x1S1P0FromImage(img.data(), w, h, c, step);\n\nCDataBlob<float> cat = concat3<float>(blob, blob, blob);\n// cat is temporary"
+    },
+    {
+      "name": "sigmoid",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a writable blob and apply sigmoid in-place\nint w = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 1;\nint h = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 1;\nint c = 3;\nint step = w * c;\nsize_t img_bytes = (size_t)h * (size_t)step;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nCDataBlob<float> blob = setDataFrom3x3S2P1to1x1S1P0FromImage(img.data(), w, h, c, step);\n\nsigmoid(blob);\n// In-place; no outputs"
+    },
+    {
+      "name": "bbox_decode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a valid prior grid and reuse it as bbox_pred to ensure dimensional compatibility\nint feature_width = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 1;   // >=1\nint feature_height = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 1;  // >=1\nint stride = (int)(*FUZZ_PARAM(unsigned int) % 8u) + 1;           // >=1\n\n// meshgrid returns a writable CDataBlob<float>; using the same blob for priors and bbox_pred\n// avoids needing a copy (copy ctor is deleted) and guarantees compatible dimensions\nCDataBlob<float> grid = meshgrid(feature_width, feature_height, stride, 0.0f);\n\n// In-place decode: bbox_pred and priors share the same underlying blob by intent here\nbbox_decode(grid, grid, stride);\n// No outputs persisted; grid is temporary\n// Validation: stride is positive; priors and bbox_pred are identical objects so dimensions match."
+    },
+    {
+      "name": "kps_decode",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a valid prior grid and reuse it as bbox_pred to guarantee compatible dimensions\nint feature_width = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 1;   // >=1\nint feature_height = (int)(*FUZZ_PARAM(unsigned int) % 32u) + 1;  // >=1\nint stride = (int)(*FUZZ_PARAM(unsigned int) % 8u) + 1;           // >=1\n\nCDataBlob<float> grid = meshgrid(feature_width, feature_height, stride, 0.0f);\n\n// In-place decode of keypoints; using the same blob for priors ensures shape compatibility\nkps_decode(grid, grid, stride);\n// No outputs persisted; grid is temporary\n// Validation: stride > 0; priors and bbox_pred are identical objects so dimensions match."
+    },
+    {
+      "name": "detection_output",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fabricate a non-empty feature blob and reuse it for all four inputs to ensure compatibility\nint w = (int)(*FUZZ_PARAM(unsigned int) % 16u) + 4;  // >=4\nint h = (int)(*FUZZ_PARAM(unsigned int) % 16u) + 4;  // >=4\nint c = 3;\nint step = w * c;\nsize_t img_bytes = (size_t)h * (size_t)step;\nif (img_bytes == 0 || img_bytes > (1u<<20)) { FUZZ_BAIL(); }\nstd::vector<unsigned char> img(img_bytes);\nCDataBlob<float> blob = setDataFrom3x3S2P1to1x1S1P0FromImage(img.data(), w, h, c, step);\n\n// Thresholds in [0,1]\nfloat overlap_threshold = (float)(*FUZZ_PARAM(unsigned int) % 101u) / 100.0f;\nfloat confidence_threshold = (float)(*FUZZ_PARAM(unsigned int) % 101u) / 100.0f;\n// Enforce non-negative top_k and keep_top_k <= top_k\nint top_k = (int)(*FUZZ_PARAM(unsigned int) % 200u); // 0..199\nint keep_top_k = (top_k == 0) ? 0 : (int)(*FUZZ_PARAM(unsigned int) % (unsigned)top_k);\n\n// Use the same blob for cls, reg, kps, obj to satisfy dimensional compatibility\nauto detections = detection_output(blob, blob, blob, blob, overlap_threshold, confidence_threshold, top_k, keep_top_k);\n// detections is temporary; no persistence\n// Validation: dims identical by construction; thresholds bounded; keep_top_k <= top_k ensured."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "convolution",
+      "reason": "Requires constructing Filters<float> with compatible dimensions, but no constructors or object types for Filters are provided to safely initialize it."
+    },
+    {
+      "name": "convolutionDP",
+      "reason": "Needs two initialized Filters<float> (pointwise and depthwise) with compatible shapes, but the API lacks constructors or object info to create them."
+    },
+    {
+      "name": "convolution4layerUnit",
+      "reason": "Depends on four initialized Filters<float> objects with specific configurations, which cannot be created due to missing constructors/object definitions."
+    },
+    {
+      "name": "objectdetect_cnn",
+      "reason": "The symbol is not available in the current link environment (undefined reference at link time), so it cannot be exercised."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "facedetect_cnn",
+      "data_types": []
+    },
+    {
+      "name": "myAlloc",
+      "data_types": []
+    },
+    {
+      "name": "myFree_",
+      "data_types": []
+    },
+    {
+      "name": "setDataFrom3x3S2P1to1x1S1P0FromImage",
+      "data_types": []
+    },
+    {
+      "name": "maxpooling2x2S2",
+      "data_types": []
+    },
+    {
+      "name": "elementAdd",
+      "data_types": []
+    },
+    {
+      "name": "upsampleX2",
+      "data_types": []
+    },
+    {
+      "name": "meshgrid",
+      "data_types": []
+    },
+    {
+      "name": "blob2vector",
+      "data_types": []
+    },
+    {
+      "name": "concat3",
+      "data_types": []
+    },
+    {
+      "name": "sigmoid",
+      "data_types": []
+    },
+    {
+      "name": "bbox_decode",
+      "data_types": []
+    },
+    {
+      "name": "kps_decode",
+      "data_types": []
+    },
+    {
+      "name": "detection_output",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4460,
+            "output_tokens": 2605,
+            "total_tokens": 7065
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4038,
+            "output_tokens": 108,
+            "total_tokens": 4146
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4577,
+            "output_tokens": 3757,
+            "total_tokens": 8334
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 17971,
+            "output_tokens": 7545,
+            "total_tokens": 25516
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 241.97910451889038,
+    "scan_objects": 23.534735679626465,
+    "validate_objects": 0.7204751968383789,
+    "scan_functions": 70.09754753112793,
+    "synthesis": 147.55553364753723,
+    "fill": 0,
+    "classify": 0.06910896301269531,
+    "build_generators": 0.00009298324584960938
+  }
+}

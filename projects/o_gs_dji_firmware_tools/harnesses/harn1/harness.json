@@ -1,0 +1,142 @@
+{
+  "objects": [
+    {
+      "ptr_type": "const char **",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom data types are defined in this header. It only declares two free functions in the djitools namespace: version() and simple_checksum().",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "djitools::version",
+      "signature": "const char* djitools::version();",
+      "description": "Returns a static, null-terminated version string for the djitools shim. Typical usage is to query the library’s version for logging or compatibility checks. The returned pointer refers to read-only storage with static lifetime.",
+      "requirements": [
+        "No arguments required.",
+        "The returned pointer must be treated as read-only; do not modify or free it.",
+        "The returned C-string is expected to be null-terminated and remain valid for the duration of the process (static storage).",
+        "May be called at any time; no initialization order is implied by the declaration."
+      ],
+      "error": null
+    },
+    {
+      "name": "djitools::simple_checksum",
+      "signature": "int djitools::simple_checksum(const unsigned char* data, int len);",
+      "description": "Computes a 16-bit additive checksum over the provided buffer. Intended for simple integrity checks where a fast, non-cryptographic checksum is sufficient. Returns the checksum as an int, with the meaningful value in the lower 16 bits.",
+      "requirements": [
+        "If len > 0, data must be a valid, non-null pointer to a buffer of at least len bytes readable by the caller.",
+        "len must be non-negative.",
+        "If len == 0, data may be null and the function should return the additive identity (commonly 0) for an empty buffer.",
+        "The function is non-cryptographic and should not be used for security-sensitive validation.",
+        "Caller should only use the lower 16 bits of the return value, as the checksum is 16-bit additive."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "djitools::version",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ver_str",
+          "type": "void *"
+        }
+      ],
+      "code": "// Call the target function; it should return a static, read-only C-string\nconst char *p = djitools::version();\n// Enforce API contract: returned pointer must be non-null\nif (!p) { FUZZ_BAIL(); }\n\n// Validate that the string is null-terminated within a reasonable bound to avoid over-read\n// Scan up to 4096 bytes looking for a terminator; bail if not found\nsize_t max_scan = 4096;\nsize_t len = 0;\nfor (; len < max_scan; ++len) {\n    if (p[len] == '\\0') { break; }\n}\nif (len == max_scan) { FUZZ_BAIL(); }\n\n// The pointer refers to static, read-only storage; do not modify or free.\n// Expose it to the object pool as an output using an opaque pointer type.\nvoid *ver_str = (void*)p;\n// Track attributes to ensure downstream stubs treat it correctly if reused\nFUZZ_SET_ATTR_INT(ver_str, \"is_static\", 1);\nFUZZ_SET_ATTR_INT(ver_str, \"is_readonly_cstr\", 1);\nFUZZ_SET_ATTR_INT(ver_str, \"cstr_len\", (int)len);\n// Property: length computed above must be consistent when read again\nFUZZ_ASSERT(((const char*)ver_str)[len] == '\\0', \"version string lost null-termination\");\n\n// Validation: The stub enforces non-null return and bounded null-termination; the output is tagged as static/readonly for safe reuse."
+    },
+    {
+      "name": "djitools::simple_checksum",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random buffer; FUZZ_PARAM_STR returns 1..4096 bytes\nstd::string s = FUZZ_PARAM_STR();\n\n// Choose a non-negative length within the buffer size (including 0)\nunsigned int r = *FUZZ_PARAM(unsigned int);\nint len = (int)(s.empty() ? 0 : (r % (s.size() + 1)));\nif (len < 0) { FUZZ_BAIL(); }\n\n// Choose data pointer according to the contract\n// If len == 0, data may be null; randomly exercise both null and non-null cases\nconst unsigned char *data = nullptr;\nif (len > 0) {\n    data = reinterpret_cast<const unsigned char*>(s.data());\n} else {\n    bool use_null = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n    data = use_null ? nullptr : reinterpret_cast<const unsigned char*>(s.data());\n}\n\n// Compute expected 16-bit additive checksum locally for property validation\nunsigned int sum = 0u;\nfor (int i = 0; i < len; ++i) {\n    sum = (sum + (unsigned int)data[i]) & 0xFFFFu; // keep lower 16 bits\n}\nunsigned int expected = sum & 0xFFFFu;\n\n// Invoke the target function\nint ret = djitools::simple_checksum(data, len);\n\n// Property-based assertion: lower 16 bits must match our independently computed checksum\nFUZZ_ASSERT(((unsigned int)ret & 0xFFFFu) == expected, \"simple_checksum lower 16 bits mismatch\");\n\n// Validation: The stub guarantees valid inputs per API rules and asserts the 16-bit checksum property; no persistent outputs are produced."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "djitools::version",
+      "data_types": []
+    },
+    {
+      "name": "djitools::simple_checksum",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A raw byte buffer of any length with no required encoding or structure. May contain any 8-bit values (0x00–0xFF), including embedded NULs and non-printable bytes. Suitable for functions that process generic byte sequences without format assumptions."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nfrom typing import List\n\n# This generator targets djitools::simple_checksum, which consumes arbitrary binary data.\n# The fuzzer stub uses FUZZ_PARAM_STR to obtain 1..4096 bytes. We therefore generate a\n# byte string within that range, covering interesting edge cases and typical patterns\n# that exercise additive checksum behavior (e.g., zeros, max bytes, alternating patterns,\n# increasing sequences, random data, and structured blocks).\n\nMAX_LEN = 4096\nMIN_LEN = 1  # FUZZ_PARAM_STR returns 1..4096 according to the stub comment\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _pattern_zero(n: int) -> bytes:\n    return b\"\\x00\" * n\n\n\ndef _pattern_ff(n: int) -> bytes:\n    return b\"\\xFF\" * n\n\n\ndef _pattern_alt01(n: int) -> bytes:\n    # 0x00, 0x01, 0x00, 0x01, ...\n    return bytes((i & 1) for i in range(n))\n\n\ndef _pattern_altff00(n: int) -> bytes:\n    # 0xFF, 0x00 alternating\n    return bytes(0xFF if (i & 1) == 0 else 0x00 for i in range(n))\n\n\ndef _pattern_inc(n: int) -> bytes:\n    # 0x00, 0x01, ..., 0xFF, 0x00, ...\n    return bytes(i & 0xFF for i in range(n))\n\n\ndef _pattern_dec(n: int) -> bytes:\n    # 0xFF, 0xFE, ..., wrapping\n    return bytes((0xFF - (i & 0xFF)) & 0xFF for i in range(n))\n\n\ndef _pattern_blocks(rng: random.Random, n: int) -> bytes:\n    # Construct buffer from repeated small blocks with varying byte values\n    # to stress accumulation and alignment-like behavior.\n    blocks: List[bytes] = []\n    remaining = n\n    while remaining > 0:\n        # Choose a block size between 1 and 64\n        bsz = min(remaining, rng.randint(1, 64))\n        mode = rng.randrange(5)\n        if mode == 0:\n            val = rng.randrange(256)\n            blk = bytes([val]) * bsz\n        elif mode == 1:\n            start = rng.randrange(256)\n            blk = bytes(((start + i) & 0xFF) for i in range(bsz))\n        elif mode == 2:\n            blk = bytes(rng.getrandbits(8) for _ in range(bsz))\n        elif mode == 3:\n            blk = bytes((0xFF if (i & 1) == 0 else 0x00) for i in range(bsz))\n        else:\n            blk = bytes((i & 1) for i in range(bsz))\n        blocks.append(blk)\n        remaining -= bsz\n    return b\"\".join(blocks)\n\n\ndef _pattern_edge_sums(n: int) -> bytes:\n    # Create data whose sum is around 0x0000, 0x00FF, 0xFF00, 0xFFFF modulo 16-bit\n    # We do this by mixing zeros and 0xFFs and a tail byte to fine-tune.\n    # Not exact for all lengths, but gives interesting totals.\n    if n == 1:\n        return bytes([0xFF])\n    half = n // 2\n    tail_len = n - half - 1\n    # half of 0xFF, tail of 0x01, rest zeros\n    return b\"\\xFF\" * half + b\"\\x01\" * tail_len + b\"\\x00\"\n\n\ndef _choose_length(rng: random.Random) -> int:\n    # Bias towards small, medium, and max sizes\n    roll = rng.random()\n    if roll < 0.20:\n        # very small\n        return rng.randint(MIN_LEN, min(16, MAX_LEN))\n    elif roll < 0.60:\n        # medium\n        return rng.randint(17, min(512, MAX_LEN))\n    elif roll < 0.90:\n        # large\n        return rng.randint(513, MAX_LEN - 1)\n    else:\n        return MAX_LEN\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    n = _choose_length(rng)\n\n    # Choose a pattern family\n    patterns = [\n        lambda: _rand_bytes(rng, n),\n        lambda: _pattern_zero(n),\n        lambda: _pattern_ff(n),\n        lambda: _pattern_alt01(n),\n        lambda: _pattern_altff00(n),\n        lambda: _pattern_inc(n),\n        lambda: _pattern_dec(n),\n        lambda: _pattern_blocks(rng, n),\n        lambda: _pattern_edge_sums(n),\n    ]\n\n    # Weighted preference towards random and blocky structures\n    weights = [3, 1, 1, 1, 1, 1, 1, 3, 1]\n    choice_space = []\n    for i, w in enumerate(weights):\n        choice_space.extend([i] * w)\n    pat_idx = rng.choice(choice_space)\n\n    data = patterns[pat_idx]()\n\n    # Ensure length bounds and type\n    if not isinstance(data, (bytes, bytearray)):\n        data = bytes(data)\n    if len(data) < MIN_LEN:\n        data = data + b\"\\x00\" * (MIN_LEN - len(data))\n    if len(data) > MAX_LEN:\n        data = data[:MAX_LEN]\n\n    return bytes(data)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 742,
+            "output_tokens": 69,
+            "total_tokens": 811
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 320,
+            "output_tokens": 28,
+            "total_tokens": 348
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 764,
+            "output_tokens": 785,
+            "total_tokens": 1549
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4048,
+            "output_tokens": 2394,
+            "total_tokens": 6442
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1806,
+            "output_tokens": 104,
+            "total_tokens": 1910
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 95.71821165084839,
+    "scan_objects": 2.376012086868286,
+    "validate_objects": 0.19864654541015625,
+    "scan_functions": 17.52888560295105,
+    "synthesis": 50.28068470954895,
+    "fill": 0,
+    "classify": 3.6380529403686523,
+    "build_generators": 21.694771766662598
+  }
+}

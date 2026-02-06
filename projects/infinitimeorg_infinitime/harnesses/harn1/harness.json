@@ -1,0 +1,134 @@
+{
+  "objects": [
+    {
+      "ptr_type": "Pinetime::Tools::RleDecoder *",
+      "aliases": [],
+      "definition": "namespace Pinetime {\n  namespace Tools {\n    /* 1-bit RLE decoder. Provide the encoded buffer to the constructor and then call DecodeNext() by\n     * specifying the output (decoded) buffer and the maximum number of bytes this buffer can handle.\n     *\n     * Code from https://github.com/daniel-thompson/wasp-bootloader by Daniel Thompson released under the MIT license.\n     */\n    class RleDecoder {\n    public:\n      RleDecoder(const uint8_t* buffer, size_t size);\n      RleDecoder(const uint8_t* buffer, size_t size, uint16_t foregroundColor, uint16_t backgroundColor);\n\n      void DecodeNext(uint8_t* output, size_t maxBytes);\n\n    private:\n      const uint8_t* buffer;\n      size_t size;\n\n      size_t encodedBufferIndex = 0;\n      int y = 0;\n      uint16_t bp = 0;\n      uint16_t foregroundColor = 0xffff;\n      uint16_t backgroundColor = 0;\n      uint16_t color = backgroundColor;\n      int processedCount = 0;\n    };\n  }\n}\n",
+      "description": "1-bit run-length encoding decoder class in Pinetime::Tools namespace. It is constructed with a pointer to an encoded buffer and its size, optionally with foreground and background 16-bit colors. Call DecodeNext to write the next chunk of decoded bytes into a provided output buffer up to maxBytes. Internal state members track position in the encoded buffer, bitplane position, current color, and progress. Destruction/ownership: the class does not own the provided buffer (stored as const uint8_t*).",
+      "direct_api_constructors": [
+        "Pinetime::Tools::RleDecoder::RleDecoder(const uint8_t* buffer, size_t size)",
+        "Pinetime::Tools::RleDecoder::RleDecoder(const uint8_t* buffer, size_t size, uint16_t foregroundColor, uint16_t backgroundColor)"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "Pinetime::Tools::RleDecoder::RleDecoder",
+      "signature": "Pinetime::Tools::RleDecoder::RleDecoder(const uint8_t* buffer, size_t size);",
+      "description": "Constructs a 1-bit RLE decoder bound to an encoded input buffer. After construction, call DecodeNext() to incrementally decode into an output buffer up to a caller-specified byte limit per call. The decoder maintains internal state to allow streaming/partial decoding across multiple DecodeNext() calls.",
+      "requirements": [
+        "buffer points to the start of the encoded data and must remain valid and unchanged for the lifetime of the RleDecoder instance (the constructor stores the pointer).",
+        "If size > 0, buffer must be non-null; if buffer is null, size must be 0 to avoid dereferencing null.",
+        "size specifies the number of bytes available in the encoded buffer; it must not exceed the actual allocated size of the memory referenced by buffer.",
+        "The instance must be constructed successfully before any calls to DecodeNext()."
+      ],
+      "error": null
+    },
+    {
+      "name": "Pinetime::Tools::RleDecoder::DecodeNext",
+      "signature": "void Pinetime::Tools::RleDecoder::DecodeNext(uint8_t* output, size_t maxBytes);",
+      "description": "Decodes the next chunk of data from the internal 1-bit RLE stream into the caller-provided output buffer, writing at most maxBytes bytes. Can be called repeatedly to continue decoding where the previous call left off. Intended for incremental/streamed decoding of the provided encoded buffer.",
+      "requirements": [
+        "The RleDecoder instance must have been constructed with a valid encoded buffer prior to this call.",
+        "output must be writable memory capable of holding at least maxBytes bytes; if maxBytes > 0, output must be non-null.",
+        "maxBytes limits the number of bytes written; behavior for maxBytes == 0 is a no-op decode step (no bytes written).",
+        "Callers must not assume thread-safety or reentrancy; use a single thread per instance (stateful decoder).",
+        "The function does not return a status; error/EOF signaling behavior is not documented here (unknown)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "Pinetime::Tools::RleDecoder::RleDecoder",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "decoder",
+          "type": "Pinetime::Tools::RleDecoder *"
+        }
+      ],
+      "code": "// Use a static fuzz buffer so its lifetime safely exceeds the decoder's lifetime.\n// FUZZ_PARAM(uint8_t[1024]) provides a non-null pointer to a 1024-byte buffer of random data.\nconst uint8_t *encoded_buf = *FUZZ_PARAM(uint8_t[1024]);\n// Choose a size in range [0, 1024]. If size > 0, buffer is guaranteed non-null.\nsize_t encoded_size = (size_t)(*FUZZ_PARAM(unsigned int) % 1025);\n// Construct the decoder with a valid buffer/size pairing.\n// - When encoded_size == 0, passing a non-null buffer is still valid (no reads will occur).\n// - When encoded_size > 0, encoded_buf is non-null (by construction above).\nPinetime::Tools::RleDecoder *decoder = new Pinetime::Tools::RleDecoder(encoded_buf, encoded_size);\n// Track metadata for downstream stubs (optional but useful for validation/coverage).\nFUZZ_SET_ATTR_INT(decoder, \"encoded_size\", (int)encoded_size);\n// decoder is returned as an output object and remains persistent across calls."
+    },
+    {
+      "name": "Pinetime::Tools::RleDecoder::DecodeNext",
+      "inputs": [
+        {
+          "name": "decoder",
+          "type": "Pinetime::Tools::RleDecoder *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "decoder",
+          "type": "Pinetime::Tools::RleDecoder *"
+        }
+      ],
+      "code": "// The decoder instance must have been constructed already; the fuzzer runtime enforces this by\n// supplying a persistent Pinetime::Tools::RleDecoder * from its object pool.\n// Choose a maxBytes limit in [0, 1024] to bound work and stay performant.\nsize_t max_bytes = (size_t)(*FUZZ_PARAM(unsigned int) % 1025);\n// Allocate a writable output buffer only if max_bytes > 0, to satisfy API constraints:\n// - If maxBytes > 0, output must be non-null and writable for at least maxBytes bytes.\n// - If maxBytes == 0, output may be null and the call is a no-op.\nuint8_t *out_ptr = nullptr;\nstd::vector<uint8_t> out_buf;\nif (max_bytes > 0) {\n  out_buf.resize(max_bytes, 0);\n  out_ptr = out_buf.data();\n}\n// Invoke the target API. This is stateful but not thread-safe; we call it in a single-threaded context.\ndecoder->DecodeNext(out_ptr, max_bytes);\n// No status is returned; we only ensure invariants were respected by construction above.\n// Return the decoder as an output so it remains in the pool for further incremental decoding."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "Pinetime::Tools::RleDecoder::RleDecoder",
+      "data_types": []
+    },
+    {
+      "name": "Pinetime::Tools::RleDecoder::DecodeNext",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 940,
+            "output_tokens": 474,
+            "total_tokens": 1414
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 518,
+            "output_tokens": 40,
+            "total_tokens": 558
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 974,
+            "output_tokens": 1201,
+            "total_tokens": 2175
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4576,
+            "output_tokens": 2435,
+            "total_tokens": 7011
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 97.41220307350159,
+    "scan_objects": 16.929314374923706,
+    "validate_objects": 0.18753886222839355,
+    "scan_functions": 26.264206171035767,
+    "synthesis": 53.97436761856079,
+    "fill": 0,
+    "classify": 0.055962562561035156,
+    "build_generators": 0.000058650970458984375
+  }
+}

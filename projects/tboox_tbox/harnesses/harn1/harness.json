@@ -1,0 +1,193 @@
+{
+  "objects": [
+    {
+      "ptr_type": "tb_version_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "Opaque or external version structure for TBOX returned by tb_version(); not defined in this header. Details unknown because the definition is included from other headers when TB_CONFIG_INFO_HAVE_VERSION is set.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "tb_allocator_ref_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "Reference/handle type to a TBOX memory allocator used by tb_init_ to control memory behavior. The actual typedef is defined in an included header, not here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "tb_handle_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "Generic handle type used to pass platform-specific private data to tb_init_. Actual definition is external to this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "tb_bool_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "Boolean type used by TBOX functions (e.g., tb_init_). Not defined in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "tb_size_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "Unsigned size/integer type used across TBOX, e.g., for mode and return values. Definition comes from included headers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "tb_hize_t *",
+      "aliases": [],
+      "definition": "",
+      "description": "High-size/64-bit size-like integer type used for build version in tb_init_. Not defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "tb_init_",
+      "signature": "tb_bool_t tb_init_(tb_handle_t priv, tb_allocator_ref_t allocator, tb_size_t mode, tb_hize_t build);",
+      "description": "Initializes the TBox library. Call this before using any other TBox APIs. The priv argument carries platform-specific data (e.g., JavaVM* for Android JNI, tb_null on other platforms). The allocator selects the memory allocator strategy (native, static, default, or tb_null for automatic selection). The mode encodes compile-time flags (small/debug), and build is the build version (typically TB_VERSION_BUILD). Returns tb_true on success, tb_false on failure.",
+      "requirements": [
+        "Must be called before using any other TBox functions.",
+        "priv: pass JavaVM* on Android JNI; pass tb_null on other platforms (as documented).",
+        "allocator: may be one of: tb_native_allocator(); tb_static_allocator(data, size); tb_default_allocator(data, size); tb_default_allocator(tb_null, 0); or tb_null (which maps to tb_default_allocator(tb_null, 0) in large mode and tb_native_allocator() in small mode).",
+        "mode: should reflect compile configuration (combination of __tb_small__ and __tb_debug__ flags), typically passed via the tb_init macro.",
+        "build: should be the library build version, typically TB_VERSION_BUILD.",
+        "On tb_false return, the caller must not use other TBox APIs and should not call tb_exit except to handle partial init if documented elsewhere (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "tb_exit",
+      "signature": "tb_void_t tb_exit(tb_noarg_t);",
+      "description": "Shuts down the TBox library and releases associated resources. Should be called after successful initialization and when TBox usage is complete.",
+      "requirements": [
+        "Should be called after a successful tb_init_ (or tb_init macro) when the application is done using TBox.",
+        "Do not call other TBox APIs after tb_exit until re-initialized.",
+        "Thread-safety and multiple calls behavior are not specified in this header (unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "tb_state",
+      "signature": "tb_size_t tb_state(tb_noarg_t);",
+      "description": "Returns the current TBox library state. Documented states include TB_STATE_OK, TB_STATE_END, and TB_STATE_EXITING. Useful for checking runtime state or shutdown conditions.",
+      "requirements": [
+        "Should be called after tb_init_ has successfully initialized the library (inferred from typical usage).",
+        "Caller must interpret the returned value against the TB_STATE_* constants as defined by the library.",
+        "No arguments required; function is side-effect free as implied."
+      ],
+      "error": null
+    },
+    {
+      "name": "tb_version",
+      "signature": "tb_version_t const* tb_version(tb_noarg_t);",
+      "description": "Returns a pointer to a constant tb_version_t structure describing the TBox version. Availability is conditional on TB_CONFIG_INFO_HAVE_VERSION being defined at build time.",
+      "requirements": [
+        "Only available if TB_CONFIG_INFO_HAVE_VERSION is defined; otherwise this symbol may be absent.",
+        "Returned pointer is const; caller must not modify the pointed structure.",
+        "No lifetime or initialization requirements are specified; typical usage is after tb_init_ though not mandated here (unknown)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "tb_init_",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Initialize TBox with safe defaults and fuzzed mode/build.\n// Requirements enforcement:\n// - priv: use nullptr for non-Android platforms as documented.\n// - allocator: pass nullptr to select default allocator based on mode.\n// - mode: fuzzed value; library interprets according to its build.\n// - build: fuzzed value; typically TB_VERSION_BUILD. We supply a randomized value within 64-bit range.\n// - On failure (tb_false), we must not treat TBox as initialized and we bail.\n\n// Use defaults for platform/allocator per docs\ntb_handle_t priv = (tb_handle_t)nullptr;\ntb_allocator_ref_t allocator = (tb_allocator_ref_t)nullptr;\n\n// Fuzz mode/build within reasonable ranges\n// Keep mode small to exercise branching without triggering extreme behaviors\n// (library will mask/interpret flags internally).\ntb_size_t mode = (tb_size_t)(*FUZZ_PARAM(unsigned int) & 0x3u); // sample a few low bits\n// Build number as arbitrary 64-bit value; library may ignore mismatches.\ntb_hize_t build = (tb_hize_t)(*FUZZ_PARAM(unsigned long long));\n\n// Call initializer\ntb_bool_t ok = tb_init_(priv, allocator, mode, build);\nif (!ok) {\n    // Not initialized; do not allow subsequent API usage this round\n    FUZZ_SET_ATTR_INT_GLOBAL(\"tbox_inited\", 0);\n    FUZZ_BAIL();\n}\n\n// Mark library as initialized for subsequent stubs\nFUZZ_SET_ATTR_INT_GLOBAL(\"tbox_inited\", 1);\n\n// Validation: tb_init_ success recorded globally; no persistent objects to output."
+    },
+    {
+      "name": "tb_exit",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Enforce correct lifetime: only call tb_exit after a successful tb_init_.\nint inited = FUZZ_GET_ATTR_INT_GLOBAL(\"tbox_inited\");\nif (!inited) {\n    FUZZ_BAIL();\n}\n\n// Invoke shutdown; after this, no TBox API should be used until re-init.\ntb_exit();\n\n// Clear initialization state\nFUZZ_SET_ATTR_INT_GLOBAL(\"tbox_inited\", 0);\n\n// Validation: ensures tb_exit is only executed after init; resets global state."
+    },
+    {
+      "name": "tb_state",
+      "inputs": [],
+      "outputs": [],
+      "code": "// tb_state should be called only after successful initialization.\nint inited = FUZZ_GET_ATTR_INT_GLOBAL(\"tbox_inited\");\nif (!inited) {\n    FUZZ_BAIL();\n}\n\n// Query state; we do not assert specific enumerants here as they are library-defined.\nvolatile tb_size_t state_val = tb_state();\n(void)state_val;\n\n// Validation: guarded by init-state check; side-effect free and no persistent outputs."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "tb_version",
+      "reason": "The symbol is not declared/available in this build (TB_CONFIG_INFO_HAVE_VERSION disabled), so it cannot compile or be called."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "tb_init_",
+      "data_types": []
+    },
+    {
+      "name": "tb_exit",
+      "data_types": []
+    },
+    {
+      "name": "tb_state",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1946,
+            "output_tokens": 388,
+            "total_tokens": 2334
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1524,
+            "output_tokens": 31,
+            "total_tokens": 1555
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5887,
+            "output_tokens": 3803,
+            "total_tokens": 9690
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10594,
+            "output_tokens": 2548,
+            "total_tokens": 13142
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 152.3406810760498,
+    "scan_objects": 7.902000904083252,
+    "validate_objects": 0.4849975109100342,
+    "scan_functions": 94.77618312835693,
+    "synthesis": 49.104427337646484,
+    "fill": 0,
+    "classify": 0.07238125801086426,
+    "build_generators": 0.00006580352783203125
+  }
+}

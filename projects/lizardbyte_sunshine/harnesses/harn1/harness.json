@@ -1,0 +1,577 @@
+{
+  "objects": [
+    {
+      "ptr_type": "util::point_t*",
+      "aliases": [],
+      "definition": "  struct point_t {\n    double x;\n    double y;\n\n    friend std::ostream &operator<<(std::ostream &os, const point_t &p) {\n      return (os << \"Point(x: \" << p.x << \", y: \" << p.y << \")\");\n    }\n  };\n",
+      "description": "Simple 2D point with double-precision coordinates and a stream insertion operator.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "uuid_util::uuid_t*",
+      "aliases": [],
+      "definition": "namespace uuid_util {\n  union uuid_t {\n    std::uint8_t b8[16];\n    std::uint16_t b16[8];\n    std::uint32_t b32[4];\n    std::uint64_t b64[2];\n\n    static uuid_t generate(std::default_random_engine &engine) {\n      std::uniform_int_distribution<std::uint8_t> dist(0, std::numeric_limits<std::uint8_t>::max());\n\n      uuid_t buf;\n      for (auto &el : buf.b8) {\n        el = dist(engine);\n      }\n\n      buf.b8[7] &= (std::uint8_t) 0b00101111;\n      buf.b8[9] &= (std::uint8_t) 0b10011111;\n\n      return buf;\n    }\n\n    static uuid_t generate() {\n      std::random_device r;\n      std::default_random_engine engine {r()};\n      return generate(engine);\n    }\n\n    [[nodiscard]] std::string string() const {\n      std::string result;\n      result.reserve(sizeof(uuid_t) * 2 + 4);\n      auto hex = util::hex(*this, true);\n      auto hex_view = hex.to_string_view();\n      std::string_view slices[] = {\n        hex_view.substr(0, 8),\n        hex_view.substr(8, 4),\n        hex_view.substr(12, 4),\n        hex_view.substr(16, 4)\n      };\n      auto last_slice = hex_view.substr(20, 12);\n      for (auto &slice : slices) {\n        std::copy(std::begin(slice), std::end(slice), std::back_inserter(result));\n        result.push_back('-');\n      }\n      std::copy(std::begin(last_slice), std::end(last_slice), std::back_inserter(result));\n      return result;\n    }\n\n    constexpr bool operator==(const uuid_t &other) const {\n      return b64[0] == other.b64[0] && b64[1] == other.b64[1];\n    }\n\n    constexpr bool operator<(const uuid_t &other) const {\n      return (b64[0] < other.b64[0] || (b64[0] == other.b64[0] && b64[1] < other.b64[1]));\n    }\n\n    constexpr bool operator>(const uuid_t &other) const {\n      return (b64[0] > other.b64[0] || (b64[0] == other.b64[0] && b64[1] > other.b64[1]));\n    }\n  };\n}",
+      "description": "A 128-bit UUID union with multiple integer views and helpers to generate random UUID-like values and to format as dashed hex string. Comparison operators compare the 128-bit value lexicographically.",
+      "direct_api_constructors": [
+        "uuid_util::uuid_t::generate(std::default_random_engine&)",
+        "uuid_util::uuid_t::generate()"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "util::fail_guard",
+      "signature": "template<class T> [[nodiscard]] util::FailGuard<T> fail_guard(T &&f)",
+      "description": "Constructs a scope guard that calls the provided callable f when the guard is destroyed, but only if the guard's failure flag remains true. Use to ensure rollback/cleanup on failure paths. Call disable() on the returned guard to prevent invocation on destruction.",
+      "requirements": [
+        "f must be an invocable object callable with no arguments and noexcept-safety is recommended because it is called in a destructor.",
+        "The callable must remain valid inside the guard (it is moved into the guard).",
+        "Destruction order: cleanup is executed during the guard’s destructor if failure is true."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::append_struct",
+      "signature": "template<class T> void append_struct(std::vector<uint8_t> &buf, const T &value)",
+      "description": "Appends a byte-wise copy of value to the end of buf. Useful for serializing POD-like structures into a byte buffer.",
+      "requirements": [
+        "buf is a valid std::vector<uint8_t> and is modifiable.",
+        "T is treated as a sequence of sizeof(T) bytes; callers should only use trivially copyable/standard-layout types to avoid UB related to object representation and padding.",
+        "The lifetime of value must extend through the call."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::hex",
+      "signature": "template<class T> util::Hex<T> hex(const T &elem, bool rev = false)",
+      "description": "Returns a utility wrapper that formats elem’s raw bytes as an uppercase hexadecimal string. If rev is true, bytes are emitted from lowest to highest address; otherwise from highest to lowest.",
+      "requirements": [
+        "T is read as raw bytes; use trivially copyable types for portability.",
+        "Endianness and sizeof(T) affect the textual result.",
+        "The returned Hex<T> must be converted to string or string_view before use as text."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::log_hex",
+      "signature": "template<typename T> std::string log_hex(const T &value)",
+      "description": "Formats value as a hexadecimal string prefixed with \"0x\" using util::Hex with non-reversed byte order.",
+      "requirements": [
+        "T is read as raw bytes; use trivially copyable types for portability.",
+        "Endianness and sizeof(T) affect the output."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::hex_vec",
+      "signature": "template<class It> std::string hex_vec(It begin, It end, bool rev = false)",
+      "description": "Converts a range of elements to a contiguous uppercase hex string by interpreting each element’s value as a byte. If rev is false, emits bytes in reverse iterator order; if true, in forward order.",
+      "requirements": [
+        "It must be a random-access iterator or pointer supporting end - begin.",
+        "Value type must be convertible to uint8_t (e.g., unsigned char, std::byte, or integral).",
+        "The range [begin, end) must be valid.",
+        "rev selects forward (true) vs reverse (false) emission order."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::from_hex",
+      "signature": "template<class T> T from_hex(const std::string_view &hex, bool rev = false)",
+      "description": "Parses hex-encoded characters from hex into a value of type T by filling sizeof(T) bytes. Non-hex characters are ignored. If rev is true, the resulting byte buffer is reversed before reinterpretation as T.",
+      "requirements": [
+        "T must be trivially copyable with no trap representations; the function constructs T from raw bytes via reinterpret_cast.",
+        "hex may contain arbitrary characters; only 0-9, a-f, A-F are parsed. Two hex digits make one byte; odd trailing nibble is paired with next valid nibble encountered from the end.",
+        "If fewer than sizeof(T) bytes are present, the high-order portion is zero-padded.",
+        "The returned value’s interpretation is endianness- and layout-dependent."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::from_hex_vec",
+      "signature": "inline std::string from_hex_vec(const std::string &hex, bool rev = false)",
+      "description": "Parses hex-encoded characters in hex into a byte string (std::string of bytes). Non-hex characters are ignored. If rev is true, reverses the resulting byte sequence.",
+      "requirements": [
+        "hex may contain arbitrary characters; only 0-9, a-f, A-F are parsed.",
+        "Two hex digits form one output byte; ignores non-hex between digits.",
+        "Output size is floor(count(hex-digits)/2)."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::enm",
+      "signature": "template<class T> auto enm(const T &val) -> const std::underlying_type_t<T> &",
+      "description": "Returns a reference to the underlying integer representation of an enum value (const overload). Enables treating enum as its underlying type without a cast.",
+      "requirements": [
+        "T must be an enumeration type (std::is_enum_v<T>).",
+        "The reference is produced via reinterpret_cast; only use with standard C++ enums where object representation matches the underlying type.",
+        "The lifetime of val must outlive any use of the returned reference."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::from_chars",
+      "signature": "inline std::int64_t from_chars(const char *begin, const char *end)",
+      "description": "Parses a decimal integer from the character range [begin, end). Supports an optional leading '-' and digits '0'..'9'. Returns 0 if the range is empty.",
+      "requirements": [
+        "begin and end must denote a valid contiguous character range; end can equal begin.",
+        "Only ASCII digits are expected; behavior is not validated for other characters (non-digits will produce unspecified results).",
+        "No overflow checking is performed; callers must ensure the value fits in int64_t."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::from_view",
+      "signature": "inline std::int64_t from_view(const std::string_view &number)",
+      "description": "Parses a decimal integer from number by delegating to util::from_chars.",
+      "requirements": [
+        "number should contain an optional leading '-' followed by ASCII digits; no overflow checking is performed.",
+        "Returns 0 for an empty string."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::either",
+      "signature": "template<class T> T either(std::optional<T> &&l, T &&r)",
+      "description": "Returns l.value() if l has a value, otherwise returns r. The result is returned by value; l is moved-from when engaged and r is perfectly forwarded otherwise.",
+      "requirements": [
+        "T must be movable/copyable since the result is returned by value.",
+        "If l has a value, that value is moved; r is not evaluated by this function (it is an argument)."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::c_free",
+      "signature": "template<class T> void c_free(T *p)",
+      "description": "Calls free(p). Utility suited for custom deleters for C-allocated memory.",
+      "requirements": [
+        "p must be a pointer obtained from a compatible C allocation function (malloc/calloc/realloc) or null.",
+        "Do not pass pointers to C++-allocated objects (new/delete) or non-heap pointers."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::dynamic",
+      "signature": "template<class T, class ReturnType, ReturnType (**function)(T *)> void dynamic(T *p)",
+      "description": "Invokes an indirect function pointer stored at address function with argument p. Intended as a generic deleter wrapper for APIs exposing function pointers that may be set at runtime.",
+      "requirements": [
+        "function must point to a valid function pointer variable of type ReturnType (*)(T*).",
+        "The pointed-to function must be callable for the provided p. Any return value is ignored by this wrapper.",
+        "Thread-safety and initialization of the function pointer are the caller’s responsibility."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::view",
+      "signature": "template<class It> std::string_view view(It begin, It end)",
+      "description": "Creates a std::string_view over the raw bytes in the half-open range [begin, end). begin and end are interpreted as pointers/iterators to byte-sized elements and are reinterpreted as const char*.",
+      "requirements": [
+        "It must be a random-access iterator or pointer where end - begin yields the byte count.",
+        "The underlying memory must be contiguous and remain valid for the lifetime of the returned string_view.",
+        "Elements must be byte-addressable and convertible to const char (e.g., uint8_t*, char*, std::byte*)."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::endian::little",
+      "signature": "template<class T> inline T little(T x)",
+      "description": "Converts x to little-endian byte order by reversing its bytes on big-endian targets; returns x unchanged on little-endian targets. Supports std::optional<T> by conditionally swapping contained value.",
+      "requirements": [
+        "T must be treated as a sequence of bytes; prefer trivially copyable types.",
+        "For optional types, only std::optional<U> is supported; empty optionals remain empty.",
+        "Behavior depends on target endianness at compile time."
+      ],
+      "error": null
+    },
+    {
+      "name": "util::endian::big",
+      "signature": "template<class T> inline T big(T x)",
+      "description": "Converts x to big-endian byte order by reversing its bytes on little-endian targets; returns x unchanged on big-endian targets. Supports std::optional<T> by conditionally swapping contained value.",
+      "requirements": [
+        "T must be treated as a sequence of bytes; prefer trivially copyable types.",
+        "For optional types, only std::optional<U> is supported; empty optionals remain empty.",
+        "Behavior depends on target endianness at compile time."
+      ],
+      "error": null
+    },
+    {
+      "name": "uuid_util::uuid_t::generate",
+      "signature": "static uuid_util::uuid_t generate(std::default_random_engine &engine)",
+      "description": "Generates a 128-bit UUID-like value using the provided engine to fill 16 bytes uniformly, then masks specific bits for variant/version compatibility. Returns the resulting uuid_t.",
+      "requirements": [
+        "engine must be a valid, initialized std::default_random_engine.",
+        "Resulting UUID bytes are derived from uniform uint8_t distribution; no I/O or exceptions are expected."
+      ],
+      "error": null
+    },
+    {
+      "name": "uuid_util::uuid_t::generate",
+      "signature": "static uuid_util::uuid_t generate()",
+      "description": "Generates a 128-bit UUID-like value using std::random_device to seed a std::default_random_engine, then delegates to the engine-based overload.",
+      "requirements": [
+        "System must permit constructing std::random_device; quality of randomness depends on platform.",
+        "No parameters; returns a freshly generated uuid_t."
+      ],
+      "error": null
+    },
+    {
+      "name": "uuid_util::uuid_t::string",
+      "signature": "std::string string() const",
+      "description": "Returns the canonical hyphenated hexadecimal representation of the UUID (8-4-4-4-12 groups, uppercase hex). The formatting uses util::hex with byte-order suitable for UUID text.",
+      "requirements": [
+        "The uuid_t object must be valid.",
+        "The returned string is newly allocated and independent of the source object."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "util::fail_guard",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise util::fail_guard with a noexcept cleanup action and both enable/disable paths.\n// We assert that the action only runs when not disabled.\n{\n  // Counter mutated by the guard's cleanup action.\n  int counter = 0;\n\n  // Randomly decide whether to disable the guard before scope exit.\n  bool disable_flag = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\n  // The callable must be invocable with no args and ideally noexcept in a destructor context.\n  auto cleanup = [&counter]() noexcept { counter++; };\n\n  // Create the fail guard; it takes ownership of the callable by move.\n  auto guard = util::fail_guard(std::move(cleanup));\n\n  // Optionally disable so cleanup will not run at destruction time.\n  if (disable_flag) {\n    guard.disable();\n  }\n\n  // Guard goes out of scope here; destructor runs, invoking cleanup iff not disabled.\n  (void)0;\n\n  // Validate expected behavior.\n  if (disable_flag) {\n    FUZZ_ASSERT(counter == 0, \"fail_guard: cleanup ran despite disable()\");\n  } else {\n    FUZZ_ASSERT(counter == 1, \"fail_guard: cleanup did not run when enabled\");\n  }\n}\n// Validation: Stub ensures callable validity, toggles disable path, and asserts post-conditions."
+    },
+    {
+      "name": "util::append_struct",
+      "inputs": [
+        {
+          "name": "point",
+          "type": "util::point_t*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "point",
+          "type": "util::point_t*"
+        }
+      ],
+      "code": "// Append a trivially-copyable struct (util::point_t) into a byte buffer.\n// Requirements: buf is modifiable; T is treated as raw bytes; lifetime of value covers the call.\n{\n  std::vector<uint8_t> buf;\n  buf.reserve(64);\n\n  // Use the provided point object as the value to append (trivially copyable: two doubles).\n  const std::size_t before = buf.size();\n  util::append_struct(buf, *point);\n  const std::size_t after = buf.size();\n\n  // Validate that exactly sizeof(T) bytes were appended.\n  FUZZ_ASSERT(after == before + sizeof(*point), \"append_struct: size did not grow by sizeof(T)\");\n}\n// Validation: Uses provided util::point_t, checks buffer growth; does not free input so returns it as output."
+    },
+    {
+      "name": "util::hex",
+      "inputs": [
+        {
+          "name": "uuid",
+          "type": "uuid_util::uuid_t*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "uuid",
+          "type": "uuid_util::uuid_t*"
+        }
+      ],
+      "code": "// Format raw bytes of a value as uppercase hex via util::hex; consume both rev orders.\n// T is read as raw bytes; using trivially copyable uuid_util::uuid_t.\n{\n  bool rev = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n  auto hx = util::hex(*uuid, rev);\n  // Convert to text to exercise the wrapper; to_string_view is expected to be provided by Hex<T>.\n  auto sv = hx.to_string_view();\n  // Basic sanity: hex string length should be sizeof(T)*2.\n  FUZZ_ASSERT(sv.size() == sizeof(*uuid) * 2, \"hex: unexpected hex length\");\n}\n// Validation: Exercises both rev paths and validates output length; input uuid is preserved as output."
+    },
+    {
+      "name": "util::log_hex",
+      "inputs": [
+        {
+          "name": "uuid",
+          "type": "uuid_util::uuid_t*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "uuid",
+          "type": "uuid_util::uuid_t*"
+        }
+      ],
+      "code": "// log_hex should produce a string prefixed with 0x and hex of the raw bytes.\n{\n  std::string s = util::log_hex(*uuid);\n  // Minimal validation: non-empty and begins with expected prefix.\n  FUZZ_ASSERT(!s.empty(), \"log_hex: empty result\");\n  FUZZ_ASSERT(s.size() >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X'), \"log_hex: missing 0x prefix\");\n}\n// Validation: Calls template with uuid value and preserves input for future stubs."
+    },
+    {
+      "name": "util::hex_vec",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Convert a byte range to hex using random-access iterators with both emission orders.\n{\n  // Source bytes from fuzz string; limit size for performance.\n  std::string data = FUZZ_PARAM_STR();\n  if (data.size() > 1024) data.resize(1024);\n  std::vector<uint8_t> bytes(data.begin(), data.end());\n\n  bool rev = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n  std::string hx = util::hex_vec(bytes.begin(), bytes.end(), rev);\n  // Expect exactly 2 hex chars per byte.\n  FUZZ_ASSERT(hx.size() == bytes.size() * 2, \"hex_vec: unexpected hex size\");\n}\n// Validation: Uses vector<uint8_t> iterators and checks size property."
+    },
+    {
+      "name": "util::from_hex",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Parse a hex string into a trivially copyable type; exercise both rev orders.\n{\n  std::string s = FUZZ_PARAM_STR();\n  if (s.size() > 1024) s.resize(1024);\n  bool rev = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n\n  // Use uint64_t as T; well-defined object representation and size.\n  uint64_t v = util::from_hex<uint64_t>(std::string_view{s}, rev);\n  (void)v; // value is unspecified beyond size/padding rules; just ensure call succeeds.\n}\n// Validation: Covers parsing path with arbitrary input and rev flag."
+    },
+    {
+      "name": "util::from_hex_vec",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Parse hex-encoded characters into a byte string; exercise rev flag.\n{\n  std::string hex = FUZZ_PARAM_STR();\n  if (hex.size() > 2048) hex.resize(2048);\n  bool rev = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n  std::string bytes = util::from_hex_vec(hex, rev);\n  // Output length equals floor(count(hex digits)/2). We can't easily count here without reimplementing;\n  // minimally assert that the size is plausible (<= hex.size()/2).\n  FUZZ_ASSERT(bytes.size() <= hex.size() / 2, \"from_hex_vec: output too large\");\n}\n// Validation: Invokes function on arbitrary input and checks a conservative size bound."
+    },
+    {
+      "name": "util::enm",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Access the underlying representation of an enum by reference.\n{\n  enum class Color : std::int16_t { A = -3, B = 0, C = 7 };\n  // Pick a value randomly.\n  unsigned pick = *FUZZ_PARAM(unsigned int) % 3u;\n  Color c = (pick == 0 ? Color::A : (pick == 1 ? Color::B : Color::C));\n  const std::underlying_type_t<Color> &u = util::enm(c);\n  FUZZ_ASSERT(u == static_cast<std::underlying_type_t<Color>>(c), \"enm: underlying mismatch\");\n}\n// Validation: Ensures returned reference matches enum's underlying value."
+    },
+    {
+      "name": "util::from_chars",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Parse integer from [begin, end) character range.\n{\n  std::string s = FUZZ_PARAM_STR();\n  // Keep it small and ASCII-ish to exercise typical paths.\n  for (char &ch : s) {\n    unsigned r = *FUZZ_PARAM(unsigned int) % 12u;\n    if (r == 0) ch = '-';\n    else if (r <= 10) ch = char('0' + (r - 1));\n    else ch = 'x'; // occasional non-digit\n  }\n  if (s.size() > 64) s.resize(64);\n  const char *begin = s.data();\n  const char *end = s.data() + s.size();\n  volatile std::int64_t v = util::from_chars(begin, end);\n  (void)v;\n}\n// Validation: Supplies a valid contiguous range and avoids overflow checks per contract."
+    },
+    {
+      "name": "util::from_view",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Parse integer from a std::string_view by delegating to from_chars.\n{\n  std::string s = FUZZ_PARAM_STR();\n  // Create a numeric-like string with possible leading '-'.\n  if (!s.empty()) {\n    s[0] = ((*FUZZ_PARAM(unsigned int)) & 1u) ? '-' : '0' + ((*FUZZ_PARAM(unsigned int)) % 10u);\n    for (std::size_t i = 1; i < s.size(); ++i) s[i] = '0' + ((*FUZZ_PARAM(unsigned int)) % 10u);\n  }\n  if (s.size() > 64) s.resize(64);\n  std::int64_t v = util::from_view(std::string_view{s});\n  (void)v;\n}\n// Validation: Provides valid view and exercises parsing including empty case handling."
+    },
+    {
+      "name": "util::either",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Return either the optional value (if engaged) or the provided fallback.\n{\n  using T = int;\n  bool engaged = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n  T fallback = static_cast<T>(*FUZZ_PARAM(int));\n  std::optional<T> opt;\n  if (engaged) opt = static_cast<T>(*FUZZ_PARAM(int));\n\n  T res = util::either(std::move(opt), std::move(fallback));\n  if (engaged) {\n    FUZZ_ASSERT(res == *opt, \"either: expected optional value\");\n  } else {\n    FUZZ_ASSERT(res == fallback, \"either: expected fallback value\");\n  }\n}\n// Validation: Covers both branches and asserts result consistency."
+    },
+    {
+      "name": "util::c_free",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Free C-allocated memory using util::c_free.\n{\n  // Allocate a small buffer with malloc (compatible with free()).\n  std::size_t n = (*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\n  void *p = std::malloc(n);\n  if (!p) { FUZZ_BAIL(); }\n\n  // Optionally write some data to ensure the pointer is live.\n  std::memset(p, *FUZZ_PARAM(int), static_cast<int>(n < 64 ? n : 64));\n\n  // Free via util::c_free; do not use pointer afterwards.\n  util::c_free(static_cast<unsigned char*>(p));\n}\n// Validation: Uses malloc-compatible allocation and frees exactly once."
+    },
+    {
+      "name": "util::view",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Create a string_view over a contiguous byte range.\n{\n  std::string s = FUZZ_PARAM_STR();\n  if (s.size() > 1024) s.resize(1024);\n  // Use the raw bytes of s via pointers (byte-addressable and contiguous).\n  const unsigned char *begin = reinterpret_cast<const unsigned char*>(s.data());\n  const unsigned char *end = begin + s.size();\n  std::string_view sv = util::view(begin, end);\n  FUZZ_ASSERT(sv.size() == s.size(), \"view: size mismatch\");\n  // Ensure the data matches at least first byte when non-empty.\n  if (!s.empty()) { FUZZ_ASSERT(sv.data()[0] == s[0], \"view: content mismatch at 0\"); }\n}\n// Validation: Supplies valid contiguous range and validates size/content."
+    },
+    {
+      "name": "util::endian::little",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Byte-swap to little-endian; applying twice should be identity for any platform.\n{\n  uint32_t x = *FUZZ_PARAM(uint32_t);\n  uint32_t y = util::endian::little(x);\n  uint32_t z = util::endian::little(y);\n  FUZZ_ASSERT(z == x, \"endian::little: not an involution when applied twice\");\n\n  // Also exercise optional path.\n  std::optional<uint16_t> ox;\n  if (((*FUZZ_PARAM(unsigned int)) & 1u) != 0u) ox = static_cast<uint16_t>(*FUZZ_PARAM(uint16_t));\n  auto oy = util::endian::little(ox);\n  auto oz = util::endian::little(oy);\n  FUZZ_ASSERT(oz.has_value() == ox.has_value(), \"endian::little: optional engagement mismatch\");\n  if (ox && oz) { FUZZ_ASSERT(*oz == *ox, \"endian::little: optional value mismatch after double-apply\"); }\n}\n// Validation: Tests involution property by double-application and covers optional case."
+    },
+    {
+      "name": "util::endian::big",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Byte-swap to big-endian; applying twice should be identity for any platform.\n{\n  uint64_t x = *FUZZ_PARAM(uint64_t);\n  uint64_t y = util::endian::big(x);\n  uint64_t z = util::endian::big(y);\n  FUZZ_ASSERT(z == x, \"endian::big: not an involution when applied twice\");\n\n  // Optional path as well.\n  std::optional<uint32_t> ox;\n  if (((*FUZZ_PARAM(unsigned int)) & 1u) != 0u) ox = static_cast<uint32_t>(*FUZZ_PARAM(uint32_t));\n  auto oy = util::endian::big(ox);\n  auto oz = util::endian::big(oy);\n  FUZZ_ASSERT(oz.has_value() == ox.has_value(), \"endian::big: optional engagement mismatch\");\n  if (ox && oz) { FUZZ_ASSERT(*oz == *ox, \"endian::big: optional value mismatch after double-apply\"); }\n}\n// Validation: Verifies double-application identity and exercises optional handling."
+    },
+    {
+      "name": "uuid_util::uuid_t::string",
+      "inputs": [
+        {
+          "name": "uuid",
+          "type": "uuid_util::uuid_t*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "uuid",
+          "type": "uuid_util::uuid_t*"
+        }
+      ],
+      "code": "// Format UUID as canonical hyphenated hex string.\n{\n  std::string s = uuid->string();\n  // Validate canonical form: 36 chars and hyphens at 8-4-4-4-12 positions.\n  FUZZ_ASSERT(s.size() == 36, \"uuid.string: unexpected size\");\n  FUZZ_ASSERT(s[8] == '-' && s[13] == '-' && s[18] == '-' && s[23] == '-', \"uuid.string: bad hyphen positions\");\n}\n// Validation: Calls const method on valid input and preserves object for further use."
+    },
+    {
+      "name": "util::point_t*",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "point",
+          "type": "util::point_t*"
+        }
+      ],
+      "code": "// Construct a util::point_t with fuzzed coordinates and return a managed heap object.\nutil::point_t *point = nullptr; // must be visible after this block for runtime assignment\n{\n  double x = *FUZZ_PARAM(double);\n  double y = *FUZZ_PARAM(double);\n\n  // Allocate and initialize; use nothrow and bail on failure.\n  util::point_t *p = new (std::nothrow) util::point_t();\n  if (!p) { FUZZ_BAIL(); }\n  p->x = x;\n  p->y = y;\n\n  // Sanity: streaming should produce some text; ensures object is usable.\n  std::ostringstream oss;\n  oss << *p;\n  FUZZ_ASSERT(!oss.str().empty(), \"point_t stream output empty\");\n\n  point = p; // publish to output variable\n}\n// Ensure output is initialized and non-null for the fuzzer runtime.\nFUZZ_ASSERT(point != nullptr, \"point_t: output was not initialized\");\n// Validation: Allocates, initializes, and validates formatting; publishes non-null output."
+    },
+    {
+      "name": "uuid_util::uuid_t*",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "uuid",
+          "type": "uuid_util::uuid_t*"
+        }
+      ],
+      "code": "// Construct a uuid_util::uuid_t via the API generator and return it as a heap object.\nuuid_util::uuid_t *uuid = nullptr; // must be visible after this block for runtime assignment\n{\n  uuid_util::uuid_t gen = uuid_util::uuid_t::generate();\n\n  // Allocate with nothrow; bail on failure.\n  uuid_util::uuid_t *u = new (std::nothrow) uuid_util::uuid_t(gen);\n  if (!u) { FUZZ_BAIL(); }\n\n  // Validate canonical textual form for quick sanity.\n  std::string s = u->string();\n  FUZZ_ASSERT(s.size() == 36, \"uuid_t::string: unexpected size\");\n  FUZZ_ASSERT(s[8] == '-' && s[13] == '-' && s[18] == '-' && s[23] == '-', \"uuid_t::string: hyphen positions incorrect\");\n\n  uuid = u; // publish to output variable\n}\n// Ensure output is initialized and non-null for the fuzzer runtime.\nFUZZ_ASSERT(uuid != nullptr, \"uuid_t: output was not initialized\");\n// Validation: Uses official generator, ensures allocation success, and checks canonical UUID text shape."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "util::dynamic",
+      "reason": "This template requires a non-type template parameter that is the address of a function pointer variable, which cannot be defined within the stub due to the no new top-level functions/variables constraint."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "util::fail_guard",
+      "data_types": []
+    },
+    {
+      "name": "util::append_struct",
+      "data_types": []
+    },
+    {
+      "name": "util::hex",
+      "data_types": []
+    },
+    {
+      "name": "util::log_hex",
+      "data_types": []
+    },
+    {
+      "name": "util::enm",
+      "data_types": []
+    },
+    {
+      "name": "util::either",
+      "data_types": []
+    },
+    {
+      "name": "util::c_free",
+      "data_types": []
+    },
+    {
+      "name": "util::endian::little",
+      "data_types": []
+    },
+    {
+      "name": "util::endian::big",
+      "data_types": []
+    },
+    {
+      "name": "uuid_util::uuid_t::string",
+      "data_types": []
+    },
+    {
+      "name": "util::point_t*",
+      "data_types": []
+    },
+    {
+      "name": "uuid_util::uuid_t*",
+      "data_types": []
+    },
+    {
+      "name": "util::hex_vec",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    },
+    {
+      "name": "util::from_hex",
+      "data_types": [
+        "hex-encoded string"
+      ]
+    },
+    {
+      "name": "util::from_hex_vec",
+      "data_types": [
+        "hex-encoded string"
+      ]
+    },
+    {
+      "name": "util::from_chars",
+      "data_types": [
+        "decimal integer string"
+      ]
+    },
+    {
+      "name": "util::from_view",
+      "data_types": [
+        "decimal integer string"
+      ]
+    },
+    {
+      "name": "util::view",
+      "data_types": [
+        "arbitrary bytes"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary bytes",
+      "description": "A buffer of uninterpreted bytes. Any byte values 0x00–0xFF in any order and length. Often sourced from FUZZ_PARAM_STR and treated as raw binary without encoding assumptions."
+    },
+    {
+      "data_type": "hex-encoded string",
+      "description": "A text containing hexadecimal digits representing bytes. May include non-hex characters which should be ignored by tolerant parsers. Valid hex digits are 0-9, a-f, A-F; every two hex digits map to one byte. Length may be odd and may be mixed with separators or junk."
+    },
+    {
+      "data_type": "decimal integer string",
+      "description": "An ASCII string representing a signed decimal integer: optionally a single leading '-' followed by digits 0-9. May be empty; some parsers might also encounter stray non-digit characters but expect only digits and optional leading minus."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary bytes",
+      "generator": "import os\nimport random\nfrom typing import List\n\n# This generator targets fuzzers that consume arbitrary byte strings via FUZZ_PARAM_STR\n# and interpret them as raw bytes (no specific structure required). The stubs under test\n# are util::hex_vec (expects any bytes, validates hex length) and util::view (expects\n# contiguous bytes and validates size/content). We therefore generate diverse, valid\n# byte sequences with varying sizes and content patterns to exercise different code paths\n# such as empty input, small inputs, large inputs, repeated patterns, ascending/descending\n# sequences, full 0x00/0xFF ranges, and random distributions. All outputs are <= 4096 bytes.\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    # Generate uniformly random bytes\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\ndef _ascending(n: int) -> bytes:\n    return bytes((i % 256 for i in range(n)))\n\ndef _descending(n: int) -> bytes:\n    return bytes(((255 - i) % 256 for i in range(n)))\n\ndef _repeat_byte(b: int, n: int) -> bytes:\n    return bytes([b] * n)\n\ndef _alternating(b1: int, b2: int, n: int) -> bytes:\n    if n <= 0:\n        return b\"\"\n    pattern = bytes([b1, b2])\n    full, rem = divmod(n, 2)\n    data = pattern * full\n    if rem:\n        data += bytes([b1])\n    return data\n\ndef _blocks(patterns: List[bytes], total: int) -> bytes:\n    out = bytearray()\n    if total <= 0:\n        return b\"\"\n    i = 0\n    while len(out) < total:\n        p = patterns[i % len(patterns)]\n        need = total - len(out)\n        if len(p) <= need:\n            out += p\n        else:\n            out += p[:need]\n        i += 1\n    return bytes(out)\n\ndef _zipf_bytes(rng: random.Random, n: int) -> bytes:\n    # Skewed distribution favoring small byte values to vary hex output\n    # Simple geometric-like distribution capped at 255\n    res = bytearray()\n    while len(res) < n:\n        # Probability halves each increment; clamp to 0..255\n        x = 0\n        # Use up to 8 steps to avoid long loops\n        for _ in range(8):\n            if rng.random() < 0.5:\n                break\n            x += 1\n        res.append(x & 0xFF)\n    return bytes(res)\n\ndef _choose_size(rng: random.Random) -> int:\n    # Favor a range up to 1024 specifically (the stubs clamp at 1024),\n    # occasionally produce very small or empty, and sometimes near the cap.\n    roll = rng.random()\n    if roll < 0.10:\n        return 0\n    if roll < 0.25:\n        return rng.randint(1, 15)\n    if roll < 0.85:\n        return rng.randint(16, 1024)\n    # Occasionally exceed 1024 slightly; the stub will truncate, exercising resize path\n    return rng.randint(1025, 1500)\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    n = _choose_size(rng)\n\n    # Select a content strategy\n    strategies = []\n    # Always include a pool of deterministic and random patterns\n    strategies.append(lambda: _rand_bytes(rng, n))\n    strategies.append(lambda: _ascending(n))\n    strategies.append(lambda: _descending(n))\n    strategies.append(lambda: _repeat_byte(0x00, n))\n    strategies.append(lambda: _repeat_byte(0xFF, n))\n    strategies.append(lambda: _repeat_byte(0x7F, n))\n    strategies.append(lambda: _alternating(0x00, 0xFF, n))\n    strategies.append(lambda: _alternating(0x55, 0xAA, n))\n    strategies.append(lambda: _zipf_bytes(rng, n))\n\n    # Mixed block patterns to create structured sequences\n    patterns_pool = [\n        bytes(range(256)),\n        bytes(reversed(range(256))),\n        b\"\\x00\" * 64,\n        b\"\\xFF\" * 64,\n        b\"\\x55\\xAA\" * 32,\n        b\"\\xDE\\xAD\\xBE\\xEF\" * 16,\n        b\"0123456789ABCDEF\" * 8,\n    ]\n\n    strategies.append(lambda: _blocks([patterns_pool[int(rng.random() * len(patterns_pool))] for _ in range(3)], n))\n\n    choice = rng.randrange(len(strategies))\n    data = strategies[choice]()\n\n    # Ensure upper bound per requirements\n    if len(data) > 4096:\n        data = data[:4096]\n\n    return data\n"
+    },
+    {
+      "data_type": "hex-encoded string",
+      "generator": "import random\nimport string\nfrom typing import List\n\n# Generator for hex-encoded strings to exercise util::from_hex and util::from_hex_vec\n# The fuzzer uses FUZZ_PARAM_STR for input. We'll return a bytes object containing\n# a text payload that includes diverse, valid hex encodings and patterns, including:\n# - Clean hex sequences of varying lengths (even/odd)\n# - Mixed-case hex\n# - Junk separators and non-hex characters interspersed\n# - Long runs to hit truncation bounds (<= 2048 to match fuzzer caps)\n# - Optional reversed-interesting layouts (though rev is chosen by fuzzer flag)\n# - Grouped UUID-like 8-4-4-4-12 patterns, continuous hex, spaced hex, comma-separated, etc.\n\nHEX_DIGITS_LOWER = \"0123456789abcdef\"\nHEX_DIGITS_UPPER = \"0123456789ABCDEF\"\nHEX_DIGITS_MIXED = HEX_DIGITS_LOWER + HEX_DIGITS_UPPER\nNON_HEX = [\n    \" \", \"\\t\", \"\\n\", \"\\r\", \"-\", \":\", \",\", \".\", \";\", \"_\", \"/\", \"|\", \"*\", \"+\", \"#\",\n    \"G\", \"Z\", \"g\", \"z\", \"x\", \"X\", \"0x\", \"0X\"\n]\n\n\ndef rnd_hex(run_len: int, rng: random.Random, mixed_case: bool = True) -> str:\n    digits = HEX_DIGITS_MIXED if mixed_case else HEX_DIGITS_LOWER\n    return \"\".join(rng.choice(digits) for _ in range(run_len))\n\n\ndef uuid_like(rng: random.Random) -> str:\n    # 8-4-4-4-12 uppercase\n    parts = [8, 4, 4, 4, 12]\n    return \"-\".join(rnd_hex(n, rng, mixed_case=True) for n in parts)\n\n\ndef spaced_pairs(byte_count: int, rng: random.Random) -> str:\n    # Emit bytes as two hex digits separated by spaces, tabs, mixed spacing\n    out: List[str] = []\n    for i in range(byte_count):\n        pair = rnd_hex(2, rng)\n        out.append(pair)\n        if i + 1 < byte_count:\n            out.append(rng.choice([\" \", \"  \", \"\\t\", \",\", \";\", \" \", \"\\n\"]))\n    return \"\".join(out)\n\n\ndef mixed_junk(hex_len: int, rng: random.Random) -> str:\n    # Insert random junk between hex digits; ensure resulting string has at least hex_len hex digits\n    # We'll create hex_len hex digits and randomly sprinkle junk tokens\n    tokens: List[str] = []\n    for i in range(hex_len):\n        tokens.append(rnd_hex(1, rng))\n        if rng.random() < 0.4:\n            tokens.append(rng.choice(NON_HEX))\n    # Occasionally prefix/suffix non-hex\n    if rng.random() < 0.5:\n        tokens.insert(0, rng.choice(NON_HEX))\n    if rng.random() < 0.5:\n        tokens.append(rng.choice(NON_HEX))\n    return \"\".join(tokens)\n\n\ndef odd_length_hex(total_digits: int, rng: random.Random) -> str:\n    # Ensure odd count of hex digits, optionally with separators\n    if total_digits % 2 == 0:\n        total_digits += 1\n    return mixed_junk(total_digits, rng)\n\n\ndef continuous_hex(byte_count: int, rng: random.Random) -> str:\n    # Pure hex without separators\n    return rnd_hex(byte_count * 2, rng)\n\n\ndef prefixed_hex(byte_count: int, rng: random.Random) -> str:\n    # Mix of 0x-prefixed pairs and plain pairs, with commas/spaces\n    parts: List[str] = []\n    for i in range(byte_count):\n        pair = rnd_hex(2, rng)\n        if rng.random() < 0.6:\n            parts.append(rng.choice([\"0x\", \"0X\"]) + pair)\n        else:\n            parts.append(pair)\n        if i + 1 < byte_count:\n            parts.append(rng.choice([\",\", \", \", \" \", \"; \"]))\n    return \"\".join(parts)\n\n\ndef alternating_case(hex_len: int, rng: random.Random) -> str:\n    s = rnd_hex(hex_len, rng)\n    out = []\n    upper = True\n    for ch in s:\n        if ch.isalpha():\n            out.append(ch.upper() if upper else ch.lower())\n            upper = not upper\n        else:\n            out.append(ch)\n    return \"\".join(out)\n\n\ndef bounded_concat(parts: List[str], max_len: int) -> str:\n    out = []\n    total = 0\n    for p in parts:\n        if total + len(p) > max_len:\n            rem = max_len - total\n            if rem <= 0:\n                break\n            out.append(p[:rem])\n            total += rem\n            break\n        out.append(p)\n        total += len(p)\n    return \"\".join(out)\n\n\ndef build_payload(rng: random.Random) -> str:\n    # Assemble a composite payload mixing various patterns separated by newlines.\n    # The fuzzer may truncate to 1024 or 2048 depending on target; we keep <= 2048.\n    max_total = rng.choice([512, 768, 1024, 1536, 2048])\n\n    segments: List[str] = []\n\n    # 1) UUID-like\n    segments.append(uuid_like(rng))\n\n    # 2) Continuous long hex\n    segments.append(continuous_hex(rng.randint(4, 64), rng))\n\n    # 3) Odd-length hex digits with junk\n    segments.append(odd_length_hex(rng.randint(5, 127), rng))\n\n    # 4) Spaced pairs\n    segments.append(spaced_pairs(rng.randint(4, 64), rng))\n\n    # 5) Prefixed hex\n    segments.append(prefixed_hex(rng.randint(4, 40), rng))\n\n    # 6) Alternating case continuous\n    segments.append(alternating_case(rng.randint(8, 150), rng))\n\n    # 7) Extra junk-only lines to test skipping\n    junk_line = \"\".join(rng.choice(NON_HEX) for _ in range(rng.randint(5, 30)))\n    segments.append(junk_line)\n\n    # 8) Another UUID-like but lowercase/mixed\n    segments.append(uuid_like(rng).lower())\n\n    # 9) Mixed junk with many hex digits to build sizable output\n    segments.append(mixed_junk(rng.randint(64, 400), rng))\n\n    # Join with newlines and some random separators\n    glue_choices = [\"\\n\", \"\\r\\n\", \"\\n--\\n\", \"\\n::\\n\"]\n    glued = []\n    for i, seg in enumerate(segments):\n        glued.append(seg)\n        if i + 1 < len(segments):\n            glued.append(rng.choice(glue_choices))\n\n    payload = bounded_concat(glued, max_total)\n\n    # Ensure not empty\n    if not payload:\n        payload = \"0\"  # minimal hex nibble (parser tolerates odd nibble)\n\n    return payload\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Randomly choose a strategy mix bias to vary distributions across seeds\n    # But ultimately build a composite payload to cover many parser behaviors\n    payload = build_payload(rng)\n\n    # Return as bytes; the fuzzer expects std::string data\n    return payload.encode(\"utf-8\")\n"
+    },
+    {
+      "data_type": "decimal integer string",
+      "generator": "import random\nfrom typing import List\n\n# Target data type: decimal integer string\n# Fuzzer stubs call FUZZ_PARAM_STR to get an initial string, then rewrite its\n# characters into digit-heavy content with possible leading '-'. Our goal is to\n# supply initial buffers that, after the stubâ€™s transformation, still produce\n# interesting valid inputs across size/shape boundaries.\n#\n# Strategy:\n# - Generate a variety of numeric-like strings:\n#   - empty string\n#   - single digit\n#   - long sequences (up to 64 per stub cap)\n#   - with/without leading '-'\n#   - boundary lengths: 1, 2, 18, 19, 20, 63, 64\n#   - sequences of all same digit, alternating digits, random digits\n# - Because the stub overwrites many characters, we bias our bytes to ASCII\n#   digits and '-' so the post-rewrite stays within expectations.\n# - We also include occasional non-digit 'x' since one stub may set some chars\n#   to 'x'. Parsers ignore non-digits in from_chars according to description,\n#   but we focus on valid numeric strings primarily.\n#\n# The function returns bytes; FUZZ_PARAM_STR will interpret these as a string.\n\n_DIGITS = \"0123456789\"\n\n\ndef _rand_digits(rng: random.Random, n: int) -> str:\n    return \"\".join(rng.choice(_DIGITS) for _ in range(max(0, n)))\n\n\ndef _alternating_digits(n: int) -> str:\n    if n <= 0:\n        return \"\"\n    return (\"10\" * (n // 2)) + (\"1\" if n % 2 else \"\")\n\n\ndef _repeat_digit(d: str, n: int) -> str:\n    return d * max(0, n)\n\n\ndef _with_optional_minus(rng: random.Random, s: str, force: bool | None = None) -> str:\n    if not s:\n        return s\n    place_minus = force if force is not None else rng.choice([True, False])\n    return (\"-\" + s) if place_minus else s\n\n\ndef _make_candidate_set(rng: random.Random) -> List[str]:\n    # Core lengths influenced by stub caps and typical integer limits\n    lens = [0, 1, 2, 18, 19, 20, 63, 64]\n    candidates: List[str] = []\n\n    # Empty\n    candidates.append(\"\")\n\n    # Single-digit and small numbers\n    for d in [\"0\", \"1\", \"9\"]:\n        candidates.append(d)\n    candidates.append(\"-0\")\n\n    # Boundary-sized digit strings\n    for L in lens:\n        if L == 0:\n            continue\n        # pure random digits\n        s = _rand_digits(rng, L)\n        candidates.append(_with_optional_minus(rng, s))\n\n        # repeating digit\n        d = rng.choice(_DIGITS)\n        s2 = _repeat_digit(d, L)\n        candidates.append(_with_optional_minus(rng, s2))\n\n        # alternating 1/0\n        s3 = _alternating_digits(L)\n        candidates.append(_with_optional_minus(rng, s3))\n\n    # Strings starting with minus and maximum length 64 digits\n    candidates.append(\"-\" + _repeat_digit(\"9\", 64))\n    candidates.append(\"-\" + _alternating_digits(64))\n\n    # Mixed patterns under cap\n    for _ in range(6):\n        L = rng.randint(1, 64)\n        # mix digits with occasional 'x'\n        s = []\n        for i in range(L):\n            if rng.random() < 0.05:\n                s.append('x')\n            else:\n                s.append(rng.choice(_DIGITS))\n        mix = ''.join(s)\n        candidates.append(_with_optional_minus(rng, mix))\n\n    # Ensure variety of leading characters\n    candidates.extend([\n        \"-\" + _rand_digits(rng, 10),\n        \"0\" + _rand_digits(rng, 10),\n        \"9\" + _rand_digits(rng, 10),\n    ])\n\n    # Deduplicate while preserving order\n    seen = set()\n    uniq: List[str] = []\n    for s in candidates:\n        if s not in seen:\n            seen.add(s)\n            uniq.append(s)\n    # Respect 4096 limit (well under)\n    return uniq[:64]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build a pool of candidate strings\n    candidates = _make_candidate_set(rng)\n\n    # Choose one according to seed and a little extra randomness\n    idx = rng.randrange(len(candidates))\n    s = candidates[idx]\n\n    # Return as bytes (ASCII)\n    return s.encode('ascii', errors='strict')\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8320,
+            "output_tokens": 5782,
+            "total_tokens": 14102
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 7898,
+            "output_tokens": 119,
+            "total_tokens": 8017
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8450,
+            "output_tokens": 4123,
+            "total_tokens": 12573
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 29249,
+            "output_tokens": 8470,
+            "total_tokens": 37719
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 39685,
+            "output_tokens": 7222,
+            "total_tokens": 46907
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 5581,
+            "output_tokens": 291,
+            "total_tokens": 5872
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 541.6827445030212,
+    "scan_objects": 54.388319969177246,
+    "validate_objects": 4.549724817276001,
+    "scan_functions": 83.02508163452148,
+    "synthesis": 216.08699440956116,
+    "fill": 136.12853837013245,
+    "classify": 7.092188835144043,
+    "build_generators": 40.41095733642578
+  }
+}

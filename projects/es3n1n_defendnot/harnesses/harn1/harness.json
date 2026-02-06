@@ -1,0 +1,174 @@
+{
+  "objects": [
+    {
+      "ptr_type": "const char **",
+      "aliases": [],
+      "definition": "",
+      "description": "No user-defined structs, enums, typedefs, or classes are defined in this header. Only two inline functions are provided within the defendnot_api namespace.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "std::string *",
+      "aliases": [],
+      "definition": "",
+      "description": "Although std::string appears in the function signatures, it is from the C++ standard library and not defined in this header, so it is not included as a custom type.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "defendnot_api::version",
+      "signature": "const char* defendnot_api::version() noexcept",
+      "description": "Returns a pointer to a constant, null-terminated C string identifying the API version (\"defendnot-compat-1.0\"). Intended for callers to check compatibility or log the library version. The returned pointer refers to a static string literal with program-long lifetime.",
+      "requirements": [
+        "Caller must treat the returned C string as read-only; do not modify or free it.",
+        "The function is noexcept and guaranteed not to throw.",
+        "May be called at any time; requires no prior initialization."
+      ],
+      "error": null
+    },
+    {
+      "name": "defendnot_api::greet",
+      "signature": "std::string defendnot_api::greet(const std::string& name)",
+      "description": "Builds and returns a greeting message by prefixing \"hello, \" to the supplied name. Typical usage is to pass a user-visible name and receive a new std::string containing the greeting.",
+      "requirements": [
+        "Parameter 'name' must reference a valid, initialized std::string object.",
+        "The function returns a new std::string; the caller assumes ownership of the returned value.",
+        "Operation may allocate memory and can throw standard exceptions (e.g., std::bad_alloc); callers should be prepared to handle exceptions if required by their context.",
+        "No specific constraints on contents of 'name'; empty strings are accepted."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "defendnot_api::version",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Call the version function and validate basic invariants without leaking pointers into the pool\nconst char *ver_cstr = defendnot_api::version();\n// The API promises a non-null, read-only, static C string\nFUZZ_ASSERT(ver_cstr != nullptr, \"version() must return non-null\");\n// Conservatively verify there is a terminating NUL within a small bound to avoid unbounded scanning\nsize_t limit = 128; size_t i = 0; while (i < limit && ver_cstr[i] != '\\0') { ++i; }\nFUZZ_ASSERT(i < limit, \"version() string appears unterminated within sanity bound\");\n// Do not modify or free ver_cstr; do not return it to the pool since it is static lifetime\n// Validation: No inputs/outputs are leaked; invariants checked; static pointer not inserted into object pool."
+    },
+    {
+      "name": "defendnot_api::greet",
+      "inputs": [
+        {
+          "name": "name",
+          "type": "std::string *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "name",
+          "type": "std::string *"
+        },
+        {
+          "name": "greeting",
+          "type": "std::string *"
+        }
+      ],
+      "code": "// Enforce that input 'name' is a valid std::string reference\nFUZZ_ASSERT(name != nullptr, \"input name must not be null\");\nstd::string *greeting = nullptr;\ntry {\n    // Invoke target function with a valid, initialized std::string\n    std::string res = defendnot_api::greet(*name);\n    // Property: result must start with the expected prefix\n    const char *prefix = \"hello, \";\n    bool has_prefix = res.size() >= 7 && res.compare(0, 7, prefix) == 0;\n    FUZZ_ASSERT(has_prefix, \"greet() must prefix 'hello, '\");\n    // Take ownership of the returned value by allocating a persistent std::string for the pool\n    greeting = new std::string(std::move(res));\n    FUZZ_ASSERT(greeting != nullptr, \"allocation for greeting failed\");\n} catch (...) {\n    // greet may throw (e.g., bad_alloc); signal to the fuzzer runtime\n    FUZZ_BAIL();\n}\n// Output both the original input (still valid and owned by the pool) and the new greeting string\n// Validation: Input preserved, new std::string produced and returned; exceptions handled via FUZZ_BAIL; prefix invariant asserted."
+    },
+    {
+      "name": "std::string *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "std::string *"
+        }
+      ],
+      "code": "// Construct a new std::string using fuzzed data and return it to the pool\nstd::string *value = nullptr;\ntry {\n    // Start from a fuzzed string; cap size to keep allocations bounded\n    std::string seed = FUZZ_PARAM_STR();\n    if (seed.size() > 1024) seed.resize(1024);\n\n    // Vary construction paths to increase coverage and exercise API use\n    unsigned int mode = static_cast<unsigned int>(*FUZZ_PARAM(unsigned int)) % 5u;\n    std::string tmp;\n    switch (mode) {\n        case 0: // direct copy\n            tmp = seed;\n            break;\n        case 1: // reserve + assign\n            tmp.reserve(seed.size());\n            tmp.assign(seed.data(), seed.size());\n            break;\n        case 2: { // substring prefix (including possibly empty)\n            size_t cut = seed.empty() ? 0u : (static_cast<size_t>(*FUZZ_PARAM(unsigned int)) % (seed.size() + 1));\n            tmp = seed.substr(0, cut);\n            break;\n        }\n        case 3: // prefix to resemble greet input shape\n            tmp = \"hello, \";\n            tmp += seed;\n            break;\n        default: // empty string case\n            tmp.clear();\n            break;\n    }\n\n    // Allocate persistent std::string for the object pool\n    value = new std::string(std::move(tmp));\n    FUZZ_ASSERT(value != nullptr, \"allocation for std::string failed\");\n\n    // Track useful metadata for downstream stubs\n    FUZZ_SET_ATTR_INT(value, \"length\", static_cast<int>(value->size()));\n} catch (...) {\n    // std::string operations may throw (e.g., bad_alloc)\n    FUZZ_BAIL();\n}\n// Validation: Produces a non-null std::string*, bounded allocation, and records length attribute; no inputs to preserve."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "defendnot_api::version",
+      "data_types": []
+    },
+    {
+      "name": "defendnot_api::greet",
+      "data_types": []
+    },
+    {
+      "name": "std::string *",
+      "data_types": []
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary string",
+      "description": "A generic byte string with no required encoding or structure beyond being representable as a std::string. May be empty or contain any bytes, including non-UTF-8 sequences; used as free-form text input."
+    }
+  ],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 745,
+            "output_tokens": 130,
+            "total_tokens": 875
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 323,
+            "output_tokens": 30,
+            "total_tokens": 353
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 769,
+            "output_tokens": 936,
+            "total_tokens": 1705
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4074,
+            "output_tokens": 2164,
+            "total_tokens": 6238
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3312,
+            "output_tokens": 1506,
+            "total_tokens": 4818
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1907,
+            "output_tokens": 106,
+            "total_tokens": 2013
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 110.6539032459259,
+    "scan_objects": 5.268699884414673,
+    "validate_objects": 0.3235182762145996,
+    "scan_functions": 18.331970930099487,
+    "synthesis": 51.15218210220337,
+    "fill": 32.39199256896973,
+    "classify": 3.1185765266418457,
+    "build_generators": 0.06615686416625977
+  }
+}

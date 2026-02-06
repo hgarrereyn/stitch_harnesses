@@ -1,0 +1,1089 @@
+{
+  "objects": [
+    {
+      "ptr_type": "utils::qprocess::outPut *",
+      "aliases": [],
+      "definition": "struct outPut\n\t\t{\n\t\t\tbool success() const\n\t\t\t{\n\t\t\t\treturn exitCode == 0 && exitStatus == outPut::ExitStatus::NormalExit ;\n\t\t\t}\n\t\t\tbool crashed() const\n\t\t\t{\n\t\t\t\treturn exitStatus == outPut::ExitStatus::Crashed ;\n\t\t\t}\n\t\t\tbool failedToStart() const\n\t\t\t{\n\t\t\t\treturn exitStatus == outPut::ExitStatus::FailedToStart ;\n\t\t\t}\n\t\t\tint exitCode ;\n\t\t\tenum class ExitStatus{ FailedToStart,NormalExit,Crashed } exitStatus ;\n\t\t\tQByteArray stdOut ;\n\t\t\tQByteArray stdError ;\n\t\t} ;",
+      "description": "Result container for an asynchronous QProcess execution. Holds exit code, exit status (mapped to FailedToStart/NormalExit/Crashed), and captured stdout/stderr. Provides convenience predicates success(), crashed(), and failedToStart(). Intended to be delivered to user callbacks from the run(...) helpers.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "utils::network::details::NetworkReply *",
+      "aliases": [],
+      "definition": "class NetworkReply\n{\npublic:\n\tNetworkReply( QNetworkReply& n,bool f,bool t ) :\n\t\tm_networkReply( n ),m_finished( f ),m_timeOut( t )\n\t{\n\t}\n\tbool finished() const\n\t{\n\t\treturn m_finished ;\n\t}\n\tbool success() const\n\t{\n\t\treturn m_networkReply.error() == QNetworkReply::NoError && !m_timeOut ;\n\t}\n\tbool timeOut() const\n\t{\n\t\treturn m_timeOut ;\n\t}\n\tQByteArray data() const\n\t{\n\t\treturn m_networkReply.readAll() ;\n\t}\n\tQNetworkReply::NetworkError error() const\n\t{\n\t\treturn m_networkReply.error() ;\n\t}\n\tQString errorString() const\n\t{\n\t\treturn m_networkReply.errorString() ;\n\t}\n\tQNetworkReply& networkReply() const\n\t{\n\t\treturn m_networkReply ;\n\t}\n\tbool retry() const\n\t{\n\t\tauto error = this->error() ;\n\n\t\treturn error == QNetworkReply::TemporaryNetworkFailureError ||\n\t\t       error == QNetworkReply::NetworkSessionFailedError ;\n\t}\nprivate:\n\tQNetworkReply& m_networkReply ;\n\tbool m_finished ;\n\tbool m_timeOut ;\n};",
+      "description": "Lightweight wrapper around QNetworkReply providing convenience methods for finished/success/timeout status, data retrieval, error info, and retry suggestion. It holds a reference to a live QNetworkReply and tracks finished/timeout flags.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "utils::network::progress",
+        "utils::network::reply",
+        "utils::network::manager"
+      ]
+    },
+    {
+      "ptr_type": "utils::network::progress *",
+      "aliases": [],
+      "definition": "class progress : public details::NetworkReply\n{\npublic:\n\tprogress( bool finished,bool timeOut,QNetworkReply& networkReply,qint64 r,qint64 t ) :\n\t\tdetails::NetworkReply( networkReply,finished,timeOut ),\n\t\tm_received( r ),\n\t\tm_total( t )\n\t{\n\t}\n\tqint64 received() const\n\t{\n\t\treturn m_received ;\n\t}\n\tqint64 total() const\n\t{\n\t\treturn m_total ;\n\t}\nprivate:\n\tqint64 m_received ;\n\tqint64 m_total ;\n} ;",
+      "description": "Event object passed to progress callbacks; extends NetworkReply with received and total byte counts. Represents interim or final progress state.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "utils::network::manager"
+      ]
+    },
+    {
+      "ptr_type": "utils::network::reply *",
+      "aliases": [],
+      "definition": "class reply : public details::NetworkReply\n{\npublic:\n\treply( QNetworkReply& n,bool timeOut ) : details::NetworkReply( n,true,timeOut )\n\t{\n\t}\n} ;",
+      "description": "Event object passed to completion callbacks; extends NetworkReply and always marks finished=true, with a timeout flag indicating if the operation timed out.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "utils::network::manager"
+      ]
+    },
+    {
+      "ptr_type": "utils::network::manager *",
+      "aliases": [],
+      "definition": "class manager\n{\npublic:\n\tmanager( int timeOut ) : m_timeOut( timeOut )\n\t{\n\t}\n\tQNetworkAccessManager& QtNAM() const\n\t{\n\t\treturn m_manager ;\n\t}\n\ttemplate< typename Reply,\n\t\t  typename std::enable_if< std::is_void< details::result_of< Reply,network::reply > >::value,int >::type = 0 >\n\tvoid get( const QNetworkRequest& r,Reply reply ) const\n\t{\n\t\tthis->setupReply( m_manager.get( r ),std::move( reply ) ) ;\n\t}\n\ttemplate< typename Progress,\n\t\t  typename std::enable_if< std::is_void< details::result_of< Progress,network::progress > >::value,int >::type = 0 >\n\tvoid get( const QNetworkRequest& r,Progress progress ) const\n\t{\n\t\tauto reply = []( const network::reply& ){} ;\n\n\t\tthis->setupReply( m_manager.get( r ),std::move( reply ),std::move( progress ) ) ;\n\t}\n\ttemplate< typename Reply,typename Data >\n\tvoid post( const QNetworkRequest& r,const Data& e,Reply reply ) const\n\t{\n\t\tthis->setupReply( m_manager.post( r,e ),std::move( reply ) ) ;\n\t}\n\ttemplate< typename Reply >\n\tvoid head( const QNetworkRequest& r,Reply reply ) const\n\t{\n\t\tthis->setupReply( m_manager.head( r ),std::move( reply ) ) ;\n\t}\nprivate:\n\ttemplate< typename Reply,typename Progress >\n\tclass handle\n\t{\n\tpublic:\n\t\thandle( Reply&& r,Progress&& p,QNetworkReply& n,QMutex& m ) :\n\t\t\tm_reply( std::move( r ) ),\n\t\t\tm_progress( std::move( p ) ),\n\t\t\tm_mutex( m ),\n\t\t\tm_networkReply( n )\n\t\t{\n\t\t}\n\t\tvoid result( bool timeOut )\n\t\t{\n\t\t\tQObject::disconnect( m_networkConn ) ;\n\t\t\tQObject::disconnect( m_timerConn ) ;\n\t\t\tm_timer.stop() ;\n\t\t\tm_reply( { m_networkReply,timeOut } ) ;\n\t\t\tm_progress( { true,timeOut,m_networkReply,0,0 } ) ;\n\t\t}\n\t\tbool firstSeen()\n\t\t{\n\t\t\tQMutexLocker m( &m_mutex ) ;\n\n\t\t\tauto s = m_firstSeen ;\n\n\t\t\tif( m_firstSeen ){\n\n\t\t\t\tm_firstSeen = false ;\n\t\t\t}\n\n\t\t\treturn s ;\n\t\t}\n\t\tvoid start( int timeOut,QMetaObject::Connection&& nc,QMetaObject::Connection&& tc )\n\t\t{\n\t\t\tm_networkConn = std::move( nc ) ;\n\t\t\tm_timerConn = std::move( tc ) ;\n\t\t\tm_timer.start( timeOut ) ;\n\t\t}\n\t\tQNetworkReply * networkReply()\n\t\t{\n\t\t\treturn &m_networkReply ;\n\t\t}\n\t\tQTimer * timer()\n\t\t{\n\t\t\treturn &m_timer ;\n\t\t}\n\t\tvoid stopTimer()\n\t\t{\n\t\t\tif( m_stopTimer ){\n\n\t\t\t\tm_timer.stop() ;\n\t\t\t\tm_stopTimer = false ;\n\t\t\t}\n\t\t}\n\t\tvoid progress( qint64 r,qint64 t )\n\t\t{\n\t\t\tif( r != 0 ){\n\n\t\t\t\tm_progress( { false,false,m_networkReply,r,t } ) ;\n\t\t\t}\n\t\t}\n\t\t~handle()\n\t\t{\n\t\t\tm_networkReply.deleteLater() ;\n\t\t}\n\tprivate:\n\t\tbool m_firstSeen = true ;\n\t\tbool m_stopTimer = true ;\n\t\tQTimer m_timer ;\n\t\tReply m_reply ;\n\t\tProgress m_progress ;\n\t\tQMutex& m_mutex ;\n\t\tQNetworkReply& m_networkReply ;\n\t\tQMetaObject::Connection m_networkConn ;\n\t\tQMetaObject::Connection m_timerConn ;\n\t} ;\n\ttemplate< typename Reply,typename Progress,typename Function >\n\tvoid setupReply( QNetworkReply * s,Reply&& reply,Progress&& progress,Function&& function ) const\n\t{\n\t\tauto hdl = std::make_shared< handle< Reply,Progress > >( std::move( reply ),std::move( progress ),*s,m_mutex ) ;\n\n\t\tQObject::connect( s,&QNetworkReply::downloadProgress,[ &h = *hdl,function = std::move( function ) ]( qint64 r,qint64 t ){\n\n\t\t\th.stopTimer() ;\n\n\t\t\tfunction( h,r,t ) ;\n\t\t} ) ;\n\n\t\thdl->start( m_timeOut,QObject::connect( hdl->networkReply(),&QNetworkReply::finished,[ hdl ](){\n\n\t\t\tif( hdl->firstSeen() ){\n\n\t\t\t\thdl->result( false ) ;\n\t\t\t}\n\n\t\t} ),QObject::connect( hdl->timer(),&QTimer::timeout,[ hdl ](){\n\n\t\t\tif( hdl->firstSeen() ){\n\n\t\t\t\thdl->result( true ) ;\n\n\t\t\t\thdl->networkReply()->abort() ;\n\t\t\t}\n\t\t} ) ) ;\n\t}\n\ttemplate< typename Reply,typename Progress >\n\tvoid setupReply( QNetworkReply * s,Reply&& reply,Progress&& progress ) const\n\t{\n\t\tusing handle_t = handle< Reply,Progress > ;\n\n\t\tthis->setupReply( s,std::move( reply ),std::move( progress ),[]( handle_t& h,qint64 r,qint64 t ){\n\n\t\t\th.progress( r,t ) ;\n\t\t} ) ;\n\t}\n\ttemplate< typename Reply >\n\tvoid setupReply( QNetworkReply * s,Reply&& reply ) const\n\t{\n\t\tstruct progress\n\t\t{\n\t\t\tvoid operator()( const network::progress& ){}\n\t\t} ;\n\n\t\tusing handle_t = handle< Reply,progress > ;\n\n\t\tthis->setupReply( s,std::move( reply ),progress(),[]( handle_t&,qint64,qint64 ){} ) ;\n\t}\n\n\tmutable QNetworkAccessManager m_manager ;\n\tint m_timeOut ;\n\tmutable QMutex m_mutex ;\n} ;",
+      "description": "High-level wrapper around QNetworkAccessManager that provides timed GET/POST/HEAD requests with callback-based completion (reply) and progress notifications. Manages timeouts via QTimer and ensures single completion via synchronization. Thread-safety provided for completion gating using QMutex.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "utils::app::details::exec *",
+      "aliases": [],
+      "definition": "class exec : public QObject\n\t\t\t{\n\t\t\t\tQ_OBJECT\n\t\t\tpublic:\n\t\t\t\ttemplate< typename Function >\n\t\t\t\texec( Function function ) : m_function( function )\n\t\t\t\t{\n\t\t\t\t\tconnect( this,&exec::run,this,&exec::meaw,Qt::QueuedConnection ) ;\n\n\t\t\t\t\temit this->run() ;\n\t\t\t\t}\n\t\t\tprivate:\n\t\t\t\tvoid meaw()\n\t\t\t\t{\n\t\t\t\t\tm_function() ;\n\t\t\t\t}\n\t\t\tsignals:\n\t\t\t\tvoid run() ;\n\t\t\tprivate:\n\t\t\t\tstd::function< void() > m_function ;\n\t\t\t} ;",
+      "description": "Qt-based helper class that queues execution of a stored std::function on the event loop. On construction, connects a run signal to a private slot (meaw) with QueuedConnection and immediately emits run to invoke the function asynchronously.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "utils::app::multipleInstance< AppInfo >",
+        "utils::app::oneinstance< AppInfo, InstanceArgs >"
+      ]
+    },
+    {
+      "ptr_type": "utils::app::AppTypeInterface *",
+      "aliases": [],
+      "definition": "class AppTypeInterface\n\t\t{\n\t\tpublic:\n\t\t\tstruct args\n\t\t\t{\n\t\t\t\tQApplication& app ;\n\t\t\t} ;\n\t\t\tAppTypeInterface( const AppTypeInterface::args& )\n\t\t\t{\n\t\t\t}\n\t\t\tvoid hasEvent( QByteArray )\n\t\t\t{\n\t\t\t\t//This method is called with data from another instance that failed\n\t\t\t\t//to start because this instance prevented it from starting\n\t\t\t}\n\t\t\tvoid start( QByteArray )\n\t\t\t{\n\t\t\t\t//This method is called when the first instance is started\n\t\t\t}\n\t\t} ;",
+      "description": "Interface-like example class documenting the expected minimal API for an application type usable with the helpers in this header. It provides a constructor taking args{QApplication&}, a start(QByteArray) to initialize the first instance, and hasEvent(QByteArray) to handle messages from subsequent instances.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "utils::app::AppTypeInterface::args *",
+      "aliases": [],
+      "definition": "struct args\n\t\t\t{\n\t\t\t\tQApplication& app ;\n\t\t\t} ;",
+      "description": "Argument carrier for AppTypeInterface constructor, containing a reference to an existing QApplication.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "utils::app::AppTypeInterface"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "utils::misc::containsAny",
+      "signature": "template <typename Value, typename Opt>\nbool utils::misc::containsAny(const Value& v, const Opt& opt)",
+      "description": "Checks whether v contains the single value opt by delegating to v.contains(opt). Intended for types that provide a contains method (e.g., Qt or STL-like containers/strings that implement contains). Use when you want a simple, single-option membership test.",
+      "requirements": [
+        "Value must provide a callable member function bool contains(const Opt&) (or an overload compatible with Opt).",
+        "v must be a valid, initialized object.",
+        "Behavior depends on Value::contains; if contains has preconditions, they apply here.",
+        "Thread-safety and exception guarantees are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::misc::containsAll",
+      "signature": "template <typename Value, typename Opt>\nbool utils::misc::containsAll(const Value& v, const Opt& opt)",
+      "description": "Checks whether v contains the single value opt by delegating to v.contains(opt). Base case for the variadic containsAll overload.",
+      "requirements": [
+        "Value must provide a callable member function bool contains(const Opt&) (or an overload compatible with Opt).",
+        "v must be a valid, initialized object.",
+        "Behavior depends on Value::contains; if contains has preconditions, they apply here.",
+        "Thread-safety and exception guarantees are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::misc::startsWithAny",
+      "signature": "template <typename Value, typename Opt>\nbool utils::misc::startsWithAny(const Value& v, const Opt& opt)",
+      "description": "Checks whether v starts with opt by delegating to v.startsWith(opt). Intended for types that implement startsWith (e.g., Qt QString/QByteArray).",
+      "requirements": [
+        "Value must provide a callable member function bool startsWith(const Opt&) (or an overload compatible with Opt).",
+        "v must be a valid, initialized object.",
+        "Behavior depends on Value::startsWith; if startsWith has preconditions, they apply here.",
+        "Thread-safety and exception guarantees are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::misc::unique_rsc",
+      "signature": "template <typename Function, typename Deleter, typename... Arguments>\nauto utils::misc::unique_rsc(Function&& function, Deleter&& deleter, Arguments&&... args)",
+      "description": "Constructs and returns a std::unique_ptr that owns a resource created by function(args...) and destroyed by deleter. The resource-creating function must return a pointer type; the deleter is stored in the unique_ptr (type-decayed). Typical use: wrapping C APIs like fopen/fclose.",
+      "requirements": [
+        "function must be callable with the provided Arguments... and return a pointer type P* (may be nullptr).",
+        "The pointee type A = std::remove_pointer_t<std::result_of_t<Function(Arguments&&...)>> must be well-formed.",
+        "deleter must be callable as deleter(A*) and be storable inside std::unique_ptr<A, std::decay_t<Deleter>> (i.e., CopyConstructible/MoveConstructible as required by decay).",
+        "Arguments... are perfectly-forwarded; ensure they are valid for the call and beware of moved-from states when passing rvalues.",
+        "Ownership semantics: the returned unique_ptr exclusively owns the resource and will invoke deleter on reset/destruction; do not free the resource manually.",
+        "Exception behavior of function or deleter is unspecified; callers must handle exceptions thrown during construction if function throws.",
+        "This utility requires headers <memory> and type traits used by the implementation to be available; C++ standard compatibility of std::result_of may vary (deprecated in C++17)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::misc::unique_ptr::operator*",
+      "signature": "template <typename T>\nT& utils::misc::unique_ptr<T>::operator*() const",
+      "description": "Dereferences this smart pointer wrapper and returns a reference to the managed object by forwarding to the underlying handle’s operator*(). This is a thin wrapper around std::unique_ptr or std::shared_ptr depending on Qt version.",
+      "requirements": [
+        "The underlying pointer must not be null; dereferencing a null handle results in undefined behavior.",
+        "The contained object must be valid for reference access.",
+        "Thread-safety follows that of the underlying smart pointer; unspecified here."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::misc::unique_ptr::operator->",
+      "signature": "template <typename T>\nT* utils::misc::unique_ptr<T>::operator->() const",
+      "description": "Provides pointer-like access to the managed object by forwarding to the underlying handle’s operator->(). Wrapper around std::unique_ptr or std::shared_ptr depending on Qt version.",
+      "requirements": [
+        "The underlying pointer must not be null; calling operator-> on a null handle results in undefined behavior.",
+        "The returned pointer is only valid as long as this wrapper (and underlying handle) outlives the use."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::misc::unique_ptr::get",
+      "signature": "template <typename T>\nT* utils::misc::unique_ptr<T>::get() const",
+      "description": "Returns the raw pointer managed by this wrapper by forwarding to the underlying handle’s get(). Does not transfer ownership.",
+      "requirements": [
+        "The returned pointer may be nullptr; callers must check before use.",
+        "The pointer remains valid only while the wrapper (and any shared ownership) keeps the object alive; do not delete it manually."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::qtimer::run",
+      "signature": "template< typename Function, typename std::enable_if< std::is_same< utils::qtimer::details::result_of< Function, int >, bool >::value, int >::type = 0 >\nvoid utils::qtimer::run(int interval, Function&& function)",
+      "description": "Schedules a recurring QTimer that invokes the provided callable with an incrementing counter on each timeout and stops when the callable returns true. Intended for periodic polling or retry loops driven by Qt's event loop. The callback is invoked with the number of elapsed timeouts (starting from 1) and must return true to stop the timer; returning false keeps it running. Internally creates a QTimer with start(interval) and deletes itself and the timer when stopping. Interval is Qt QTimer's interval (milliseconds, inferred from Qt). Requires a running Qt event loop in the calling thread (inferred from QTimer usage).",
+      "requirements": [
+        "Function must be invocable as bool(int) — it takes a single int argument (the call count) and returns a bool indicating whether to stop.",
+        "Function must be storable by value and movable/copyable into the internal Timer (it is captured and stored).",
+        "The function may be called multiple times until it returns true.",
+        "Must be called from a thread with a running Qt event loop so QTimer::timeout and deleteLater can be processed (inferred from QTimer semantics).",
+        "The interval argument is intended to be a non-negative duration in milliseconds as per QTimer::start (inferred from Qt; exact constraints not stated in the header).",
+        "There is no external handle to cancel; stopping is controlled solely by the callback returning true (behavior inferred from implementation).",
+        "Exceptions thrown by the callback will propagate through the Qt signal/slot invocation and may cause undefined behavior; users should avoid throwing across the boundary (inferred best practice; not explicitly stated)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::qprocess::run",
+      "signature": "template <typename Events>\nvoid utils::qprocess::run(const QString& cmd, const QStringList& args, Events events)",
+      "description": "Asynchronously launches an external process (cmd with args) using QProcess and dispatches lifecycle events to a user-supplied Events handler. The Events type must define hooks for creation, start, stdout/stderr data, errors, and completion. The function returns immediately; the internally created QObject self-deletes after completion or a failed start. Use this when you need fine-grained, streaming access to process I/O and state via custom callbacks.",
+      "requirements": [
+        "Must be called from a thread with a running Qt event loop; signals are connected with Qt::QueuedConnection and the helper QObject uses deleteLater().",
+        "cmd must refer to an executable discoverable by QProcess (path or in PATH).",
+        "Events type must provide the following callable members with these exact parameter types:\n- void whenCreated(QProcess&)\n- void whenStarted(QProcess&)\n- void withData(QProcess::ProcessChannel, const QByteArray&)\n- void withError(QProcess::ProcessError)\n- void whenDone(int, QProcess::ExitStatus)",
+        "Process output is delivered incrementally via withData; the handler is responsible for buffering if needed.",
+        "On QProcess::ProcessError::FailedToStart, withError is invoked and the helper object schedules self-deletion; no further events are guaranteed.",
+        "This API is fully asynchronous; do not assume the process has started or finished when run() returns.",
+        "Thread-affinity: all callbacks occur in the thread whose event loop owns the created helper QObject (the calling thread at invocation time)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::qthread::run",
+      "signature": "template<typename T, typename std::enable_if<!std::is_void<decltype(std::declval<T>().bg())>::value, int>::type = 0>\nvoid utils::qthread::run(T bgt)",
+      "description": "Starts a background task on a QThread and, when it finishes, posts the result back to the caller thread. The type T must expose methods: R bg() running in a worker thread and void fg(R) running in the caller thread. Intended for offloading work to a background thread and then delivering the result to the UI/main thread.",
+      "requirements": [
+        "T must be MoveConstructible (it is moved into the thread object).",
+        "T must provide a callable method R bg() where R = decltype(std::declval<T>().bg()).",
+        "T must provide a callable method void fg(R) to consume the result on the caller thread.",
+        "bg() must be thread-safe and must not assume caller-thread affinity.",
+        "The object state captured inside T must remain valid until fg() has been invoked (lifetime must outlive the async operation).",
+        "Qt must be initialized sufficiently for QThread signal/slot delivery (a Q(Core)Application should exist).",
+        "Exceptions or errors thrown from bg() or fg() are not handled by the utility (behavior on exception is unspecified)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::qthread::await",
+      "signature": "template<typename BackGroundTask, typename std::enable_if<!std::is_void<utils::qthread::details::result_of<BackGroundTask>>::value, int>::type = 0>\nutils::qthread::details::result_of<BackGroundTask> utils::qthread::await(BackGroundTask bgt)",
+      "description": "Runs a background callable on a QThread and blocks the caller using a local QEventLoop until completion, then returns the callable's non-void result. Useful for synchronously waiting for an asynchronous operation's result without blocking the worker thread.",
+      "requirements": [
+        "BackGroundTask must be MoveConstructible and invocable with signature R() where R = utils::qthread::details::result_of<BackGroundTask>.",
+        "BackGroundTask must be thread-safe and must not interact with UI-thread-only objects.",
+        "A Q(Core)Application must exist so that a QEventLoop can run; otherwise event delivery/threads will not function.",
+        "Caller must be prepared for re-entrancy while the local QEventLoop runs (events for the caller thread may be processed).",
+        "Exceptions thrown by the callable are not handled by the utility (unspecified behavior)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::finished",
+      "signature": "bool utils::network::details::NetworkReply::finished() const",
+      "description": "Returns true if the associated network operation has been marked finished in this wrapper. Intended for use inside callbacks to check whether the reply has completed.",
+      "requirements": [
+        "May be called only while the underlying QNetworkReply is valid.",
+        "No side effects; safe to call multiple times."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::success",
+      "signature": "bool utils::network::details::NetworkReply::success() const",
+      "description": "Returns true if the underlying QNetworkReply reports no error and the operation did not time out. Useful to gate processing of reply data.",
+      "requirements": [
+        "Underlying QNetworkReply must still be valid when calling.",
+        "Time-out state is tracked by the wrapper; success() will be false if a time-out occurred."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::timeOut",
+      "signature": "bool utils::network::details::NetworkReply::timeOut() const",
+      "description": "Returns true if the operation timed out according to the manager’s timer logic.",
+      "requirements": [
+        "Underlying QNetworkReply must still be valid when calling."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::data",
+      "signature": "QByteArray utils::network::details::NetworkReply::data() const",
+      "description": "Reads and returns all available data from the underlying QNetworkReply using readAll(). Typical use is after success() is true.",
+      "requirements": [
+        "Call only while the underlying QNetworkReply is valid.",
+        "readAll() drains the reply buffer; subsequent calls may return empty unless more data arrives."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::error",
+      "signature": "QNetworkReply::NetworkError utils::network::details::NetworkReply::error() const",
+      "description": "Returns the QNetworkReply::NetworkError code from the underlying reply.",
+      "requirements": [
+        "Underlying QNetworkReply must still be valid when calling."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::errorString",
+      "signature": "QString utils::network::details::NetworkReply::errorString() const",
+      "description": "Returns the human-readable error string from the underlying QNetworkReply.",
+      "requirements": [
+        "Underlying QNetworkReply must still be valid when calling."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::networkReply",
+      "signature": "QNetworkReply& utils::network::details::NetworkReply::networkReply() const",
+      "description": "Returns a reference to the underlying QNetworkReply. Enables direct access to Qt APIs not exposed by this wrapper.",
+      "requirements": [
+        "The returned reference is only valid while the underlying QNetworkReply exists; do not store it beyond the callback/lifetime of the wrapper.",
+        "Do not delete or take ownership of the returned QNetworkReply; its lifetime is managed by Qt and the manager."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::details::NetworkReply::retry",
+      "signature": "bool utils::network::details::NetworkReply::retry() const",
+      "description": "Heuristic indicating whether the request may be retried. Returns true only for TemporaryNetworkFailureError or NetworkSessionFailedError.",
+      "requirements": [
+        "Underlying QNetworkReply must still be valid when calling.",
+        "Caller decides policy on whether and how to retry; this function only checks specific error codes."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::progress::received",
+      "signature": "qint64 utils::network::progress::received() const",
+      "description": "Returns the number of bytes received so far for a transfer progress event.",
+      "requirements": [
+        "Meaningful within progress callbacks supplied to manager::get()."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::progress::total",
+      "signature": "qint64 utils::network::progress::total() const",
+      "description": "Returns the total number of bytes expected for the transfer, or 0 if unknown.",
+      "requirements": [
+        "Meaningful within progress callbacks supplied to manager::get()."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::manager::QtNAM",
+      "signature": "QNetworkAccessManager& utils::network::manager::QtNAM() const",
+      "description": "Provides access to the internal QNetworkAccessManager used by this manager. Useful to customize settings (e.g., proxies, cookies) before issuing requests.",
+      "requirements": [
+        "The returned reference is owned by utils::network::manager; do not delete it.",
+        "Only use from the thread that owns the QNetworkAccessManager, typically the thread where the manager was created."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::manager::get",
+      "signature": "template<typename Reply, typename std::enable_if< std::is_void< utils::network::details::result_of<Reply, utils::network::reply> >::value, int >::type = 0>\nvoid utils::network::manager::get(const QNetworkRequest& r, Reply reply) const",
+      "description": "Sends an HTTP GET and invokes the provided callback once with a utils::network::reply object when the operation finishes or times out.",
+      "requirements": [
+        "Reply must be a callable invocable as void(const utils::network::reply&).",
+        "A running Qt event loop is required for signals/slots and the timer to operate.",
+        "The QNetworkRequest must be properly initialized (e.g., URL set)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::manager::post",
+      "signature": "template<typename Reply, typename Data>\nvoid utils::network::manager::post(const QNetworkRequest& r, const Data& e, Reply reply) const",
+      "description": "Sends an HTTP POST with the given entity and invokes the callback once with a utils::network::reply object upon completion/timeout.",
+      "requirements": [
+        "Reply must be a callable invocable as void(const utils::network::reply&).",
+        "Data must be a type accepted by QNetworkAccessManager::post (e.g., QByteArray, QIODevice*, or QHttpMultiPart*).",
+        "A running Qt event loop is required for signals/slots and the timer to operate.",
+        "The QNetworkRequest must be properly initialized (e.g., URL and headers as needed)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::network::manager::head",
+      "signature": "template<typename Reply>\nvoid utils::network::manager::head(const QNetworkRequest& r, Reply reply) const",
+      "description": "Sends an HTTP HEAD request and invokes the callback once with a utils::network::reply object upon completion/timeout.",
+      "requirements": [
+        "Reply must be a callable invocable as void(const utils::network::reply&).",
+        "A running Qt event loop is required for signals/slots and the timer to operate.",
+        "The QNetworkRequest must be properly initialized (e.g., URL set)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::runMultiInstances",
+      "signature": "template <typename AppInfo>\nint utils::app::runMultiInstances(AppInfo info)",
+      "description": "Convenience entry point to run the application type specified by AppInfo without single-instance enforcement. Internally constructs utils::app::multipleInstance<AppInfo> with the provided info and starts the Qt event loop via QApplication::exec(). Intended when multiple concurrent instances are allowed.",
+      "requirements": [
+        "AppInfo must define a nested type appType that is constructible from the type of AppInfo::args.",
+        "AppInfo must contain: args (constructor arguments for appType), socketPath (QString, not used here), app (QApplication&), and data (QByteArray).",
+        "appType must provide a method void start(QByteArray) which is invoked to start the application logic.",
+        "A valid QApplication instance must be referenced by info.app and its lifetime must outlive the call.",
+        "info.app.exec() will block until the Qt event loop exits."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::make_oneinstance_args",
+      "signature": "template <typename OIR, typename PIC>\nauto utils::app::make_oneinstance_args(OIR r, PIC c) -> utils::app::instanceArgs<OIR, PIC>",
+      "description": "Factory helper that bundles two callbacks into an instanceArgs<OIR,PIC> value used by oneinstance/runOneInstance for single-instance coordination. The callbacks are invoked when another instance is detected or when a previous instance crashed.",
+      "requirements": [
+        "OIR must be callable with signature void() and will be used as the handler for 'otherInstanceRunning'.",
+        "PIC must be callable with signature void() and will be used as the handler for 'otherInstanceCrashed'.",
+        "The returned object should be passed as the second argument to runOneInstance(AppInfo, Err) where Err has members otherInstanceRunning and otherInstanceCrashed."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::runOneInstance",
+      "signature": "template <typename AppInfo, typename Err>\nint utils::app::runOneInstance(AppInfo info, Err err)",
+      "description": "Runs the application enforcing a single running instance using a local server/socket and a lock file. Uses the provided error/notification handlers in err for handling cases where another instance is already running or a previous instance crashed. Internally constructs utils::app::oneinstance<AppInfo, Err> and starts the Qt event loop.",
+      "requirements": [
+        "AppInfo must define a nested type appType that is constructible from the type of AppInfo::args.",
+        "AppInfo must contain: args (constructor arguments for appType), socketPath (QString path used for QLocalServer/QLocalSocket and QLockFile with .lock suffix), app (QApplication&), and data (QByteArray).",
+        "appType must provide methods: void start(QByteArray) and void hasEvent(QByteArray).",
+        "Err must be a type that exposes two callable members: otherInstanceRunning() and otherInstanceCrashed().",
+        "A valid QApplication instance must be referenced by info.app and its lifetime must outlive the call.",
+        "socketPath should be a filesystem-safe name for QLocalServer::listen and QFile operations; if an existing stale socket file is detected, it may be removed.",
+        "info.app.exec() will block until the Qt event loop exits."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::runOneInstance",
+      "signature": "template <typename AppInfo>\nint utils::app::runOneInstance(AppInfo info)",
+      "description": "Overload that enforces a single running instance using default console handlers. If another instance is running, prints a message and exits; if a previous instance crashed, prints a message and attempts cleanup before starting. Internally builds default handlers via make_oneinstance_args and forwards to runOneInstance(AppInfo, Err).",
+      "requirements": [
+        "Same requirements on AppInfo as the two-argument overload: appType constructibility, presence of args, socketPath, app, and data.",
+        "appType must provide: void start(QByteArray) and void hasEvent(QByteArray).",
+        "A valid QApplication instance must be referenced by info.app; info.app.exec() will block."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::details::exec::exec",
+      "signature": "template <typename Function>\nutils::app::details::exec::exec(Function function)",
+      "description": "Constructor for an internal helper QObject that schedules a callable to run on the Qt event loop using a queued connection. Upon construction, it connects its run signal to a private slot and immediately emits the signal, invoking the provided callable asynchronously.",
+      "requirements": [
+        "Function must be invocable with signature void() and copyable/movable into std::function<void()>.",
+        "A running Qt event loop or an active QObject thread affinity is expected for queued delivery; otherwise the callable may run when the event loop starts.",
+        "The created object must live at least until the queued slot executes (managed here by member lifetime within owning objects)."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::details::exec::run",
+      "signature": "void utils::app::details::exec::run()",
+      "description": "Qt signal emitted by utils::app::details::exec during construction to trigger execution of the stored callable via a queued connection. Not intended for direct caller use; typically emitted internally.",
+      "requirements": [
+        "This is a Qt signal; it is not a free-standing callable API for users. Emitting signals requires object context; external code should not rely on calling this directly."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::AppTypeInterface::AppTypeInterface",
+      "signature": "utils::app::AppTypeInterface::AppTypeInterface(const utils::app::AppTypeInterface::args&)",
+      "description": "Minimal interface/base-pattern for application types consumed by the helpers. Accepts a struct containing a QApplication reference. Provided as documentation of the expected constructor shape of AppInfo::appType.",
+      "requirements": [
+        "Caller must provide an args struct containing a valid QApplication&.",
+        "This type is illustrative; concrete appType implementations must be constructible from the same args type used in AppInfo."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::AppTypeInterface::hasEvent",
+      "signature": "void utils::app::AppTypeInterface::hasEvent(QByteArray)",
+      "description": "Placeholder handler invoked in a single-instance scenario when a second instance sends data to the running instance. Real appType classes should implement an equivalent method to consume inter-instance messages.",
+      "requirements": [
+        "QByteArray contains the data sent from another instance; semantics are application-defined.",
+        "No return value; should not throw exceptions across Qt signal/slot boundaries."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::AppTypeInterface::start",
+      "signature": "void utils::app::AppTypeInterface::start(QByteArray)",
+      "description": "Placeholder startup entry point invoked when the first/only instance starts. Receives optional startup data (possibly forwarded from command-line or other sources). Real appType classes should implement an equivalent method.",
+      "requirements": [
+        "QByteArray may be empty; semantics are application-defined.",
+        "Should initialize application state/UI and return quickly if used in event-driven contexts."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::multipleInstance::multipleInstance",
+      "signature": "template <typename AppInfo>\nutils::app::multipleInstance<AppInfo>::multipleInstance(AppInfo info)",
+      "description": "Constructor for the multiple-instance runner. Stores AppInfo and schedules run() on the Qt event loop using the internal exec helper.",
+      "requirements": [
+        "AppInfo must define a nested type appType and provide members: args, socketPath, app, data as described in utils::app::appInfo.",
+        "appType must be constructible from the type of info.args and have a method void start(QByteArray).",
+        "info is moved into internal storage; passed arguments should remain valid only through move."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::multipleInstance::run",
+      "signature": "template <typename AppInfo>\nvoid utils::app::multipleInstance<AppInfo>::run()",
+      "description": "Creates the main application object of type AppInfo::appType using stored constructor arguments and calls start(data). Intended to be invoked asynchronously by the internal exec helper; not a public API.",
+      "requirements": [
+        "appType must have a constructor compatible with AppInfo::args and a method void start(QByteArray).",
+        "This method assumes the Qt event loop context; it is called after construction via a queued connection."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::multipleInstance::exec",
+      "signature": "template <typename AppInfo>\nint utils::app::multipleInstance<AppInfo>::exec()",
+      "description": "Runs the Qt event loop by delegating to the QApplication stored in AppInfo. This should be called after constructing multipleInstance to start processing events.",
+      "requirements": [
+        "AppInfo::app must reference a valid QApplication instance.",
+        "Blocks until the application exits and returns the exit code."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::oneinstance::oneinstance",
+      "signature": "template <typename AppInfo, typename InstanceArgs>\nutils::app::oneinstance<AppInfo, InstanceArgs>::oneinstance(AppInfo info, InstanceArgs iargs)",
+      "description": "Constructor for the single-instance runner. Attempts to lock a .lock file, then schedules run() which coordinates with an existing instance (via QLocalSocket) or starts a new one (via QLocalServer). Uses iargs callbacks when another instance is detected or when a stale/crashed instance is cleaned up.",
+      "requirements": [
+        "AppInfo must provide: args, socketPath (QString used for both QLocalServer socket name/file and .lock file), app (QApplication&), and data (QByteArray).",
+        "AppInfo::appType must be constructible from AppInfo::args and implement: void start(QByteArray) and void hasEvent(QByteArray).",
+        "InstanceArgs must expose callable members: otherInstanceRunning() and otherInstanceCrashed().",
+        "The process must have permissions to create/remove the socket file at socketPath and the lock file at socketPath + \".lock\".",
+        "Qt event loop context required for signal/slot delivery; the constructor queues execution via an internal helper."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::oneinstance::~oneinstance",
+      "signature": "template <typename AppInfo, typename InstanceArgs>\nutils::app::oneinstance<AppInfo, InstanceArgs>::~oneinstance()",
+      "description": "Destructor that, if this instance created and is listening on the local server, closes it and removes the socket file at socketPath. Ensures cleanup of IPC resources.",
+      "requirements": [
+        "Socket file removal requires filesystem permissions.",
+        "Should be destroyed after the event loop has stopped accepting new connections to avoid races."
+      ],
+      "error": null
+    },
+    {
+      "name": "utils::app::oneinstance::exec",
+      "signature": "template <typename AppInfo, typename InstanceArgs>\nint utils::app::oneinstance<AppInfo, InstanceArgs>::exec()",
+      "description": "Runs the Qt event loop by delegating to the QApplication stored in AppInfo. Used to start processing after coordinating single-instance behavior.",
+      "requirements": [
+        "AppInfo::app must reference a valid QApplication instance.",
+        "Blocks until the application exits and returns the exit code."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "utils::misc::unique_rsc",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise utils::misc::unique_rsc by wrapping a malloc/free-managed buffer\n// Constraints: function(args...) returns pointer; deleter callable as deleter(A*).\n// Keep allocations small per guidelines.\nsize_t n = (size_t)(*FUZZ_PARAM(unsigned int) % 1024u) + 1u;\n// Create resource: allocate n bytes; may return nullptr if n==0 (we ensure n>=1)\nauto make_buf = [](size_t sz) -> char* { return static_cast<char*>(malloc(sz)); };\n// Deleter: free the memory if non-null\nauto del_buf = [](char* p) { if (p) { free(p); } };\n// Call target to obtain unique_ptr-like owner\nauto up = utils::misc::unique_rsc(make_buf, del_buf, n);\n// Exercise the owned resource if non-null to increase coverage\nchar* raw = up.get();\nif (raw) {\n    raw[0] = 'A';\n}\n// up will release via deleter on scope exit"
+    },
+    {
+      "name": "utils::misc::containsAny",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise utils::misc::containsAny with Value=QString and Opt=QString\n// Constraint: Value must have bool contains(const Opt&). QString satisfies this.\n// Use fromUtf8(const char*, int) to include full fuzzed byte range (including embedded NULs).\nstd::string v_bytes = FUZZ_PARAM_STR();\nstd::string opt_bytes = FUZZ_PARAM_STR();\nQString v = QString::fromUtf8(v_bytes.data(), (int)v_bytes.size());\nQString opt = QString::fromUtf8(opt_bytes.data(), (int)opt_bytes.size());\n// Call target\nauto observed = utils::misc::containsAny<QString, QString>(v, opt);\n// Property: containsAny should delegate to QString::contains with identical result\nFUZZ_ASSERT(observed == v.contains(opt), \"containsAny must match QString::contains\");\n// Validation: Inputs are ephemeral and valid; no persistent outputs; assertion checks delegation behavior."
+    },
+    {
+      "name": "utils::misc::containsAll",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise utils::misc::containsAll base-case with Value=QString and Opt=QString\n// Constraint: Value must have bool contains(const Opt&). QString satisfies this.\nstd::string v_bytes = FUZZ_PARAM_STR();\nstd::string opt_bytes = FUZZ_PARAM_STR();\nQString v = QString::fromUtf8(v_bytes.data(), (int)v_bytes.size());\nQString opt = QString::fromUtf8(opt_bytes.data(), (int)opt_bytes.size());\n// Call target\nauto observed = utils::misc::containsAll<QString, QString>(v, opt);\n// Property: base case should delegate to QString::contains\nFUZZ_ASSERT(observed == v.contains(opt), \"containsAll must match QString::contains\");\n// Validation: No persistent state; uses full byte range; assertion verifies correct forwarding."
+    },
+    {
+      "name": "utils::misc::startsWithAny",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise utils::misc::startsWithAny with Value=QString and Opt=QString\n// Constraint: Value must have bool startsWith(const Opt&). QString satisfies this.\nstd::string v_bytes = FUZZ_PARAM_STR();\nstd::string opt_bytes = FUZZ_PARAM_STR();\nQString v = QString::fromUtf8(v_bytes.data(), (int)v_bytes.size());\nQString opt = QString::fromUtf8(opt_bytes.data(), (int)opt_bytes.size());\n// Call target\nauto observed = utils::misc::startsWithAny<QString, QString>(v, opt);\n// Property: startsWithAny should delegate to QString::startsWith with identical result\nFUZZ_ASSERT(observed == v.startsWith(opt), \"startsWithAny must match QString::startsWith\");\n// Validation: Ephemeral inputs only; assertion enforces delegation correctness."
+    },
+    {
+      "name": "utils::qtimer::run",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Exercise utils::qtimer::run by installing a 0-interval QTimer so timeouts fire ASAP.\n// We ensure a running Qt event loop, then pump events until the callback stops the timer.\n\n// Choose a small, non-negative interval; prefer 0 to avoid sleeping and to keep execution fast.\nunsigned int iv = *FUZZ_PARAM(unsigned int);\nint interval = (iv % 2 == 0) ? 0 : int(iv % 5); // 0 or [1..4]\n\n// Decide after how many invocations the callback should stop the timer (1..5)\nunsigned int stop_at = (*FUZZ_PARAM(unsigned int) % 5) + 1;\n\n// Shared state to detect completion and count invocations.\nauto calls = std::make_shared<int>(0);\nauto done  = std::make_shared<bool>(false);\n\n// Callback must be invocable as bool(int). It returns true to stop.\nauto cb = [calls, done, stop_at](int i) -> bool {\n    // Basic property: invocation count should start at 1 and be positive\n    FUZZ_ASSERT(i >= 1, \"qtimer::run must invoke callback with i >= 1\");\n    *calls = i;\n    if ((unsigned int)i >= stop_at) {\n        *done = true; // mark completion for the harness' event loop pump\n        return true;  // stop timer\n    }\n    return false; // keep running\n};\n\n// Ensure there is a QCoreApplication/QApplication instance to drive the event loop.\nQCoreApplication *app = QCoreApplication::instance();\nbool created_local_app = false;\nif (!app) {\n    // Create a minimal QCoreApplication if none exists.\n    static char arg0[] = \"fuzz\";\n    static char *argv[] = { arg0, nullptr };\n    int argc = 1;\n    static QCoreApplication local_app(argc, argv);\n    app = &local_app;\n    created_local_app = true; // retained only for clarity; lifetime is static in this stub\n}\n\n// Install the timer/callback via the target function.\nutils::qtimer::run(interval, cb);\n\n// Pump the event loop until the callback signals completion, with a hard cap to avoid hangs.\nint spin_budget = 2048; // bounded processing for safety\nwhile (!*done && spin_budget-- > 0) {\n    // Process all pending events; QTimer(0) timeouts will be delivered promptly.\n    QCoreApplication::processEvents(QEventLoop::AllEvents);\n}\n\n// If we failed to reach completion within the budget, bail to avoid an infinite run.\nif (!*done) { FUZZ_BAIL(); }\n\n// No persistent objects to return; the timer deletes itself internally when stopping."
+    },
+    {
+      "name": "utils::qprocess::run",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for utils::qprocess::run\n// - Provides an Events type with required callbacks and quits a nested event loop on completion\n// - Picks a short-lived candidate command without QFileInfo dependency; handles FailedToStart gracefully\n// - Caps runtime with a guard timer to avoid hanging when nothing happens\n{\n    struct Events {\n        QEventLoop *loop = nullptr;\n        int created = 0;\n        int started = 0;\n        int done = 0;\n        int errors = 0;\n        bool failedToStart = false;\n        qint64 data_bytes = 0;\n        int last_exit_code = -1;\n        QProcess::ExitStatus last_exit_status = QProcess::ExitStatus::NormalExit;\n        void whenCreated(QProcess &){ created++; }\n        void whenStarted(QProcess &){ started++; }\n        void withData(QProcess::ProcessChannel, const QByteArray &b){ data_bytes += b.size(); }\n        void withError(QProcess::ProcessError e){ errors++; failedToStart = (e == QProcess::ProcessError::FailedToStart); }\n        void whenDone(int code, QProcess::ExitStatus status){\n            last_exit_code = code;\n            last_exit_status = status;\n            done++;\n            if (loop) { loop->quit(); }\n        }\n    } events;\n\n    // Candidate commands: prefer very short-lived ones; if not present, FailedToStart is acceptable\n    QStringList candidates;\n    candidates << \"/bin/true\" << \"/usr/bin/true\" << \"/bin/echo\" << \"/usr/bin/echo\" << \"/bin/printf\" << \"/usr/bin/printf\" << \"cmd.exe\";\n\n    unsigned int pick = *FUZZ_PARAM(unsigned int);\n    QString program = candidates.at(static_cast<int>(pick % static_cast<unsigned int>(candidates.size())));\n\n    QStringList arguments;\n\n    // If the program name suggests echo/printf, add a small fuzz argument\n    QString lower = program.toLower();\n    if (lower.contains(\"echo\")) {\n        std::string s = FUZZ_PARAM_STR();\n        if (s.size() > 64) s.resize(64);\n        arguments << QString::fromUtf8(s.data(), static_cast<int>(s.size()));\n    } else if (lower.contains(\"printf\")) {\n        std::string s = FUZZ_PARAM_STR();\n        if (s.size() > 64) s.resize(64);\n        arguments << QString::fromUtf8(s.data(), static_cast<int>(s.size())) << \"\\n\";\n    } else if (lower.endsWith(\"cmd.exe\")) {\n        // Windows fallback: ensure a fast exit\n        arguments << \"/c\" << \"exit\" << \"0\";\n    }\n\n    // Add up to 2 small extra fuzz arguments to exercise argument handling\n    unsigned int extra_argc = *FUZZ_PARAM(unsigned int) % 3;\n    for (unsigned int i = 0; i < extra_argc; ++i) {\n        std::string a = FUZZ_PARAM_STR();\n        if (a.size() > 32) a.resize(32);\n        arguments << QString::fromUtf8(a.data(), static_cast<int>(a.size()));\n    }\n\n    // Ensure a running event loop and time-bounded execution\n    QEventLoop loop;\n    events.loop = &loop;\n\n    QTimer guard;\n    guard.setSingleShot(true);\n    QObject::connect(&guard, &QTimer::timeout, &loop, &QEventLoop::quit);\n    guard.start(300);\n\n    // Invoke target asynchronously; all callbacks will occur on this thread's event loop\n    utils::qprocess::run(program, arguments, events);\n\n    // Drive the nested loop until completion or timeout\n    loop.exec();\n\n    // Post-conditions:\n    // - If the process failed to start, we expect at least one error callback; completion is not guaranteed.\n    if (events.failedToStart) {\n        FUZZ_ASSERT(events.errors >= 1, \"FailedToStart should trigger an error callback\");\n    } else {\n        // - Otherwise we expect to have completed within the guard timeout\n        if (events.done <= 0) { FUZZ_BAIL(); }\n        // - Completion should be signaled exactly once\n        FUZZ_ASSERT(events.done == 1, \"Completion should be signaled exactly once\");\n        // - Exit status must be coherent per Qt contract\n        FUZZ_ASSERT(events.last_exit_status == QProcess::NormalExit || events.last_exit_status == QProcess::CrashExit,\n                    \"Exit status must be NormalExit or CrashExit\");\n    }\n\n    // Validation: Uses a bounded event loop with a guard timer, supplies a compliant Events handler, and tolerates both success and FailedToStart paths without filesystem queries.\n}"
+    },
+    {
+      "name": "utils::qthread::run",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure a Qt event loop exists. If one already exists, reuse it; otherwise create a local one.\nbool created_app = false;\nif (!QCoreApplication::instance()) {\n    static int argc = 0; static char app_name[] = \"fuzz\"; static char* argv[] = { app_name, nullptr };\n    static QCoreApplication app(argc, argv);\n    created_app = true;\n}\n\n// Random payload for background computation. Use QByteArray as the result type R\n// to exercise the templated path R bg(); void fg(R).\nstd::string payload = FUZZ_PARAM_STR();\nQByteArray qpayload(payload.data(), static_cast<int>(payload.size()));\n\n// Local task type meeting the API: MoveConstructible, bg() -> QByteArray, fg(QByteArray)\nstruct Task {\n    QEventLoop* loop;               // where fg() will signal completion\n    QByteArray input;               // data to transform in bg()\n    // Make it trivially moveable\n    Task(QEventLoop* l, QByteArray d) : loop(l), input(std::move(d)) {}\n    Task(Task&&) = default;\n    Task& operator=(Task&&) = default;\n\n    QByteArray bg() {\n        // Thread-safe, no UI interaction: simple transformation\n        // Reverse then XOR each byte with a small mask derived from size\n        QByteArray out = input; out = QByteArray(out.constData(), out.size());\n        std::reverse(out.begin(), out.end());\n        char mask = static_cast<char>(out.size() ? (out.size() % 13) : 7);\n        for (int i = 0; i < out.size(); ++i) out[i] = out[i] ^ mask;\n        return out;\n    }\n    void fg(QByteArray result) {\n        // Minimal validation; ensure we got some QByteArray back.\n        FUZZ_ASSERT(result.size() >= 0, \"utils::qthread::run: result must be a valid QByteArray\");\n        // Signal completion of the test stub by quitting the loop.\n        if (loop) loop->quit();\n    }\n};\n\nQEventLoop loop;\n// Safety net to avoid hanging the fuzzer if something goes wrong: quit after a short time.\nQTimer watchdog; watchdog.setSingleShot(true);\nQObject::connect(&watchdog, &QTimer::timeout, &loop, &QEventLoop::quit);\nwatchdog.start(25);\n\nTask t(&loop, qpayload);\n// Invoke the target API with a move-constructed task object\nutils::qthread::run(std::move(t));\n\n// Wait until fg() quits the loop or the watchdog fires.\nloop.exec();\n\n// Nothing to return as output; this function is asynchronous and returns void."
+    },
+    {
+      "name": "utils::qthread::await",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Ensure a Qt event loop exists for await's internal QEventLoop.\nbool created_app = false;\nif (!QCoreApplication::instance()) {\n    static int argc = 0; static char app_name[] = \"fuzz\"; static char* argv[] = { app_name, nullptr };\n    static QCoreApplication app(argc, argv);\n    created_app = true;\n}\n\n// Generate random data and define a move-only background callable returning an int.\nstd::string s = FUZZ_PARAM_STR();\nQByteArray qba(s.data(), static_cast<int>(s.size()));\nconst int expected = qba.size() ^ 0x5A; // simple deterministic mapping to exercise a computation\n\n// Move-only functor to satisfy MoveConstructible requirement and R() signature.\nstruct BG {\n    int value; // captured expected result\n    BG(int v) : value(v) {}\n    BG(BG&&) = default; BG& operator=(BG&&) = default;\n    int operator()() {\n        // Simulate lightweight CPU work; thread-safe, no UI.\n        int v = value;\n        // Mix bits a little to exercise more code.\n        v ^= (v << 3); v ^= (v >> 2); v &= 0x7FFFFFFF;\n        // Inverse the mixing to return original planned value deterministically.\n        // Since the above is not strictly invertible, just return the planned value.\n        return value;\n    }\n};\n\nBG task(expected);\nint got = utils::qthread::await(std::move(task));\n\n// Validate that await returned the callable's result exactly.\nFUZZ_ASSERT(got == expected, \"utils::qthread::await: returned value must equal background result\");"
+    },
+    {
+      "name": "utils::network::details::NetworkReply::finished",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid and owned elsewhere.\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\n// Call the target API\nbool is_finished = nrep->finished();\n\n// Track observation for downstream checks/coverage\nFUZZ_SET_ATTR_INT(nrep, \"last_finished\", is_finished ? 1 : 0);\n\n// Validation summary: Enforced validity via \"alive\" attribute; no side effects; returned input back to pool."
+    },
+    {
+      "name": "utils::network::details::NetworkReply::success",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\n// Call the target API\nbool ok = nrep->success();\n\n// Track observation\nFUZZ_SET_ATTR_INT(nrep, \"last_success\", ok ? 1 : 0);\n\n// Validation summary: Ensured validity; captured result for later correlation; object returned to pool."
+    },
+    {
+      "name": "utils::network::details::NetworkReply::timeOut",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\n// Call the target API\nbool to = nrep->timeOut();\n\n// Track observation\nFUZZ_SET_ATTR_INT(nrep, \"last_timeout\", to ? 1 : 0);\n\n// Validation summary: Enforced lifetime; no side effects beyond metadata; returned input."
+    },
+    {
+      "name": "utils::network::details::NetworkReply::data",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid.\n// Note: data() drains the reply buffer per readAll() semantics.\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\nQByteArray bytes = nrep->data();\nFUZZ_SET_ATTR_INT(nrep, \"bytes_available_last\", static_cast<int>(bytes.size()));\n\n// Validation summary: Enforced validity; captured size of drained data; input returned to pool."
+    },
+    {
+      "name": "utils::network::details::NetworkReply::error",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\nauto err = nrep->error();\nFUZZ_SET_ATTR_INT(nrep, \"last_error\", static_cast<int>(err));\n\n// Validation summary: Enforced validity; stored observed error code; input returned."
+    },
+    {
+      "name": "utils::network::details::NetworkReply::errorString",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\nQString es = nrep->errorString();\nFUZZ_SET_ATTR_INT(nrep, \"last_error_len\", es.size());\n\n// Validation summary: Enforced validity; captured length of error string; input returned."
+    },
+    {
+      "name": "utils::network::details::NetworkReply::networkReply",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid. Do not take ownership of the returned reference.\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\nQNetworkReply& qref = nrep->networkReply();\nvoid *addr = static_cast<void*>(&qref);\nFUZZ_ASSERT(addr != nullptr, \"QNetworkReply reference must have a valid address\");\nFUZZ_SET_ATTR_INT(nrep, \"touched_underlying\", 1);\n\n// Validation summary: Enforced validity; verified non-null address of referenced object; no ownership taken; input returned."
+    },
+    {
+      "name": "utils::network::details::NetworkReply::retry",
+      "inputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        }
+      ],
+      "code": "// Preconditions: underlying QNetworkReply must be valid\nif (FUZZ_GET_ATTR_INT(nrep, \"alive\") != 1) { FUZZ_BAIL(); }\n\nbool r = nrep->retry();\nFUZZ_SET_ATTR_INT(nrep, \"last_retry\", r ? 1 : 0);\n\n// Validation summary: Enforced validity; recorded heuristic retry suggestion; input returned."
+    },
+    {
+      "name": "utils::network::progress::received",
+      "inputs": [
+        {
+          "name": "prog",
+          "type": "utils::network::progress *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prog",
+          "type": "utils::network::progress *"
+        }
+      ],
+      "code": "// Progress objects are meaningful during progress callbacks; assume underlying reply valid if marked so.\nif (FUZZ_GET_ATTR_INT(prog, \"alive\") != 1) { FUZZ_BAIL(); }\n\nqint64 r = prog->received();\nFUZZ_ASSERT(r >= 0, \"received() must be non-negative\");\nFUZZ_SET_ATTR_INT(prog, \"last_received\", static_cast<int>(r > INT_MAX ? INT_MAX : r));\n\n// Validation summary: Checked lifetime via attribute, asserted non-negative, and stored the observed count."
+    },
+    {
+      "name": "utils::network::progress::total",
+      "inputs": [
+        {
+          "name": "prog",
+          "type": "utils::network::progress *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prog",
+          "type": "utils::network::progress *"
+        }
+      ],
+      "code": "// Progress objects are meaningful during progress callbacks; enforce validity attribute.\nif (FUZZ_GET_ATTR_INT(prog, \"alive\") != 1) { FUZZ_BAIL(); }\n\nqint64 t = prog->total();\nFUZZ_ASSERT(t >= 0, \"total() must be non-negative\");\nFUZZ_SET_ATTR_INT(prog, \"last_total\", static_cast<int>(t > INT_MAX ? INT_MAX : t));\n\n// Validation summary: Enforced lifetime, asserted non-negative total, returned input."
+    },
+    {
+      "name": "utils::network::manager::QtNAM",
+      "inputs": [
+        {
+          "name": "mgr",
+          "type": "utils::network::manager *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "utils::network::manager *"
+        }
+      ],
+      "code": "// Access the internal QNetworkAccessManager reference; do not take ownership.\nQNetworkAccessManager& nam = mgr->QtNAM();\nvoid *addr = static_cast<void*>(&nam);\nFUZZ_ASSERT(addr != nullptr, \"QNetworkAccessManager reference must be valid\");\nFUZZ_SET_ATTR_INT(mgr, \"qt_nam_touched\", 1);\n\n// Validation summary: Accessed manager's NAM safely without ownership; returned manager to pool."
+    },
+    {
+      "name": "utils::network::manager *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mgr",
+          "type": "utils::network::manager *"
+        }
+      ],
+      "code": "// Construct a utils::network::manager with a small timeout and ensure a Qt event loop exists.\n// The manager owns an internal QNetworkAccessManager which will be used by downstream stubs.\n\n// Ensure a Q(Core)Application exists for Qt networking/event loop semantics.\nif (!QCoreApplication::instance()) {\n    static int argc = 1; static char arg0[] = \"fuzz\"; static char* argv[] = { arg0, nullptr };\n    static QCoreApplication app(argc, argv);\n}\n\n// Choose a bounded small timeout (milliseconds)\nint timeout_ms = static_cast<int>(*FUZZ_PARAM(unsigned int) % 250u) + 1; // [1..250]\n\n// Allocate the manager on the heap as a persistent object for the fuzzer pool\nutils::network::manager *mgr = new utils::network::manager(timeout_ms);\n\n// Tag object as alive for downstream lifetime checks\nFUZZ_SET_ATTR_INT(mgr, \"alive\", 1);\n\n// Basic sanity: accessing QtNAM() must yield a valid reference\nQNetworkAccessManager &nam = mgr->QtNAM();\nFUZZ_ASSERT(&nam != nullptr, \"QtNAM reference must be valid\");\n\n// Output: mgr remains owned by the fuzzer pool"
+    },
+    {
+      "name": "utils::network::details::NetworkReply *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "nrep",
+          "type": "utils::network::details::NetworkReply *"
+        },
+        {
+          "name": "mgr",
+          "type": "utils::network::manager *"
+        }
+      ],
+      "code": "// Build a NetworkReply wrapper around a live QNetworkReply produced by QNetworkAccessManager::get\n// Keep the owning manager alive by returning it alongside the wrapper to maintain reply lifetime.\n\n// Ensure a Q(Core)Application exists.\nif (!QCoreApplication::instance()) {\n    static int argc = 1; static char arg0[] = \"fuzz\"; static char* argv[] = { arg0, nullptr };\n    static QCoreApplication app(argc, argv);\n}\n\n// Create a manager with a short timeout; this manager will parent the QNetworkReply.\nint timeout_ms = static_cast<int>(*FUZZ_PARAM(unsigned int) % 200u) + 50; // [50..249]\nutils::network::manager *mgr = new utils::network::manager(timeout_ms);\nFUZZ_SET_ATTR_INT(mgr, \"alive\", 1);\n\n// Use a data: URL to avoid external network dependency and get immediate data synchronously.\nstd::string payload = FUZZ_PARAM_STR();\nif (payload.size() > 256) payload.resize(256);\nQString qpayload = QString::fromUtf8(payload.data(), static_cast<int>(payload.size()));\nQString url_str = QStringLiteral(\"data:text/plain,%1\").arg(qpayload);\nQUrl url(url_str);\nif (!url.isValid()) { FUZZ_BAIL(); }\n\nQNetworkRequest req(url);\nQNetworkReply *qr = mgr->QtNAM().get(req);\nif (!qr) { FUZZ_BAIL(); }\n\n// Process pending events a little to allow the reply to transition states if needed.\nQCoreApplication::processEvents(QEventLoop::AllEvents);\n\n// Construct the wrapper. finished flag derived from reply->isFinished(); timeout=false initially.\nbool finished = qr->isFinished();\nbool timed_out = false;\nutils::network::details::NetworkReply *nrep = new utils::network::details::NetworkReply(*qr, finished, timed_out);\n\n// Mark lifetime/links so downstream stubs can enforce validity and avoid UAF.\nFUZZ_SET_ATTR_INT(nrep, \"alive\", 1);\nFUZZ_SET_ATTR_PTR(nrep, \"qreply_ptr\", static_cast<void*>(qr));\nFUZZ_SET_ATTR_PTR(nrep, \"owner_mgr\", static_cast<void*>(mgr));\n\n// Lightweight properties\nFUZZ_SET_ATTR_INT(nrep, \"last_finished\", finished ? 1 : 0);\nFUZZ_SET_ATTR_INT(nrep, \"last_timeout\", 0);\n\n// Output both the wrapper and the manager to keep dependencies alive"
+    },
+    {
+      "name": "utils::network::progress *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "prog",
+          "type": "utils::network::progress *"
+        },
+        {
+          "name": "mgr",
+          "type": "utils::network::manager *"
+        }
+      ],
+      "code": "// Construct a utils::network::progress object which extends NetworkReply and carries progress counters.\n// We create a live QNetworkReply using a data: URL and keep the owning manager alive as an output.\n\n// Ensure a Q(Core)Application exists for event delivery.\nif (!QCoreApplication::instance()) {\n    static int argc = 1; static char arg0[] = \"fuzz\"; static char* argv[] = { arg0, nullptr };\n    static QCoreApplication app(argc, argv);\n}\n\n// Manager with bounded timeout to parent the reply and control lifetime\nint timeout_ms = static_cast<int>(*FUZZ_PARAM(unsigned int) % 200u) + 50; // [50..249]\nutils::network::manager *mgr = new utils::network::manager(timeout_ms);\nFUZZ_SET_ATTR_INT(mgr, \"alive\", 1);\n\n// Create a small data URL payload to generate a reply without real networking\nstd::string payload = FUZZ_PARAM_STR();\nif (payload.size() > 128) payload.resize(128);\nQString qpayload = QString::fromUtf8(payload.data(), static_cast<int>(payload.size()));\nQString url_str = QStringLiteral(\"data:text/plain,%1\").arg(qpayload);\nQUrl url(url_str);\nif (!url.isValid()) { FUZZ_BAIL(); }\n\nQNetworkRequest req(url);\nQNetworkReply *qr = mgr->QtNAM().get(req);\nif (!qr) { FUZZ_BAIL(); }\n\n// Give Qt a chance to emit initial signals if any; not strictly required for construction\nQCoreApplication::processEvents(QEventLoop::AllEvents);\n\n// Choose progress counters: received in [0..size], total either size or 0 to exercise both paths\nqint64 size_hint = static_cast<qint64>(qr->bytesAvailable());\nqint64 total = (*FUZZ_PARAM(unsigned int) % 2u) ? size_hint : 0;\nqint64 received = 0;\nif (size_hint > 0) {\n    unsigned int frac = *FUZZ_PARAM(unsigned int) % 101u; // 0..100%\n    received = (size_hint * frac) / 100;\n}\nif (received < 0) received = 0;\nif (total >= 0 && received > total && total != 0) received = total; // keep coherent when total>0\n\n// Set finished flag based on reply state; timeOut=false for synthetic construction\nbool finished = qr->isFinished();\nbool timed_out = false;\n\nutils::network::progress *prog = new utils::network::progress(finished, timed_out, *qr, received, total);\n\n// Tag lifetime and back-links for safety in downstream API calls\nFUZZ_SET_ATTR_INT(prog, \"alive\", 1);\nFUZZ_SET_ATTR_PTR(prog, \"qreply_ptr\", static_cast<void*>(qr));\nFUZZ_SET_ATTR_PTR(prog, \"owner_mgr\", static_cast<void*>(mgr));\nFUZZ_SET_ATTR_INT(prog, \"last_received\", static_cast<int>(received > INT_MAX ? INT_MAX : received));\nFUZZ_SET_ATTR_INT(prog, \"last_total\", static_cast<int>(total > INT_MAX ? INT_MAX : total));\n\n// Output both progress object and manager to keep the reply's parent alive"
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "utils::misc::unique_ptr::operator*",
+      "reason": "Cannot be harnessed without the definition of utils::misc::unique_ptr<T>; the wrapper type is not available in the provided context."
+    },
+    {
+      "name": "utils::misc::unique_ptr::operator->",
+      "reason": "Cannot be harnessed without the definition of utils::misc::unique_ptr<T>; the wrapper type is not available in the provided context."
+    },
+    {
+      "name": "utils::misc::unique_ptr::get",
+      "reason": "Cannot be harnessed without the definition of utils::misc::unique_ptr<T>; the wrapper type is not available in the provided context."
+    },
+    {
+      "name": "utils::network::manager::get",
+      "reason": "Requires a running Qt event loop and asynchronous signals/slots, which cannot be reliably exercised in the fuzzer harness without blocking or external I/O."
+    },
+    {
+      "name": "utils::network::manager::post",
+      "reason": "Depends on a live Qt event loop and network I/O for asynchronous completion, which the fuzzer harness cannot safely provide."
+    },
+    {
+      "name": "utils::network::manager::head",
+      "reason": "Relies on Qt’s signal/slot machinery and a running event loop; not suitable for the synchronous fuzzer harness model."
+    },
+    {
+      "name": "utils::app::runMultiInstances",
+      "reason": "Requires a live QApplication and blocks on app.exec(), making it unsuitable for the fuzzer’s non-blocking model and event-loop-less environment."
+    },
+    {
+      "name": "utils::app::make_oneinstance_args",
+      "reason": "Returns a library-specific template type (utils::app::instanceArgs<...>) not represented in the object pool, with no safe way to validate or persist it under current harness rules."
+    },
+    {
+      "name": "utils::app::runOneInstance",
+      "reason": "Requires a live QApplication event loop and single-instance IPC (QLocalServer/QLockFile), and blocks on app.exec(), which is incompatible with the fuzzer model."
+    },
+    {
+      "name": "utils::app::details::exec::exec",
+      "reason": "Constructing this QObject relies on Qt’s meta-object system and queued connections requiring an event loop, which cannot be safely provided by the fuzzer."
+    },
+    {
+      "name": "utils::app::details::exec::run",
+      "reason": "This is a Qt signal, not a callable API; it cannot be meaningfully invoked from a fuzzer harness."
+    },
+    {
+      "name": "utils::app::AppTypeInterface::AppTypeInterface",
+      "reason": "Requires a QApplication& in args but no QApplication object exists in the fuzzer object pool and creating one is out of scope for the harness."
+    },
+    {
+      "name": "utils::app::AppTypeInterface::hasEvent",
+      "reason": "Method requires a valid AppTypeInterface instance which depends on a QApplication&, unavailable in the fuzzer environment."
+    },
+    {
+      "name": "utils::app::AppTypeInterface::start",
+      "reason": "Method requires a valid AppTypeInterface instance which depends on a QApplication&, unavailable in the fuzzer environment."
+    },
+    {
+      "name": "utils::app::multipleInstance::multipleInstance",
+      "reason": "Template requires concrete AppInfo and sets up Qt queued execution; it also assumes a running event loop unavailable in the fuzzer."
+    },
+    {
+      "name": "utils::app::multipleInstance::run",
+      "reason": "Assumes Qt event-loop context and constructs/runs the app type; cannot be safely invoked in the fuzzer without an event loop."
+    },
+    {
+      "name": "utils::app::multipleInstance::exec",
+      "reason": "Delegates to QApplication::exec() which blocks until exit, violating the fuzzer’s non-blocking execution constraints."
+    },
+    {
+      "name": "utils::app::oneinstance::oneinstance",
+      "reason": "Performs single-instance coordination using filesystem and local sockets with Qt event-loop integration, which is unsuitable for the fuzzer environment."
+    },
+    {
+      "name": "utils::app::oneinstance::~oneinstance",
+      "reason": "Destructor semantics depend on resources established by the constructor (server/socket files) that cannot be safely created in the fuzzer."
+    },
+    {
+      "name": "utils::app::oneinstance::exec",
+      "reason": "Calls QApplication::exec() and blocks, which is incompatible with the fuzzer’s non-blocking model."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "utils::misc::unique_rsc",
+      "data_types": []
+    },
+    {
+      "name": "utils::qtimer::run",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::finished",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::success",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::timeOut",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::data",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::error",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::errorString",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::networkReply",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::details::NetworkReply::retry",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::progress::received",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::progress::total",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::manager::QtNAM",
+      "data_types": []
+    },
+    {
+      "name": "utils::network::manager *",
+      "data_types": []
+    },
+    {
+      "name": "utils::misc::containsAny",
+      "data_types": [
+        "UTF-8 string",
+        "UTF-8 string"
+      ]
+    },
+    {
+      "name": "utils::misc::containsAll",
+      "data_types": [
+        "UTF-8 string",
+        "UTF-8 string"
+      ]
+    },
+    {
+      "name": "utils::misc::startsWithAny",
+      "data_types": [
+        "UTF-8 string",
+        "UTF-8 string"
+      ]
+    },
+    {
+      "name": "utils::qprocess::run",
+      "data_types": [
+        "filesystem path",
+        "command-line arguments"
+      ]
+    },
+    {
+      "name": "utils::qthread::run",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "utils::qthread::await",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "utils::network::details::NetworkReply *",
+      "data_types": [
+        "UTF-8 string"
+      ]
+    },
+    {
+      "name": "utils::network::progress *",
+      "data_types": [
+        "UTF-8 string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "UTF-8 string",
+      "description": "Text encoded as UTF-8; may include any Unicode scalar values and can contain arbitrary byte sequences when constructed from fuzz data. Typically fed into QString::fromUtf8 to form QString inputs."
+    },
+    {
+      "data_type": "filesystem path",
+      "description": "A string interpreted as an executable/program path used to launch a process (e.g., /bin/echo, cmd.exe). Must be a valid OS path if execution is intended; fuzzing may produce invalid paths which exercise error handling (e.g., FailedToStart)."
+    },
+    {
+      "data_type": "command-line arguments",
+      "description": "A list of strings passed as process arguments (argv). May contain arbitrary bytes when converted from fuzz data, potentially including spaces or special characters."
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "description": "Opaque byte buffer with no assumed structure. May contain any byte values including NULs; used here as payload transformed or measured in background tasks."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "UTF-8 string",
+      "generator": "import random\nimport struct\n\n# This generator emits a length-prefixed sequence of byte strings to satisfy\n# multiple FUZZ_PARAM_STR consumptions. Each string is UTF-8 friendly for\n# QString::fromUtf8 but may include embedded NULs and diverse Unicode.\n\nMAX_TOTAL = 4096\n\nUNICODE_GROUPS = [\n    (0x20, 0x7E),   # printable ASCII\n    (0x09, 0x0D),   # tab, LF, VT, FF, CR\n    (0x00A0, 0x00FF),  # Latin-1 supplement\n    (0x0370, 0x03FF),  # Greek\n    (0x0400, 0x04FF),  # Cyrillic\n    (0x0600, 0x06FF),  # Arabic\n    (0x0900, 0x097F),  # Devanagari\n    (0x4E00, 0x4E5F),  # small CJK slice\n    (0x2600, 0x27BF),  # Misc symbols incl. some emoji\n]\n\nEDGE_SUBSTRINGS = [\n    b\"\",                              # empty\n    b\"\\x00\",                          # embedded NUL\n    \"\\u00A0\".encode(\"utf-8\"),        # non-breaking space\n    \"\\u200B\".encode(\"utf-8\"),        # zero-width space\n    \"\\u2028\".encode(\"utf-8\"),        # line sep\n    \"\\u2029\".encode(\"utf-8\"),        # paragraph sep\n    \"\\uFFFD\".encode(\"utf-8\"),        # replacement char\n    \"\\U0001F600\".encode(\"utf-8\"),    # 😀 (U+1F600)\n]\n\nPREFIXES = [b\"\", b\"/\", b\"./\", b\"../\", b\"http://\", b\"https://\", b\"data:\", b\"file://\"]\nSUFFIXES = [b\"\", b\"/\", b\"?q=\", b\"#frag\", b\".txt\", b\".bin\", b\"%00\", b\"%C3%A9\", b\"\\n\"]\n\n\ndef rng_codepoint(rnd):\n    grp = rnd.choice(UNICODE_GROUPS)\n    cp = rnd.randint(grp[0], grp[1])\n    # Avoid surrogates to keep valid UTF-8\n    if 0xD800 <= cp <= 0xDFFF:\n        cp = 0xFFFD\n    return cp\n\n\ndef random_utf8(rnd, length):\n    # Build a UTF-8 byte string of approximately 'length' characters.\n    # We keep it valid UTF-8 by constructing from scalar values only.\n    cps = [rng_codepoint(rnd) for _ in range(max(0, length))]\n    s = \"\".join(chr(c) for c in cps)\n    return s.encode(\"utf-8\")\n\n\ndef random_mixed_bytes(rnd, length):\n    # Mix ASCII control/printables with random UTF-8 sequences.\n    out = bytearray()\n    remaining = length\n    while remaining > 0:\n        style = rnd.choices([\"ascii\", \"utf8\", \"nul\"], weights=[3, 3, 1])[0]\n        chunk = rnd.randint(1, min(16, remaining))\n        if style == \"ascii\":\n            for _ in range(chunk):\n                out.append(rnd.choice(list(range(0x20, 0x7F)) + [0x09, 0x0A, 0x0D]))\n        elif style == \"nul\":\n            out += b\"\\x00\" * chunk\n        else:  # utf8\n            out += random_utf8(rnd, chunk)\n        remaining -= chunk\n    return bytes(out)\n\n\ndef make_string_pair(rnd):\n    # v: container string, opt: candidate prefix/substring/absent\n    base_len = rnd.randint(0, 256)\n    v_core = random_mixed_bytes(rnd, base_len)\n\n    # Insert edge substrings at random positions\n    for es in rnd.sample(EDGE_SUBSTRINGS, rnd.randint(0, min(4, len(EDGE_SUBSTRINGS)))):\n        pos = rnd.randint(0, len(v_core))\n        v_core = v_core[:pos] + es + v_core[pos:]\n\n    # Optional URL-like wrapping\n    if rnd.random() < 0.4:\n        pre = rnd.choice(PREFIXES)\n        suf = rnd.choice(SUFFIXES)\n        middle = random_mixed_bytes(rnd, rnd.randint(0, 48))\n        v_core = pre + middle + suf + v_core\n\n    if len(v_core) > 1500:\n        v_core = v_core[:1500]\n    v = v_core\n\n    r = rnd.random()\n    if r < 0.20:\n        opt = v\n    elif r < 0.40:\n        take = rnd.randint(0, len(v))\n        opt = v[:take]\n    elif r < 0.60:\n        take = rnd.randint(0, len(v))\n        opt = v[len(v) - take:]\n    elif r < 0.80:\n        if len(v) == 0:\n            opt = b\"\"\n        else:\n            a = rnd.randint(0, len(v))\n            b = rnd.randint(a, len(v))\n            opt = v[a:b]\n            if rnd.random() < 0.3:\n                opt = rnd.choice(EDGE_SUBSTRINGS) + opt + rnd.choice(EDGE_SUBSTRINGS)\n    else:\n        opt = random_mixed_bytes(rnd, rnd.randint(1, min(64, max(1, 256 - len(v)))))\n        if opt in v and len(opt) > 0:\n            opt = bytes([(opt[0] ^ 0xFF)]) + opt[1:]\n\n    return v, opt\n\n\ndef ascii_fold(data, to_upper):\n    out = bytearray()\n    for b in data:\n        if 0x61 <= b <= 0x7A and to_upper:\n            out.append(b - 0x20)\n        elif 0x41 <= b <= 0x5A and not to_upper:\n            out.append(b + 0x20)\n        else:\n            out.append(b)\n    return bytes(out)\n\n\ndef pack_len_prefixed(parts):\n    out = bytearray()\n    for p in parts:\n        out += struct.pack(\"<I\", len(p))\n        out += p\n    return bytes(out)\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n    v, opt = make_string_pair(rnd)\n\n    parts = [v, opt]\n\n    # Add some variants to widen coverage of contains/startsWith\n    if rnd.random() < 0.5:\n        parts.append(ascii_fold(v, True))\n        parts.append(ascii_fold(opt, True))\n    if rnd.random() < 0.5:\n        parts.append(ascii_fold(v, False))\n        parts.append(ascii_fold(opt, False))\n\n    # Include a data: URL variant suitable for network-related stubs\n    data_url = b\"data:text/plain,\" + opt\n    parts.append(data_url[:256])\n\n    blob = pack_len_prefixed(parts)\n    return blob[:MAX_TOTAL]\n"
+    },
+    {
+      "data_type": "filesystem path",
+      "generator": "import os\nimport random\nimport struct\nimport sys\n\n# Generator for buffers consumed by FUZZ_PARAM_STR / filename when fuzzing utils::qprocess::run\n# Target expects interesting program paths and small argument payloads suitable for echo/printf.\n# We craft a corpus entry that encodes:\n# - A candidate executable path (from a curated list plus OS-appropriate variants)\n# - Up to 3 short arguments, with bias towards printable UTF-8 and printf-like formats\n# - Keep total size <= 4096 bytes\n#\n# Encoding format (simple length-prefixed frames):\n#   [u8: program_index_hint]\n#   [u8: argc (0..3)]\n#   For each arg i in argc:\n#       [u8: arg_kind]\n#       [u16: length]\n#       [bytes: payload]\n#   [u8: extras_count (0..3)]  # additional small args consumed by extra FUZZ_PARAM_STR sites\n#   For each extra j:\n#       [u16: length]\n#       [bytes: payload]\n#\n# FUZZ_PARAM_STR will draw from the single buffer; this payload provides a rich set of strings.\n\nPRINTABLE = (\n    [ord(c) for c in (\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/\\\\ \")] +\n    [9, 10]  # tab, newline\n)\n\nCANDIDATES = [\n    b\"/bin/true\",\n    b\"/usr/bin/true\",\n    b\"/bin/echo\",\n    b\"/usr/bin/echo\",\n    b\"/bin/printf\",\n    b\"/usr/bin/printf\",\n    b\"cmd.exe\",\n]\n\n# Some interesting argument patterns\nECHO_PAYLOADS = [\n    b\"hello world\",\n    b\"\",\n    b\"unicode: \\xce\\xbb\\xce\\xb1\\xce\\xbc\\xce\\xb2\\xce\\xb4\\xce\\xb1\",  # greek bytes\n    b\"spaces   and\\ttabs\",\n    b\"line1\\nline2\",\n]\n\nPRINTF_PAYLOADS = [\n    b\"%s\",\n    b\"%d\",\n    b\"%x %X\",\n    b\"%p %n\",  # interesting but harmless as string\n    b\"%-20s end\",\n    b\"literal percent %% done\",\n]\n\nEXTRA_SMALLS = [\n    b\"-n\",\n    b\"-e\",\n    b\"--help\",\n    b\"%08x\",\n    b\"A\" * 16,\n    b\"\\x00\".replace(b\"\\x00\", b\"\"),  # effectively empty\n]\n\n\ndef _rand_bytes_printable(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.choice(PRINTABLE) for _ in range(n))\n\n\ndef _rand_utf8ish(rng: random.Random, max_len: int) -> bytes:\n    # Mix of printable ASCII and some UTF-8 sequences\n    parts = []\n    target = rng.randint(0, max_len)\n    while sum(len(p) for p in parts) < target:\n        choice = rng.random()\n        if choice < 0.75:\n            parts.append(_rand_bytes_printable(rng, 1))\n        elif choice < 0.90:\n            # 2-byte UTF-8\n            ch = rng.randint(0x00A0, 0x07FF)\n            parts.append(chr(ch).encode('utf-8'))\n        else:\n            # 3-byte UTF-8\n            ch = rng.randint(0x0800, 0xFFFF)\n            # avoid surrogates\n            if 0xD800 <= ch <= 0xDFFF:\n                ch = 0x2603\n            parts.append(chr(ch).encode('utf-8'))\n    data = b\"\".join(parts)\n    return data[:max_len]\n\n\ndef _pick_program(rng: random.Random) -> tuple[int, bytes]:\n    # Weight OS-appropriate candidates\n    cand = list(CANDIDATES)\n    if os.name == 'nt':\n        weights = [1, 1, 1, 1, 1, 1, 5]\n    else:\n        weights = [3, 3, 5, 5, 4, 4, 1]\n    idx = rng.choices(range(len(cand)), weights=weights, k=1)[0]\n    return idx, cand[idx]\n\n\ndef _make_arg_for_program(prog: bytes, rng: random.Random) -> bytes:\n    low = prog.lower()\n    if b\"echo\" in low:\n        base = rng.choice(ECHO_PAYLOADS + [\n            _rand_utf8ish(rng, rng.randint(0, 48))\n        ])\n        return base\n    if b\"printf\" in low:\n        base = rng.choice(PRINTF_PAYLOADS + [\n            _rand_utf8ish(rng, rng.randint(0, 48))\n        ])\n        return base\n    if low.endswith(b\"cmd.exe\"):\n        return b\"/c\"\n    # default small token\n    return _rand_utf8ish(rng, rng.randint(0, 32))\n\n\ndef _pack_u8(x: int) -> bytes:\n    return struct.pack('B', x & 0xFF)\n\n\ndef _pack_u16(x: int) -> bytes:\n    return struct.pack('>H', x & 0xFFFF)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(int(seed))\n\n    buf = bytearray()\n\n    # Program\n    prog_idx, prog = _pick_program(rng)\n    buf += _pack_u8(prog_idx)\n\n    # Argument count 0..3\n    argc = rng.randint(0, 3)\n    # Bias: if echo/printf, ensure at least 1 argument\n    if b\"echo\" in prog.lower() or b\"printf\" in prog.lower():\n        argc = max(1, argc)\n    buf += _pack_u8(argc)\n\n    for i in range(argc):\n        # arg_kind: 0=random utf8, 1=echoish, 2=printfish, 3=flag, 4=newline\n        if b\"echo\" in prog.lower():\n            kind = rng.choices([1, 0, 3, 4], weights=[5, 2, 1, 1], k=1)[0]\n        elif b\"printf\" in prog.lower():\n            kind = rng.choices([2, 0, 3, 4], weights=[5, 2, 1, 1], k=1)[0]\n        else:\n            kind = rng.choices([0, 3, 1, 2, 4], weights=[5, 2, 1, 1, 1], k=1)[0]\n\n        if kind == 0:\n            payload = _rand_utf8ish(rng, rng.randint(0, 64))\n        elif kind == 1:\n            payload = rng.choice(ECHO_PAYLOADS)\n        elif kind == 2:\n            payload = rng.choice(PRINTF_PAYLOADS)\n        elif kind == 3:\n            payload = rng.choice(EXTRA_SMALLS)\n        else:\n            payload = b\"\\n\"\n\n        # Special case for Windows cmd.exe: ensure fast exit by appending exit 0 when appropriate\n        if prog.lower().endswith(b\"cmd.exe\") and i == 0 and payload == b\"/c\":\n            # We will let the harness add extra args; ensure we also include an extra small set\n            pass\n\n        buf += _pack_u8(kind)\n        buf += _pack_u16(len(payload))\n        buf += payload\n\n    # Extras used by additional FUZZ_PARAM_STR sites\n    extras = rng.randint(0, 3)\n    # Bias to add a newline for printf to terminate output quickly\n    if b\"printf\" in prog.lower() and extras == 0:\n        extras = 1\n    buf += _pack_u8(extras)\n\n    for j in range(extras):\n        if b\"printf\" in prog.lower() and j == 0:\n            pay = b\"\\n\"\n        else:\n            pay = _rand_utf8ish(rng, rng.randint(0, 32))\n        buf += _pack_u16(len(pay))\n        buf += pay\n\n    # Ensure buffer size cap\n    return bytes(buf[:4096])\n"
+    },
+    {
+      "data_type": "command-line arguments",
+      "generator": "import random\nimport struct\nimport string\nfrom typing import List\n\n# Target data type: command-line arguments (argv strings), consumed by FUZZ_PARAM_STR in the stub\n# The stub uses up to 3 FUZZ_PARAM_STR calls (one main for echo/printf, then up to 2 small extras).\n# Provide a bytes buffer that, when split into strings by the fuzzing framework,\n# yields interesting but valid small UTF-8-ish strings, including edge cases for echo/printf and generic args.\n# Assumptions about the harness deserializer:\n# - It likely pulls variable-length strings from the byte stream. We avoid malformed encodings by staying in UTF-8.\n# - Keep total size <= 4096 bytes.\n# Strategy:\n# - Construct a sequence of length-prefixed segments to be robust: [len32][data]... so generic frameworks can parse.\n# - Include diverse strings:\n#   * ASCII printable, spaces, quotes, backslashes\n#   * Shell-like switches, format specifiers for printf, percent-heavy patterns\n#   * Unicode/UTF-8 multi-byte sequences\n#   * Empty string and very short strings\n#   * Binary-like bytes\n# - Randomize choices and lengths, but keep each string <= 64 bytes (stub truncates to 64/32 anyway).\n\nMAX_TOTAL = 4096\n\nASCII = string.ascii_letters + string.digits\nPUNCT = \"-_./,:;!@#$^&*()[]{}?\\\"'`|\\\"\\\\\"\nSPACES = \" \\t\\n\"\n\nPRINTF_TEMPLATES = [\n    \"%s\", \"%d\", \"%x\", \"%ld\", \"%zu\", \"%p\", \"%.*s\", \"%#08x\", \"%1$s %2$d\", \"%%\", \"%n\",\n]\n\nUNICODE_SAMPLES = [\n    \"føø\", \"こんにちは\", \"😀\", \"𝔘𝔫𝔦𝔠𝔬𝔡𝔢\", \"mañana\", \"друг\", \"العربية\", \"हिन्दी\", \"คอมพิวเตอร์\",\n]\n\nECHO_SAMPLES = [\n    \"hello world\", \" spaced  words \", \"--\", \"-n\", \"-e\", \"\\\\tTabbed\\\\nLine\", \"quotes '\" ' and \"\\\"double\\\"',\n]\n\nBINARY_SAMPLES = [\n    bytes([0, 1, 2, 3, 255, 0x7F, 0x80, 0xFE, 10, 0]),\n]\n\nSHELLY = [\"--help\", \"-v\", \"-O2\", \"--long-option=value\", \"name=value\", \"..\", \"/\", \"./-weird\", \"--\", \"-\\\"q\\\"\",]\n\n\ndef _rand_ascii(r: random.Random, n: int) -> str:\n    pool = ASCII + PUNCT + SPACES\n    return \"\".join(r.choice(pool) for _ in range(n))\n\n\ndef _rand_printf(r: random.Random) -> str:\n    # Mix template with filler to exercise printf-like behavior\n    t = r.choice(PRINTF_TEMPLATES)\n    # Surround with noise to avoid pure format string if consumer prints\n    prefix = _rand_ascii(r, r.randint(0, 6))\n    suffix = _rand_ascii(r, r.randint(0, 6))\n    return prefix + t + suffix\n\n\ndef _rand_unicode(r: random.Random) -> str:\n    base = r.choice(UNICODE_SAMPLES)\n    # Repeat or mix with ASCII\n    extra = _rand_ascii(r, r.randint(0, 6))\n    if r.random() < 0.5:\n        return base + extra\n    return extra + base\n\n\ndef _rand_echo(r: random.Random) -> str:\n    if r.random() < 0.5:\n        return r.choice(ECHO_SAMPLES)\n    # construct with spaces and quotes\n    parts = [r.choice([\"-n\", \"-e\", \"--\", \"\"]) , _rand_ascii(r, r.randint(0, 8)), '\"' + _rand_ascii(r, r.randint(0, 6)) + '\"']\n    return \" \".join(p for p in parts if p)\n\n\ndef _rand_binary(r: random.Random, max_len: int) -> bytes:\n    base = bytearray(r.choice(BINARY_SAMPLES))\n    # Extend with random bytes\n    extra = r.randint(0, max_len - len(base)) if max_len > len(base) else 0\n    for _ in range(extra):\n        base.append(r.randrange(0, 256))\n    return bytes(base)\n\n\ndef _cap_utf8(b: bytes, limit: int) -> bytes:\n    # Truncate to limit; ensure result is not splitting a multibyte UTF-8 sequence by backing off as needed.\n    if len(b) <= limit:\n        return b\n    b = b[:limit]\n    # Backtrack until valid UTF-8 prefix or give up to raw bytes\n    for back in range(4):\n        try:\n            b[: len(b) - back].decode('utf-8')\n            return b[: len(b) - back]\n        except UnicodeDecodeError:\n            pass\n    return b  # if still invalid, let it be bytes\n\n\ndef _emit_len_prefixed(chunks: List[bytes]) -> bytes:\n    out = bytearray()\n    for c in chunks:\n        out += struct.pack('<I', len(c))\n        out += c\n    return bytes(out)\n\n\ndef _make_arg(r: random.Random) -> bytes:\n    kind = r.choices(\n        population=[\"ascii\", \"printf\", \"unicode\", \"echo\", \"shell\", \"binary\", \"empty\", \"short\"],\n        weights=[20, 12, 12, 10, 12, 8, 6, 20],\n        k=1,\n    )[0]\n\n    if kind == \"ascii\":\n        s = _rand_ascii(r, r.randint(1, 48))\n        return s.encode('utf-8', errors='ignore')\n    if kind == \"printf\":\n        s = _rand_printf(r)\n        s = s[:48]\n        return s.encode('utf-8', errors='ignore')\n    if kind == \"unicode\":\n        s = _rand_unicode(r)\n        s = s[:48]\n        return s.encode('utf-8', errors='ignore')\n    if kind == \"echo\":\n        s = _rand_echo(r)\n        s = s[:64]\n        return s.encode('utf-8', errors='ignore')\n    if kind == \"shell\":\n        # Combine a shell-like token with noise\n        s = r.choice(SHELLY)\n        if r.random() < 0.6:\n            s += \"=\" + _rand_ascii(r, r.randint(0, 12))\n        return s[:48].encode('utf-8', errors='ignore')\n    if kind == \"binary\":\n        return _rand_binary(r, 48)\n    if kind == \"empty\":\n        return b\"\"\n    if kind == \"short\":\n        return _rand_ascii(r, r.randint(1, 4)).encode('utf-8', errors='ignore')\n    return b\"x\"\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # We will create between 3 and 8 candidate strings, enough for primary + extras\n    count = r.randint(3, 8)\n    chunks: List[bytes] = []\n\n    # Bias first argument towards echo/printf-interesting content to match harness behavior when command is echo/printf\n    first_kind = r.random()\n    if first_kind < 0.4:\n        first = _rand_echo(r).encode('utf-8', errors='ignore')\n    elif first_kind < 0.75:\n        first = _rand_printf(r).encode('utf-8', errors='ignore')\n    else:\n        first = _make_arg(r)\n    first = _cap_utf8(first, 64)\n    chunks.append(first)\n\n    for _ in range(count - 1):\n        arg = _make_arg(r)\n        arg = _cap_utf8(arg, 64)\n        chunks.append(arg)\n\n    # Ensure total size cap; drop trailing chunks if needed\n    # Account for 4-byte length prefix per chunk\n    total = 0\n    kept: List[bytes] = []\n    for c in chunks:\n        need = 4 + len(c)\n        if total + need > MAX_TOTAL:\n            break\n        kept.append(c)\n        total += need\n\n    return _emit_len_prefixed(kept)\n"
+    },
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# Target data type: arbitrary binary data\n# Used by fuzz stubs as QByteArray payloads transformed and sized.\n# Goals:\n# - Provide varied lengths, including 0, small, medium, near limits.\n# - Include structured and high-entropy content to exercise different code paths\n#   (e.g., size-based masks, reversals, XOR transformations).\n# - Keep total size <= 4096 bytes.\n# - Deterministic given seed, but varied upon different seeds.\n\n_MAX_SIZE = 4096\n\n_ascii_words = [\n    b\"\", b\"a\", b\"test\", b\"payload\", b\"quick brown fox\", b\"lorem ipsum\",\n    b\"\\x00\", b\"\\xff\", b\"\\x00\\x00\\x00\\x00\", b\"AAAAAA\", b\"BBBBBBBB\",\n]\n\n# Prebuilt interesting binary patterns\n_patterns: List[bytes] = [\n    bytes(range(256)),                 # 0..255\n    bytes(range(255, -1, -1)),        # 255..0\n    b\"\\x00\" * 64,\n    b\"\\xff\" * 64,\n    b\"\\x55\" * 128,\n    b\"\\xaa\" * 128,\n    (b\"ABCD\" * 64),\n    (b\"\\x00\\xff\" * 64),\n]\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _mix_chunks(rng: random.Random, target_len: int) -> bytes:\n    out = bytearray()\n    choices = _patterns + _ascii_words\n    # Ensure at least one chunk\n    while len(out) < target_len:\n        kind = rng.randrange(6)\n        if kind == 0:\n            # pick from patterns\n            chunk = rng.choice(choices)\n            # maybe take a slice\n            if chunk and rng.random() < 0.6:\n                start = rng.randrange(0, len(chunk))\n                end = rng.randrange(start, len(chunk))\n                chunk = chunk[start:end]\n        elif kind == 1:\n            # random length ASCII\n            l = min(target_len - len(out), rng.randint(1, 256))\n            chunk = bytes(rng.choice(b\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ \") for _ in range(l))\n        elif kind == 2:\n            # random binary block\n            l = min(target_len - len(out), rng.randint(1, 512))\n            chunk = _rand_bytes(rng, l)\n        elif kind == 3:\n            # run of a single byte\n            b = rng.randrange(256)\n            l = min(target_len - len(out), rng.randint(1, 1024))\n            chunk = bytes([b]) * l\n        elif kind == 4:\n            # incremental counter bytes\n            l = min(target_len - len(out), rng.randint(16, 256))\n            start = rng.randrange(256)\n            chunk = bytes((start + i) % 256 for i in range(l))\n        else:\n            # repeated short token\n            token_len = rng.randint(1, 8)\n            token = _rand_bytes(rng, token_len)\n            reps = min((target_len - len(out)) // token_len, rng.randint(1, 64))\n            if reps <= 0:\n                reps = 1\n            chunk = token * reps\n        # avoid overshoot\n        need = target_len - len(out)\n        if len(chunk) > need:\n            chunk = chunk[:need]\n        out.extend(chunk)\n    return bytes(out)\n\n\ndef _choose_length(rng: random.Random) -> int:\n    # Bias toward interesting sizes used by the stubs (XOR mask uses size % 13)\n    interesting = [0, 1, 7, 12, 13, 14, 15, 16, 31, 32, 63, 64, 65, 127, 128, 129,\n                   255, 256, 257, 511, 512, 1023, 1024, 2047, 2048, 4095]\n    if rng.random() < 0.6:\n        return rng.choice(interesting)\n    # otherwise random up to max\n    return rng.randint(0, _MAX_SIZE)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    length = _choose_length(rng)\n\n    # Sometimes return a single chosen canonical pattern exactly\n    if rng.random() < 0.2:\n        base = rng.choice(_patterns + _ascii_words)\n        if len(base) == length:\n            return base\n        # scale or trim to desired length\n        if len(base) == 0:\n            return b\"\" if length == 0 else bytes([0]) * length\n        reps = (length + len(base) - 1) // len(base)\n        return (base * reps)[:length]\n\n    # Otherwise compose mixed content\n    buf = _mix_chunks(rng, length)\n\n    # Optional lightweight transformations to diversify but keep validity\n    # - maybe reverse to align with qthread::run reversal path interplay\n    if rng.random() < 0.3:\n        buf = buf[::-1]\n    # - maybe XOR with a small mask similar to stub behavior\n    if rng.random() < 0.3 and buf:\n        mask = (len(buf) % 13) if (len(buf) % 13) != 0 else 7\n        b = bytearray(buf)\n        for i in range(len(b)):\n            b[i] ^= mask\n        buf = bytes(b)\n\n    # Ensure size limit\n    if len(buf) > _MAX_SIZE:\n        buf = buf[:_MAX_SIZE]\n\n    return buf\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 14141,
+            "output_tokens": 7215,
+            "total_tokens": 21356
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 11609,
+            "output_tokens": 460,
+            "total_tokens": 12069
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 14593,
+            "output_tokens": 16407,
+            "total_tokens": 31000
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 69116,
+            "output_tokens": 20213,
+            "total_tokens": 89329
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 17755,
+            "output_tokens": 3895,
+            "total_tokens": 21650
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 15895,
+            "output_tokens": 377,
+            "total_tokens": 16272
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 423.1551513671875,
+    "scan_objects": 33.45605731010437,
+    "validate_objects": 7.402330636978149,
+    "scan_functions": 0,
+    "synthesis": 215.28805255889893,
+    "fill": 99.82593059539795,
+    "classify": 7.009636402130127,
+    "build_generators": 60.17199397087097
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "objects": [],
+  "functions": [
+    {
+      "name": "split",
+      "signature": "template <typename V, typename Extractor, typename K = typename std::invoke_result_t<Extractor, V const&>> std::map<K, std::vector<V>> split(std::vector<V> const& data, Extractor extractor)",
+      "description": "Groups elements of the input vector by a key extracted from each element. For each element v in data, extractor(v) is computed to obtain a key K, and v is appended to the vector at r[key] in the returned std::map. Typical usage: provide a vector of values and a callable (lambda, function object, or function pointer) that takes const V& and returns a key; the function returns a map from each key to the vector of corresponding elements. Notes: the input is not modified; elements are copied into the output vectors; ordering of keys follows std::map ordering; requires C++17 for std::invoke_result_t.",
+      "requirements": [
+        "data must be a valid std::vector<V> whose elements are CopyInsertable into std::vector<V> (elements are copied into the result).",
+        "extractor must be invocable with signature compatible with K(V const&) and must be callable for every element in data.",
+        "The deduced key type K must be suitable as a key in std::map with the default comparator (i.e., supports a strict-weak-ordering via operator< compatible with std::less<K>) and be copy/move insertable.",
+        "The function requires C++17 or later (uses std::invoke_result_t).",
+        "Exceptions may propagate from extractor, from copying/moving V or K, and from allocations performed by std::map/std::vector."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "split",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Fuzz stub for: template <typename V, typename Extractor, typename K = typename std::invoke_result_t<Extractor, V const&>>\n// std::map<K, std::vector<V>> split(std::vector<V> const& data, Extractor extractor)\n// We instantiate with V=int and an int-returning lambda Extractor; K deduces to int.\n{\n    // Generate bounded-size input data vector without looping over FUZZ_PARAM for scalars.\n    // Use an array macro to get diverse elements, then take the first n entries.\n    const unsigned int raw_n = *FUZZ_PARAM(unsigned int);\n    const size_t n = (size_t)(raw_n % 64u); // keep allocations small\n    auto arr_ptr = FUZZ_PARAM(int[64]);     // const int (*)[64]\n\n    std::vector<int> data;\n    data.reserve(n);\n    for (size_t i = 0; i < n; ++i) {\n        data.push_back((*arr_ptr)[i]);\n    }\n\n    // Build an extractor with several fuzzed knobs while ensuring well-defined behavior.\n    // - base for modulo is in [1, 16] to avoid div-by-zero and keep key-space small\n    // - shift is in [0, 3]\n    // - mask and add are arbitrary ints\n    unsigned int base = (*FUZZ_PARAM(unsigned int) % 16u) + 1u; // enforce >=1\n    unsigned int shift = (*FUZZ_PARAM(unsigned int) & 3u);\n    int mask = *FUZZ_PARAM(int);\n    int add = *FUZZ_PARAM(int);\n\n    auto extractor = [=](int const &v) -> int {\n        // Key computation purposefully mixes bits but remains fast and total.\n        // Use modulo base to create collisions and exercise multiple buckets.\n        int mixed = ((v + add) ^ mask);\n        int shifted = (shift == 0 ? mixed : (mixed >> shift));\n        int key = (base == 0 ? shifted : (shifted % (int)base)); // base is never 0, guard remains for clarity\n        return key;\n    };\n\n    try {\n        // Invoke target function\n        auto result = split<int, decltype(extractor)>(data, extractor);\n\n        // Property checks that should always hold for a correct implementation:\n        // 1) Total number of elements across all buckets equals input size.\n        size_t total = 0;\n        for (const auto &kv : result) { total += kv.second.size(); }\n        FUZZ_ASSERT(total == data.size(), \"Total elements across buckets must equal input size\");\n\n        // 2) Every input element appears in exactly one bucket corresponding to extractor(v).\n        // Because elements are copied, we check presence-by-value in the mapped vector.\n        for (const int &v : data) {\n            int k = extractor(v);\n            auto it = result.find(k);\n            FUZZ_ASSERT(it != result.end(), \"Key for element must exist in result map\");\n            bool found = false;\n            for (const int &vv : it->second) { if (vv == v) { found = true; break; } }\n            FUZZ_ASSERT(found, \"Element must appear in the vector for its computed key\");\n        }\n    } catch (...) {\n        // The API allows exceptions from allocations, copies, or extractor.\n        // Treat any thrown exception as an error path to explore; bail cleanly.\n        FUZZ_BAIL();\n    }\n\n    // Validation summary: This stub constructs a bounded std::vector<int>, applies a fuzz-configured\n    // extractor that deterministically maps ints to small int keys, invokes split, and asserts core invariants\n    // about element accounting and correct grouping. No inputs/outputs are retained across calls.\n}"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "split",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 844,
+            "output_tokens": 212,
+            "total_tokens": 1056
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 422,
+            "output_tokens": 17,
+            "total_tokens": 439
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 854,
+            "output_tokens": 1447,
+            "total_tokens": 2301
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3979,
+            "output_tokens": 2426,
+            "total_tokens": 6405
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 102.22653603553772,
+    "scan_objects": 4.743924140930176,
+    "validate_objects": 0.2929809093475342,
+    "scan_functions": 41.11195397377014,
+    "synthesis": 56.01761722564697,
+    "fill": 0,
+    "classify": 0.05901980400085449,
+    "build_generators": 0.00008416175842285156
+  }
+}

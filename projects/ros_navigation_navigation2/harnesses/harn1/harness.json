@@ -1,0 +1,749 @@
+{
+  "objects": [
+    {
+      "ptr_type": "nav2_voxel_grid::VoxelStatus *",
+      "aliases": [],
+      "definition": "namespace nav2_voxel_grid\n{\n\nenum VoxelStatus\n{\n  FREE = 0,\n  UNKNOWN = 1,\n  MARKED = 2,\n};\n\n}  // namespace nav2_voxel_grid",
+      "description": "Enumeration of per-voxel state used by the voxel grid: FREE (known free), UNKNOWN (state not observed/unknown), and MARKED (known occupied).",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "nav2_voxel_grid::VoxelGrid *",
+      "aliases": [],
+      "definition": "namespace nav2_voxel_grid\n{\n\nclass VoxelGrid\n{\npublic:\n  VoxelGrid(unsigned int size_x, unsigned int size_y, unsigned int size_z);\n\n  ~VoxelGrid();\n\n  void resize(unsigned int size_x, unsigned int size_y, unsigned int size_z);\n\n  void reset();\n  uint32_t * getData() {return data_;}\n\n  inline void markVoxel(unsigned int x, unsigned int y, unsigned int z)\n  {\n    if (x >= size_x_ || y >= size_y_ || z >= size_z_) {\n      RCLCPP_DEBUG(logger, \"Error, voxel out of bounds.\\n\");\n      return;\n    }\n    uint32_t full_mask = ((uint32_t)1 << z << 16) | (1 << z);\n    data_[y * size_x_ + x] |= full_mask;  // clear unknown and mark cell\n  }\n\n  inline bool markVoxelInMap(\n    unsigned int x, unsigned int y, unsigned int z,\n    unsigned int marked_threshold)\n  {\n    if (x >= size_x_ || y >= size_y_ || z >= size_z_) {\n      RCLCPP_DEBUG(logger, \"Error, voxel out of bounds.\\n\");\n      return false;\n    }\n\n    int index = y * size_x_ + x;\n    uint32_t * col = &data_[index];\n    uint32_t full_mask = ((uint32_t)1 << z << 16) | (1 << z);\n    *col |= full_mask;  // clear unknown and mark cell\n\n    unsigned int marked_bits = *col >> 16;\n\n    // make sure the number of bits in each is below our thresholds\n    return !bitsBelowThreshold(marked_bits, marked_threshold);\n  }\n\n  inline void clearVoxel(unsigned int x, unsigned int y, unsigned int z)\n  {\n    if (x >= size_x_ || y >= size_y_ || z >= size_z_) {\n      RCLCPP_DEBUG(logger, \"Error, voxel out of bounds.\\n\");\n      return;\n    }\n    uint32_t full_mask = ((uint32_t)1 << z << 16) | (1 << z);\n    data_[y * size_x_ + x] &= ~(full_mask);  // clear unknown and clear cell\n  }\n\n  inline void clearVoxelColumn(unsigned int index)\n  {\n    assert(index < size_x_ * size_y_);\n    data_[index] = 0;\n  }\n\n  inline void clearVoxelInMap(unsigned int x, unsigned int y, unsigned int z)\n  {\n    if (x >= size_x_ || y >= size_y_ || z >= size_z_) {\n      RCLCPP_DEBUG(logger, \"Error, voxel out of bounds.\\n\");\n      return;\n    }\n    int index = y * size_x_ + x;\n    uint32_t * col = &data_[index];\n    uint32_t full_mask = ((uint32_t)1 << z << 16) | (1 << z);\n    *col &= ~(full_mask);  // clear unknown and clear cell\n\n    unsigned int unknown_bits = uint16_t(*col >> 16) ^ uint16_t(*col);\n    unsigned int marked_bits = *col >> 16;\n\n    // make sure the number of bits in each is below our thresholds\n    if (bitsBelowThreshold(unknown_bits, 1) && bitsBelowThreshold(marked_bits, 1)) {\n      costmap[index] = 0;\n    }\n  }\n\n  inline bool bitsBelowThreshold(unsigned int n, unsigned int bit_threshold)\n  {\n    unsigned int bit_count;\n    for (bit_count = 0; n; ) {\n      ++bit_count;\n      if (bit_count > bit_threshold) {\n        return false;\n      }\n      n &= n - 1;  // clear the least significant bit set\n    }\n    return true;\n  }\n\n  static inline unsigned int numBits(unsigned int n)\n  {\n    unsigned int bit_count;\n    for (bit_count = 0; n; ++bit_count) {\n      n &= n - 1;  // clear the least significant bit set\n    }\n    return bit_count;\n  }\n\n  static VoxelStatus getVoxel(\n    unsigned int x, unsigned int y, unsigned int z,\n    unsigned int size_x, unsigned int size_y, unsigned int size_z, const uint32_t * data)\n  {\n    if (x >= size_x || y >= size_y || z >= size_z) {\n      return UNKNOWN;\n    }\n    uint32_t full_mask = ((uint32_t)1 << z << 16) | (1 << z);\n    uint32_t result = data[y * size_x + x] & full_mask;\n    unsigned int bits = numBits(result);\n\n    // known marked: 11 = 2 bits, unknown: 01 = 1 bit, known free: 00 = 0 bits\n    if (bits < 2) {\n      if (bits < 1) {\n        return FREE;\n      }\n      return UNKNOWN;\n    }\n    return MARKED;\n  }\n\n  void markVoxelLine(\n    double x0, double y0, double z0, double x1, double y1, double z1,\n    unsigned int max_length = UINT_MAX);\n  void clearVoxelLine(\n    double x0, double y0, double z0, double x1, double y1, double z1,\n    unsigned int max_length = UINT_MAX, unsigned int min_length = 0);\n  void clearVoxelLineInMap(\n    double x0, double y0, double z0, double x1, double y1, double z1, unsigned char * map_2d,\n    unsigned int unknown_threshold, unsigned int mark_threshold,\n    unsigned char free_cost = 0, unsigned char unknown_cost = 255,\n    unsigned int max_length = UINT_MAX, unsigned int min_length = 0);\n\n  VoxelStatus getVoxel(unsigned int x, unsigned int y, unsigned int z);\n\n  VoxelStatus getVoxelColumn(\n    unsigned int x, unsigned int y,\n    unsigned int unknown_threshold = 0, unsigned int marked_threshold = 0);\n\n  void printVoxelGrid();\n  void printColumnGrid();\n  unsigned int sizeX();\n  unsigned int sizeY();\n  unsigned int sizeZ();\n\n  template<class ActionType>\n  inline void raytraceLine(\n    ActionType at, double x0, double y0, double z0,\n    double x1, double y1, double z1, unsigned int max_length = UINT_MAX,\n    unsigned int min_length = 0)\n  {\n    // we need to chose how much to scale our dominant dimension, based on the\n    // maximum length of the line\n    double dist = sqrt((x0 - x1) * (x0 - x1) + (y0 - y1) * (y0 - y1) + (z0 - z1) * (z0 - z1));\n    if ((unsigned int)(dist) < min_length) {\n      return;\n    }\n    double scale, min_x0, min_y0, min_z0;\n    if (dist > 0.0) {\n      scale = std::min(1.0, max_length / dist);\n\n      // Updating starting point to the point at distance min_length from the initial point\n      min_x0 = x0 + (x1 - x0) / dist * min_length;\n      min_y0 = y0 + (y1 - y0) / dist * min_length;\n      min_z0 = z0 + (z1 - z0) / dist * min_length;\n    } else {\n      // dist can be 0 if [x0, y0, z0]==[x1, y1, z1].\n      // In this case only this voxel should be processed.\n      scale = 1.0;\n      min_x0 = x0;\n      min_y0 = y0;\n      min_z0 = z0;\n    }\n\n    int dx = int(x1) - int(min_x0);  // NOLINT\n    int dy = int(y1) - int(min_y0);  // NOLINT\n    int dz = int(z1) - int(min_z0);  // NOLINT\n\n    unsigned int abs_dx = abs(dx);\n    unsigned int abs_dy = abs(dy);\n    unsigned int abs_dz = abs(dz);\n\n    int offset_dx = sign(dx);\n    int offset_dy = sign(dy) * size_x_;\n    int offset_dz = sign(dz);\n\n    unsigned int z_mask = ((1 << 16) | 1) << (unsigned int)min_z0;\n    unsigned int offset = (unsigned int)min_y0 * size_x_ + (unsigned int)min_x0;\n\n    GridOffset grid_off(offset);\n    ZOffset z_off(z_mask);\n\n    // is x dominant\n    if (abs_dx >= max(abs_dy, abs_dz)) {\n      int error_y = abs_dx / 2;\n      int error_z = abs_dx / 2;\n\n      bresenham3D(\n        at, grid_off, grid_off, z_off, abs_dx, abs_dy, abs_dz, error_y, error_z,\n        offset_dx, offset_dy, offset_dz, offset, z_mask, (unsigned int)(scale * abs_dx));\n      return;\n    }\n\n    // y is dominant\n    if (abs_dy >= abs_dz) {\n      int error_x = abs_dy / 2;\n      int error_z = abs_dy / 2;\n\n      bresenham3D(\n        at, grid_off, grid_off, z_off, abs_dy, abs_dx, abs_dz, error_x, error_z,\n        offset_dy, offset_dx, offset_dz, offset, z_mask, (unsigned int)(scale * abs_dy));\n      return;\n    }\n\n    // otherwise, z is dominant\n    int error_x = abs_dz / 2;\n    int error_y = abs_dz / 2;\n\n    bresenham3D(\n      at, z_off, grid_off, grid_off, abs_dz, abs_dx, abs_dy, error_x, error_y, offset_dz,\n      offset_dx, offset_dy, offset, z_mask, (unsigned int)(scale * abs_dz));\n  }\n\nprivate:\n  template<class ActionType, class OffA, class OffB, class OffC>\n  inline void bresenham3D(\n    ActionType at, OffA off_a, OffB off_b, OffC off_c,\n    unsigned int abs_da, unsigned int abs_db, unsigned int abs_dc,\n    int error_b, int error_c, int offset_a, int offset_b, int offset_c, unsigned int & offset,\n    unsigned int & z_mask, unsigned int max_length = UINT_MAX)\n  {\n    unsigned int end = std::min(max_length, abs_da);\n    for (unsigned int i = 0; i < end; ++i) {\n      at(offset, z_mask);\n      off_a(offset_a);\n      error_b += abs_db;\n      error_c += abs_dc;\n      if ((unsigned int)error_b >= abs_da) {\n        off_b(offset_b);\n        error_b -= abs_da;\n      }\n      if ((unsigned int)error_c >= abs_da) {\n        off_c(offset_c);\n        error_c -= abs_da;\n      }\n    }\n    at(offset, z_mask);\n  }\n\n  inline int sign(int i)\n  {\n    return i > 0 ? 1 : -1;\n  }\n\n  inline unsigned int max(unsigned int x, unsigned int y)\n  {\n    return x > y ? x : y;\n  }\n\n  unsigned int size_x_, size_y_, size_z_;\n  uint32_t * data_;\n  unsigned char * costmap;\n  rclcpp::Logger logger;\n\n  class MarkVoxel\n  {\npublic:\n    explicit MarkVoxel(uint32_t * data)\n    : data_(data) {}\n    inline void operator()(unsigned int offset, unsigned int z_mask)\n    {\n      data_[offset] |= z_mask;  // clear unknown and mark cell\n    }\n\nprivate:\n    uint32_t * data_;\n  };\n\n  class ClearVoxel\n  {\npublic:\n    explicit ClearVoxel(uint32_t * data)\n    : data_(data) {}\n    inline void operator()(unsigned int offset, unsigned int z_mask)\n    {\n      data_[offset] &= ~(z_mask);  // clear unknown and clear cell\n    }\n\nprivate:\n    uint32_t * data_;\n  };\n\n  class ClearVoxelInMap\n  {\npublic:\n    ClearVoxelInMap(\n      uint32_t * data, unsigned char * costmap,\n      unsigned int unknown_clear_threshold, unsigned int marked_clear_threshold,\n      unsigned char free_cost = 0, unsigned char unknown_cost = 255)\n    : data_(data), costmap_(costmap),\n      unknown_clear_threshold_(unknown_clear_threshold), marked_clear_threshold_(\n        marked_clear_threshold),\n      free_cost_(free_cost), unknown_cost_(unknown_cost)\n    {\n    }\n\n    inline void operator()(unsigned int offset, unsigned int z_mask)\n    {\n      uint32_t * col = &data_[offset];\n      *col &= ~(z_mask);  // clear unknown and clear cell\n\n      unsigned int unknown_bits = uint16_t(*col >> 16) ^ uint16_t(*col);\n      unsigned int marked_bits = *col >> 16;\n\n      // make sure the number of bits in each is below our thresholds\n      if (bitsBelowThreshold(marked_bits, marked_clear_threshold_)) {\n        if (bitsBelowThreshold(unknown_bits, unknown_clear_threshold_)) {\n          costmap_[offset] = free_cost_;\n        } else {\n          costmap_[offset] = unknown_cost_;\n        }\n      }\n    }\n\nprivate:\n    inline bool bitsBelowThreshold(unsigned int n, unsigned int bit_threshold)\n    {\n      unsigned int bit_count;\n      for (bit_count = 0; n; ) {\n        ++bit_count;\n        if (bit_count > bit_threshold) {\n          return false;\n        }\n        n &= n - 1;  // clear the least significant bit set\n      }\n      return true;\n    }\n\n    uint32_t * data_;\n    unsigned char * costmap_;\n    unsigned int unknown_clear_threshold_, marked_clear_threshold_;\n    unsigned char free_cost_, unknown_cost_;\n  };\n\n  class GridOffset\n  {\npublic:\n    explicit GridOffset(unsigned int & offset)\n    : offset_(offset) {}\n    inline void operator()(int offset_val)\n    {\n      offset_ += offset_val;\n    }\n\nprivate:\n    unsigned int & offset_;\n  };\n\n  class ZOffset\n  {\npublic:\n    explicit ZOffset(unsigned int & z_mask)\n    : z_mask_(z_mask) {}\n    inline void operator()(int offset_val)\n    {\n      offset_val > 0 ? z_mask_ <<= 1 : z_mask_ >>= 1;\n    }\n\nprivate:\n    unsigned int & z_mask_;\n  };\n};\n\n}  // namespace nav2_voxel_grid",
+      "description": "3D voxel occupancy grid storing per-(x,y) columns as 32-bit integers with paired bit-planes: lower 16 bits for known/unknown flags per z, upper 16 bits for marked/occupied flags per z. Provides voxel and column queries, modification (mark/clear), and raytracing utilities using a 3D Bresenham traversal. Size_z must be <= 16. Memory is owned by the class (data_ and optionally costmap for 2D projection). Logger is used for bounds/debug messages. Inner helper functors implement per-step actions during raytracing.",
+      "direct_api_constructors": [
+        "nav2_voxel_grid::VoxelGrid::VoxelGrid"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::VoxelGrid",
+      "signature": "nav2_voxel_grid::VoxelGrid::VoxelGrid(unsigned int size_x, unsigned int size_y, unsigned int size_z)",
+      "description": "Constructs a 3D voxel grid with the specified X, Y, and Z sizes. The grid stores per-(x,y) voxel columns as 32-bit integers where low 16 bits are occupancy and high 16 bits are known/unknown flags. Only up to 16 vertical cells (z) are supported.",
+      "requirements": [
+        "size_z must be <= 16 (per documentation comment)",
+        "size_x, size_y, and size_z should be > 0 (implied by meaningful grid construction; exact enforcement unknown)",
+        "May allocate internal storage sized size_x*size_y; construction should be followed by use of member methods to access/modify voxels"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::~VoxelGrid",
+      "signature": "nav2_voxel_grid::VoxelGrid::~VoxelGrid()",
+      "description": "Destructs the voxel grid, releasing any owned resources such as the internal data and costmap buffers.",
+      "requirements": [
+        "All pointers returned by getData become invalid after destruction",
+        "Do not use the object after destruction"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::resize",
+      "signature": "void nav2_voxel_grid::VoxelGrid::resize(unsigned int size_x, unsigned int size_y, unsigned int size_z)",
+      "description": "Resizes the voxel grid to the specified dimensions. Existing contents may be reinitialized or discarded (implementation not shown). Only up to 16 vertical cells are supported.",
+      "requirements": [
+        "size_z must be <= 16 (per documentation comment)",
+        "Caller should not retain stale pointers returned by getData across a resize, as the underlying storage may change",
+        "Behavior w.r.t. preserving existing data is unspecified (unknown)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::reset",
+      "signature": "void nav2_voxel_grid::VoxelGrid::reset()",
+      "description": "Resets the voxel grid contents to an initial state (likely clearing all voxels and costmap; exact behavior not shown).",
+      "requirements": [
+        "Object must have been constructed or resized before calling",
+        "Exact post-condition (e.g., all free vs. unknown) is not documented (unknown)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getData",
+      "signature": "uint32_t * nav2_voxel_grid::VoxelGrid::getData()",
+      "description": "Returns a raw pointer to the internal per-column data array. Each entry encodes a column of up to 16 z-cells: lower 16 bits for occupancy and upper 16 bits for known/unknown. Intended for advanced or performance-sensitive access.",
+      "requirements": [
+        "Returned pointer remains valid until the grid is resized or destroyed",
+        "Do not read/write beyond size_x()*size_y() elements",
+        "Caller is responsible for thread-safety when mutating through this pointer"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxel",
+      "signature": "inline void nav2_voxel_grid::VoxelGrid::markVoxel(unsigned int x, unsigned int y, unsigned int z)",
+      "description": "Marks a specific voxel (x,y,z) as known and occupied by setting the corresponding known and occupied bits in the column. Out-of-bounds accesses are ignored and logged at debug level.",
+      "requirements": [
+        "0 <= x < size_x_",
+        "0 <= y < size_y_",
+        "0 <= z < size_z_ (size_z_ <= 16)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxelInMap",
+      "signature": "inline bool nav2_voxel_grid::VoxelGrid::markVoxelInMap(unsigned int x, unsigned int y, unsigned int z, unsigned int marked_threshold)",
+      "description": "Marks a voxel (x,y,z) as known and occupied, then evaluates the number of marked cells in the column against marked_threshold. Returns true if the count of marked (occupied) bits exceeds the threshold, false otherwise. Out-of-bounds are ignored (returns false) and a debug message is logged.",
+      "requirements": [
+        "0 <= x < size_x_",
+        "0 <= y < size_y_",
+        "0 <= z < size_z_ (size_z_ <= 16)",
+        "marked_threshold is compared against the count of set bits in the high 16 bits of the column; no explicit range restriction is enforced, but meaningful values are 0..size_z_"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxel",
+      "signature": "inline void nav2_voxel_grid::VoxelGrid::clearVoxel(unsigned int x, unsigned int y, unsigned int z)",
+      "description": "Clears a specific voxel (x,y,z), making it known and free by clearing both the known and occupied bits for that z in the column. Out-of-bounds accesses are ignored and logged at debug level.",
+      "requirements": [
+        "0 <= x < size_x_",
+        "0 <= y < size_y_",
+        "0 <= z < size_z_ (size_z_ <= 16)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelColumn",
+      "signature": "inline void nav2_voxel_grid::VoxelGrid::clearVoxelColumn(unsigned int index)",
+      "description": "Clears an entire column identified by its linear index (y*size_x + x) by zeroing the entry, effectively making all z-cells unknown and free for that column.",
+      "requirements": [
+        "index < size_x_ * size_y_ (assert enforced)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelInMap",
+      "signature": "inline void nav2_voxel_grid::VoxelGrid::clearVoxelInMap(unsigned int x, unsigned int y, unsigned int z)",
+      "description": "Clears the voxel (x,y,z) in the internal grid and updates the 2D costmap at that column to free (0) if both unknown and marked bit counts are below 1. Out-of-bounds coordinates are ignored with a debug log.",
+      "requirements": [
+        "0 <= x < size_x_",
+        "0 <= y < size_y_",
+        "0 <= z < size_z_ (size_z_ <= 16)",
+        "The internal costmap pointer must be initialized for the costmap update to have effect (initialization specifics not shown)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::bitsBelowThreshold",
+      "signature": "inline bool nav2_voxel_grid::VoxelGrid::bitsBelowThreshold(unsigned int n, unsigned int bit_threshold)",
+      "description": "Counts set bits in n and returns true if the count is less than or equal to bit_threshold. Early exits when the count exceeds the threshold.",
+      "requirements": [
+        "n is treated as a bitmask; no additional constraints",
+        "bit_threshold is a non-negative count; typical range 0..32"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::numBits",
+      "signature": "static inline unsigned int nav2_voxel_grid::VoxelGrid::numBits(unsigned int n)",
+      "description": "Counts and returns the number of set bits in n using the Kernighan method.",
+      "requirements": [
+        "n is treated as a bitmask; no additional constraints"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getVoxel",
+      "signature": "static nav2_voxel_grid::VoxelStatus nav2_voxel_grid::VoxelGrid::getVoxel(unsigned int x, unsigned int y, unsigned int z, unsigned int size_x, unsigned int size_y, unsigned int size_z, const uint32_t * data)",
+      "description": "Returns the voxel status (FREE, UNKNOWN, or MARKED) at (x,y,z) using an external data buffer that encodes columns like the grid. Out-of-bounds coordinates return UNKNOWN. Internally checks the two bits at position z (one in low 16 and one in high 16) to classify.",
+      "requirements": [
+        "data must point to an array of at least size_x*size_y entries",
+        "0 <= z < size_z (if outside, function returns UNKNOWN)",
+        "Indices are interpreted as linear index y*size_x + x"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxelLine",
+      "signature": "void nav2_voxel_grid::VoxelGrid::markVoxelLine(double x0, double y0, double z0, double x1, double y1, double z1, unsigned int max_length = UINT_MAX)",
+      "description": "Marks voxels along the 3D line segment from (x0,y0,z0) to (x1,y1,z1), up to max_length cells, using the grid’s internal Bresenham-based raytracer. Implementation not shown; expected to mark via MarkVoxel functor.",
+      "requirements": [
+        "Coordinates are in grid units consistent with other methods (casts to indices are used internally; exact rounding not shown)",
+        "max_length limits how many dominant-step cells are processed; must be >= 1 for any effect",
+        "Out-of-bounds cells encountered will be handled by the inlined action (details not shown)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelLine",
+      "signature": "void nav2_voxel_grid::VoxelGrid::clearVoxelLine(double x0, double y0, double z0, double x1, double y1, double z1, unsigned int max_length = UINT_MAX, unsigned int min_length = 0)",
+      "description": "Clears voxels along the 3D line from (x0,y0,z0) to (x1,y1,z1). Uses the internal Bresenham traversal, with optional min_length offset from the start and a max_length cap. Implementation not shown; expected to clear via ClearVoxel functor.",
+      "requirements": [
+        "min_length must be <= the Euclidean distance between endpoints to have any effect (otherwise no voxels processed)",
+        "max_length controls traversal length; should be >= 1 for any effect",
+        "Coordinates should be consistent with grid indexing (casts to int used internally)"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelLineInMap",
+      "signature": "void nav2_voxel_grid::VoxelGrid::clearVoxelLineInMap(double x0, double y0, double z0, double x1, double y1, double z1, unsigned char * map_2d, unsigned int unknown_threshold, unsigned int mark_threshold, unsigned char free_cost = 0, unsigned char unknown_cost = 255, unsigned int max_length = UINT_MAX, unsigned int min_length = 0)",
+      "description": "Traverses the 3D line and clears voxels while updating a provided 2D costmap buffer. A column becomes free_cost if both marked and unknown bit counts are within given thresholds; otherwise may be set to unknown_cost. Uses thresholds to decide when a column is considered free vs. unknown. Implementation not shown but mirrors inlined ClearVoxelInMap behavior.",
+      "requirements": [
+        "map_2d must point to a buffer with at least size_x()*size_y() bytes",
+        "unknown_threshold and mark_threshold are compared against counts of unknown and marked bits respectively; typical range 0..size_z()",
+        "min_length must be <= distance between endpoints to have effect",
+        "max_length should be >= 1 for any effect"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getVoxelColumn",
+      "signature": "nav2_voxel_grid::VoxelStatus nav2_voxel_grid::VoxelGrid::getVoxelColumn(unsigned int x, unsigned int y, unsigned int unknown_threshold = 0, unsigned int marked_threshold = 0)",
+      "description": "Returns the aggregated status for a column at (x,y), considering thresholds for unknown and marked bits. Implementation not shown; typically indicates whether any obstacles exist in that column based on counts.",
+      "requirements": [
+        "0 <= x < size_x_",
+        "0 <= y < size_y_",
+        "unknown_threshold and marked_threshold are non-negative counts; typical range 0..size_z_"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::printVoxelGrid",
+      "signature": "void nav2_voxel_grid::VoxelGrid::printVoxelGrid()",
+      "description": "Prints a textual representation of the full 3D voxel grid to an output stream (likely stdout). Implementation not shown.",
+      "requirements": [
+        "Intended for debugging; no special preconditions"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::printColumnGrid",
+      "signature": "void nav2_voxel_grid::VoxelGrid::printColumnGrid()",
+      "description": "Prints a 2D view of the grid summarizing per-column state. Implementation not shown.",
+      "requirements": [
+        "Intended for debugging; no special preconditions"
+      ],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeX",
+      "signature": "unsigned int nav2_voxel_grid::VoxelGrid::sizeX()",
+      "description": "Returns the X dimension of the grid in cells.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeY",
+      "signature": "unsigned int nav2_voxel_grid::VoxelGrid::sizeY()",
+      "description": "Returns the Y dimension of the grid in cells.",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeZ",
+      "signature": "unsigned int nav2_voxel_grid::VoxelGrid::sizeZ()",
+      "description": "Returns the Z dimension of the grid in cells (<= 16).",
+      "requirements": [],
+      "error": null
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::raytraceLine",
+      "signature": "template <class ActionType>\ninline void nav2_voxel_grid::VoxelGrid::raytraceLine(ActionType at, double x0, double y0, double z0, double x1, double y1, double z1, unsigned int max_length = UINT_MAX, unsigned int min_length = 0)",
+      "description": "Traverses the 3D grid along the line from (x0,y0,z0) to (x1,y1,z1) using a Bresenham-like algorithm and applies the provided action functor at each visited cell. If the line length is less than min_length, nothing is done. max_length limits the number of dominant-axis steps processed. Handles the degenerate case where start and end are the same by processing a single voxel.",
+      "requirements": [
+        "ActionType must be callable as at(unsigned int offset, unsigned int z_mask) and perform the desired operation using the linear offset and z-bit mask",
+        "min_length must be <= Euclidean distance between endpoints to have effect; when distance is 0, exactly one voxel is processed",
+        "max_length caps the number of steps; values of 0 result in only the final at(offset,z_mask) call at the current position",
+        "Coordinates should correspond to grid indices; internal casts to int and floor-like behavior are used"
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::VoxelGrid",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Choose dimensions within constraints: size_z in [1,16], size_x and size_y > 0.\nunsigned int sz = (*FUZZ_PARAM(unsigned int) % 16) + 1; // 1..16\nunsigned int sx = (*FUZZ_PARAM(unsigned int) % 32) + 1; // keep memory small\nunsigned int sy = (*FUZZ_PARAM(unsigned int) % 32) + 1; // keep memory small\n// Construct the voxel grid\nnav2_voxel_grid::VoxelGrid *grid = new nav2_voxel_grid::VoxelGrid(sx, sy, sz);\n// Validate documented invariant\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\n// Track dimensions for downstream stubs (optional; methods also expose sizeX/Y/Z)\nFUZZ_SET_ATTR_INT(grid, \"sx\", (int)sx);\nFUZZ_SET_ATTR_INT(grid, \"sy\", (int)sy);\nFUZZ_SET_ATTR_INT(grid, \"sz\", (int)sz);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::~VoxelGrid",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Destroy the grid. After this, getData() pointers (if any) become invalid.\n// We use delete to properly invoke the destructor and free owned memory.\ndelete grid;\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::resize",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Generate new dimensions within constraints.\nunsigned int new_sz = (*FUZZ_PARAM(unsigned int) % 16) + 1; // 1..16\nunsigned int new_sx = (*FUZZ_PARAM(unsigned int) % 32) + 1;\nunsigned int new_sy = (*FUZZ_PARAM(unsigned int) % 32) + 1;\n// Enforce documented invariant\nFUZZ_ASSERT(new_sz <= 16, \"size_z must be <= 16\");\n// Call resize\ngrid->resize(new_sx, new_sy, new_sz);\n// Update tracked attributes since getData pointers may have invalidated\nFUZZ_SET_ATTR_INT(grid, \"sx\", (int)new_sx);\nFUZZ_SET_ATTR_INT(grid, \"sy\", (int)new_sy);\nFUZZ_SET_ATTR_INT(grid, \"sz\", (int)new_sz);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::reset",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Reset contents to initial state.\ngrid->reset();\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getData",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        },
+        {
+          "name": "data",
+          "type": "void *"
+        }
+      ],
+      "code": "// Retrieve the internal data pointer. Valid until resize or destruction.\nuint32_t *raw = grid->getData();\nif (!raw) { FUZZ_BAIL(); }\nvoid *data = (void *)raw;\n// Track parent and span for safety if used elsewhere.\nunsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nFUZZ_SET_ATTR_PTR(data, \"parent\", (void*)grid);\nFUZZ_SET_ATTR_INT(data, \"elem_count\", (int)(sx * sy));\nFUZZ_SET_ATTR_INT(data, \"elem_size\", (int)sizeof(uint32_t));\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxel",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Choose in-bounds coordinates to exercise the marking path.\nunsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\nunsigned int x = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int y = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int z = (*FUZZ_PARAM(unsigned int)) % sz;\n// Mark voxel\ngrid->markVoxel(x, y, z);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxelInMap",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "unsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\nunsigned int x = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int y = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int z = (*FUZZ_PARAM(unsigned int)) % sz;\nunsigned int marked_threshold = (*FUZZ_PARAM(unsigned int)) % (sz + 1);\n// Call and ignore boolean result; both outcomes are acceptable API behavior.\n( void ) grid->markVoxelInMap(x, y, z, marked_threshold);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxel",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "unsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\nunsigned int x = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int y = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int z = (*FUZZ_PARAM(unsigned int)) % sz;\ngrid->clearVoxel(x, y, z);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelColumn",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "unsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nif (sx == 0 || sy == 0) { FUZZ_BAIL(); }\nunsigned int count = sx * sy;\nunsigned int idx = (*FUZZ_PARAM(unsigned int)) % count; // ensure index < size_x*size_y (assert-safe)\ngrid->clearVoxelColumn(idx);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelInMap",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "unsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\nunsigned int x = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int y = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int z = (*FUZZ_PARAM(unsigned int)) % sz;\n// This updates internal grid and optionally the internal costmap if initialized.\ngrid->clearVoxelInMap(x, y, z);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::bitsBelowThreshold",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Although it doesn't depend on members, this is an instance method; call it on grid.\nunsigned int n = *FUZZ_PARAM(unsigned int);\nunsigned int thr = *FUZZ_PARAM(unsigned int) % 32; // typical range 0..32\n( void ) grid->bitsBelowThreshold(n, thr);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::numBits",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Static utility; exercise with a random bitmask.\nunsigned int n = *FUZZ_PARAM(unsigned int);\n( void ) nav2_voxel_grid::VoxelGrid::numBits(n);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getVoxel",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Build a small external buffer and query a voxel status from it.\nunsigned int sx = (*FUZZ_PARAM(unsigned int) % 16) + 1; // keep <= 16 to bound allocation\nunsigned int sy = (*FUZZ_PARAM(unsigned int) % 16) + 1;\nunsigned int sz = (*FUZZ_PARAM(unsigned int) % 16) + 1; // 1..16\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nsize_t count = (size_t)sx * (size_t)sy;\nstd::vector<uint32_t> buf(count);\n// Randomize buffer contents lightly\nfor (size_t i = 0; i < count; ++i) { buf[i] = *FUZZ_PARAM(unsigned int); }\nunsigned int x = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int y = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int z = (*FUZZ_PARAM(unsigned int)) % sz;\n( void ) nav2_voxel_grid::VoxelGrid::getVoxel(x, y, z, sx, sy, sz, buf.data());\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getVoxelColumn",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "unsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nif (sx == 0 || sy == 0) { FUZZ_BAIL(); }\nunsigned int x = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int y = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int unknown_thr = (*FUZZ_PARAM(unsigned int)) % (sz + 1);\nunsigned int marked_thr = (*FUZZ_PARAM(unsigned int)) % (sz + 1);\n( void ) grid->getVoxelColumn(x, y, unknown_thr, marked_thr);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::printVoxelGrid",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Debug printing; safe to call unconditionally.\ngrid->printVoxelGrid();\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::printColumnGrid",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Debug printing of 2D column summary.\ngrid->printColumnGrid();\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeX",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Query X dimension to ensure accessor path is exercised.\n( void ) grid->sizeX();\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxelLine",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Generate endpoints within or at the edges of the grid; allow fractions but keep < size.\nunsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\n\n// Build fractional coordinates in [0, size) using integer fuzz and a fractional part\nunsigned int xi0 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi0 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi0 = (*FUZZ_PARAM(unsigned int)) % sz;\nunsigned int xi1 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi1 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi1 = (*FUZZ_PARAM(unsigned int)) % sz;\ndouble fx0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fx1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\n// Keep coordinates < size by adding fractional part but not crossing the next integer\ndouble x0 = (double)xi0 + (xi0 + 1 < sx ? fx0 : 0.0);\ndouble y0 = (double)yi0 + (yi0 + 1 < sy ? fy0 : 0.0);\ndouble z0 = (double)zi0 + (zi0 + 1 < sz ? fz0 : 0.0);\ndouble x1 = (double)xi1 + (xi1 + 1 < sx ? fx1 : 0.0);\ndouble y1 = (double)yi1 + (yi1 + 1 < sy ? fy1 : 0.0);\ndouble z1 = (double)zi1 + (zi1 + 1 < sz ? fz1 : 0.0);\n\nunsigned int max_len = (*FUZZ_PARAM(unsigned int) % 128) + 1; // enforce >= 1\n\n// Invoke the marking raytrace\ngrid->markVoxelLine(x0, y0, z0, x1, y1, z1, max_len);\n// No outputs besides returning grid to the pool.\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelLine",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "unsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\n\nunsigned int xi0 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi0 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi0 = (*FUZZ_PARAM(unsigned int)) % sz;\nunsigned int xi1 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi1 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi1 = (*FUZZ_PARAM(unsigned int)) % sz;\ndouble fx0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fx1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble x0 = (double)xi0 + (xi0 + 1 < sx ? fx0 : 0.0);\ndouble y0 = (double)yi0 + (yi0 + 1 < sy ? fy0 : 0.0);\ndouble z0 = (double)zi0 + (zi0 + 1 < sz ? fz0 : 0.0);\ndouble x1 = (double)xi1 + (xi1 + 1 < sx ? fx1 : 0.0);\ndouble y1 = (double)yi1 + (yi1 + 1 < sy ? fy1 : 0.0);\ndouble z1 = (double)zi1 + (zi1 + 1 < sz ? fz1 : 0.0);\n\nunsigned int max_len = (*FUZZ_PARAM(unsigned int) % 128) + 1; // >=1\nunsigned int min_len = (*FUZZ_PARAM(unsigned int) % (max_len)); // ensure <= max_len\n\n// Invoke the clearing raytrace\ngrid->clearVoxelLine(x0, y0, z0, x1, y1, z1, max_len, min_len);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelLineInMap",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "unsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\n\nunsigned int xi0 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi0 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi0 = (*FUZZ_PARAM(unsigned int)) % sz;\nunsigned int xi1 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi1 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi1 = (*FUZZ_PARAM(unsigned int)) % sz;\ndouble fx0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fx1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble x0 = (double)xi0 + (xi0 + 1 < sx ? fx0 : 0.0);\ndouble y0 = (double)yi0 + (yi0 + 1 < sy ? fy0 : 0.0);\ndouble z0 = (double)zi0 + (zi0 + 1 < sz ? fz0 : 0.0);\ndouble x1 = (double)xi1 + (xi1 + 1 < sx ? fx1 : 0.0);\ndouble y1 = (double)yi1 + (yi1 + 1 < sy ? fy1 : 0.0);\ndouble z1 = (double)zi1 + (zi1 + 1 < sz ? fz1 : 0.0);\n\n// Provide external 2D costmap buffer of size sx*sy as required\nstd::vector<unsigned char> map((size_t)sx * (size_t)sy);\nunsigned int unknown_thr = (*FUZZ_PARAM(unsigned int)) % (sz + 1);\nunsigned int mark_thr = (*FUZZ_PARAM(unsigned int)) % (sz + 1);\nunsigned char free_cost = (unsigned char)(*FUZZ_PARAM(unsigned int));\nunsigned char unknown_cost = (unsigned char)(*FUZZ_PARAM(unsigned int));\nunsigned int max_len = (*FUZZ_PARAM(unsigned int) % 128) + 1;\nunsigned int min_len = (*FUZZ_PARAM(unsigned int) % (max_len));\n\n// Invoke the traversal that updates map\ngrid->clearVoxelLineInMap(\n  x0, y0, z0, x1, y1, z1,\n  map.data(), unknown_thr, mark_thr, free_cost, unknown_cost, max_len, min_len);\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeY",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Exercise accessor; no side effects.\n( void ) grid->sizeY();\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeZ",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Exercise accessor and assert documented invariant.\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\n( void ) sz;\n"
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::raytraceLine",
+      "inputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "grid",
+          "type": "nav2_voxel_grid::VoxelGrid *"
+        }
+      ],
+      "code": "// Prepare dimensions and verify constraints\nunsigned int sx = grid->sizeX();\nunsigned int sy = grid->sizeY();\nunsigned int sz = grid->sizeZ();\nFUZZ_ASSERT(sz <= 16, \"size_z must be <= 16\");\nif (sx == 0 || sy == 0 || sz == 0) { FUZZ_BAIL(); }\n\n// Action functor that toggles bits using the provided z_mask on the grid data\nstruct LocalAction {\n  uint32_t *data;\n  inline void operator()(unsigned int offset, unsigned int z_mask) {\n    // Simple operation: XOR the mask to exercise both set/clear behaviors\n    data[offset] ^= z_mask;\n  }\n};\nuint32_t *data_ptr = grid->getData();\nif (!data_ptr) { FUZZ_BAIL(); }\nLocalAction act{data_ptr};\n\n// Build fractional coordinates in [0, size)\nunsigned int xi0 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi0 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi0 = (*FUZZ_PARAM(unsigned int)) % sz;\nunsigned int xi1 = (*FUZZ_PARAM(unsigned int)) % sx;\nunsigned int yi1 = (*FUZZ_PARAM(unsigned int)) % sy;\nunsigned int zi1 = (*FUZZ_PARAM(unsigned int)) % sz;\ndouble fx0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz0 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fx1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fy1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble fz1 = ((double)(*FUZZ_PARAM(unsigned int) % 1000)) / 1000.0;\ndouble x0 = (double)xi0 + (xi0 + 1 < sx ? fx0 : 0.0);\ndouble y0 = (double)yi0 + (yi0 + 1 < sy ? fy0 : 0.0);\ndouble z0 = (double)zi0 + (zi0 + 1 < sz ? fz0 : 0.0);\ndouble x1 = (double)xi1 + (xi1 + 1 < sx ? fx1 : 0.0);\ndouble y1 = (double)yi1 + (yi1 + 1 < sy ? fy1 : 0.0);\ndouble z1 = (double)zi1 + (zi1 + 1 < sz ? fz1 : 0.0);\n\nunsigned int max_len = (*FUZZ_PARAM(unsigned int) % 128) + 1; // >=1\nunsigned int min_len = (*FUZZ_PARAM(unsigned int) % (max_len)); // <= max_len\n\n// Invoke the templated raytracer with our action\ngrid->raytraceLine(act, x0, y0, z0, x1, y1, z1, max_len, min_len);\n"
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::VoxelGrid",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::~VoxelGrid",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::resize",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::reset",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getData",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxel",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxelInMap",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxel",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelColumn",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelInMap",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::bitsBelowThreshold",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::numBits",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getVoxel",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::getVoxelColumn",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::printVoxelGrid",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::printColumnGrid",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeX",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::markVoxelLine",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelLine",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::clearVoxelLineInMap",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeY",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::sizeZ",
+      "data_types": []
+    },
+    {
+      "name": "nav2_voxel_grid::VoxelGrid::raytraceLine",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4606,
+            "output_tokens": 3866,
+            "total_tokens": 8472
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4184,
+            "output_tokens": 304,
+            "total_tokens": 4488
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4925,
+            "output_tokens": 3926,
+            "total_tokens": 8851
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 27892,
+            "output_tokens": 11033,
+            "total_tokens": 38925
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 397.1225309371948,
+    "scan_objects": 59.62171483039856,
+    "validate_objects": 0.9697997570037842,
+    "scan_functions": 115.20641922950745,
+    "synthesis": 221.24720859527588,
+    "fill": 0,
+    "classify": 0.07634139060974121,
+    "build_generators": 0.00008749961853027344
+  }
+}

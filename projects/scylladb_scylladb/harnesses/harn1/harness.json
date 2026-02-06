@@ -1,0 +1,220 @@
+{
+  "objects": [],
+  "functions": [
+    {
+      "name": "cartesian_product<T>::iterator::operator*",
+      "signature": "std::vector<T>& cartesian_product<T>::iterator::operator*()",
+      "description": "Dereferences the iterator to produce the current tuple (combination) in the cartesian product as a std::vector<T>. The returned reference refers to internal storage that is rebuilt on each dereference and advanced on increment. Typical usage: iterate with for (auto it = cp.begin(); it != cp.end(); ++it) { auto& tuple = *it; ... }.",
+      "requirements": [
+        "The iterator must be in a valid (non-end) state; dereferencing the end iterator is undefined behavior (inferred from iterator semantics).",
+        "The returned reference becomes invalid after the next call to operator*() or operator++() because the internal buffer is cleared and rebuilt.",
+        "The underlying input vectors referenced by the cartesian_product must remain valid and not be modified in a way that invalidates their iterators during iteration (inferred from storing const_iterators into the input vectors)."
+      ],
+      "error": null
+    },
+    {
+      "name": "cartesian_product<T>::iterator::operator++",
+      "signature": "void cartesian_product<T>::iterator::operator++()",
+      "description": "Advances the iterator to the next tuple in the cartesian product sequence. When all combinations are exhausted, the iterator becomes equal to end().",
+      "requirements": [
+        "operator++ must not be called on the end iterator (inferred from typical forward-iterator requirements; doing so would wrap internal state unexpectedly).",
+        "The underlying input vectors must remain valid and not be structurally modified during iteration, or iterator invalidation may occur (inferred from use of const_iterators)."
+      ],
+      "error": null
+    },
+    {
+      "name": "cartesian_product<T>::iterator::operator==",
+      "signature": "bool cartesian_product<T>::iterator::operator==(const cartesian_product<T>::iterator& o) const",
+      "description": "Compares two iterators for equality. Iterators compare equal when they are at the same logical position (including both being end).",
+      "requirements": [
+        "Only compare iterators that originate from the same cartesian_product instance; comparing iterators from different ranges is undefined by convention and this implementation compares only an internal position marker (inferred from standard iterator requirements and implementation)."
+      ],
+      "error": null
+    },
+    {
+      "name": "cartesian_product<T>::begin",
+      "signature": "typename cartesian_product<T>::iterator cartesian_product<T>::begin()",
+      "description": "Returns an iterator positioned at the first tuple of the cartesian product of the provided vector-of-vectors. If any inner vector is empty, begin() will equal end().",
+      "requirements": [
+        "The cartesian_product instance must have been constructed with a reference to a vector-of-vectors that remains alive for the duration of any iteration.",
+        "The contained vectors should not be modified in a way that invalidates their iterators while iterating (inferred)."
+      ],
+      "error": null
+    },
+    {
+      "name": "cartesian_product<T>::end",
+      "signature": "typename cartesian_product<T>::iterator cartesian_product<T>::end()",
+      "description": "Returns a sentinel end iterator used to compare for completion of iteration over the cartesian product.",
+      "requirements": [
+        "Only use end() for comparison; dereferencing or incrementing the end iterator is undefined behavior (inferred from iterator semantics)."
+      ],
+      "error": null
+    },
+    {
+      "name": "cartesian_product_size",
+      "signature": "template <typename T> size_t cartesian_product_size(const std::vector<std::vector<T>>& vec_of_vecs)",
+      "description": "Computes the total number of combinations in the cartesian product by multiplying the sizes of all inner vectors. Note: if vec_of_vecs is empty, the function returns 1 (product of zero factors), which may or may not match higher-level expectations.",
+      "requirements": [
+        "Callers must be aware that size_t multiplication may overflow silently for large inputs; the function does not check for overflow.",
+        "The input container may be empty and inner vectors may be empty; behavior is as implemented (returns 1 for empty outer vector, and 0 if any inner vector is empty)."
+      ],
+      "error": null
+    },
+    {
+      "name": "cartesian_product_is_empty",
+      "signature": "template <typename T> bool cartesian_product_is_empty(const std::vector<std::vector<T>>& vec_of_vecs)",
+      "description": "Returns true if the cartesian product would produce no tuples: either the outer vector is empty or at least one inner vector is empty. Otherwise returns false.",
+      "requirements": [
+        "None beyond providing a valid reference to a vector of vectors; the function performs only reads."
+      ],
+      "error": null
+    },
+    {
+      "name": "make_cartesian_product",
+      "signature": "template <typename T> cartesian_product<T> make_cartesian_product(const std::vector<std::vector<T>>& vec_of_vecs)",
+      "description": "Convenience factory that constructs a cartesian_product<T> range over the given vector-of-vectors without specifying the template argument explicitly.",
+      "requirements": [
+        "The passed vector-of-vectors must outlive the returned cartesian_product<T> object and any iterators obtained from it, because the cartesian_product stores a const reference.",
+        "Callers should not modify the underlying vectors in a way that invalidates iterators while iterating (inferred)."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "cartesian_product<T>::iterator::operator*",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for cartesian_product<int>::iterator::operator*()\n// Strategy: build a random vector-of-vectors<int>, ensure the product is non-empty,\n// construct a cartesian_product<int>, get a valid iterator (not end), then dereference it.\n// Validate properties such as tuple size == number of dimensions, and that dereferencing\n// end is avoided.\n\n// Random pool for ints to avoid FUZZ_PARAM re-use-in-loop limitation\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\n// Choose outer size in [1, 6] to avoid degenerate empty-outer case for this test\nsize_t outer_n = (size_t)( (unsigned)(nexti()) % 6u ) + 1u;\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\n\n// Build inner vectors; ensure at least one element per inner vector so product is non-empty\nfor (size_t d = 0; d < outer_n; ++d) {\n    size_t inner_n = (size_t)( (unsigned)(nexti()) % 5u ) + 1u; // [1,5]\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\n// Construct the range and obtain a valid iterator\nauto cp = make_cartesian_product<int>(vecs);\nauto it = cp.begin();\nauto it_end = cp.end();\n\n// Enforce: iterator must not be end before dereference\nif (it == it_end) { FUZZ_BAIL(); }\n\n// Dereference safely\nstd::vector<int> &tuple = *it;\n\n// Property: tuple size equals number of dimensions (outer size)\nFUZZ_ASSERT(tuple.size() == vecs.size(), \"operator* must yield a tuple of dimension count equal to number of inner vectors\");\n\n// Optional light touch: advance and dereference again to cover rebuild path without using prior reference\n// Note: Do not dereference end; guard if only one combination exists\n// Compute safe single-step advance when possible\nsize_t maybe_advance = (size_t)( (unsigned)(nexti()) % 2u );\nif (maybe_advance && !(++(cartesian_product<int>::iterator(it)), false)) {\n    // The above line increments via pre-increment by constructing a temporary; but we cannot write helpers.\n}\n// Instead, do a controlled increment: check if next is not end by cloning and peeking\n{\n    auto it2 = it; // copy current iterator\n    // Try to advance it2; but we cannot call ++ on end, so we need to detect if single combination exists\n    // We approximate: if begin()!=end and either outer_n>0 (true) we can try ++ safely only if there exists >1 combination\n    // Count minimal: if any inner vector size >1, there may be >1 combinations. Otherwise, skip.\n    bool has_more = false; for (const auto &iv : vecs) { if (iv.size() > 1) { has_more = true; break; } }\n    if (has_more) {\n        ++it2; // defined since current it was not end and product size >1\n        if (!(it2 == it_end)) {\n            std::vector<int> &t2 = *it2;\n            FUZZ_ASSERT(t2.size() == vecs.size(), \"operator* after ++ must still yield correct tuple arity\");\n        }\n    }\n}\n\n// Validation: This stub guarantees non-end dereference and checks tuple arity; it avoids UB by guarding ++ and end checks."
+    },
+    {
+      "name": "cartesian_product<T>::iterator::operator++",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for cartesian_product<int>::iterator::operator++()\n// Strategy: construct a random non-empty product, iterate a small bounded number of steps\n// with pre-increment, ensuring we never increment at end.\n\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\n// Outer size in [1,6]\nsize_t outer_n = (size_t)((unsigned)nexti() % 6u) + 1u;\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\nfor (size_t d = 0; d < outer_n; ++d) {\n    size_t inner_n = (size_t)((unsigned)nexti() % 5u) + 1u; // ensure non-empty inner vectors\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\nauto cp = make_cartesian_product<int>(vecs);\nauto it = cp.begin();\nauto it_end = cp.end();\nif (it == it_end) { FUZZ_BAIL(); }\n\n// Decide a small number of increments within product size bounds\n// Compute a conservative upper bound for steps: product of min(2, size_i) to avoid overflow\nsize_t ub = 1; for (const auto &iv : vecs) { ub *= (iv.size() > 1 ? 2u : 1u); if (ub > 16u) { ub = 16u; break; } }\nsize_t steps = (size_t)((unsigned)nexti() % (ub + 1u));\n\nfor (size_t s = 0; s < steps; ++s) {\n    // Before each increment, ensure not at end\n    if (it == it_end) { FUZZ_BAIL(); }\n    ++it;\n}\n\n// If we stopped at end, we must not increment further; guard explicitly\nif (!(it == it_end)) {\n    // One safe dereference to cover more code paths\n    std::vector<int> &tpl = *it;\n    FUZZ_ASSERT(tpl.size() == vecs.size(), \"Tuple arity after increments must match dimensions\");\n}\n\n// Validation: The stub guards against incrementing at end and bounds the number of steps to avoid slow paths."
+    },
+    {
+      "name": "cartesian_product<T>::iterator::operator==",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for cartesian_product<int>::iterator::operator==()\n// Strategy: construct a product, create multiple iterators from the same range and compare them\n// at various logical positions. Avoid comparing iterators from different products per requirement.\n\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\nsize_t outer_n = (size_t)((unsigned)nexti() % 6u) + 1u;\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\nfor (size_t d = 0; d < outer_n; ++d) {\n    size_t inner_n = (size_t)((unsigned)nexti() % 5u) + 1u; // non-empty\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\nauto cp = make_cartesian_product<int>(vecs);\nauto a = cp.begin();\nauto b = cp.begin();\nauto e = cp.end();\n\n// Initially equal\nbool eq0 = (a == b);\nFUZZ_ASSERT(eq0, \"Two default-begins from same range must be equal\");\n\n// Advance b by k steps (bounded) and compare\nsize_t ub = 1; for (const auto &iv : vecs) { ub *= (iv.size() > 1 ? 2u : 1u); if (ub > 16u) { ub = 16u; break; } }\nsize_t steps = (size_t)((unsigned)nexti() % (ub + 1u));\nfor (size_t s = 0; s < steps; ++s) { if (b == e) break; ++b; }\n\nbool eq1 = (a == b);\n// They may or may not be equal depending on steps; no assertion here.\n\n// Advance a to match b and they should be equal\nwhile (!(a == b)) { if (a == e) break; ++a; }\nFUZZ_ASSERT((a == b) || (a == e && b == e), \"Iterators from same range at same logical position should compare equal\");\n\n// Verify end comparisons\nwhile (!(a == e)) { ++a; } // move to end safely\nwhile (!(b == e)) { ++b; }\nFUZZ_ASSERT(a == b, \"End iterators from same range must compare equal\");\n\n// Validation: This stub only compares iterators originating from the same cartesian_product and exercises equality at begin, mid, and end."
+    },
+    {
+      "name": "cartesian_product<T>::begin",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for cartesian_product<int>::begin()\n// Strategy: build random vec-of-vecs possibly including empty inner vectors; check that\n// begin()==end() exactly when the product is empty; otherwise dereference begin to exercise validity.\n\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\nsize_t outer_n = (size_t)((unsigned)nexti() % 6u); // allow 0 to cover empty-outer case\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\nfor (size_t d = 0; d < outer_n; ++d) {\n    // Allow empty inner vectors to test empty-product behavior\n    size_t inner_n = (size_t)((unsigned)nexti() % 4u); // [0,3]\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\nbool expected_empty = cartesian_product_is_empty<int>(vecs);\n\nauto cp = make_cartesian_product<int>(vecs);\nauto b = cp.begin();\nauto e = cp.end();\n\nFUZZ_ASSERT((b == e) == expected_empty, \"begin()==end() must match emptiness of the cartesian product\");\n\nif (!(b == e)) {\n    std::vector<int> &tpl = *b;\n    FUZZ_ASSERT(tpl.size() == vecs.size(), \"Tuple arity at begin must equal number of dimensions\");\n}\n\n// Validation: The stub verifies begin/end relation to emptiness and safely dereferences begin only when valid."
+    },
+    {
+      "name": "cartesian_product<T>::end",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for cartesian_product<int>::end()\n// Strategy: construct random vec-of-vecs (including empty cases) and ensure end() is only used\n// for comparisons; we explicitly avoid dereferencing or incrementing end.\n\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\nsize_t outer_n = (size_t)((unsigned)nexti() % 6u);\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\nfor (size_t d = 0; d < outer_n; ++d) {\n    size_t inner_n = (size_t)((unsigned)nexti() % 4u); // allow empty\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\nauto cp = make_cartesian_product<int>(vecs);\nauto b = cp.begin();\nauto e = cp.end();\n\n// Exercise comparisons only\nbool is_empty = cartesian_product_is_empty<int>(vecs);\nFUZZ_ASSERT((b == e) == is_empty, \"end() must compare equal to begin() iff product is empty\");\n\nif (!is_empty) {\n    // Advance safely and compare to end along the way\n    size_t ub = 1; for (const auto &iv : vecs) { ub *= (iv.size() > 1 ? 2u : 1u); if (ub > 16u) { ub = 16u; break; } }\n    size_t steps = (size_t)((unsigned)nexti() % (ub + 1u));\n    auto it = b;\n    for (size_t s = 0; s < steps && !(it == e); ++s) { ++it; }\n    // No dereference of end; just a comparison\n    (void)(it == e);\n}\n\n// Validation: The stub uses end() strictly for equality comparisons and never dereferences it."
+    },
+    {
+      "name": "cartesian_product_size",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for cartesian_product_size<int>()\n// Strategy: create random vec-of-vecs, compute size via API, and cross-check against a safe\n// bounded multiplication to detect basic consistency for small cases.\n\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\nsize_t outer_n = (size_t)((unsigned)nexti() % 6u); // include 0\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\nfor (size_t d = 0; d < outer_n; ++d) {\n    size_t inner_n = (size_t)((unsigned)nexti() % 6u); // include 0\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\nsize_t s = cartesian_product_size<int>(vecs);\n\n// Independent check for small cases: if all inner sizes <= 8 and outer_n <= 6,\n// compute product exactly without overflow in our bounded scenario and compare.\nbool small = true; for (const auto &iv : vecs) { if (iv.size() > 8) { small = false; break; } }\nif (small) {\n    size_t prod = (outer_n == 0 ? 1u : 1u);\n    for (const auto &iv : vecs) { prod *= iv.size(); }\n    FUZZ_ASSERT(s == prod, \"cartesian_product_size must equal product of inner sizes for small inputs\");\n}\n\n// Validation: The stub exercises empty-outer and empty-inner cases and checks correctness for bounded small inputs."
+    },
+    {
+      "name": "cartesian_product_is_empty",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for cartesian_product_is_empty<int>()\n// Strategy: generate random vec-of-vecs including empty outer and inner vectors; verify the API\n// result equals the logical emptiness rule, and cross-check against begin()==end() via the range.\n\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\nsize_t outer_n = (size_t)((unsigned)nexti() % 6u); // include 0\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\nfor (size_t d = 0; d < outer_n; ++d) {\n    size_t inner_n = (size_t)((unsigned)nexti() % 5u); // include 0\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\nbool api_empty = cartesian_product_is_empty<int>(vecs);\n\n// Logical rule: empty if outer empty OR any inner empty\nbool logical_empty = (outer_n == 0);\nif (!logical_empty) {\n    for (const auto &iv : vecs) { if (iv.empty()) { logical_empty = true; break; } }\n}\nFUZZ_ASSERT(api_empty == logical_empty, \"cartesian_product_is_empty must follow documented rule\");\n\n// Cross-check with range semantics\nauto cp = make_cartesian_product<int>(vecs);\nFUZZ_ASSERT((cp.begin() == cp.end()) == api_empty, \"begin()==end() must align with emptiness\");\n\n// Validation: The stub validates both the direct rule and cross-checks against iterator emptiness."
+    },
+    {
+      "name": "make_cartesian_product",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Harness for make_cartesian_product<int>()\n// Strategy: create random vec-of-vecs, call the factory, then perform a short, bounded iteration\n// to ensure the returned range is usable and stable w.r.t. underlying storage lifetime.\n\nconst int (*rand_pool)[128] = FUZZ_PARAM(int[128]);\nsize_t rp = 0; auto nexti = [&](){ return (*rand_pool)[(rp++) % 128]; };\n\nsize_t outer_n = (size_t)((unsigned)nexti() % 6u); // include 0\nstd::vector<std::vector<int>> vecs; vecs.reserve(outer_n);\nfor (size_t d = 0; d < outer_n; ++d) {\n    size_t inner_n = (size_t)((unsigned)nexti() % 5u); // allow empty\n    std::vector<int> inner; inner.reserve(inner_n);\n    for (size_t j = 0; j < inner_n; ++j) inner.push_back(nexti());\n    vecs.push_back(std::move(inner));\n}\n\nauto cp = make_cartesian_product<int>(vecs);\nauto it = cp.begin();\nauto e = cp.end();\n\nbool is_empty = cartesian_product_is_empty<int>(vecs);\nFUZZ_ASSERT((it == e) == is_empty, \"Factory must produce a range whose begin/end reflect emptiness\");\n\n// Iterate a few steps safely (bounded) if not empty\nif (!is_empty) {\n    size_t limit = 1; for (const auto &iv : vecs) { limit *= (iv.size() > 1 ? 2u : 1u); if (limit > 8u) { limit = 8u; break; } }\n    size_t steps = (size_t)((unsigned)nexti() % (limit + 1u));\n    for (size_t s = 0; s < steps && !(it == e); ++s) {\n        std::vector<int> &tpl = *it;\n        FUZZ_ASSERT(tpl.size() == vecs.size(), \"Tuple arity must match number of dimensions during iteration\");\n        ++it;\n    }\n}\n\n// Validation: The stub ensures the constructed range is viable and iterates in a guarded, bounded manner to avoid end misuse."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "cartesian_product<T>::iterator::operator*",
+      "data_types": []
+    },
+    {
+      "name": "cartesian_product<T>::iterator::operator++",
+      "data_types": []
+    },
+    {
+      "name": "cartesian_product<T>::iterator::operator==",
+      "data_types": []
+    },
+    {
+      "name": "cartesian_product<T>::begin",
+      "data_types": []
+    },
+    {
+      "name": "cartesian_product<T>::end",
+      "data_types": []
+    },
+    {
+      "name": "cartesian_product_size",
+      "data_types": []
+    },
+    {
+      "name": "cartesian_product_is_empty",
+      "data_types": []
+    },
+    {
+      "name": "make_cartesian_product",
+      "data_types": []
+    }
+  ],
+  "data_types": [],
+  "generators": [],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1463,
+            "output_tokens": 1286,
+            "total_tokens": 2749
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1041,
+            "output_tokens": 75,
+            "total_tokens": 1116
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1538,
+            "output_tokens": 2077,
+            "total_tokens": 3615
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4788,
+            "output_tokens": 5947,
+            "total_tokens": 10735
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 168.38791227340698,
+    "scan_objects": 14.363397359848022,
+    "validate_objects": 0.12981653213500977,
+    "scan_functions": 44.369457483291626,
+    "synthesis": 109.45474815368652,
+    "fill": 0,
+    "classify": 0.06954669952392578,
+    "build_generators": 0.00007724761962890625
+  }
+}

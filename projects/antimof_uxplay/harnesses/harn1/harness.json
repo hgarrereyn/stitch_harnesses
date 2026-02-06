@@ -1,0 +1,287 @@
+{
+  "objects": [
+    {
+      "ptr_type": "logger_callback_t *",
+      "aliases": [],
+      "definition": "typedef void (*logger_callback_t)(void *cls, int level, const char *msg);",
+      "description": "Function pointer type for log callbacks. Implementations receive an opaque user pointer, a log level (LOGGER_*), and a NUL-terminated message string. The callee should be reentrant or thread-safe if used from multiple threads; destruction/ownership are external to this type.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "logger_t *"
+      ]
+    },
+    {
+      "ptr_type": "logger_t *",
+      "aliases": [
+        "struct logger_s *"
+      ],
+      "definition": "typedef struct logger_s logger_t;",
+      "description": "Opaque logger object handle. The struct is forward-declared only; its internals are hidden. It represents a logging context with a configurable level and optional callback.",
+      "direct_api_constructors": [
+        "logger_t *logger_init()"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "logger_init",
+      "signature": "logger_t *logger_init();",
+      "description": "Allocate and initialize a new logger instance. Typically called once to obtain a logger handle used by the other logger_* APIs. Returns a pointer to an opaque logger_t or NULL on failure (return semantics are not documented here).",
+      "requirements": [
+        "Must be called before passing a logger_t* to any other logger_* function.",
+        "Caller is responsible for eventually releasing the returned logger with logger_destroy.",
+        "No arguments; thread-safety and allocation failure behavior are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "logger_destroy",
+      "signature": "void logger_destroy(logger_t *logger);",
+      "description": "Destroy a logger instance and release its resources. After this call, the logger pointer must not be used.",
+      "requirements": [
+        "logger must be a valid pointer previously returned by logger_init.",
+        "logger must not be NULL.",
+        "Must not be called more than once for the same logger instance.",
+        "No other logger_* calls should be made with this logger after destruction."
+      ],
+      "error": null
+    },
+    {
+      "name": "logger_set_level",
+      "signature": "void logger_set_level(logger_t *logger, int level);",
+      "description": "Set the minimum log level for the logger. Messages below this level may be suppressed. Levels follow syslog-style constants defined in this header (LOGGER_EMERG..LOGGER_DEBUG_DATA).",
+      "requirements": [
+        "logger must be a valid, initialized logger_t* from logger_init.",
+        "level should be one of the defined LOGGER_* constants (0..8).",
+        "Behavior for out-of-range level values is unknown; callers should avoid passing values outside the defined constants."
+      ],
+      "error": null
+    },
+    {
+      "name": "logger_get_level",
+      "signature": "int logger_get_level(logger_t *logger);",
+      "description": "Get the current log level configured for the logger.",
+      "requirements": [
+        "logger must be a valid, initialized logger_t* from logger_init.",
+        "Return value is an integer corresponding to a LOGGER_* constant; exact error signaling for invalid input is unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "logger_set_callback",
+      "signature": "void logger_set_callback(logger_t *logger, logger_callback_t callback, void *cls);",
+      "description": "Register a callback to receive log messages emitted by the logger. The callback is invoked with the user-provided cls pointer, the message level, and the message string.",
+      "requirements": [
+        "logger must be a valid, initialized logger_t* from logger_init.",
+        "callback must be a valid function pointer compatible with logger_callback_t; whether NULL disables callbacks is not documented.",
+        "cls is an opaque user pointer; it may be NULL.",
+        "Callback will receive a const char* message; callback must not modify or retain the pointer beyond its valid scope (lifetime details are not documented).",
+        "Reentrancy and threading guarantees for callback invocation are unknown."
+      ],
+      "error": null
+    },
+    {
+      "name": "logger_log",
+      "signature": "void logger_log(logger_t *logger, int level, const char *fmt, ...);",
+      "description": "Log a formatted message at the specified level using printf-style formatting. The message may be filtered based on the logger's current level and may be delivered to a registered callback.",
+      "requirements": [
+        "logger must be a valid, initialized logger_t* from logger_init.",
+        "level should be one of the defined LOGGER_* constants (0..8).",
+        "fmt must be a non-NULL, printf-style format string.",
+        "The variable arguments must match the format specifiers in fmt (printf-compatible).",
+        "The message encoding and maximum length are unspecified; callers should avoid excessively long messages.",
+        "Thread-safety and asynchronous behavior are unknown."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "logger_init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "code": "// Allocate a new logger instance\nlogger_t *logger = logger_init();\n// Enforce non-NULL as a basic success check; bail if allocation failed\nif (!logger) { FUZZ_BAIL(); }\n// Track lifecycle so other stubs can validate usage after init\nFUZZ_SET_ATTR_INT(logger, \"alive\", 1);\n// Level is unknown on creation; do not set it here to allow exercising defaults\n// Validation: Ensures non-null creation and marks object alive for downstream checks."
+    },
+    {
+      "name": "logger_destroy",
+      "inputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Validate lifecycle before destruction\nint alive = FUZZ_GET_ATTR_INT(logger, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Destroy the logger; after this call, the handle must not be used\nlogger_destroy(logger);\n// Mark as no longer alive; do not return it as an output to drop it from the pool\nFUZZ_SET_ATTR_INT(logger, \"alive\", 0);\n// Validation: Prevents double-destroy and use-after-free by checking and clearing the alive attribute."
+    },
+    {
+      "name": "logger_set_level",
+      "inputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "code": "// Validate logger is alive\nint alive = FUZZ_GET_ATTR_INT(logger, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Constrain level to documented range 0..8 (syslog-style)\nint level = (int)(*FUZZ_PARAM(unsigned int) % 9);\n// Apply the level\nlogger_set_level(logger, level);\n// Track the configured level for later verification by logger_get_level\nFUZZ_SET_ATTR_INT(logger, \"level\", level);\n// Keep logger in the pool by returning it as an output\n// Validation: Enforces alive precondition and valid level domain; records level attribute."
+    },
+    {
+      "name": "logger_get_level",
+      "inputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "code": "// Validate logger is alive\nint alive = FUZZ_GET_ATTR_INT(logger, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Query level\nint got = logger_get_level(logger);\n// If we previously set a level, it should match; assert this property\nint expected = FUZZ_GET_ATTR_INT(logger, \"level\");\nif (expected || FUZZ_GET_ATTR_INT(logger, \"level_set_once\")) {\n    // Use a flag to avoid ambiguity when expected==0 from default not-set state\n}\n// Mark if we've ever explicitly set the level\nif (FUZZ_GET_ATTR_INT(logger, \"level\") || FUZZ_GET_ATTR_INT(logger, \"level_set_once\")) {\n    // no-op, already marked\n} else {\n    // If a level was set via logger_set_level stub, we already stored it; mark once when we observe it\n}\n// If attribute exists (we store even 0), compare using an explicit presence flag\nint have_attr = 0;\n// Presence detection: store a shadow flag whenever set_level is called\nif (FUZZ_GET_ATTR_INT(logger, \"level_present_flag\")) { have_attr = 1; }\n// Backfill presence flag if we see a \"level\" attribute set by our set_level stub\nif (!have_attr) {\n    // If the fuzzer previously executed logger_set_level, we would have set level_present_flag\n}\n// To make presence explicit, set the flag here if not already set and we are not able to determine; no assertion in that case\nif (FUZZ_GET_ATTR_INT(logger, \"level_present_flag\")) {\n    FUZZ_ASSERT(got == FUZZ_GET_ATTR_INT(logger, \"level\"), \"logger_get_level should return the level set via logger_set_level\");\n}\n// Keep logger in the pool by returning it as an output\n// Validation: Checks alive; if a prior level was set (tracked via attribute), asserts getter consistency."
+    },
+    {
+      "name": "logger_set_callback",
+      "inputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "code": "// Validate logger is alive\nint alive = FUZZ_GET_ATTR_INT(logger, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Decide whether to install a NULL callback or a valid one to exercise both paths\nbool use_null = ((*FUZZ_PARAM(unsigned int)) & 1u) != 0u;\n// Prepare a non-capturing lambda convertible to a C function pointer compatible with logger_callback_t\nlogger_callback_t cb = nullptr;\nif (!use_null) {\n    cb = +[](void *cls, int level, const char *msg) {\n        // Minimal, side-effect-free callback body. Do not recurse into API to avoid reentrancy issues.\n        (void)cls; (void)level; (void)msg;\n    };\n}\n// Choose cls: either NULL or the persistent logger pointer to ensure stability beyond the call scope\nvoid *cls = (void *)(use_null ? nullptr : (void*)logger);\n// Register the callback\nlogger_set_callback(logger, cb, cls);\n// Keep logger in the pool by returning it as an output\n// Validation: Ensures alive, exercises both NULL and valid callback registration while providing a stable cls pointer."
+    },
+    {
+      "name": "logger_log",
+      "inputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "logger",
+          "type": "logger_t *"
+        }
+      ],
+      "code": "// Validate logger is alive\nint alive = FUZZ_GET_ATTR_INT(logger, \"alive\");\nif (!alive) { FUZZ_BAIL(); }\n// Constrain level to 0..8\nint level = (int)(*FUZZ_PARAM(unsigned int) % 9);\n// Select a safe, pre-defined printf-style format and supply matching arguments\nunsigned int choice = *FUZZ_PARAM(unsigned int) % 6u;\n// Prepare fuzz data for arguments\nstd::string s = FUZZ_PARAM_STR();\nif (s.size() > 512) { s.resize(512); } // avoid excessively long messages\nconst char *cs = s.c_str();\nint i1 = (int)(*FUZZ_PARAM(int));\nunsigned int u1 = *FUZZ_PARAM(unsigned int);\nunsigned int u2 = *FUZZ_PARAM(unsigned int);\nvoid *p = (void*)logger; // stable pointer for %p\n// Dispatch by chosen format, ensuring argument types match exactly\nif (choice == 0u) {\n    // Simple string\n    const char *fmt = \"%s\";\n    logger_log(logger, level, fmt, cs);\n} else if (choice == 1u) {\n    // Mixed integers\n    const char *fmt = \"%d %u %x\";\n    logger_log(logger, level, fmt, i1, u1, u2);\n} else if (choice == 2u) {\n    // Precision-limited string\n    const char *fmt = \"%.*s\";\n    int prec = (int)(s.size());\n    logger_log(logger, level, fmt, prec, cs);\n} else if (choice == 3u) {\n    // Pointer formatting\n    const char *fmt = \"%p\";\n    logger_log(logger, level, fmt, p);\n} else if (choice == 4u) {\n    // Percent escaping, no args\n    const char *fmt = \"literal %% message\";\n    logger_log(logger, level, fmt);\n} else {\n    // Mixed string and int\n    const char *fmt = \"level=%d msg=%s\";\n    logger_log(logger, level, fmt, i1, cs);\n}\n// Keep logger in the pool by returning it as an output\n// Validation: Enforces alive and level range; supplies strictly matching varargs for selected formats and bounds message sizes."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "logger_init",
+      "data_types": []
+    },
+    {
+      "name": "logger_destroy",
+      "data_types": []
+    },
+    {
+      "name": "logger_set_level",
+      "data_types": []
+    },
+    {
+      "name": "logger_get_level",
+      "data_types": []
+    },
+    {
+      "name": "logger_set_callback",
+      "data_types": []
+    },
+    {
+      "name": "logger_log",
+      "data_types": [
+        "arbitrary string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary string",
+      "description": "An unconstrained, raw byte sequence interpreted as a NUL-terminated C string when passed to functions expecting const char*. May contain any characters including spaces and punctuation. For C interfaces, the buffer should include or be treated as having an implicit terminating NUL; embedded NULs may truncate the interpreted string. No specific encoding (e.g., UTF-8) is required."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary string",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator targets fuzzer stubs that consume an arbitrary string via FUZZ_PARAM_STR.\n# The stub uses the string as printf arguments (%s / %.*s) and limits to 512 bytes.\n# We therefore generate NUL-terminated, diverse strings with varying lengths and content,\n# including edge cases like embedded NULs (which truncate when interpreted as C strings),\n# wide ASCII ranges, format-looking sequences, and long runs.\n# Output is a single bytes buffer that the harness will use as a source for FUZZ_PARAM_STR\n# and potentially other primitive params. We keep size <= 4096.\n\nMAX_TOTAL = 4096\n\nCONTROL_SETS: List[bytes] = [\n    b\"\",                              # empty\n    b\"a\",                             # single char\n    b\"hello\",                         # simple word\n    b\"%s\",                           # looks like format\n    b\"%.*s\",                         # precision string format\n    b\"100 200 ff\",                   # tokens that could align with %d %u %x\n    b\"literal % message\",            # contains escaped percent in stub\n    b\"level=5 msg=ok\",               # looks like final branch\n    b\"\\x00\",                         # leading NUL (interpreted as empty C string)\n    b\"A\" * 511,                      # near limit (stub caps at 512)\n    b\"A\" * 512,                      # at cap\n    b\"A\" * 513,                      # above cap (will be resized by stub)\n]\n\nPUNCT = b\"!@#$%^&*()_+-={}[]|:;\\'\\\",.<>/?`~\"\nWHITES = b\" \\t\\r\\n\\v\\f\"\nDIGITS = b\"0123456789\"\nHEXLOW = b\"0123456789abcdef\"\nHEXUP = b\"0123456789ABCDEF\"\nLETTERS = b\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"\n\n\ndef _rand_bytes(r: random.Random, n: int) -> bytes:\n    return bytes(r.getrandbits(8) for _ in range(n))\n\n\ndef _make_chunk_set(r: random.Random) -> List[bytes]:\n    chunks: List[bytes] = []\n\n    # 1) Simple printable chunk\n    length = r.randint(1, 200)\n    alphabet = LETTERS + DIGITS + b\" _-/.\"\n    chunks.append(bytes(r.choice(alphabet) for _ in range(length)))\n\n    # 2) Mixed ASCII including punctuation\n    length = r.randint(5, 200)\n    alphabet = LETTERS + DIGITS + PUNCT + WHITES\n    chunks.append(bytes(r.choice(alphabet) for _ in range(length)))\n\n    # 3) Looks like hex numbers for %x\n    items = [\n        bytes(r.choice(HEXLOW) for _ in range(r.randint(1, 8))),\n        bytes(r.choice(HEXUP) for _ in range(r.randint(1, 8))),\n        bytes(r.choice(HEXLOW) for _ in range(r.randint(1, 8))),\n    ]\n    chunks.append(b\" \".join(items))\n\n    # 4) Integers for %d %u\n    ints = [str(r.randint(-2**31, 2**31 - 1)).encode() for _ in range(3)]\n    chunks.append(b\" \".join(ints))\n\n    # 5) Message-like\n    msg = b\"level=\" + str(r.randint(0, 8)).encode() + b\" msg=\"\n    tail_alphabet = LETTERS + DIGITS + WHITES[:2]\n    tail = bytes(r.choice(tail_alphabet) for _ in range(r.randint(0, 80)))\n    chunks.append(msg + tail)\n\n    # 6) Format-looking but safe as data\n    formats = [b\"%s\", b\"%.*s\", b\"%d %u %x\", b\"literal %% message\", b\"%p\"]\n    # Interleave with random text\n    chunks.append(b\";\".join(\n        r.choice([b\"pre\", b\"mid\", b\"post\", b\"txt\"]) + b\":\" + r.choice(formats)\n        for _ in range(r.randint(1, 4))\n    ))\n\n    # 7) Binary-ish with some NULs inside to test truncation\n    blob_len = r.randint(10, 200)\n    blob = bytearray(_rand_bytes(r, blob_len))\n    # sprinkle a few NULs\n    for _ in range(r.randint(1, 4)):\n        if blob_len:\n            blob[r.randrange(blob_len)] = 0\n    chunks.append(bytes(blob))\n\n    # 8) Long repeated runs\n    ch = r.choice([b\"A\", b\"0\", b\"\\xff\", b\"\\x7f\", b\" \"])\n    chunks.append(ch * r.randint(50, 600))\n\n    return chunks\n\n\ndef _assemble(r: random.Random) -> bytes:\n    parts: List[bytes] = []\n\n    # Start with a control sample sometimes\n    if r.random() < 0.4:\n        parts.append(r.choice(CONTROL_SETS))\n\n    # Add several generated chunks\n    for _ in range(r.randint(2, 6)):\n        parts.extend(_make_chunk_set(r))\n\n    # Shuffle to vary ordering\n    r.shuffle(parts)\n\n    # Join with separators that exercise whitespace handling\n    seps = [b\"\", b\" \", b\"\\n\", b\"\\t\", b\"\\0\", b\"::\"]\n    buf = bytearray()\n    for i, p in enumerate(parts):\n        if i:\n            buf += r.choice(seps)\n        buf += p\n        if len(buf) > MAX_TOTAL - 1:\n            break\n\n    # Trim to maximum allowed minus NUL terminator\n    if len(buf) > MAX_TOTAL - 1:\n        del buf[MAX_TOTAL - 1:]\n\n    # Ensure NUL-termination for safe %s/%.*s\n    if not buf or buf[-1] != 0:\n        buf += b\"\\x00\"\n\n    return bytes(buf)\n\n\ndef generate(seed: int) -> bytes:\n    r = random.Random(seed)\n\n    # Randomly select a generation profile for diversity\n    mode = r.randint(0, 3)\n\n    if mode == 0:\n        # Pure control pick with enforced NUL terminator\n        base = bytearray(r.choice(CONTROL_SETS))\n        # Possibly extend with some printable tail to reach interesting lengths\n        if r.random() < 0.7:\n            tail_len = r.randint(0, 700)\n            tail_alpha = LETTERS + DIGITS + PUNCT + WHITES\n            base += bytes(r.choice(tail_alpha) for _ in range(tail_len))\n        if len(base) > MAX_TOTAL - 1:\n            del base[MAX_TOTAL - 1:]\n        if not base or base[-1] != 0:\n            base += b\"\\x00\"\n        return bytes(base)\n\n    elif mode == 1:\n        # Structured tokens separated by spaces/newlines\n        tokens: List[bytes] = []\n        # Mix of numbers, hex, words, and format-looking tokens\n        for _ in range(r.randint(10, 60)):\n            choice = r.random()\n            if choice < 0.25:\n                tokens.append(str(r.randint(-2**31, 2**31 - 1)).encode())\n            elif choice < 0.5:\n                ln = r.randint(1, 8)\n                tokens.append(bytes(r.choice(HEXLOW) for _ in range(ln)))\n            elif choice < 0.75:\n                ln = r.randint(1, 16)\n                tokens.append(bytes(r.choice(LETTERS) for _ in range(ln)))\n            else:\n                tokens.append(r.choice([b\"%s\", b\"%.*s\", b\"%d\", b\"%u\", b\"%x\", b\"%p\", b\"literal\", b\"level=\"]))\n        sep = r.choice([b\" \", b\"\\n\", b\"\\t\"]) \\\n              + (b\"\" if r.random() < 0.5 else b\"\")\n        buf = sep.join(tokens)\n        if len(buf) > MAX_TOTAL - 1:\n            buf = buf[:MAX_TOTAL - 1]\n        if not buf or buf[-1] != 0:\n            buf += b\"\\x00\"\n        return buf\n\n    elif mode == 2:\n        # Binary-heavy with scattered NULs and printable islands\n        length = r.randint(50, MAX_TOTAL - 1)\n        buf = bytearray(_rand_bytes(r, length))\n        # Ensure many bytes are printable to exercise %.*s and %s nicely\n        for _ in range(length // 20 + 1):\n            pos = r.randrange(len(buf))\n            buf[pos] = r.choice((list(LETTERS + DIGITS + PUNCT + WHITES)))\n        # Insert several NULs to cause early truncations\n        for _ in range(r.randint(1, 10)):\n            pos = r.randrange(len(buf))\n            buf[pos] = 0\n        # Guarantee trailing NUL\n        if buf[-1] != 0:\n            buf.append(0)\n        else:\n            # Already NUL-terminated, ensure size limit\n            if len(buf) > MAX_TOTAL:\n                del buf[MAX_TOTAL:]\n        return bytes(buf)\n\n    else:\n        # Mixed assembly path\n        return _assemble(r)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1089,
+            "output_tokens": 196,
+            "total_tokens": 1285
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 667,
+            "output_tokens": 36,
+            "total_tokens": 703
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1123,
+            "output_tokens": 1036,
+            "total_tokens": 2159
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4618,
+            "output_tokens": 3955,
+            "total_tokens": 8573
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2541,
+            "output_tokens": 121,
+            "total_tokens": 2662
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 105.28417825698853,
+    "scan_objects": 4.417133092880249,
+    "validate_objects": 0.24365949630737305,
+    "scan_functions": 22.244349718093872,
+    "synthesis": 51.15256452560425,
+    "fill": 0,
+    "classify": 2.5979998111724854,
+    "build_generators": 24.627792358398438
+  }
+}

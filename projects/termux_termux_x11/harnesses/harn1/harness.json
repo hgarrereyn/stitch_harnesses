@@ -1,0 +1,237 @@
+{
+  "objects": [
+    {
+      "ptr_type": "SHA1_CTX *",
+      "aliases": [],
+      "definition": "typedef struct {\n    uint32_t state[5];\n    uint64_t count;\n    uint8_t buffer[SHA1_BLOCK_LENGTH];\n} SHA1_CTX;",
+      "description": "SHA-1 message-digest context structure holding the running state (5-word hash state), total processed bit/byte count, and a 64-byte working buffer for block processing. Used with SHA1Init, SHA1Update, SHA1Pad, and SHA1Final to compute SHA-1 digests.",
+      "direct_api_constructors": [
+        "SHA1Init"
+      ],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "SHA1Init",
+      "signature": "void SHA1Init(SHA1_CTX *);",
+      "description": "Initializes a SHA1_CTX for a new SHA-1 hash computation by setting internal state and counters. Typical usage: call once before any SHA1Update calls and before finalization.",
+      "requirements": [
+        "ctx must be a valid, writable pointer to a SHA1_CTX.",
+        "Must be called before SHA1Update, SHA1Pad, or SHA1Final on the same context.",
+        "The context should not be used concurrently from multiple threads without external synchronization."
+      ],
+      "error": null
+    },
+    {
+      "name": "SHA1Pad",
+      "signature": "void SHA1Pad(SHA1_CTX *);",
+      "description": "Applies the SHA-1 padding to the message in the provided context. Usually invoked internally by SHA1Final; exposed for low-level control when finalizing a digest in multiple steps.",
+      "requirements": [
+        "ctx must be a valid, writable pointer to an initialized SHA1_CTX (initialized via SHA1Init).",
+        "Should be called only after all input data has been provided via SHA1Update and before producing the final digest.",
+        "Once padding is applied, do not call SHA1Update on the same context unless reinitialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "SHA1Transform",
+      "signature": "void SHA1Transform(uint32_t [5], const uint8_t [SHA1_BLOCK_LENGTH]);",
+      "description": "Core SHA-1 compression function that processes exactly one 64-byte block to update the 5-word state. Intended for low-level/internal use; most callers should use SHA1Update/SHA1Final instead.",
+      "requirements": [
+        "The first argument must point to an array of 5 uint32_t words representing the current SHA-1 state; it will be updated in place.",
+        "The second argument must point to exactly SHA1_BLOCK_LENGTH (64) bytes of input data.",
+        "Both pointers must be non-null and correctly aligned for their types.",
+        "Processes exactly one block; the caller must handle message padding and length encoding if using this directly."
+      ],
+      "error": null
+    },
+    {
+      "name": "SHA1Update",
+      "signature": "void SHA1Update(SHA1_CTX *, const uint8_t *, size_t);",
+      "description": "Feeds arbitrary-length data into an ongoing SHA-1 hash computation. Can be called multiple times to process streaming input.",
+      "requirements": [
+        "ctx must be a valid, writable pointer to a SHA1_CTX previously initialized with SHA1Init.",
+        "If len > 0, the data pointer must be non-null and reference at least len bytes readable memory.",
+        "May be called multiple times before finalization; do not call after SHA1Final or SHA1Pad unless the context is reinitialized.",
+        "Behavior is stable for len == 0 (a no-op)."
+      ],
+      "error": null
+    },
+    {
+      "name": "SHA1Final",
+      "signature": "void SHA1Final(uint8_t [SHA1_DIGEST_LENGTH], SHA1_CTX *);",
+      "description": "Finalizes the SHA-1 computation, writing the 20-byte message digest to the provided buffer and cleaning up the context state as needed. After this call, the context typically must be reinitialized to hash new data.",
+      "requirements": [
+        "digest must point to a writable buffer of at least SHA1_DIGEST_LENGTH (20) bytes.",
+        "ctx must be a valid, writable pointer to a SHA1_CTX that has been initialized with SHA1Init.",
+        "Must be called after all data has been provided via SHA1Update; it will perform any required padding.",
+        "Do not call SHA1Update on the same context after SHA1Final unless reinitialized with SHA1Init."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "SHA1Init",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "SHA1_CTX *"
+        }
+      ],
+      "code": "// Constructor-style stub: allocate a fresh context and initialize it\nSHA1_CTX *ctx = new SHA1_CTX();\n// Initialize the context for a new computation\nSHA1Init(ctx);\n// Track context lifecycle state for downstream calls\nFUZZ_SET_ATTR_INT(ctx, \"sha1_init\", 1);\nFUZZ_SET_ATTR_INT(ctx, \"sha1_padded\", 0);\nFUZZ_SET_ATTR_INT(ctx, \"sha1_final\", 0);\n// Output: ctx persists in the object pool\n// Validation: Ensures a new writable SHA1_CTX exists and is marked initialized; no API error path to handle."
+    },
+    {
+      "name": "SHA1Pad",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "SHA1_CTX *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "SHA1_CTX *"
+        }
+      ],
+      "code": "// Enforce: ctx must have been initialized and not yet finalized\nint inited = FUZZ_GET_ATTR_INT(ctx, \"sha1_init\");\nint finalized = FUZZ_GET_ATTR_INT(ctx, \"sha1_final\");\nif (!inited || finalized) { FUZZ_BAIL(); }\n// Apply SHA-1 padding; caller promises no further Update after this unless reinit\nSHA1Pad(ctx);\n// Mark padded; keep initialized flag as-is\nFUZZ_SET_ATTR_INT(ctx, \"sha1_padded\", 1);\n// Output ctx back to pool; it remains valid for SHA1Final only (or reinit)\n// Validation: Guards API order (Init -> Pad) and forbids use after Final; state updated for later checks."
+    },
+    {
+      "name": "SHA1Update",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "SHA1_CTX *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "SHA1_CTX *"
+        }
+      ],
+      "code": "// Enforce: ctx must be initialized, not finalized, and not padded (Update after Pad is forbidden)\nint inited = FUZZ_GET_ATTR_INT(ctx, \"sha1_init\");\nint padded = FUZZ_GET_ATTR_INT(ctx, \"sha1_padded\");\nint finalized = FUZZ_GET_ATTR_INT(ctx, \"sha1_final\");\nif (!inited || finalized || padded) { FUZZ_BAIL(); }\n\n// Generate a data buffer; occasionally choose len==0 to cover no-op path\nstd::string data = FUZZ_PARAM_STR();\nsize_t max_len = data.size();\n// Cap length to avoid excessive work and allow empty updates\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nsize_t len = (pick % 3 == 0) ? 0 : (max_len > 1024 ? 1024 : max_len);\n// For len>0 data pointer must be non-null; for len==0, allow null to exercise no-op behavior\nconst uint8_t *ptr = (len > 0) ? reinterpret_cast<const uint8_t*>(data.data()) : nullptr;\n\n// Feed the data into the hash computation\nSHA1Update(ctx, ptr, len);\n\n// State remains initialized; do not flip padded/finalized here\n// Output ctx back to pool\n// Validation: Respects pointer validity rules and sequencing; covers len==0 and len>0 paths."
+    },
+    {
+      "name": "SHA1Final",
+      "inputs": [
+        {
+          "name": "ctx",
+          "type": "SHA1_CTX *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ctx",
+          "type": "SHA1_CTX *"
+        }
+      ],
+      "code": "// Enforce: ctx must be initialized and not already finalized\nint inited = FUZZ_GET_ATTR_INT(ctx, \"sha1_init\");\nint finalized = FUZZ_GET_ATTR_INT(ctx, \"sha1_final\");\nif (!inited || finalized) { FUZZ_BAIL(); }\n\n// Provide a 20-byte digest buffer as required\nuint8_t digest[20];\n\n// Finalize computation; implementation will perform any required padding\nSHA1Final(digest, ctx);\n\n// Mark the context as finalized and padded; further Update calls must bail until reinit\nFUZZ_SET_ATTR_INT(ctx, \"sha1_final\", 1);\nFUZZ_SET_ATTR_INT(ctx, \"sha1_padded\", 1);\n\n// Return ctx to the pool to allow reinitialization via SHA1Init\n// Validation: Ensures correct sequencing (Init/Update*/Pad? -> Final) and records state to prevent misuse afterwards."
+    },
+    {
+      "name": "SHA1Transform",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Prepare exact-size local buffers to satisfy alignment and non-null requirements\nuint32_t state[5];\nuint8_t block[64];\n\n// Use FUZZ_PARAM with array types to get one random buffer each (avoid per-iteration macro calls)\nconst uint32_t (*rnd_state)[5] = FUZZ_PARAM(uint32_t[5]);\nconst uint8_t (*rnd_block)[64] = FUZZ_PARAM(uint8_t[64]);\n\n// Copy fuzzed data into our writable, properly-aligned local arrays\nfor (int i = 0; i < 5; ++i) { state[i] = (*rnd_state)[i]; }\nfor (int i = 0; i < 64; ++i) { block[i] = (*rnd_block)[i]; }\n\n// Process exactly one 64-byte block; fulfills: non-null, correct sizes, proper alignment\nSHA1Transform(state, block);\n\n// No persistent outputs; this exercises the low-level compressor paths\n// Validation: Correctly sized arrays are provided and constraints (1 block, non-null) are enforced."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "SHA1Init",
+      "data_types": []
+    },
+    {
+      "name": "SHA1Pad",
+      "data_types": []
+    },
+    {
+      "name": "SHA1Final",
+      "data_types": []
+    },
+    {
+      "name": "SHA1Transform",
+      "data_types": []
+    },
+    {
+      "name": "SHA1Update",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A buffer of raw bytes with no required encoding or structure. May contain any 0x00–0xFF values, including embedded NULs. Length can be zero or any positive size; consumers treat it as opaque binary data."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nfrom typing import List\n\n# This generator targets SHA1Update fuzzing, which accepts arbitrary binary data.\n# Strategy: produce diverse, valid byte buffers exercising corner cases.\n\nSHA1_BLOCK = 64\nMAX_OUT = 4096\n\ndef _pattern_zero(n: int) -> bytes:\n    return b\"\\x00\" * n\n\n\ndef _pattern_ff(n: int) -> bytes:\n    return b\"\\xFF\" * n\n\n\ndef _pattern_inc(n: int, start: int = 0) -> bytes:\n    return bytes((start + i) & 0xFF for i in range(n))\n\n\ndef _pattern_dec(n: int, start: int = 255) -> bytes:\n    return bytes((start - i) & 0xFF for i in range(n))\n\n\ndef _pattern_alt(n: int, a: int = 0x00, b: int = 0xFF) -> bytes:\n    if n <= 0:\n        return b\"\"\n    out = bytearray(n)\n    for i in range(n):\n        out[i] = a if (i & 1) == 0 else b\n    return bytes(out)\n\n\ndef _pattern_ascii(n: int) -> bytes:\n    base = (b\"The quick brown fox jumps over the lazy dog. \"\n            b\"Sphinx of black quartz, judge my vow! \")\n    if n <= 0:\n        return b\"\"\n    reps = (n + len(base) - 1) // len(base)\n    return (base * reps)[:n]\n\n\ndef _pattern_random(n: int, rnd: random.Random) -> bytes:\n    return rnd.randbytes(n)\n\n\ndef _pattern_repeated_motif(n: int, rnd: random.Random) -> bytes:\n    motif_len = rnd.choice([1, 2, 3, 4, 5, 7, 8, 16, 32])\n    motif = rnd.randbytes(motif_len)\n    return (motif * ((n + motif_len - 1) // motif_len))[:n]\n\n\ndef _pattern_primes(n: int) -> bytes:\n    # Simple sequence of primes modulo 256\n    def gen_primes(limit: int) -> List[int]:\n        sieve = [True] * (limit + 1)\n        sieve[0:2] = [False, False]\n        for p in range(2, int(limit ** 0.5) + 1):\n            if sieve[p]:\n                step = p\n                start = p * p\n                sieve[start: limit + 1: step] = [False] * (((limit - start) // step) + 1)\n        return [i for i, v in enumerate(sieve) if v]\n    primes = gen_primes(max(3000, n * 10))\n    out = bytearray(n)\n    for i in range(n):\n        out[i] = primes[i % len(primes)] & 0xFF\n    return bytes(out)\n\n\ndef _pattern_fib(n: int) -> bytes:\n    out = bytearray(n)\n    a, b = 1, 1\n    for i in range(n):\n        out[i] = a & 0xFF\n        a, b = b, (a + b) & 0xFFFFFFFF\n    return bytes(out)\n\n\ndef _safe_randint(rnd: random.Random, a: int, b: int) -> int:\n    # Return a value in [a, b], clamping when a > b to single value a\n    if a > b:\n        return a\n    return rnd.randint(a, b)\n\n\ndef _mix_chunks(target_len: int, rnd: random.Random) -> bytes:\n    # Build buffer from chunks with sizes around block boundaries\n    chunks: List[bytes] = []\n    remaining = target_len\n    while remaining > 0:\n        # Prefer sizes that cross 64-byte boundaries\n        max_small = min(remaining, 256)\n        # Ensure the random range is valid even for small remaining\n        size_candidates = [\n            1 if remaining >= 1 else 0,\n            2 if remaining >= 2 else 0,\n            3 if remaining >= 3 else 0,\n            min(remaining, SHA1_BLOCK - 1),\n            min(remaining, SHA1_BLOCK),\n            min(remaining, SHA1_BLOCK + 1),\n            min(remaining, 2 * SHA1_BLOCK - 1),\n            min(remaining, 2 * SHA1_BLOCK),\n            min(remaining, 2 * SHA1_BLOCK + 1),\n            _safe_randint(rnd, 1, max_small) if max_small >= 1 else 0,\n        ]\n        # Filter out zeros that may appear when remaining is small\n        size_candidates = [s for s in size_candidates if s > 0]\n        sz = rnd.choice(size_candidates)\n\n        patt = rnd.randrange(8)\n        if patt == 0:\n            chunk = _pattern_zero(sz)\n        elif patt == 1:\n            chunk = _pattern_ff(sz)\n        elif patt == 2:\n            chunk = _pattern_inc(sz, rnd.randint(0, 255))\n        elif patt == 3:\n            chunk = _pattern_dec(sz, rnd.randint(0, 255))\n        elif patt == 4:\n            chunk = _pattern_alt(sz, rnd.randint(0, 255), rnd.randint(0, 255))\n        elif patt == 5:\n            chunk = _pattern_repeated_motif(sz, rnd)\n        elif patt == 6:\n            chunk = _pattern_ascii(sz)\n        else:\n            chunk = _pattern_random(sz, rnd)\n        chunks.append(chunk)\n        remaining -= len(chunk)\n    return b\"\".join(chunks)\n\n\ndef _choose_lengths(rnd: random.Random) -> List[int]:\n    candidates = [\n        0, 1, 2, 3,\n        SHA1_BLOCK - 1, SHA1_BLOCK, SHA1_BLOCK + 1,\n        2 * SHA1_BLOCK - 1, 2 * SHA1_BLOCK, 2 * SHA1_BLOCK + 1,\n        3 * SHA1_BLOCK - 1, 3 * SHA1_BLOCK, 3 * SHA1_BLOCK + 1,\n        100, 255, 256, 511, 512, 1023, 1024,\n        rnd.randint(5, 1500),\n        rnd.randint(1501, 3500),\n    ]\n    length = rnd.choice([l for l in candidates if l <= MAX_OUT])\n    return [length]\n\n\ndef _build_for_length(n: int, rnd: random.Random) -> bytes:\n    mode = rnd.randrange(10)\n    if n == 0:\n        return b\"\"\n    if mode == 0:\n        return _pattern_zero(n)\n    if mode == 1:\n        return _pattern_ff(n)\n    if mode == 2:\n        return _pattern_inc(n, rnd.randint(0, 255))\n    if mode == 3:\n        return _pattern_dec(n, rnd.randint(0, 255))\n    if mode == 4:\n        return _pattern_alt(n, rnd.randint(0, 255), rnd.randint(0, 255))\n    if mode == 5:\n        return _pattern_ascii(n)\n    if mode == 6:\n        return _pattern_primes(n)\n    if mode == 7:\n        return _pattern_fib(n)\n    if mode == 8:\n        return _pattern_repeated_motif(n, rnd)\n    return _mix_chunks(n, rnd)\n\n\ndef generate(seed: int) -> bytes:\n    rnd = random.Random(seed)\n\n    # Occasionally produce empty to hit len==0 no-op path\n    if rnd.random() < 0.12:\n        return b\"\"\n\n    lengths = _choose_lengths(rnd)\n    n = lengths[0]\n\n    data = _build_for_length(n, rnd)\n\n    # Ensure final size constraint\n    if len(data) > MAX_OUT:\n        data = data[:MAX_OUT]\n\n    # Randomly prepend or append small offsets to cross block boundaries more\n    tweak = rnd.random()\n    if 0.2 < tweak < 0.3 and len(data) + 3 <= MAX_OUT:\n        pad = _pattern_random(rnd.randint(1, 3), rnd)\n        data = pad + data\n    elif 0.3 <= tweak < 0.4 and len(data) + 3 <= MAX_OUT:\n        pad = _pattern_random(rnd.randint(1, 3), rnd)\n        data = data + pad\n\n    return data"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 871,
+            "output_tokens": 146,
+            "total_tokens": 1017
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 449,
+            "output_tokens": 35,
+            "total_tokens": 484
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 903,
+            "output_tokens": 1685,
+            "total_tokens": 2588
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 10732,
+            "output_tokens": 4132,
+            "total_tokens": 14864
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2243,
+            "output_tokens": 96,
+            "total_tokens": 2339
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 280.76343607902527,
+    "scan_objects": 3.8336522579193115,
+    "validate_objects": 0.19480514526367188,
+    "scan_functions": 47.49167609214783,
+    "synthesis": 175.19229674339294,
+    "fill": 0,
+    "classify": 5.9367897510528564,
+    "build_generators": 48.11358046531677
+  }
+}

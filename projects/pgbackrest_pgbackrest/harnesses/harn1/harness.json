@@ -1,0 +1,211 @@
+{
+  "objects": [
+    {
+      "ptr_type": "EncodingType *",
+      "aliases": [],
+      "definition": "typedef enum\n{\n    encodingBase64,\n    encodingBase64Url,\n    encodingHex,\n} EncodingType;",
+      "description": "Enumeration of supported binary-to-text encodings: standard Base64, URL-safe Base64, and hexadecimal. Used to select the encoding/decoding algorithm for the provided encode/decode APIs. No additional semantics are documented in this header.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "encodeToStr",
+      "signature": "void encodeToStr(EncodingType type, const uint8_t *source, size_t sourceSize, char *destination);",
+      "description": "Encodes binary data into a printable string using the specified encoding (base64, base64url, or hex). Typical usage is to compute/know the required output size via encodeToStrSize(type, sourceSize), allocate a destination buffer of sufficient length, and then call this function to write the encoded representation into destination. Null-termination behavior is not documented here; treat it as unknown and size your buffer according to encodeToStrSize.",
+      "requirements": [
+        "type must be a valid EncodingType value: encodingBase64, encodingBase64Url, or encodingHex.",
+        "source must point to at least sourceSize bytes of initialized binary data; it may be NULL only if sourceSize is 0.",
+        "destination must be a valid, writable buffer large enough for the full encoded output; allocate at least encodeToStrSize(type, sourceSize) bytes.",
+        "Behavior on invalid type or invalid inputs is unspecified in this header.",
+        "Whether destination is null-terminated after encoding is not specified; callers must not assume null-termination unless verified by encodeToStrSize documentation or tests."
+      ],
+      "error": null
+    },
+    {
+      "name": "encodeToStrSize",
+      "signature": "size_t encodeToStrSize(EncodingType type, size_t sourceSize);",
+      "description": "Returns the size of the string produced by encodeToStr() for a given encoding type and input binary size. Use this to determine the minimum buffer size to allocate for destination before calling encodeToStr. Whether the returned size includes a null terminator is not specified here.",
+      "requirements": [
+        "type must be a valid EncodingType value: encodingBase64, encodingBase64Url, or encodingHex.",
+        "sourceSize must correctly reflect the number of bytes to be encoded; typically non-negative (size_t).",
+        "Returned size must be used by callers to provision the destination buffer for encodeToStr; inclusion of a null terminator in this size is unspecified."
+      ],
+      "error": null
+    },
+    {
+      "name": "decodeToBin",
+      "signature": "void decodeToBin(EncodingType type, const char *source, uint8_t *destination);",
+      "description": "Decodes a string encoded with the specified encoding (base64, base64url, or hex) into binary data. Typical usage is to compute/know the required output size via decodeToBinSize(type, source), allocate a destination buffer of sufficient length, and call this function to write the decoded bytes into destination. Error reporting for malformed input is not specified in this header.",
+      "requirements": [
+        "type must be a valid EncodingType value: encodingBase64, encodingBase64Url, or encodingHex.",
+        "source must be a valid, readable C string containing only characters valid for the specified encoding; termination and whitespace handling are unspecified beyond being a const char*.",
+        "destination must be a valid, writable buffer large enough to hold the decoded data; allocate at least decodeToBinSize(type, source) bytes.",
+        "Behavior on invalid characters, padding issues, or other malformed inputs is unspecified in this header."
+      ],
+      "error": null
+    },
+    {
+      "name": "decodeToBinSize",
+      "signature": "size_t decodeToBinSize(EncodingType type, const char *source);",
+      "description": "Returns the number of bytes that will result from decoding the given encoded string with the specified encoding. Use this to determine the minimum buffer size needed for destination before calling decodeToBin.",
+      "requirements": [
+        "type must be a valid EncodingType value: encodingBase64, encodingBase64Url, or encodingHex.",
+        "source must be a valid, readable C string for the specified encoding; exact handling of whitespace or separators is unspecified.",
+        "Returned size should be used to allocate the destination buffer passed to decodeToBin."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "encodeToStr",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a valid encoding type deterministically from fuzz input\nunsigned int typePick = *FUZZ_PARAM(unsigned int);\nEncodingType type = (typePick % 3 == 0) ? encodingBase64 : (typePick % 3 == 1) ? encodingBase64Url : encodingHex;\n\n// Prepare source buffer: sometimes zero-length (with NULL pointer), otherwise use fuzz bytes\nstd::string fuzzBytes = FUZZ_PARAM_STR();\nunsigned int sizePick = *FUZZ_PARAM(unsigned int);\nsize_t sourceSize = (sizePick & 1) ? 0u : (size_t)(sizePick % 1025); // cap at 1024 for performance\nif (sourceSize > fuzzBytes.size()) { sourceSize = fuzzBytes.size(); }\nconst uint8_t *source = (sourceSize == 0) ? nullptr : reinterpret_cast<const uint8_t*>(fuzzBytes.data());\n\n// Query required destination size and enforce allocation limit\nsize_t dstSize = encodeToStrSize(type, sourceSize);\nif (dstSize > 2048) { /* avoid large allocations per guidelines */ FUZZ_BAIL(); }\n\n// Allocate destination buffer; if size is 0, still allocate 1 byte to pass a non-null pointer safely\nstd::vector<char> destination((dstSize == 0) ? 1 : dstSize);\n\n// Invoke target: destination must be large enough according to encodeToStrSize\n// Null-termination is unspecified; we neither assume nor rely on it\nencodeToStr(type, source, sourceSize, destination.data());\n\n// Validation summary: type is constrained to valid enum; source respects NULL iff size==0; destination sized via encodeToStrSize and capped <=2048 bytes."
+    },
+    {
+      "name": "encodeToStrSize",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a valid encoding type\nunsigned int typePick = *FUZZ_PARAM(unsigned int);\nEncodingType type = (typePick % 3 == 0) ? encodingBase64 : (typePick % 3 == 1) ? encodingBase64Url : encodingHex;\n\n// Choose a source size within budget\nsize_t sourceSize = (size_t)(*FUZZ_PARAM(unsigned int) % 1025); // 0..1024 bytes\n\n// Call the function under test\nsize_t sz1 = encodeToStrSize(type, sourceSize);\nsize_t sz2 = encodeToStrSize(type, sourceSize);\n\n// Property: determinism for identical inputs\nFUZZ_ASSERT(sz1 == sz2, \"encodeToStrSize must be deterministic for identical inputs\");\n\n// Avoid influencing global state; no allocations are performed here.\n// Validation summary: type constrained to valid enum; size bounded; determinism asserted."
+    },
+    {
+      "name": "decodeToBin",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a valid encoding type\nunsigned int typePick = *FUZZ_PARAM(unsigned int);\nEncodingType type = (typePick % 3 == 0) ? encodingBase64 : (typePick % 3 == 1) ? encodingBase64Url : encodingHex;\n\n// Prepare source encoded string (null-terminated via c_str())\nstd::string srcStr = FUZZ_PARAM_STR();\nconst char *source = srcStr.c_str();\n\n// Determine required destination size, bail if too large\nsize_t dstSize = decodeToBinSize(type, source);\nif (dstSize > 2048) { FUZZ_BAIL(); }\n\n// Allocate destination buffer; if computed size is 0, still provide a non-null pointer\nstd::vector<uint8_t> destination((dstSize == 0) ? 1 : dstSize);\n\n// Invoke target\n// Behavior on malformed input is unspecified; we just ensure the buffer is large enough per size function\ndecodeToBin(type, source, destination.data());\n\n// Validation summary: type constrained; source is a valid C-string; destination sized via decodeToBinSize and capped <=2048 bytes."
+    },
+    {
+      "name": "decodeToBinSize",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Choose a valid encoding type\nunsigned int typePick = *FUZZ_PARAM(unsigned int);\nEncodingType type = (typePick % 3 == 0) ? encodingBase64 : (typePick % 3 == 1) ? encodingBase64Url : encodingHex;\n\n// Provide a candidate encoded string\nstd::string srcStr = FUZZ_PARAM_STR();\nconst char *source = srcStr.c_str();\n\n// Call the function under test twice and assert determinism\nsize_t sz1 = decodeToBinSize(type, source);\nsize_t sz2 = decodeToBinSize(type, source);\nFUZZ_ASSERT(sz1 == sz2, \"decodeToBinSize must be deterministic for identical inputs\");\n\n// Validation summary: type constrained to valid enum; source is null-terminated; determinism asserted."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "encodeToStrSize",
+      "data_types": []
+    },
+    {
+      "name": "encodeToStr",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    },
+    {
+      "name": "decodeToBin",
+      "data_types": [
+        "base64 string",
+        "base64url string",
+        "hex string"
+      ]
+    },
+    {
+      "name": "decodeToBinSize",
+      "data_types": [
+        "base64 string",
+        "base64url string",
+        "hex string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "Raw bytes with no specific structure or encoding. Any sequence of byte values (0x00–0xFF) of arbitrary length. Used as input to binary-to-text encoders."
+    },
+    {
+      "data_type": "base64 string",
+      "description": "A text string using the standard Base64 alphabet A–Z, a–z, 0–9, +, / with optional = padding. May contain only characters valid per standard Base64; whitespace handling is unspecified."
+    },
+    {
+      "data_type": "base64url string",
+      "description": "A text string using the URL-safe Base64 alphabet A–Z, a–z, 0–9, -, _ with optional = padding. Should not include + or / characters; whitespace handling is unspecified."
+    },
+    {
+      "data_type": "hex string",
+      "description": "A text string of hexadecimal digits 0–9, a–f, A–F representing binary data. May or may not require even length; whitespace handling is unspecified."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport os\nimport struct\nfrom typing import List\n\n# This generator targets the encodeToStr fuzzer stub. The stub uses:\n# - FUZZ_PARAM(unsigned int) twice (typePick, sizePick)\n# - FUZZ_PARAM_STR() once to provide source bytes\n# We therefore produce a single bytes blob that, when split by the harness,\n# yields interesting combinations of type, size policy, and source payload.\n# Assumptions: FUZZ framework typically consumes bytes sequentially for each\n# FUZZ_PARAM; for FUZZ_PARAM(unsigned int) it likely reads 4 bytes; for\n# FUZZ_PARAM_STR it likely reads the remaining bytes as the string buffer.\n# Our buffer layout:\n#   [4 bytes typePick][4 bytes sizePick][payload bytes fuzzBytes]\n# We craft these deterministically using the seed to exercise edge cases:\n# - typePick modulo 3 chooses encoding: 0=Base64,1=Base64Url,2=Hex. We vary it.\n# - sizePick controls sourceSize: if (sizePick & 1) -> 0 length with NULL source\n#   else sourceSize = sizePick % 1025, capped to fuzzBytes size.\n# We provide payloads containing binary patterns likely to trigger different\n# encoded sizes and edge alignments (e.g., Base64 0,1,2 mod 3 residuals) and\n# hex odd/even nibble scenarios (even length only is valid for hex bytes when\n# decoding, but here we encode arbitrary binary to hex, so any length works).\n\nMAX_TOTAL = 4096\n\nBASE_PATTERNS: List[bytes] = [\n    b\"\",                                  # empty\n    b\"\\x00\",                              # single null\n    b\"\\xff\",                              # single 0xff\n    b\"\\x00\\x00\\x00\",                    # zeros\n    b\"\\xff\\xff\\xff\",                    # ones\n    b\"\\x00\\xff\\x00\\xff\",                # alternating\n    bytes(range(1, 16)),                   # 1..15\n    bytes(range(0, 64)),                   # 0..63\n    b\"Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind\"[:120],\n]\n\n# Helper to build a payload with a target length, mixing structured and random data\n\ndef build_payload(rng: random.Random, target_len: int) -> bytes:\n    if target_len <= 0:\n        return b\"\"\n    parts: List[bytes] = []\n    # Choose a few base patterns\n    patterns = rng.sample(BASE_PATTERNS, k=min(len(BASE_PATTERNS), 5))\n    for p in patterns:\n        if len(p) == 0:\n            continue\n        parts.append(p)\n        if sum(len(x) for x in parts) >= target_len:\n            break\n    # Ensure we cover Base64 residuals: append blocks with lengths that make total %3 == 0,1,2\n    cur = sum(len(x) for x in parts)\n    residual = cur % 3\n    # Make sure we can hit different residuals by appending small chunks\n    needed_variants = [0, 1, 2]\n    rng.shuffle(needed_variants)\n    for res in needed_variants:\n        cur = sum(len(x) for x in parts)\n        if cur >= target_len:\n            break\n        delta = (res - (cur % 3)) % 3\n        if delta == 0:\n            delta = 3  # add a full block to avoid no-op\n        chunk = os.urandom(min(delta, max(1, target_len - cur)))\n        parts.append(chunk)\n    # Fill the rest with random but inject some zero and 0xff runs\n    cur = sum(len(x) for x in parts)\n    while cur < target_len:\n        choice = rng.randint(0, 4)\n        remaining = target_len - cur\n        if choice == 0:\n            run = min(remaining, rng.randint(1, 64))\n            parts.append(b\"\\x00\" * run)\n        elif choice == 1:\n            run = min(remaining, rng.randint(1, 64))\n            parts.append(b\"\\xff\" * run)\n        elif choice == 2:\n            run = min(remaining, rng.randint(1, 128))\n            parts.append(os.urandom(run))\n        elif choice == 3:\n            # Increasing bytes sequence starting at random offset\n            start = rng.randint(0, 255)\n            run = min(remaining, rng.randint(1, 64))\n            seq = bytes(((start + i) & 0xFF) for i in range(run))\n            parts.append(seq)\n        else:\n            # Reuse a base pattern trimmed to fit\n            bp = rng.choice(BASE_PATTERNS)\n            if len(bp) == 0:\n                continue\n            repeat = max(1, min(remaining // len(bp), 2))\n            parts.append((bp * repeat)[:remaining])\n        cur = sum(len(x) for x in parts)\n    payload = b\"\".join(parts)\n    return payload[:target_len]\n\n\ndef pick_type_and_size(rng: random.Random, payload_len: int) -> tuple[int, int]:\n    # Choose encoding type deterministically via modulo; we set typePick so that typePick % 3\n    # cycles across 0,1,2 with some bias to hit all.\n    mod = rng.randint(0, 2)\n    base = rng.getrandbits(29) * 3  # ensure divisible by 3\n    type_pick = base + mod  # %3 == mod\n\n    # Choose sizePick: control LSB and modulo 1025\n    mode = rng.randint(0, 4)\n    if mode == 0:\n        # Force zero-length source (NULL pointer in stub)\n        size_pick = 1  # LSB=1 -> sourceSize=0\n    else:\n        # Non-zero length; ensure various modulo results and caps\n        target = rng.choice([0, 1, 2, 3, 1024, payload_len % 1025])\n        # We want sizePick % 1025 == target and LSB=0\n        # Construct size_pick as k*1025 + target with even LSB\n        k = rng.randint(0, 3)\n        size_pick = k * 1025 + (target & 0x3FF)  # ensure within 0..1024\n        if size_pick & 1:\n            size_pick += 1  # make even\n        if size_pick == 0:\n            size_pick = 2  # avoid accidental zero leading to 0 size via modulo\n    return type_pick & 0xFFFFFFFF, size_pick & 0xFFFFFFFF\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Budget: keep total under 4096 bytes. Reserve 8 bytes for two uint32_t headers.\n    max_payload = MAX_TOTAL - 8\n\n    # Decide payload length to exercise encoder and size calculator, with variety:\n    # Include 0..64 small sizes, boundary 255, 256, 511, 512, 1023, 1024.\n    lengths = [\n        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,\n        15, 16, 31, 32, 47, 48, 63, 64,\n        127, 128, 255, 256, 511, 512, 767, 768, 1023, 1024\n    ]\n    # Add a random length as well\n    lengths.append(rng.randint(0, min(1500, max_payload)))\n    target_len = rng.choice([l for l in lengths if l <= max_payload])\n\n    payload = build_payload(rng, target_len)\n\n    type_pick, size_pick = pick_type_and_size(rng, len(payload))\n\n    # Assemble buffer: [typePick][sizePick][payload]\n    buf = struct.pack('<II', type_pick, size_pick) + payload\n    # Ensure final size limit\n    return buf[:MAX_TOTAL]\n"
+    },
+    {
+      "data_type": "base64 string",
+      "generator": "import random\nimport base64\nimport binascii\nfrom typing import List, Tuple\n\n# This generator focuses on producing valid encoded strings for the three encodings\n# used by the fuzz targets: Base64, Base64URL, and Hex. The fuzzer selects the\n# EncodingType independently, so we bias generation toward strings that are valid\n# under all three or specifically valid for subsets to exercise different code paths.\n#\n# Strategy:\n# - Produce a mix of:\n#   - Valid Base64 (with/without padding, different lengths)\n#   - Valid Base64URL (with/without padding)\n#   - Valid Hex (even/odd length variants; odd-length still valid if implementation tolerates, but we keep even length to be safe)\n#   - Ambiguous cases valid across multiple encodings (e.g., hex-like strings that are also Base64-valid)\n# - Keep sizes moderate to stay under 2048 decoded bytes when fuzzer queries decodeToBinSize.\n# - Ensure output is a null-terminated C string when used via std::string.c_str(). Returning bytes here; consumer wraps into std::string.\n# - Avoid invalid characters and ensure strict validity per encoding when targeting one.\n\n# Helpers\n_B64_ALPHA_STD = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"\n_B64_ALPHA_URL = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_\"\n_HEX_DIGITS_LO = b\"0123456789abcdef\"\n_HEX_DIGITS_HI = b\"0123456789ABCDEF\"\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _gen_base64_from_bytes(data: bytes, with_padding: bool, urlsafe: bool) -> str:\n    if urlsafe:\n        b = base64.urlsafe_b64encode(data)\n    else:\n        b = base64.b64encode(data)\n    s = b.decode('ascii')\n    if not with_padding:\n        s = s.rstrip('=')\n    return s\n\n\ndef _gen_valid_base64(rng: random.Random) -> str:\n    # Choose decoded size so that encoded size remains manageable\n    # decoded up to ~1000 bytes; encoded ~ 4/3. The fuzzer caps decode size 2048.\n    n = rng.randint(0, 1024)\n    data = _rand_bytes(rng, n)\n    with_padding = rng.choice([True, False])\n    urlsafe = False\n    return _gen_base64_from_bytes(data, with_padding, urlsafe)\n\n\ndef _gen_valid_base64url(rng: random.Random) -> str:\n    n = rng.randint(0, 1024)\n    data = _rand_bytes(rng, n)\n    with_padding = rng.choice([True, False])\n    urlsafe = True\n    return _gen_base64_from_bytes(data, with_padding, urlsafe)\n\n\ndef _gen_valid_hex(rng: random.Random) -> str:\n    # Ensure even length to decode cleanly\n    n = rng.randint(0, 1024)  # decoded bytes; hex length = 2*n\n    # Randomly select lower/upper mix\n    digs1 = _HEX_DIGITS_LO.decode('ascii')\n    digs2 = _HEX_DIGITS_HI.decode('ascii')\n    out = []\n    for _ in range(n * 2):\n        if rng.random() < 0.5:\n            out.append(rng.choice(digs1))\n        else:\n            out.append(rng.choice(digs2))\n    return ''.join(out)\n\n\ndef _gen_ambiguous_hex_base64(rng: random.Random) -> str:\n    # Generate a string consisting only of [A-Za-z0-9+] and '/' so it's valid Base64,\n    # and also consisting of hex digits subset to be valid hex. To be both valid hex\n    # and base64, restrict to [0-9A-Fa-f]. This will be valid base64 as well, though\n    # padding may be absent. We vary length to satisfy base64 multiples.\n    # Choose a length that makes base64 valid without padding (mod 4 != 1). We'll pick mod 4 in {0,2,3}.\n    alphabet = (\"0123456789abcdefABCDEF\")\n    # ensure not length % 4 == 1 to avoid invalid base64 without padding\n    mod = rng.choice([0, 2, 3])\n    # Keep it reasonably sized\n    L = rng.randint(0, 1024)\n    # adjust to requested mod\n    def fix_len(x: int) -> int:\n        if x % 4 == mod:\n            return x\n        # tweak within small delta\n        delta = (mod - (x % 4)) % 4\n        y = x + delta\n        # avoid empty-only constraint issues\n        return y\n    L = fix_len(L)\n    s = ''.join(rng.choice(alphabet) for _ in range(L))\n    # Optionally add base64 padding if mod is 2 or 3\n    if rng.random() < 0.5 and L > 0:\n        pad_needed = (-L) % 4\n        if pad_needed:\n            s += '=' * pad_needed\n    return s\n\n\ndef _gen_edge_base64_blocks(rng: random.Random) -> str:\n    # Generate base64 strings with block-aligned lengths and edge padding cases\n    cases: List[Tuple[int, bool]] = [\n        (0, True),   # empty\n        (1, True),   # 1 byte -> 2 padding\n        (2, True),   # 2 bytes -> 1 padding\n        (3, True),   # 3 bytes -> no padding\n        (57, True),  # common MIME line length multiple\n        (1024, True),\n    ]\n    n, with_padding = rng.choice(cases)\n    data = _rand_bytes(rng, n)\n    # Occasionally drop padding\n    drop = rng.random() < 0.5\n    s = _gen_base64_from_bytes(data, with_padding=with_padding and not drop, urlsafe=False)\n    return s\n\n\ndef _gen_edge_base64url_blocks(rng: random.Random) -> str:\n    cases = [\n        (0, True), (1, True), (2, True), (3, True), (64, True), (1000, True)\n    ]\n    n, with_padding = rng.choice(cases)\n    data = _rand_bytes(rng, n)\n    drop = rng.random() < 0.6\n    s = _gen_base64_from_bytes(data, with_padding=with_padding and not drop, urlsafe=True)\n    return s\n\n\ndef _gen_small_constants(rng: random.Random) -> str:\n    # Some well-known encodings of small inputs\n    constants = [\n        \"\",  # empty\n        \"TQ==\",  # \"M\"\n        \"TWE=\",  # \"Ma\"\n        \"TWFu\",  # \"Man\"\n        \"SGVsbG8=\",  # Hello\n        \"SGVsbG8\",   # Hello without padding\n        \"\",  # empty\n        \"4d616e\" ,   # hex of \"Man\"\n        \"48656c6c6f\",  # hex Hello\n        \"SGVsbG8td29ybGQ\",  # base64url without padding\n        \"U0ZVX1Q\",  # base64url of \"SFU_T\" (example)\n    ]\n    return rng.choice(constants)\n\n\ndef _pick_generator(rng: random.Random):\n    gens = [\n        _gen_valid_base64,\n        _gen_valid_base64url,\n        _gen_valid_hex,\n        _gen_ambiguous_hex_base64,\n        _gen_edge_base64_blocks,\n        _gen_edge_base64url_blocks,\n        _gen_small_constants,\n    ]\n    # Weighted choice to favor fully valid encodings\n    weights = [3, 3, 3, 2, 2, 2, 1]\n    total = sum(weights)\n    x = rng.randrange(total)\n    acc = 0\n    for g, w in zip(gens, weights):\n        acc += w\n        if x < acc:\n            return g\n    return gens[0]\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    # Compose possibly multiple segments to increase variety while keeping under 4096\n    parts: List[str] = []\n    # choose 1-3 segments\n    count = 1 + rng.randint(0, 2)\n    for _ in range(count):\n        g = _pick_generator(rng)\n        s = g(rng)\n        parts.append(s)\n    # Optionally insert a separator that is valid for hex and base64 (none). We just concatenate.\n    out = ''.join(parts)\n    # Trim to conservative limit to avoid very large decode sizes\n    if len(out) > 3500:\n        out = out[:3500]\n    return out.encode('ascii')\n"
+    },
+    {
+      "data_type": "base64url string",
+      "generator": "import random\nimport base64\nfrom typing import List\n\n# This generator focuses on producing valid encoded strings for the three encodings\n# referenced by the fuzz stubs: Base64, Base64URL, and Hex. The fuzzer chooses the\n# EncodingType independently, so we provide a diverse mix of strings that are valid\n# for any of the encodings, with emphasis on base64url per Known data type.\n#\n# Strategy:\n# - Randomly choose one of: base64, base64url, hex, or common-edge \"specials\".\n# - Produce correctly padded or intentionally unpadded base64url (still generally acceptable)\n#   because padding is optional in many implementations; however aim for valid decodable forms.\n# - Lengths are selected to exercise boundary behaviors (0, 1, 2, 3 bytes and larger),\n#   which directly interact with Base64 padding and hex even/odd lengths.\n# - Keep total output <= 4096 bytes.\n\nURLSAFE_ALPHABET = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_\"\nHEX_ALPHABET = b\"0123456789abcdef\"\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _make_sizes(rng: random.Random) -> List[int]:\n    # Bias towards small and edge sizes with some larger cases\n    choices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128]\n    # Occasionally pick a random medium size\n    if rng.random() < 0.5:\n        choices.append(rng.randint(9, 256))\n    # And rarely a larger but bounded size to keep decode size <= 2048 typically\n    if rng.random() < 0.2:\n        choices.append(rng.randint(257, 1500))\n    rng.shuffle(choices)\n    # Select one size prominently\n    primary = choices[0]\n    # Maybe combine with a second chunk for concatenation tests (not applicable here since decode expects full string),\n    # but we keep a single coherent string, so return just [primary].\n    return [primary]\n\n\ndef _encode_base64(data: bytes, urlsafe: bool, pad: bool, rng: random.Random) -> str:\n    if urlsafe:\n        enc = base64.urlsafe_b64encode(data)\n    else:\n        enc = base64.b64encode(data)\n    s = enc.decode('ascii')\n    if not pad:\n        s = s.rstrip('=')\n    # Occasionally insert whitespace? Decoders may or may not allow; requirement says unspecified,\n    # to keep it valid we avoid adding whitespace.\n    return s\n\n\ndef _encode_hex(data: bytes, upper: bool) -> str:\n    s = data.hex()\n    if upper:\n        s = s.upper()\n    return s\n\n\ndef _random_valid_base64url(rng: random.Random) -> str:\n    # Generate bytes and encode as URL-safe base64; optionally drop padding\n    sizes = _make_sizes(rng)\n    data = b\"\".join(_rand_bytes(rng, n) for n in sizes)\n    pad = rng.random() < 0.7  # more often padded to ensure strict validity\n    return _encode_base64(data, urlsafe=True, pad=pad, rng=rng)\n\n\ndef _random_valid_base64(rng: random.Random) -> str:\n    sizes = _make_sizes(rng)\n    data = b\"\".join(_rand_bytes(rng, n) for n in sizes)\n    pad = True  # prefer padded standard base64 for higher chance of validity\n    return _encode_base64(data, urlsafe=False, pad=pad, rng=rng)\n\n\ndef _random_valid_hex(rng: random.Random) -> str:\n    sizes = _make_sizes(rng)\n    data = b\"\".join(_rand_bytes(rng, n) for n in sizes)\n    upper = rng.random() < 0.5\n    return _encode_hex(data, upper)\n\n\ndef _random_pure_urlsafe_chars(rng: random.Random) -> str:\n    # Construct a string from the URL-safe alphabet that is also valid base64url length-wise.\n    # To keep it decodable, ensure length is a multiple of 4 by padding with '=' at the end\n    # unless we deliberately omit padding. We'll produce both variants.\n    # Generate random bytes and encode instead of arbitrary alphabet to guarantee decodability.\n    return _random_valid_base64url(rng)\n\n\ndef _compose_interesting_strings(rng: random.Random) -> List[str]:\n    out = []\n    # Empty string\n    out.append(\"\")\n    # Small canonical base64url samples for lengths 0..3 bytes\n    for n in [0, 1, 2, 3]:\n        b = bytes(range(n))\n        out.append(_encode_base64(b, urlsafe=True, pad=True, rng=rng))\n        out.append(_encode_base64(b, urlsafe=True, pad=False, rng=rng))\n    # Hex edge: leading zeros, mixed case\n    out.append(\"00\")\n    out.append(\"0001\")\n    out.append(\"deadBEEF\")\n    # Larger structured payloads\n    payloads = [\n        b\"The quick brown fox jumps over the lazy dog\",\n        b\"\\x00\\x00\\x00\\x01\\xff\\xfe\\xfd\\xfc\",\n        b\"\".join(bytes([i % 256]) for i in range(64)),\n    ]\n    for p in payloads:\n        out.append(_encode_base64(p, urlsafe=True, pad=True, rng=rng))\n        out.append(_encode_base64(p, urlsafe=False, pad=True, rng=rng))\n        out.append(_encode_hex(p, upper=False))\n    return out\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Choose a generation mode\n    mode = rng.choices(\n        population=[\"b64url\", \"b64\", \"hex\", \"specials\"],\n        weights=[0.45, 0.20, 0.20, 0.15],\n        k=1,\n    )[0]\n\n    if mode == \"b64url\":\n        s = _random_valid_base64url(rng)\n    elif mode == \"b64\":\n        s = _random_valid_base64(rng)\n    elif mode == \"hex\":\n        s = _random_valid_hex(rng)\n    else:\n        candidates = _compose_interesting_strings(rng)\n        # Also add a few randomized valid strings\n        candidates += [\n            _random_valid_base64url(rng),\n            _random_valid_base64(rng),\n            _random_valid_hex(rng),\n        ]\n        s = rng.choice(candidates)\n\n    # Ensure size bound. For very large encodings, trim in a way that preserves validity.\n    # - For base64/base64url, maintain length % 4 == 0 by trimming to nearest multiple of 4\n    #   and then optionally add '=' padding to reach multiple of 4.\n    # - For hex, trim to even length.\n    max_len = 4096\n    if len(s) > max_len:\n        # Try to detect hex vs base64 by character set\n        is_hex = all(c in \"0123456789abcdefABCDEF\" for c in s)\n        if is_hex:\n            s = s[:max_len - (max_len % 2)]\n        else:\n            # base64/base64url: trim and then re-pad with '=' to multiple of 4\n            trim = max_len - (max_len % 4)\n            if trim == 0:\n                trim = 4\n            s = s[:trim]\n            # remove any partial final quantum and re-pad\n            rem = len(s) % 4\n            if rem != 0:\n                s = s[: len(s) - rem]\n            # ensure padding chars if needed: unsafe to guess, so leave as-is assuming prior padding\n            # If ended unpadded, it's still decodable in many implementations for base64url.\n\n    return s.encode(\"ascii\")\n"
+    },
+    {
+      "data_type": "hex string",
+      "generator": "import random\nimport secrets\nimport string\nfrom typing import List, Tuple\n\n# Generator for valid encoded strings matching the library's supported encodings.\n# The fuzz stubs will pass this data to FUZZ_PARAM_STR(), which becomes a C string.\n# We emphasize valid inputs for:\n# - Base64 (standard with + / and optional padding =)\n# - Base64 URL-safe (- _ and optional padding =)\n# - Hex (0-9a-fA-F), with both even and odd lengths covered, and mixed case\n# We also occasionally include edge cases like empty strings and very short/long sizes\n# while staying within a small overall size so decodeToBinSize stays <= 2048 in most cases.\n\nB64_STD_ALPHABET = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"\nB64_URL_ALPHABET = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_\"\nHEX_LOWER = \"0123456789abcdef\"\nHEX_UPPER = \"0123456789ABCDEF\"\n\n# Utilities\n\ndef _rand_choice(rng: random.Random, items: List):\n    return items[rng.randrange(0, len(items))]\n\n\ndef _chunkify(data: bytes, size: int) -> List[bytes]:\n    return [data[i:i+size] for i in range(0, len(data), size)]\n\n\ndef _encode_base64_bytes(data: bytes, urlsafe: bool, rng: random.Random, allow_omit_padding: bool = True) -> str:\n    # Manual base64 encoding to allow fine control over padding and alphabet\n    if not data:\n        # Empty input yields empty output or possibly padding-free empty string\n        return \"\"\n    alphabet = B64_URL_ALPHABET if urlsafe else B64_STD_ALPHABET\n    out = []\n    # Process 3-byte chunks into 4 base64 chars\n    for i in range(0, len(data), 3):\n        block = data[i:i+3]\n        b = list(block) + [0] * (3 - len(block))\n        triple = (b[0] << 16) | (b[1] << 8) | b[2]\n        idx0 = (triple >> 18) & 0x3F\n        idx1 = (triple >> 12) & 0x3F\n        idx2 = (triple >> 6) & 0x3F\n        idx3 = triple & 0x3F\n        if len(block) == 3:\n            out.extend([alphabet[idx0], alphabet[idx1], alphabet[idx2], alphabet[idx3]])\n        elif len(block) == 2:\n            out.extend([alphabet[idx0], alphabet[idx1], alphabet[idx2], '='])\n        else:  # len == 1\n            out.extend([alphabet[idx0], alphabet[idx1], '=', '='])\n    s = ''.join(out)\n    if allow_omit_padding:\n        # Occasionally drop padding for inputs where it's optional\n        # Remove trailing '=' randomly\n        if rng.random() < 0.5:\n            s = s.rstrip('=')\n    return s\n\n\ndef _generate_valid_base64(rng: random.Random) -> str:\n    # Choose a random length of source binary; keep modest to avoid huge outputs\n    # Base64 expands by ~4/3. Keep decoded size under ~1500 to be safe.\n    decoded_len = rng.randint(0, 1400)\n    data = secrets.token_bytes(decoded_len)\n    # Randomly choose standard or URL-safe flavor; fuzz stubs choose type separately, but both should be valid\n    urlsafe = rng.random() < 0.5\n    s = _encode_base64_bytes(data, urlsafe=urlsafe, rng=rng, allow_omit_padding=True)\n    # Occasionally insert line breaks or whitespace? Unspecified handling; avoid to keep validity high\n    return s\n\n\ndef _generate_valid_base64_std(rng: random.Random) -> str:\n    decoded_len = rng.randint(0, 1400)\n    data = secrets.token_bytes(decoded_len)\n    return _encode_base64_bytes(data, urlsafe=False, rng=rng, allow_omit_padding=True)\n\n\ndef _generate_valid_base64_url(rng: random.Random) -> str:\n    decoded_len = rng.randint(0, 1400)\n    data = secrets.token_bytes(decoded_len)\n    return _encode_base64_bytes(data, urlsafe=True, rng=rng, allow_omit_padding=True)\n\n\ndef _generate_valid_hex(rng: random.Random) -> str:\n    # Hex encodes 1 byte -> 2 chars; keep size small. Allow odd length occasionally (unspecified handling).\n    # Choose a byte length up to 2048/2 ~ 1024 hex chars, but stay lower to be safe.\n    byte_len = rng.randint(0, 1024)\n    data = secrets.token_bytes(byte_len)\n    # Choose case pattern: lower, upper, mixed\n    case_mode = _rand_choice(rng, [\"lower\", \"upper\", \"mixed\"])\n    hex_chars = []\n    for b in data:\n        h = f\"{b:02x}\"\n        if case_mode == \"upper\":\n            h = h.upper()\n        elif case_mode == \"mixed\":\n            # Randomize case per nibble\n            h = ''.join(ch.upper() if rng.random() < 0.5 else ch.lower() for ch in h)\n        # else lower\n        hex_chars.append(h)\n    s = ''.join(hex_chars)\n    # Occasionally produce odd-length hex by trimming one nibble\n    if len(s) > 0 and rng.random() < 0.2:\n        s = s[:-1]\n    return s\n\n\ndef _edge_cases(rng: random.Random) -> List[str]:\n    return [\n        \"\",  # empty string\n        \"0\",  # odd-length hex minimal\n        \"00\",  # even-length hex zero byte\n        \"f\", \"F\", \"0F\", \"f0\",  # small hex variants\n        \"A\", \"AA\", \"Aa\",  # mixed-case short\n        \"-\", \"_\",  # minimal URL-safe chars (not valid alone for base64 but might be tolerated)\n        \"=\", \"==\",  # padding-only edge\n    ]\n\n\ndef _weighted_pick_encoded(rng: random.Random) -> str:\n    # Weighted selection among formats and edge cases\n    choice = rng.random()\n    if choice < 0.25:\n        return _generate_valid_hex(rng)\n    elif choice < 0.50:\n        return _generate_valid_base64_std(rng)\n    elif choice < 0.75:\n        return _generate_valid_base64_url(rng)\n    else:\n        return _rand_choice(rng, _edge_cases(rng))\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # Build a corpus of a few entries concatenated with separators that are valid in encodings.\n    # However, since the fuzzer stub expects a single C-string input, we choose just one valid string\n    # per generation to maximize validity for decode functions.\n    s = _weighted_pick_encoded(rng)\n\n    # Ensure output size limit\n    if len(s) > 4096:\n        s = s[:4096]\n\n    # Return as bytes (UTF-8)\n    return s.encode('ascii', errors='strict')\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1191,
+            "output_tokens": 114,
+            "total_tokens": 1305
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 769,
+            "output_tokens": 33,
+            "total_tokens": 802
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1220,
+            "output_tokens": 1351,
+            "total_tokens": 2571
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4556,
+            "output_tokens": 2814,
+            "total_tokens": 7370
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2782,
+            "output_tokens": 283,
+            "total_tokens": 3065
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 152.91467761993408,
+    "scan_objects": 7.9510297775268555,
+    "validate_objects": 0.17953872680664062,
+    "scan_functions": 33.46928095817566,
+    "synthesis": 65.72966504096985,
+    "fill": 0,
+    "classify": 5.770287275314331,
+    "build_generators": 39.81427025794983
+  }
+}

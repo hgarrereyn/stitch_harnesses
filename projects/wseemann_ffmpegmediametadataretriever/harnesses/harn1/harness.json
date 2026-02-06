@@ -1,0 +1,538 @@
+{
+  "objects": [
+    {
+      "ptr_type": "Options *",
+      "aliases": [],
+      "definition": "typedef enum {\n\tOPTION_PREVIOUS_SYNC = 0,\n\tOPTION_NEXT_SYNC = 1,\n\tOPTION_CLOSEST_SYNC = 2,\n\tOPTION_CLOSEST = 3,\n\n    // Add more here...\n} Options;",
+      "description": "Enumeration of frame retrieval options controlling how timestamps are snapped when extracting frames (e.g., to previous, next, closest keyframe, or closest timestamp). Additional values may be added in the future.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "State *",
+      "aliases": [],
+      "definition": "typedef struct State {\n\tAVFormatContext *pFormatCtx;\n\tint             audio_stream;\n\tAVCodecContext  *audioDecoderCodecCtx;\n\tint             video_stream;\n\tAVCodecContext  *videoDecoderCodecCtx;\n\tAVStream        *audio_st;\n\tAVStream        *video_st;\n\tint             fd;\n\tint64_t         offset;\n\tconst char      *headers;\n\tstruct SwsContext *sws_ctx;\n\tAVCodecContext  *videoEncoderCodecCtx;\n\n\tstruct SwsContext *scaled_sws_ctx;\n\tAVCodecContext  *scaled_codecCtx;\n\tANativeWindow   *native_window;\n\tvoid *callback_data_source;\n\tint (*media_data_source_callback)(void *, uint8_t *, int);\n\tint64_t (*media_data_source_seek_callback)(void *opaque, int64_t offset, int whence);\n\tint64_t position;\n} State;",
+      "description": "Opaque state carrier for FFmpegMediaMetadataRetriever. Holds FFmpeg contexts, stream indices, optional native window, data source callbacks, and swscale contexts used while opening sources, decoding, and generating frames or metadata.",
+      "direct_api_constructors": [
+        "set_data_source_uri",
+        "set_data_source_fd",
+        "set_data_source_callback"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct AVDictionary *",
+      "aliases": [
+        "AVDictionary *"
+      ],
+      "definition": "struct AVDictionary {\n\tint count;\n\tAVDictionaryEntry *elems;\n};",
+      "description": "Local definition of AVDictionary (key/value store) consisting of a count and array of AVDictionaryEntry. Note: This shadows/duplicates FFmpeg’s AVDictionary; details of AVDictionaryEntry are external and not defined here.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "set_data_source_uri",
+      "signature": "int set_data_source_uri(State **ps, const char* path, const char* headers);",
+      "description": "Initializes or configures the retriever State to read media from a URI or file path, optionally using HTTP headers. Typically called before any metadata/frame extraction.",
+      "requirements": [
+        "ps must be a valid pointer to a State* (non-null).",
+        "path must be a non-null, null-terminated string representing a media URI or filesystem path.",
+        "headers may be null; if provided, it should point to a null-terminated header string suitable for FFmpeg/HTTP usage (exact format unknown).",
+        "Must be called before extract_metadata, get_frame_at_time, or other retrieval functions.",
+        "Returns 0 on success and negative on failure (per common pattern; exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_data_source_fd",
+      "signature": "int set_data_source_fd(State **ps, int fd, int64_t offset, int64_t length);",
+      "description": "Configures the retriever State to read media from an existing file descriptor with a byte offset and length window.",
+      "requirements": [
+        "ps must be a valid pointer to a State* (non-null).",
+        "fd must be a valid, open file descriptor positioned arbitrarily (implementation handles seeking).",
+        "offset must be >= 0.",
+        "length should be >= 0 (exact semantics for special values unknown).",
+        "Must be called before metadata or frame extraction.",
+        "Returns 0 on success and negative on failure (exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_data_source_callback",
+      "signature": "int set_data_source_callback(State **ps, void* callbackDataSource, int (*read_packet) (void *, uint8_t *, int), int64_t (*seek)(void *, int64_t, int));",
+      "description": "Configures the retriever State to read media via user-provided I/O callbacks instead of standard file/URI sources. Intended for custom data sources.",
+      "requirements": [
+        "ps must be a valid pointer to a State* (non-null).",
+        "callbackDataSource is an opaque user context pointer passed to callbacks (may be null if callbacks do not need state).",
+        "read_packet must be a valid function pointer that reads up to the requested number of bytes into the provided buffer and returns the number of bytes read or an error indicator (exact return contract inferred from FFmpeg AVIO but not specified).",
+        "seek must be a valid function pointer implementing random access; signature matches FFmpeg-style seek(opaque, offset, whence) returning new position or an error indicator (inferred; exact contract not specified).",
+        "Must be called before using extract_metadata or frame retrieval.",
+        "Returns 0 on success and negative on failure (exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "extract_metadata",
+      "signature": "const char* extract_metadata(State **ps, const char* key);",
+      "description": "Retrieves the value of a named metadata key from the current media. Returns a const string pointer or null if not found.",
+      "requirements": [
+        "ps must refer to an initialized/open State created via a set_data_source_* function.",
+        "key must be a non-null, null-terminated string. Typical keys include constants like \"duration\", \"audio_codec\", \"video_codec\", \"icy_metadata\", \"rotate\", \"framerate\", \"chapter_count\", \"filesize\", \"video_width\", \"video_height\".",
+        "The returned pointer is const; lifetime/ownership are unknown—callers should copy the string immediately if they need to retain it."
+      ],
+      "error": null
+    },
+    {
+      "name": "extract_metadata_from_chapter",
+      "signature": "const char* extract_metadata_from_chapter(State **ps, const char* key, int chapter);",
+      "description": "Retrieves a chapter-specific metadata value for the specified chapter index, e.g., chapter start/end times. Returns a const string or null if unavailable.",
+      "requirements": [
+        "ps must refer to an initialized/open State.",
+        "key must be a non-null, null-terminated string. Known chapter keys include \"chapter_start_time\" and \"chapter_end_time\".",
+        "chapter must be a valid chapter index within the media (0-based is likely but not specified).",
+        "The returned pointer is const; lifetime/ownership are unknown—callers should copy if needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_metadata",
+      "signature": "int get_metadata(State **ps, AVDictionary **metadata);",
+      "description": "Populates an AVDictionary with available metadata extracted from the current media.",
+      "requirements": [
+        "ps must refer to an initialized/open State.",
+        "metadata must be a non-null pointer to an AVDictionary*; on success it will be set/updated with key/value pairs.",
+        "Caller is responsible for freeing the dictionary with av_dict_free when done (inferred from FFmpeg conventions).",
+        "Returns 0 on success and negative on failure (exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_embedded_picture",
+      "signature": "int get_embedded_picture(State **ps, AVPacket *pkt);",
+      "description": "Extracts the embedded picture/cover art from the media, if present, into an AVPacket.",
+      "requirements": [
+        "ps must refer to an initialized/open State.",
+        "pkt must be a valid, non-null pointer to an AVPacket; it will be initialized/filled by the function.",
+        "Caller is responsible for releasing the packet with av_packet_unref (and av_packet_free if dynamically allocated), per FFmpeg usage.",
+        "Returns 0 on success (picture found and filled) and negative on failure or if no picture is available (exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_frame_at_time",
+      "signature": "int get_frame_at_time(State **ps, int64_t timeUs, int option, AVPacket *pkt);",
+      "description": "Seeks to the specified timestamp and extracts a video frame into an AVPacket, using the provided seek option (e.g., previous/next/closest sync).",
+      "requirements": [
+        "ps must refer to an initialized/open State with a video stream available.",
+        "timeUs is a timestamp in microseconds.",
+        "option must be one of the Options enum values: OPTION_PREVIOUS_SYNC, OPTION_NEXT_SYNC, OPTION_CLOSEST_SYNC, or OPTION_CLOSEST.",
+        "pkt must be a valid, non-null pointer to an AVPacket; it will be filled on success.",
+        "Caller must release the packet contents with av_packet_unref when done.",
+        "Returns 0 on success and negative on failure (exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_scaled_frame_at_time",
+      "signature": "int get_scaled_frame_at_time(State **ps, int64_t timeUs, int option, AVPacket *pkt, int width, int height);",
+      "description": "Seeks to a timestamp and extracts a scaled video frame at the requested dimensions into an AVPacket.",
+      "requirements": [
+        "ps must refer to an initialized/open State with a video stream available.",
+        "timeUs is a timestamp in microseconds.",
+        "option must be one of the Options enum values.",
+        "pkt must be a valid, non-null pointer to an AVPacket; it will be filled on success.",
+        "width and height must be positive integers (> 0).",
+        "Caller must release the packet contents with av_packet_unref when done.",
+        "Returns 0 on success and negative on failure (exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_native_window",
+      "signature": "int set_native_window(State **ps, ANativeWindow* native_window);",
+      "description": "Associates an Android ANativeWindow with the retriever State, possibly for rendering or surface-based operations.",
+      "requirements": [
+        "ps must refer to a valid State.",
+        "native_window must be a valid ANativeWindow pointer obtained from the Android NDK; ownership/lifetime are managed by the caller.",
+        "Should be called before operations that depend on a native window (exact dependencies unknown).",
+        "Returns 0 on success and negative on failure (exact codes unknown)."
+      ],
+      "error": null
+    },
+    {
+      "name": "release",
+      "signature": "void release(State **ps);",
+      "description": "Releases resources associated with the retriever State and invalidates it for further use.",
+      "requirements": [
+        "ps must be a valid pointer to a State* (non-null).",
+        "Safe to call once when done; calling functions after release on the same State is invalid.",
+        "After return, *ps may be set to null (behavior not specified); callers should not reuse the State unless reinitialized."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_shoutcast_metadata",
+      "signature": "void set_shoutcast_metadata(AVFormatContext *ic);",
+      "description": "Populates or normalizes Shoutcast/ICY metadata fields in the AVFormatContext, if present.",
+      "requirements": [
+        "ic must be a valid, opened AVFormatContext with probed metadata.",
+        "Call after avformat_open_input/avformat_find_stream_info and before reading metadata-dependent values."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_duration",
+      "signature": "void set_duration(AVFormatContext *ic);",
+      "description": "Sets/normalizes the duration metadata on the AVFormatContext to a standard key (e.g., \"duration\").",
+      "requirements": [
+        "ic must be a valid, opened AVFormatContext with stream info available."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_codec",
+      "signature": "void set_codec(AVFormatContext *ic, int i);",
+      "description": "Stores codec information for stream index i into the format context’s metadata (e.g., \"audio_codec\"/\"video_codec\").",
+      "requirements": [
+        "ic must be a valid, opened AVFormatContext.",
+        "i must be a valid stream index within ic->nb_streams."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_rotation",
+      "signature": "void set_rotation(AVFormatContext *ic, AVStream *audio_st, AVStream *video_st);",
+      "description": "Extracts and sets rotation metadata (e.g., from display matrix/tags) for the media, likely associated with the video stream.",
+      "requirements": [
+        "ic must be a valid AVFormatContext.",
+        "video_st should be the video stream for which rotation applies (may be null if not present).",
+        "audio_st may be null if not used.",
+        "Should be called after stream info is available."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_framerate",
+      "signature": "void set_framerate(AVFormatContext *ic, AVStream *audio_st, AVStream *video_st);",
+      "description": "Determines and records the media framerate into metadata, typically derived from the video stream.",
+      "requirements": [
+        "ic must be a valid AVFormatContext.",
+        "video_st should be a valid video stream (may be null if media has no video).",
+        "audio_st may be null.",
+        "Call after stream info is available."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_filesize",
+      "signature": "void set_filesize(AVFormatContext *ic);",
+      "description": "Sets the file size as a metadata field on the format context, when determinable.",
+      "requirements": [
+        "ic must be a valid AVFormatContext associated with a seekable input or one that can report size."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_chapter_count",
+      "signature": "void set_chapter_count(AVFormatContext *ic);",
+      "description": "Computes and stores the number of chapters as metadata on the format context.",
+      "requirements": [
+        "ic must be a valid AVFormatContext with chapters parsed/available."
+      ],
+      "error": null
+    },
+    {
+      "name": "set_video_dimensions",
+      "signature": "void set_video_dimensions(AVFormatContext *ic, AVStream *video_st);",
+      "description": "Stores the video width and height as metadata fields on the format context.",
+      "requirements": [
+        "ic must be a valid AVFormatContext.",
+        "video_st must be a valid pointer to the media’s video stream."
+      ],
+      "error": null
+    },
+    {
+      "name": "extract_metadata_internal",
+      "signature": "const char* extract_metadata_internal(AVFormatContext *ic, AVStream *audio_st, AVStream *video_st, const char* key);",
+      "description": "Internal helper that looks up a metadata key from the provided format context and streams and returns the value as a const string or null if not found.",
+      "requirements": [
+        "ic must be a valid AVFormatContext; audio_st and video_st may be null depending on the key.",
+        "key must be a non-null, null-terminated string; typical values include those defined in this header (e.g., DURATION, AUDIO_CODEC, VIDEO_CODEC, ICY_METADATA, ROTATE, FRAMERATE, CHAPTER_COUNT, FILESIZE, VIDEO_WIDTH, VIDEO_HEIGHT).",
+        "Returned pointer is const; lifetime/ownership are unknown—callers should copy if needed."
+      ],
+      "error": null
+    },
+    {
+      "name": "get_metadata_internal",
+      "signature": "int get_metadata_internal(AVFormatContext *ic, AVStream *audio_st, AVStream *video_st, AVDictionary **metadata);",
+      "description": "Internal helper that aggregates metadata into an AVDictionary for the given format context and streams.",
+      "requirements": [
+        "ic must be a valid AVFormatContext; audio_st/video_st may be null as appropriate.",
+        "metadata must be a non-null pointer to an AVDictionary* to receive results.",
+        "Caller is responsible for freeing the dictionary with av_dict_free when done.",
+        "Returns SUCCESS (0) on success and FAILURE (-1) on error (constants defined in this header)."
+      ],
+      "error": null
+    },
+    {
+      "name": "extract_metadata_from_chapter_internal",
+      "signature": "const char* extract_metadata_from_chapter_internal(AVFormatContext *ic, AVStream *audio_st, AVStream *video_st, const char* key, int chapter);",
+      "description": "Internal helper to retrieve a metadata value for a specific chapter index (e.g., start or end time) from the format context and streams.",
+      "requirements": [
+        "ic must be a valid AVFormatContext.",
+        "key must be a non-null, null-terminated string such as CHAPTER_START_TIME or CHAPTER_END_TIME.",
+        "chapter must be a valid chapter index within ic (0-based is likely but not specified).",
+        "Returned pointer is const; lifetime/ownership are unknown—callers should copy if needed."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "set_data_source_uri",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        }
+      ],
+      "code": "// Configure retriever State from a URI or filesystem path with optional headers.\n// ps must be a valid pointer to a State* (we allocate a local State* and pass its address).\n// path must be non-null; headers may be null.\n// On success, we mark the State as initialized for downstream stubs.\n\n// Generate a valid filename/URI and optional headers\nstd::string path = FUZZ_PARAM_FILENAME();\nstd::string headers_str = FUZZ_PARAM_STR();\nint use_headers = (int)(*FUZZ_PARAM(unsigned int) & 1);\nconst char *headers_c = use_headers ? headers_str.c_str() : nullptr;\n\n// Prepare output pointer-to-pointer parameter and invoke target\nState *s = nullptr;\nint rc = set_data_source_uri(&s, path.c_str(), headers_c);\n\n// Enforce API contract: return 0 on success, s must be non-null when successful\nif (rc < 0 || !s) { FUZZ_BAIL(); }\n\n// Expose the created State to the object pool and record initialization state\nState *state = s;\nFUZZ_SET_ATTR_INT(state, \"initialized\", 1);\nFUZZ_SET_ATTR_INT(state, \"released\", 0);\nFUZZ_SET_ATTR_STR(state, \"source_kind\", \"uri\");\n\n// Validation: State successfully constructed and marked initialized for later calls."
+    },
+    {
+      "name": "extract_metadata",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        }
+      ],
+      "code": "// Retrieve a single metadata key from an initialized State.\n// Preconditions: state must be initialized by a set_data_source_* call and not released.\nint is_init = FUZZ_GET_ATTR_INT(state, \"initialized\");\nint is_rel = FUZZ_GET_ATTR_INT(state, \"released\");\nif (!is_init || is_rel) { FUZZ_BAIL(); }\n\n// Choose a representative key from known set to improve coverage\nstatic const char *keys[] = {\n    \"duration\", \"audio_codec\", \"video_codec\", \"icy_metadata\",\n    \"rotate\", \"framerate\", \"chapter_count\", \"filesize\",\n    \"video_width\", \"video_height\"\n};\nunsigned int idx = *FUZZ_PARAM(unsigned int) % (sizeof(keys)/sizeof(keys[0]));\nconst char *key = keys[idx];\n\n// Call the API; pass a pointer to our local State* as required by signature\nState *tmp = state;\nconst char *val = extract_metadata(&tmp, key);\n(void)val; // The returned const string may be null; caller should copy if needed.\n\n// Output the (still valid) state object back to the pool\nstate = tmp;\n\n// Validation: Preconditions enforced; state persisted as output for further use."
+    },
+    {
+      "name": "extract_metadata_from_chapter",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        }
+      ],
+      "code": "// Retrieve chapter-specific metadata for a chosen chapter.\n// Preconditions: state must be initialized and not released.\nint is_init = FUZZ_GET_ATTR_INT(state, \"initialized\");\nint is_rel = FUZZ_GET_ATTR_INT(state, \"released\");\nif (!is_init || is_rel) { FUZZ_BAIL(); }\n\n// Choose key and a bounded chapter index (small range to hit typical media)\nstatic const char *keys[] = { \"chapter_start_time\", \"chapter_end_time\" };\nunsigned int kidx = *FUZZ_PARAM(unsigned int) % 2;\nconst char *key = keys[kidx];\nint chapter = (int)(*FUZZ_PARAM(unsigned int) % 16);\n\nState *tmp = state;\nconst char *val = extract_metadata_from_chapter(&tmp, key, chapter);\n(void)val;\n\n// Preserve state for subsequent operations\nstate = tmp;\n\n// Validation: Enforced initialized state; chapter index constrained; state returned."
+    },
+    {
+      "name": "release",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Release resources for a State. After this, the State is invalid for further use.\nint is_rel = FUZZ_GET_ATTR_INT(state, \"released\");\nif (is_rel) { FUZZ_BAIL(); }\n\n// It's acceptable to release even if initialization failed in some implementations, but\n// for safety we require an initialized state to avoid double-free or undefined behavior.\nint is_init = FUZZ_GET_ATTR_INT(state, \"initialized\");\nif (!is_init) { FUZZ_BAIL(); }\n\nState *tmp = state;\nrelease(&tmp);\nFUZZ_SET_ATTR_INT(state, \"released\", 1);\n\n// Do not return the state; it is now invalid.\n\n// Validation: Ensured single release and prior initialization; state removed from pool."
+    },
+    {
+      "name": "get_metadata",
+      "inputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "State *"
+        },
+        {
+          "name": "metadata",
+          "type": "struct AVDictionary *"
+        }
+      ],
+      "code": "// Populate an AVDictionary with all available metadata from an initialized State.\n// Preconditions: state must be initialized and not released.\nint is_init = FUZZ_GET_ATTR_INT(state, \"initialized\");\nint is_rel = FUZZ_GET_ATTR_INT(state, \"released\");\nif (!is_init || is_rel) { FUZZ_BAIL(); }\n\nState *tmp = state;\nstruct AVDictionary *metadata = nullptr;\nint rc = get_metadata(&tmp, &metadata);\nif (rc < 0) { FUZZ_BAIL(); }\n\n// metadata may be null or populated depending on media; return it to the pool either way.\nstate = tmp;\n\n// Track that downstream should free via av_dict_free (not implemented here).\nif (metadata) {\n    FUZZ_SET_ATTR_INT(metadata, \"needs_free\", 1);\n}\n\n// Validation: Preconditions enforced; outputs include persistent state and dictionary handle."
+    }
+  ],
+  "unharnessable_functions": [
+    {
+      "name": "set_data_source_callback",
+      "reason": "Requires providing valid read and seek function pointers, but the fuzzer harness may not declare new top-level callback functions safely."
+    },
+    {
+      "name": "get_embedded_picture",
+      "reason": "Needs a valid AVPacket and FFmpeg initialization; constructing and managing AVPacket without FFmpeg headers/libraries is not safe in this harness."
+    },
+    {
+      "name": "get_frame_at_time",
+      "reason": "Requires a valid AVPacket and decoded video stream; cannot safely construct AVPacket or guarantee a video stream in this harness."
+    },
+    {
+      "name": "get_scaled_frame_at_time",
+      "reason": "Requires a valid AVPacket and scaling context; cannot safely construct AVPacket or scaling resources in this harness."
+    },
+    {
+      "name": "set_native_window",
+      "reason": "Requires a valid Android ANativeWindow from the NDK, which cannot be created or validated in this environment."
+    },
+    {
+      "name": "set_shoutcast_metadata",
+      "reason": "Requires a valid, opened AVFormatContext; constructing such a context is outside the harness capabilities."
+    },
+    {
+      "name": "set_duration",
+      "reason": "Requires a valid AVFormatContext with stream info; not safely constructible in the harness."
+    },
+    {
+      "name": "set_codec",
+      "reason": "Requires a valid AVFormatContext and stream index into real streams; not safely constructible here."
+    },
+    {
+      "name": "set_rotation",
+      "reason": "Requires valid AVFormatContext and AVStream objects; these cannot be safely provided by the harness."
+    },
+    {
+      "name": "set_framerate",
+      "reason": "Requires valid AVFormatContext and AVStream objects; these cannot be safely provided by the harness."
+    },
+    {
+      "name": "set_filesize",
+      "reason": "Requires an AVFormatContext backed by a seekable input; not safely constructible here."
+    },
+    {
+      "name": "set_chapter_count",
+      "reason": "Requires an AVFormatContext with parsed chapters; not safely constructible here."
+    },
+    {
+      "name": "set_video_dimensions",
+      "reason": "Requires a valid AVFormatContext and video AVStream; not safely constructible here."
+    },
+    {
+      "name": "extract_metadata_internal",
+      "reason": "Depends on valid AVFormatContext/AVStream objects and metadata; these cannot be safely provided by the harness."
+    },
+    {
+      "name": "get_metadata_internal",
+      "reason": "Requires valid FFmpeg AVFormatContext/AVStream objects that cannot be constructed or validated in this fuzzing environment."
+    },
+    {
+      "name": "extract_metadata_from_chapter_internal",
+      "reason": "Requires valid FFmpeg AVFormatContext/AVStream objects and chapter data not constructible under the current fuzzing model."
+    }
+  ],
+  "endpoint_classifiers": [
+    {
+      "name": "extract_metadata",
+      "data_types": []
+    },
+    {
+      "name": "extract_metadata_from_chapter",
+      "data_types": []
+    },
+    {
+      "name": "release",
+      "data_types": []
+    },
+    {
+      "name": "get_metadata",
+      "data_types": []
+    },
+    {
+      "name": "set_data_source_uri",
+      "data_types": [
+        "media path/URI",
+        "HTTP header string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "media path/URI",
+      "description": "A null-terminated string representing a path to a local media file or a network URI (e.g., file paths like /path/to/video.mp4 or URIs like http://..., https://..., rtsp://..., ftp://...). It should be interpretable by FFmpeg as an input source."
+    },
+    {
+      "data_type": "HTTP header string",
+      "description": "A null-terminated string containing one or more HTTP request headers formatted as key-value pairs. Common formats include lines separated by CRLF or newline, e.g., \"User-Agent: Foo\\r\\nAccept: */*\\r\\n\". May be empty or null; when provided, it should be suitable for FFmpeg/HTTP options."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "media path/URI",
+      "generator": "import os\nimport random\nimport struct\nfrom typing import List\n\n# This generator produces a valid media path/URI string buffer, possibly accompanied\n# by optional HTTP headers in the same buffer separated by a NUL. The stub calls\n# FUZZ_PARAM_FILENAME() for the path/URI and FUZZ_PARAM_STR() for headers. Many fuzz\n# harnesses will slice the provided bytes into independent consumptions; to maximize\n# usefulness across harnesses, we place two consecutive C-strings:\n# [path_or_uri]\\0[optional_headers]\\0\n# If the harness ignores the second string (when use_headers==0), it remains harmless.\n# If it uses headers, it will find a well-formed header block.\n#\n# The path/URI is chosen from a curated set that FFmpeg commonly supports, including\n# local files and common network protocols. We include a variety of extensions and\n# query/fragment variations to exercise different demuxers and options.\n#\n# The headers string, when present, is a sequence of HTTP-style headers separated by\n# CRLF and ending with CRLF. We randomize common headers relevant to FFmpeg.\n\nLOCAL_BASENAMES = [\n    \"sample.mp4\", \"sample.mkv\", \"sample.webm\", \"sample.mov\", \"sample.avi\",\n    \"sample.flv\", \"sample.mpeg\", \"sample.ts\", \"sample.m4a\", \"sample.mp3\",\n    \"sample.aac\", \"sample.flac\", \"sample.ogg\", \"sample.wav\", \"cover.jpg\",\n]\n\nLOCAL_DIRS = [\n    \".\", \"/tmp\", \"/var/tmp\", \"/sdcard/Movies\", \"/sdcard/Music\", \"/data/local/tmp\",\n]\n\nHTTP_HOSTS = [\n    \"example.com\", \"localhost\", \"127.0.0.1\", \"::1\", \"media.example\", \"cdn.example\",\n]\n\nHTTP_PATHS = [\n    \"/video.mp4\", \"/stream.m3u8\", \"/index.m3u8\", \"/dash.mpd\", \"/audio.mp3\",\n    \"/track.flac\", \"/movie.mkv\", \"/clip.webm\", \"/cover.jpg\",\n]\n\nQUERY_OPTIONS = [\n    \"\", \"?token=abcd\", \"?start=10\", \"?end=20\", \"?range=0-\", \"?download=1\",\n    \"?quality=hd\", \"?auth=true#frag\", \"#t=10\",\n]\n\nRTSP_PATHS = [\n    \"/live\", \"/camera\", \"/stream1\", \"/h264\", \"/mpeg4\",\n]\n\nFTP_PATHS = [\n    \"/pub/sample.avi\", \"/pub/video.mpeg\", \"/pub/audio.mp3\",\n]\n\nSCHEMES = [\n    \"file\", \"http\", \"https\", \"rtsp\", \"ftp\",\n]\n\n# Reasonable header fields FFmpeg may parse\nHEADER_FIELDS = [\n    \"User-Agent\", \"Range\", \"Icy-MetaData\", \"Accept\", \"Referer\", \"Connection\",\n    \"Accept-Language\", \"Authorization\", \"Cookie\", \"Host\",\n]\n\nUSER_AGENTS = [\n    \"Lavf/59.27.100\", \"FFmpeg/5.1\", \"Mozilla/5.0\", \"curl/7.79.1\",\n]\n\nACCEPTS = [\n    \"*/*\", \"video/*\", \"audio/*\", \"application/vnd.apple.mpegurl\",\n]\n\nREFERRERS = [\n    \"https://example.com/\", \"https://player.example/video\",\n]\n\nRANGES = [\n    \"bytes=0-\", \"bytes=1024-\", \"bytes=0-4095\",\n]\n\nAUTH_BASICS = [\n    \"Basic Zm9vOmJhcg==\", \"Bearer abcdef123456\", \"\",\n]\n\nCOOKIES = [\n    \"session=deadbeef; path=/; HttpOnly\", \"prefs=quality=hd\", \"\",\n]\n\n\ndef _choose(rng: random.Random, items: List[str]) -> str:\n    return items[rng.randrange(len(items))]\n\n\ndef _build_local_path(rng: random.Random) -> str:\n    base = _choose(rng, LOCAL_BASENAMES)\n    if rng.random() < 0.6:\n        d = _choose(rng, LOCAL_DIRS)\n        return f\"{d}/{base}\"\n    # Relative nested path\n    depth = rng.randint(0, 3)\n    parts = [\"..\" if rng.random() < 0.3 else \"folder\" + str(i) for i in range(depth)]\n    parts.append(base)\n    return \"/\".join(parts) if parts else base\n\n\ndef _build_http_uri(rng: random.Random, secure: bool) -> str:\n    scheme = \"https\" if secure else \"http\"\n    host = _choose(rng, HTTP_HOSTS)\n    path = _choose(rng, HTTP_PATHS)\n    q = _choose(rng, QUERY_OPTIONS)\n    # Optional embedded credentials\n    if rng.random() < 0.2:\n        user = \"user\" if rng.random() < 0.5 else \"u\"\n        pwd = \"pass\" if rng.random() < 0.5 else \"p\"\n        auth = f\"{user}:{pwd}@\"\n    else:\n        auth = \"\"\n    # Optional port\n    port = \":80\" if (not secure and rng.random() < 0.3) else (\":443\" if (secure and rng.random() < 0.2) else \"\")\n    # IPv6 literal needs brackets\n    if \":\" in host and not host.startswith(\"[\"):\n        host_fmt = f\"[{host}]\"\n    else:\n        host_fmt = host\n    return f\"{scheme}://{auth}{host_fmt}{port}{path}{q}\"\n\n\ndef _build_rtsp_uri(rng: random.Random) -> str:\n    host = _choose(rng, HTTP_HOSTS)\n    path = _choose(rng, RTSP_PATHS)\n    transport = \";tcp\" if rng.random() < 0.5 else \";udp\"\n    return f\"rtsp://{host}{path}{transport}\"\n\n\ndef _build_ftp_uri(rng: random.Random) -> str:\n    host = _choose(rng, HTTP_HOSTS)\n    path = _choose(rng, FTP_PATHS)\n    creds = \"anonymous:guest@\" if rng.random() < 0.5 else \"\"\n    return f\"ftp://{creds}{host}{path}\"\n\n\ndef _build_file_uri(rng: random.Random) -> str:\n    path = _build_local_path(rng)\n    # Encode as file:// URI if absolute, otherwise leave as path\n    if path.startswith(\"/\"):\n        return f\"file://{path}\"\n    return path\n\n\ndef _build_headers(rng: random.Random) -> str:\n    lines = []\n    # Always include Host for HTTP(S) URIs\n    host = _choose(rng, HTTP_HOSTS)\n    lines.append(f\"Host: {host}\")\n    if rng.random() < 0.9:\n        lines.append(f\"User-Agent: {_choose(rng, USER_AGENTS)}\")\n    if rng.random() < 0.6:\n        lines.append(f\"Accept: {_choose(rng, ACCEPTS)}\")\n    if rng.random() < 0.5:\n        lines.append(f\"Referer: {_choose(rng, REFERRERS)}\")\n    if rng.random() < 0.5:\n        lines.append(f\"Range: {_choose(rng, RANGES)}\")\n    if rng.random() < 0.5:\n        lines.append(\"Icy-MetaData: 1\")\n    if rng.random() < 0.4:\n        auth = _choose(rng, AUTH_BASICS)\n        if auth:\n            lines.append(f\"Authorization: {auth}\")\n    if rng.random() < 0.4:\n        cookie = _choose(rng, COOKIES)\n        if cookie:\n            lines.append(f\"Cookie: {cookie}\")\n    # Add a few random extra headers\n    extra = [h for h in HEADER_FIELDS if not any(h.startswith(k) for k in [\"User-Agent\", \"Accept\", \"Range\", \"Icy-MetaData\", \"Authorization\", \"Cookie\", \"Host\", \"Referer\"]) ]\n    rng.shuffle(extra)\n    for h in extra[:rng.randint(0, 2)]:\n        lines.append(f\"{h}: value\")\n    return \"\\r\\n\".join(lines) + \"\\r\\n\"\n\n\ndef _build_path_or_uri(rng: random.Random) -> str:\n    scheme = _choose(rng, SCHEMES)\n    if scheme == \"file\":\n        return _build_file_uri(rng)\n    if scheme == \"http\":\n        return _build_http_uri(rng, secure=False)\n    if scheme == \"https\":\n        return _build_http_uri(rng, secure=True)\n    if scheme == \"rtsp\":\n        return _build_rtsp_uri(rng)\n    if scheme == \"ftp\":\n        return _build_ftp_uri(rng)\n    return _build_file_uri(rng)\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    uri = _build_path_or_uri(rng)\n    headers = _build_headers(rng) if rng.random() < 0.8 else \"\"\n\n    # Compose as two C-strings: path/URI NUL headers NUL\n    # Ensure overall size <= 4096 bytes\n    def enc(s: str) -> bytes:\n        return s.encode('utf-8', errors='replace')\n\n    uri_b = enc(uri)\n    headers_b = enc(headers)\n\n    # Truncate if necessary to respect 4096 limit (keeping both strings intact where possible)\n    max_total = 4096\n    # We need two NULs\n    overhead = 2\n    if len(uri_b) + len(headers_b) + overhead > max_total:\n        # Prefer keeping URI intact; trim headers first\n        max_headers = max_total - len(uri_b) - overhead\n        if max_headers < 0:\n            # URI alone is too large; trim URI\n            uri_b = uri_b[: max_total - overhead]\n            headers_b = b\"\"\n        else:\n            headers_b = headers_b[:max_headers]\n    out = uri_b + b\"\\x00\" + headers_b + b\"\\x00\"\n    return out\n"
+    },
+    {
+      "data_type": "HTTP header string",
+      "generator": "import random\nfrom typing import List\n\n# This generator produces an HTTP header string suitable for FFmpeg/HTTP options.\n# It aims to be valid, varied, and within 4096 bytes. It returns a bytes object\n# that is null-terminated so it can be used directly as a C string buffer.\n\nCRLF = \"\\r\\n\"\n\n# Some plausible header names/values FFmpeg/libavformat might recognize or pass through.\nSTD_HEADERS = [\n    (\"User-Agent\", [\n        \"Lavf/59.27.100\", \"Mozilla/5.0 (Android; FFmpegRetriever)\",\n        \"curl/7.88.1\", \"Wget/1.21.3\"\n    ]),\n    (\"Accept\", [\n        \"*/*\", \"video/*\", \"audio/*\", \"application/x-mpegURL\", \"application/dash+xml\"\n    ]),\n    (\"Accept-Encoding\", [\n        \"identity\", \"gzip, deflate\", \"br, gzip, deflate\"\n    ]),\n    (\"Range\", [\n        \"bytes=0-\", \"bytes=0-1048575\", \"bytes=1048576-2097151\"\n    ]),\n    (\"Icy-MetaData\", [\n        \"1\", \"0\"\n    ]),\n    (\"Connection\", [\n        \"keep-alive\", \"close\"\n    ]),\n    (\"Referer\", [\n        \"https://example.com/\", \"http://localhost/\",\n        \"https://media.example.org/player\"\n    ]),\n    (\"Origin\", [\n        \"https://example.com\", \"null\"\n    ]),\n    (\"Authorization\", [\n        \"Basic dXNlcjpwYXNz\", \"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\"\n    ]),\n    (\"Cookie\", [\n        \"sessionid=abcdef; theme=dark\", \"id=a;b=c; path=/\"\n    ]),\n    (\"Host\", [\n        \"example.com\", \"localhost\", \"127.0.0.1\"\n    ]),\n    (\"X-Playback-Session-Id\", [\n        \"123e4567-e89b-12d3-a456-426614174000\", \"a1b2c3d4-e5f6-11ea-adc1-0242ac120002\"\n    ]),\n    (\"Accept-Language\", [\n        \"en-US,en;q=0.8\", \"*\", \"de;q=0.7, en;q=0.3\"\n    ]),\n    (\"Proxy-Authorization\", [\n        \"Basic cHJveHVzZXI6cHJveHBhc3M=\", \"\"\n    ]),\n]\n\n# Some edge-case but still valid-ish header lines that FFmpeg may pass to http protocol.\nEDGE_HEADERS = [\n    (\"User-Agent\", \"\"),  # empty value\n    (\"X-Empty\", \"\"),\n    (\"X-Long-Header\", \"X\" * 512),\n    (\"X-Binary-Token\", \"AQIDBAUGBwgJCgsMDQ4PEA==\"),\n    (\"Pragma\", \"no-cache\"),\n    (\"Cache-Control\", \"no-store, max-age=0\"),\n]\n\n# Known header line terminators used in practice.\nTERMINATORS = [\"\\r\\n\", \"\\n\"]\n\n\ndef _rand_choice(rng: random.Random, items: List):\n    return items[rng.randrange(len(items))]\n\n\ndef _build_headers(rng: random.Random, max_size: int) -> str:\n    # Decide terminator style: CRLF (preferred) or LF\n    term = _rand_choice(rng, TERMINATORS)\n\n    # Start with a random subset of standard headers\n    headers = []\n\n    # Always include a Host header first sometimes to emulate real HTTP\n    if rng.random() < 0.8:\n        host_val = _rand_choice(rng, [\"example.com\", \"localhost\", \"127.0.0.1\", \"media.local\"])\n        headers.append(f\"Host: {host_val}\")\n\n    # Ensure a plausible User-Agent in most cases\n    if rng.random() < 0.9:\n        ua_vals = next(v for k, v in STD_HEADERS if k == \"User-Agent\")\n        headers.append(f\"User-Agent: {_rand_choice(rng, ua_vals)}\")\n\n    # Randomly include a selection of remaining headers\n    pool = [(k, v) for (k, v) in STD_HEADERS if k not in (\"User-Agent\", \"Host\")]\n    rng.shuffle(pool)\n\n    count = rng.randint(2, 8)\n    for i in range(min(count, len(pool))):\n        k, vals = pool[i]\n        val = _rand_choice(rng, vals)\n        # Occasionally generate multiple comma-separated values if plausible\n        if k in (\"Accept\", \"Accept-Encoding\", \"Accept-Language\") and rng.random() < 0.5:\n            extra = _rand_choice(rng, vals)\n            if extra and extra != val:\n                val = f\"{val}, {extra}\"\n        headers.append(f\"{k}: {val}\")\n\n    # Add some edge headers to test parser breadth while staying valid\n    if rng.random() < 0.6:\n        k, v = _rand_choice(rng, EDGE_HEADERS)\n        headers.append(f\"{k}: {v}\")\n\n    # Optionally add custom X- headers\n    for _ in range(rng.randint(0, 3)):\n        xname = f\"X-Custom-{rng.randrange(1, 1000)}\"\n        xval = _rand_choice(rng, [\n            \"1\", \"true\", \"false\", \"enabled\", \"disabled\",\n            \"token-\" + str(rng.getrandbits(32)),\n        ])\n        headers.append(f\"{xname}: {xval}\")\n\n    # Join with the chosen line terminator. Some servers expect an extra trailing terminator.\n    body = term.join(headers) + term\n\n    # Ensure we do not exceed max_size when later adding null terminator\n    if len(body) + 1 > max_size:\n        # Trim conservatively at a line boundary\n        parts = body.split(term)\n        trimmed = []\n        current = 0\n        for p in parts:\n            if not p and current > 0:\n                # Keep the last terminator if space allows\n                break\n            line = (p + term) if p else \"\"\n            if current + len(line) + 1 > max_size:\n                break\n            trimmed.append(line)\n            current += len(line)\n        body = \"\".join(trimmed)\n\n    return body\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n\n    # We focus on generating valid HTTP header strings. The fuzzer may or may not use them.\n    # Limit to 4096 bytes as required.\n    max_size = 4096\n\n    # Sometimes return empty headers to exercise the optional/null behavior.\n    if rng.random() < 0.1:\n        return b\"\\x00\"  # empty C string\n\n    headers = _build_headers(rng, max_size)\n\n    # Return as bytes with an explicit null terminator.\n    b = headers.encode(\"utf-8\", errors=\"ignore\")\n    if len(b) + 1 > max_size:\n        b = b[: max_size - 1]\n    return b + b\"\\x00\"\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2020,
+            "output_tokens": 524,
+            "total_tokens": 2544
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1598,
+            "output_tokens": 112,
+            "total_tokens": 1710
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2146,
+            "output_tokens": 3895,
+            "total_tokens": 6041
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 26406,
+            "output_tokens": 9688,
+            "total_tokens": 36094
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4956,
+            "output_tokens": 194,
+            "total_tokens": 5150
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 290.92146825790405,
+    "scan_objects": 6.476141691207886,
+    "validate_objects": 0.5228579044342041,
+    "scan_functions": 68.18921566009521,
+    "synthesis": 173.3613007068634,
+    "fill": 0,
+    "classify": 4.062602758407593,
+    "build_generators": 38.30851459503174
+  }
+}

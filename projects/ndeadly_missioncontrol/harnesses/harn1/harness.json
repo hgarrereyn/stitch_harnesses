@@ -1,0 +1,114 @@
+{
+  "objects": [
+    {
+      "ptr_type": "void *",
+      "aliases": [],
+      "definition": "",
+      "description": "No custom data types (structs, enums, typedefs, or classes) are defined in this header. It only declares the C function mc_sum_bytes. There are no forward declarations of custom types either.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "mc_sum_bytes",
+      "signature": "int mc_sum_bytes(const unsigned char* data, int len);",
+      "description": "Computes and returns the sum of the byte values in a memory buffer. Typical usage is to pass a pointer to a readable byte array and the number of bytes to include. Details such as behavior on integer overflow or on negative lengths are not documented in the header and are therefore unknown; based on the name and signature, the result is likely the sum of data[i] for i in [0, len).",
+      "requirements": [
+        "len must be a non-negative integer (inferred from its meaning as a count).",
+        "data must point to at least len readable bytes (inferred from pointer-plus-length idiom).",
+        "If len == 0, data may be NULL or any value, as it should not be dereferenced (inferred common C convention; not explicitly stated).",
+        "Callers should not rely on any particular behavior if the sum exceeds the range of int; overflow handling is unknown."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "mc_sum_bytes",
+      "inputs": [],
+      "outputs": [],
+      "code": "// Generate a random buffer (1..4096 bytes)\nstd::string buf = FUZZ_PARAM_STR();\n\n// Choose a non-negative length within the buffer bounds to satisfy the\n// requirement that data must reference at least `len` readable bytes.\n// len in [0, buf.size()].\nint len = (int)(*FUZZ_PARAM(unsigned int) % (buf.size() + 1));\n\n// Select the data pointer according to len:\n// - If len > 0: must point to at least len readable bytes -> use buf.data().\n// - If len == 0: optionally pass nullptr to exercise that path without dereference.\nconst unsigned char *data_ptr = nullptr;\nunsigned int flag = *FUZZ_PARAM(unsigned int);\nif (len > 0) {\n    data_ptr = reinterpret_cast<const unsigned char*>(buf.data());\n} else {\n    data_ptr = (flag & 1) ? nullptr : reinterpret_cast<const unsigned char*>(buf.data());\n}\n\n// Invoke the target function. Capture the result to avoid optimizing the call away.\nvolatile int sum = mc_sum_bytes(data_ptr, len);\n(void)sum;\n\n// Validation summary:\n// - Enforced len >= 0 and, when len > 0, data_ptr points to a buffer with at least len bytes.\n// - When len == 0, we may pass nullptr to explore that code path without violating constraints."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "mc_sum_bytes",
+      "data_types": [
+        "arbitrary binary data"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "arbitrary binary data",
+      "description": "A buffer of bytes with no required structure or encoding. Any sequence of bytes (including null bytes and non-printable values) is valid. The consumer treats the input purely as raw bytes, typically alongside a separate length parameter."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "arbitrary binary data",
+      "generator": "import random\nimport struct\nfrom typing import List\n\n# This generator produces arbitrary binary data buffers intended for mc_sum_bytes,\n# which sums byte values of the provided buffer up to a chosen len within the\n# fuzzer stub. The stub will set len in [0, buf.size()], so our job is to create\n# interesting, valid buffers (0..4096 bytes) to exercise different summation\n# behaviors (e.g., all zeros, all 0xFF, patterns, increments, random, repeats,\n# aligned sizes, edge sizes).\n\nMAX_SIZE = 4096\n\n\ndef _rand_bytes(rng: random.Random, n: int) -> bytes:\n    return bytes(rng.getrandbits(8) for _ in range(n))\n\n\ndef _pattern_repeat(pattern: bytes, total: int) -> bytes:\n    if not pattern:\n        return b\"\"\n    reps, rem = divmod(total, len(pattern))\n    return pattern * reps + pattern[:rem]\n\n\ndef _make_interesting_sizes(rng: random.Random) -> List[int]:\n    sizes = set()\n    # Edge and boundary-like sizes\n    for s in [0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512, 1023, 1024, 2047, 2048, 4095, 4096]:\n        if s <= MAX_SIZE:\n            sizes.add(s)\n    # Random sizes\n    for _ in range(10):\n        sizes.add(rng.randint(0, MAX_SIZE))\n    # Prefer some small sizes\n    for _ in range(5):\n        sizes.add(rng.randint(0, 64))\n    # Limit count\n    sizes_list = sorted(sizes)\n    rng.shuffle(sizes_list)\n    return sizes_list[:20]\n\n\ndef _build_variants(rng: random.Random, size: int) -> List[bytes]:\n    variants = []\n    # All zeros\n    variants.append(bytes([0]) * size)\n    # All 0xFF\n    variants.append(bytes([0xFF]) * size)\n    # All 0x7F\n    variants.append(bytes([0x7F]) * size)\n    # Incrementing pattern 0..255\n    variants.append(bytes((i % 256 for i in range(size))))\n    # Decrementing pattern 255..0\n    variants.append(bytes(((255 - (i % 256)) for i in range(size))))\n    # Alternating 0x00/0xFF\n    variants.append(bytes((0xFF if (i & 1) else 0x00) for i in range(size)))\n    # Alternating 0x55/0xAA\n    variants.append(bytes((0xAA if (i & 1) else 0x55) for i in range(size)))\n    # Small repeating patterns\n    for pat in [b\"\\x00\\x01\", b\"\\xFF\\x00\", b\"\\x01\\x02\\x03\\x04\", b\"\\x10\\x20\\x30\\x40\\x50\\x60\\x70\\x80\"]:\n        variants.append(_pattern_repeat(pat, size))\n    # Random bytes\n    variants.append(_rand_bytes(rng, size))\n    # Sparse non-zeros: mostly zeros with a few spikes\n    buf = bytearray(size)\n    spikes = min(size, 1 + (size // 17))\n    for _ in range(spikes):\n        idx = rng.randrange(size) if size > 0 else 0\n        buf[idx] = rng.randrange(256)\n    variants.append(bytes(buf))\n    # Prefix-heavy non-zeros then zeros\n    half = size // 2\n    variants.append(bytes([rng.randrange(256) for _ in range(half)]) + bytes(size - half))\n    # Zeros then suffix-heavy non-zeros\n    variants.append(bytes(half) + bytes([rng.randrange(256) for _ in range(size - half)]))\n    # Structured blocks: 16-byte blocks of constants\n    block = bytearray()\n    remaining = size\n    while remaining > 0:\n        blk_len = min(16, remaining)\n        val = rng.randrange(256)\n        block.extend(bytes([val]) * blk_len)\n        remaining -= blk_len\n    variants.append(bytes(block))\n    # Little-endian counters in 4-byte words\n    if size > 0:\n        words = size // 4\n        rem = size % 4\n        buf = bytearray()\n        for i in range(words):\n            buf.extend(struct.pack('<I', i))\n        if rem:\n            buf.extend(struct.pack('<I', words)[:rem])\n        variants.append(bytes(buf))\n    # Repeat a random short seed pattern (1..32 bytes)\n    pat_len = 1 + rng.randrange(32)\n    pat = _rand_bytes(rng, pat_len)\n    variants.append(_pattern_repeat(pat, size))\n    return variants\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    sizes = _make_interesting_sizes(rng)\n    # Pick a size biased towards non-empty but including empty sometimes\n    size = rng.choice(sizes)\n    variants = _build_variants(rng, size)\n    # Choose one variant deterministically from seed randomness\n    buf = rng.choice(variants)\n    # Ensure type is bytes and within limit\n    if not isinstance(buf, (bytes, bytearray)):\n        buf = bytes(buf)\n    if len(buf) > MAX_SIZE:\n        buf = buf[:MAX_SIZE]\n    return bytes(buf)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 720,
+            "output_tokens": 80,
+            "total_tokens": 800
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 298,
+            "output_tokens": 19,
+            "total_tokens": 317
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 732,
+            "output_tokens": 607,
+            "total_tokens": 1339
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 3919,
+            "output_tokens": 1372,
+            "total_tokens": 5291
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1594,
+            "output_tokens": 93,
+            "total_tokens": 1687
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 77.24784898757935,
+    "scan_objects": 3.1585609912872314,
+    "validate_objects": 0.19285821914672852,
+    "scan_functions": 14.32740592956543,
+    "synthesis": 25.994659662246704,
+    "fill": 0,
+    "classify": 2.4817655086517334,
+    "build_generators": 31.091960430145264
+  }
+}

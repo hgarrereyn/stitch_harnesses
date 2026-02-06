@@ -1,0 +1,615 @@
+{
+  "objects": [
+    {
+      "ptr_type": "struct vsm *",
+      "aliases": [],
+      "definition": "struct vsm;",
+      "description": "Opaque handle for accessing Varnish Shared Memory (VSM). It represents a connection/context used to attach to and iterate over VSM chunks. Only a forward declaration is provided here; actual structure is private to the implementation.",
+      "direct_api_constructors": [
+        "VSM_New"
+      ],
+      "owned_by": []
+    },
+    {
+      "ptr_type": "struct vsm_fantom *",
+      "aliases": [],
+      "definition": "struct vsm_fantom {\n\tuintptr_t\t\tpriv;\t\t/* VSM private */\n\tuintptr_t\t\tpriv2;\t\t/* VSM private */\n\tvoid\t\t\t*b;\t\t/* first byte of payload */\n\tvoid\t\t\t*e;\t\t/* first byte past payload */\n\tchar\t\t\t*category;\n\tchar\t\t\t*ident;\n};",
+      "description": "Descriptor for a VSM chunk (a mapping within the shared memory). Holds internal private fields plus begin/end pointers to the payload and metadata strings for category and ident. Use with VSM_Map/Unmap, VSM_Get, VSM_StillValid, and VSM iteration macros. Initialized to VSM_FANTOM_NULL when needed.",
+      "direct_api_constructors": [],
+      "owned_by": [
+        "struct vsm *"
+      ]
+    },
+    {
+      "ptr_type": "struct vsm_valid *",
+      "aliases": [],
+      "definition": "struct vsm_valid {\n\tconst char *name;\n};",
+      "description": "Simple tag structure used as a sentinel return value to indicate whether a vsm_fantom is still valid. The API exposes two extern instances: VSM_invalid and VSM_valid.",
+      "direct_api_constructors": [],
+      "owned_by": []
+    }
+  ],
+  "functions": [
+    {
+      "name": "VSM_New",
+      "signature": "struct vsm *VSM_New(void);",
+      "description": "Allocate and initialize a new VSM handle. This is typically the first call before configuring arguments or attaching to a Varnish shared memory (VSM) segment. Multiple handles may be active concurrently, referencing the same or different VSM files. Returns a usable handle or NULL on allocation failure.",
+      "requirements": [
+        "Must be called before any other VSM_* function that requires a handle.",
+        "Caller must check for NULL return to detect allocation failure.",
+        "Caller is responsible for eventually destroying the handle with VSM_Destroy()."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Destroy",
+      "signature": "void VSM_Destroy(struct vsm **vd);",
+      "description": "Close and deallocate all storage and mappings associated with a VSM handle, including sub-categories (VSC/VSL). After return, the handle is no longer usable.",
+      "requirements": [
+        "Argument must be the address of a valid struct vsm* previously returned by VSM_New (or NULL-safe if implementation tolerates).",
+        "After destruction, the handle must not be used again.",
+        "Should be called once per VSM_New to avoid leaks."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Error",
+      "signature": "const char *VSM_Error(const struct vsm *vd);",
+      "description": "Return the first recorded error message for the given VSM handle. Useful after functions like VSM_Arg() that indicate failure.",
+      "requirements": [
+        "vd must be a valid VSM handle (created by VSM_New).",
+        "Returned pointer must be treated as read-only.",
+        "Caller should not assume lifetime beyond subsequent error resets (see VSM_ResetError)."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_ResetError",
+      "signature": "void VSM_ResetError(struct vsm *vd);",
+      "description": "Clear/reset the recorded error message for the given VSM handle.",
+      "requirements": [
+        "vd must be a valid VSM handle (created by VSM_New)."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Arg",
+      "signature": "int VSM_Arg(struct vsm * , char flag, const char *arg);",
+      "description": "Handle VSM-specific command-line style arguments for a VSM handle. Supported flags: 't' (startup patience) and 'n' (varnishd instance name). For 't': if arg is \"off\", VSM_Attach() will wait forever; otherwise arg is the number of seconds to wait for the manager to start (default 5). For 'n': set the varnishd instance to access (default is the hostname). Returns 1 on success, <0 on failure (use VSM_Error() for diagnostics).",
+      "requirements": [
+        "The handle must be created by VSM_New.",
+        "flag must be a supported option: 't' or 'n' (others may fail and set an error).",
+        "For flag 't': arg must be either \"off\" or a string representing a non-negative number of seconds.",
+        "For flag 'n': arg must be a valid instance name string.",
+        "Caller must check the return value and, on failure (<0), may call VSM_Error() for details."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Attach",
+      "signature": "int VSM_Attach(struct vsm * , int progress);",
+      "description": "Attach the handle to the master process VSM segment, honoring the patience configured via the 't' argument. If progress (documented as a file descriptor) is non-negative, a '.' is written each second while waiting; if any periods were written, a newline is written before returning. Returns 0 if attached, -1 if not attached.",
+      "requirements": [
+        "The handle must be created by VSM_New and typically configured via VSM_Arg() before attaching.",
+        "If progress is non-negative, it is expected to be a valid, writable file descriptor; otherwise leave it negative to suppress progress output.",
+        "Caller must check the return value: 0 indicates success; -1 indicates not attached."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Status",
+      "signature": "unsigned VSM_Status(struct vsm *);",
+      "description": "Return a bitmap describing the current VSM status and changes since the previous call. Bits include MGT/WRK running/changed/restarted (see VSM_MGT_* and VSM_WRK_* and masks). Intended to be called repeatedly to track state changes.",
+      "requirements": [
+        "The handle should be attached via VSM_Attach() for meaningful results.",
+        "Caller must interpret the returned bitmap using the documented flag values (VSM_MGT_RUNNING, VSM_MGT_CHANGED, VSM_MGT_RESTARTED, VSM_WRK_RUNNING, VSM_WRK_CHANGED, VSM_WRK_RESTARTED, and masks)."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM__iter0",
+      "signature": "void VSM__iter0(const struct vsm * , struct vsm_fantom *vf);",
+      "description": "Initialize iteration over all chunks in shared memory. Used with VSM__itern() or the VSM_FOREACH macro to traverse VSM chunks, filling the provided vsm_fantom with references.",
+      "requirements": [
+        "vd must be a valid (typically attached) VSM handle.",
+        "vf must be a valid, writable pointer to a struct vsm_fantom.",
+        "Must be called before the first call to VSM__itern() for a given iteration."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM__itern",
+      "signature": "int VSM__itern(struct vsm * , struct vsm_fantom *vf);",
+      "description": "Advance the iteration over VSM chunks started by VSM__iter0(). On each successful step, vf is updated to reference the next chunk. Intended usage via the VSM_FOREACH macro. Returns non-zero to continue, zero to end, or negative on error (not explicitly documented).",
+      "requirements": [
+        "vd must be a valid (typically attached) VSM handle.",
+        "VSM__iter0() must have been called on (vd, vf) before the first call.",
+        "vf must be a valid, writable pointer to a struct vsm_fantom."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Map",
+      "signature": "int VSM_Map(struct vsm * , struct vsm_fantom *vf);",
+      "description": "Map the VSM chunk referenced by vf into the process address space, populating vf->b/e to the payload bounds. Return convention is not documented; commonly non-zero indicates success and zero indicates failure, but specifics are unknown.",
+      "requirements": [
+        "vd must be a valid VSM handle, typically attached via VSM_Attach().",
+        "vf must reference a valid VSM chunk (e.g., obtained via VSM_Get() or iteration).",
+        "Caller must check the return value and handle failure appropriately (exact semantics not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Unmap",
+      "signature": "int VSM_Unmap(struct vsm * , struct vsm_fantom *vf);",
+      "description": "Unmap a previously mapped VSM chunk referenced by vf. Return convention is not documented.",
+      "requirements": [
+        "vd must be a valid VSM handle.",
+        "vf must have been previously mapped with VSM_Map().",
+        "Caller must check the return value and handle failure appropriately (exact semantics not documented)."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_StillValid",
+      "signature": "const struct vsm_valid *VSM_StillValid(const struct vsm * , const struct vsm_fantom *vf);",
+      "description": "Check whether a previously looked up vsm_fantom still references a current SHM chunk. Returns VSM_invalid if the chunk no longer exists; VSM_valid if it is still good.",
+      "requirements": [
+        "vd must be a valid VSM handle.",
+        "vf must be a previously obtained vsm_fantom referencing a VSM chunk (e.g., from VSM_Get or iteration).",
+        "Caller must compare the returned pointer against VSM_invalid and VSM_valid to determine status."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Get",
+      "signature": "int VSM_Get(struct vsm * , struct vsm_fantom *vf, const char *category, const char *ident);",
+      "description": "Find a VSM chunk matching the given category (mandatory) and optional ident, and populate vf with a fantom referencing it. Returns non-zero on success, zero on failure.",
+      "requirements": [
+        "vd must be a valid VSM handle (typically attached).",
+        "vf must be a valid, writable pointer to a struct vsm_fantom.",
+        "category must be a non-NULL string identifying the chunk category.",
+        "ident may be NULL or a string to further qualify the lookup.",
+        "Caller must check the return value for success (non-zero) before using vf."
+      ],
+      "error": null
+    },
+    {
+      "name": "VSM_Dup",
+      "signature": "char *VSM_Dup(struct vsm * , const char *category, const char *ident);",
+      "description": "Return a malloc'ed copy related to the specified VSM chunk. The comment states \"copy of the fantom\" but the return type is char*, so it likely returns a newly allocated buffer with data associated with the chunk (exact content unspecified). Returns NULL on failure.",
+      "requirements": [
+        "vd must be a valid VSM handle (typically attached).",
+        "category must be a non-NULL string; ident is optional.",
+        "Caller must free the returned pointer with free() when no longer needed.",
+        "Caller must handle NULL return indicating failure.",
+        "Exact semantics of the duplicated content are not documented; caller should not rely on structure beyond it being a malloc'ed char buffer."
+      ],
+      "error": null
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "VSM_New",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "code": "// Create a new VSM handle and ensure it is usable\nstruct vsm *vd = VSM_New();\nif (!vd) { FUZZ_BAIL(); }\n// Mark this handle as a valid VSM instance and initially not attached\nFUZZ_SET_ATTR_INT(vd, \"is_vsm\", 1);\nFUZZ_SET_ATTR_INT(vd, \"attached\", 0);\nFUZZ_SET_ATTR_INT(vd, \"destroyed\", 0);\n// Validation: returns a non-null handle with attributes set; ready for subsequent API calls."
+    },
+    {
+      "name": "VSM_Destroy",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "outputs": [],
+      "code": "// Ensure input is a valid VSM handle that hasn't been destroyed yet\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\n// Pass pointer-to-pointer as required by API\nstruct vsm *tmp = vd;\nFUZZ_SET_ATTR_INT(vd, \"destroyed\", 1); // mark before destroy to prevent reuse\nVSM_Destroy(&tmp);\n// Do not return vd; after destruction it must not be used.\n// Validation: handle is destroyed and dropped from pool, preventing use-after-free."
+    },
+    {
+      "name": "VSM_Error",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "code": "// VSM_Error requires a valid VSM handle\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\n// Retrieve error string (read-only, ephemeral)\nconst char *err = VSM_Error(vd);\n(void)err; // not persistent; we do not store or modify it\n// Return vd for further use\n// Validation: vd preserved; returned pointer (if any) is treated as read-only and ignored here."
+    },
+    {
+      "name": "VSM_ResetError",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "code": "// Requires a valid VSM handle\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\nVSM_ResetError(vd);\n// Validation: error state cleared; vd remains valid and is returned to the pool."
+    },
+    {
+      "name": "VSM_Arg",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "code": "// Validate handle\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\n// Randomly choose a supported flag ('t' or 'n') to satisfy API; occasionally send an unsupported flag to exercise error paths\nunsigned int pick = *FUZZ_PARAM(unsigned int);\nchar flag;\nconst char *arg = nullptr;\nif (pick % 3 == 0) {\n    // 't' flag: patience. Either \"off\" or a non-negative integer string\n    flag = 't';\n    if ((pick / 3) % 2 == 0) {\n        arg = \"off\";\n    } else {\n        unsigned int secs = (*FUZZ_PARAM(unsigned int)) % 61; // 0..60 seconds\n        static std::string s; s = std::to_string(secs);\n        arg = s.c_str();\n    }\n} else if (pick % 3 == 1) {\n    // 'n' flag: instance name string (non-null)\n    flag = 'n';\n    static std::string inst = FUZZ_PARAM_STR();\n    if (inst.empty()) inst = \"v\"; // ensure non-empty\n    arg = inst.c_str();\n} else {\n    // Unsupported flag to hit error handling paths\n    flag = 'x';\n    static std::string any = FUZZ_PARAM_STR();\n    arg = any.c_str();\n}\nint rv = VSM_Arg(vd, flag, arg);\n// On failure (<0), the API suggests using VSM_Error() for diagnostics. We just keep vd for later calls.\n(void)rv;\n// Validation: arguments constrained per flag; vd preserved for subsequent use."
+    },
+    {
+      "name": "VSM_Attach",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "code": "// Validate handle created by VSM_New and not yet destroyed\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\n// Use progress < 0 to avoid writing to an fd as we cannot provide a valid writable fd\nint progress = -1;\nint rv = VSM_Attach(vd, progress);\nif (rv == 0) {\n    // Attached successfully\n    FUZZ_SET_ATTR_INT(vd, \"attached\", 1);\n} else {\n    // Not attached\n    FUZZ_SET_ATTR_INT(vd, \"attached\", 0);\n}\n// Validation: attached attribute reflects outcome; vd returned for further operations."
+    },
+    {
+      "name": "VSM_Status",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "code": "// Requires a valid handle; attachment recommended for meaningful results\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\nunsigned bits = VSM_Status(vd);\n(void)bits; // bitmap is not interpreted here; the goal is to exercise the call\n// Validation: vd remains valid and is returned; call exercised regardless of attached state."
+    },
+    {
+      "name": "VSM__iter0",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "code": "// Validate handle and fantom pointer\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\n// Iteration typically expects an attached handle; enforce for correctness\nif (FUZZ_GET_ATTR_INT(vd, \"attached\") != 1) { FUZZ_BAIL(); }\nVSM__iter0(vd, vf);\n// Mark iteration state on fantom\nFUZZ_SET_ATTR_INT(vf, \"iter_inited\", 1);\nFUZZ_SET_ATTR_INT(vf, \"has_chunk\", 0);\nFUZZ_SET_ATTR_INT(vf, \"mapped\", 0);\n// Validation: iteration initialized; vf/vd returned for subsequent VSM__itern calls."
+    },
+    {
+      "name": "VSM__itern",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "code": "// Validate inputs and that iteration has been initialized\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"attached\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"iter_inited\") != 1) { FUZZ_BAIL(); }\nint cont = VSM__itern(vd, vf);\nif (cont > 0) {\n    // Advanced to a valid chunk\n    FUZZ_SET_ATTR_INT(vf, \"has_chunk\", 1);\n} else {\n    FUZZ_SET_ATTR_INT(vf, \"has_chunk\", 0);\n}\n// Validation: vf updated to reflect whether it currently references a chunk; both objects returned."
+    },
+    {
+      "name": "VSM_Map",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "code": "// Validate inputs; mapping requires an attached handle and a fantom referencing a chunk\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"attached\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"has_chunk\") != 1) { FUZZ_BAIL(); }\nint ok = VSM_Map(vd, vf);\nif (ok) {\n    FUZZ_SET_ATTR_INT(vf, \"mapped\", 1);\n} else {\n    FUZZ_SET_ATTR_INT(vf, \"mapped\", 0);\n}\n// Validation: mapping state recorded on vf; vd and vf returned."
+    },
+    {
+      "name": "VSM_Unmap",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "code": "// Validate inputs; unmapping requires that vf was previously mapped\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vf, \"mapped\") != 1) { FUZZ_BAIL(); }\nint ok = VSM_Unmap(vd, vf);\n(void)ok; // return convention not documented; we rely on API to unmap\nFUZZ_SET_ATTR_INT(vf, \"mapped\", 0);\n// Validation: vf marked unmapped; objects returned for further use."
+    },
+    {
+      "name": "VSM_Get",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "code": "// Validate handle and fantom; meaningful only when attached\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"attached\") != 1) { FUZZ_BAIL(); }\n// Generate required category (non-null) and optional ident (may be NULL)\nstatic std::string cat = FUZZ_PARAM_STR();\nif (cat.empty()) cat = \"c\"; // ensure non-empty\nconst char *category = cat.c_str();\nconst char *ident = nullptr;\nif ((*FUZZ_PARAM(unsigned int)) % 2 == 0) {\n    static std::string id = FUZZ_PARAM_STR();\n    // ident may be empty per API; we still provide a valid C-string pointer\n    ident = id.c_str();\n}\nint found = VSM_Get(vd, vf, category, ident);\nif (found) {\n    FUZZ_SET_ATTR_INT(vf, \"obtained\", 1);\n    FUZZ_SET_ATTR_INT(vf, \"has_chunk\", 1);\n    FUZZ_SET_ATTR_INT(vf, \"mapped\", 0);\n} else {\n    FUZZ_SET_ATTR_INT(vf, \"obtained\", 0);\n    FUZZ_SET_ATTR_INT(vf, \"has_chunk\", 0);\n    FUZZ_SET_ATTR_INT(vf, \"mapped\", 0);\n}\n// Validation: vf marked according to lookup result; objects returned."
+    },
+    {
+      "name": "VSM_Dup",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        }
+      ],
+      "code": "// Validate handle; duplication is meaningful when attached\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"attached\") != 1) { FUZZ_BAIL(); }\n// Prepare required and optional strings\nstatic std::string cat = FUZZ_PARAM_STR();\nif (cat.empty()) cat = \"c\";\nconst char *category = cat.c_str();\nconst char *ident = nullptr;\nif ((*FUZZ_PARAM(unsigned int)) % 2 == 0) {\n    static std::string id = FUZZ_PARAM_STR();\n    ident = id.c_str();\n}\nchar *buf = VSM_Dup(vd, category, ident);\n// If non-null, free immediately to avoid leaks; the fuzzer runtime has no free hook for raw buffers\nif (buf) {\n    free(buf);\n}\n// Return vd only; duplication result is ephemeral in this harness\n// Validation: exercises function while preventing memory leaks; vd returned for continued fuzzing."
+    },
+    {
+      "name": "VSM_StillValid",
+      "inputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vd",
+          "type": "struct vsm *"
+        },
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "code": "// Validate handle: must be a VSM handle created by VSM_New and not destroyed\nif (FUZZ_GET_ATTR_INT(vd, \"is_vsm\") != 1) { FUZZ_BAIL(); }\nif (FUZZ_GET_ATTR_INT(vd, \"destroyed\") == 1) { FUZZ_BAIL(); }\n// Validate fantom: should reference a current/previously found chunk (via Get or iteration)\nif (FUZZ_GET_ATTR_INT(vf, \"has_chunk\") != 1) { FUZZ_BAIL(); }\n// Call VSM_StillValid to check whether the referenced chunk is still present\nconst struct vsm_valid *st = VSM_StillValid(vd, vf);\n// API guarantees a sentinel pointer (VSM_invalid or VSM_valid); ensure non-null\nFUZZ_ASSERT(st != nullptr, \"VSM_StillValid must return a sentinel pointer\");\n// Record a coarse result attribute for downstream logic (1 = non-null sentinel observed)\nFUZZ_SET_ATTR_INT(vf, \"still_valid\", 1);\n// Return both objects; neither is consumed by this call\n// Validation: inputs verified (handle valid, fantom references a chunk); sentinel checked non-null and state recorded."
+    },
+    {
+      "name": "struct vsm_fantom *",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vf",
+          "type": "struct vsm_fantom *"
+        }
+      ],
+      "code": "// Construct a fresh vsm_fantom suitable for use with VSM__iter0/VSM_Get\n// This type is user-managed (plain struct) and typically used alongside a VSM handle\n// We zero-initialize to emulate VSM_FANTOM_NULL semantics.\nstruct vsm_fantom *vf = new (std::nothrow) vsm_fantom{};\nif (!vf) { FUZZ_BAIL(); }\n\n// Ensure all fields are set to a benign baseline state\nvf->priv = 0;\nvf->priv2 = 0;\nvf->b = nullptr;\nvf->e = nullptr;\nvf->category = nullptr;\nvf->ident = nullptr;\n\n// Track state for downstream stubs enforcing API sequencing\nFUZZ_SET_ATTR_INT(vf, \"is_vsm_fantom\", 1);\nFUZZ_SET_ATTR_INT(vf, \"iter_inited\", 0);\nFUZZ_SET_ATTR_INT(vf, \"has_chunk\", 0);\nFUZZ_SET_ATTR_INT(vf, \"mapped\", 0);\nFUZZ_SET_ATTR_INT(vf, \"obtained\", 0);\nFUZZ_SET_ATTR_INT(vf, \"still_valid\", 0);\n\n// Validation: returns a non-null, zero-initialized fantom with attributes set; ready for VSM__iter0/VSM_Get."
+    }
+  ],
+  "unharnessable_functions": [],
+  "endpoint_classifiers": [
+    {
+      "name": "VSM_New",
+      "data_types": []
+    },
+    {
+      "name": "VSM_Destroy",
+      "data_types": []
+    },
+    {
+      "name": "VSM_Error",
+      "data_types": []
+    },
+    {
+      "name": "VSM_ResetError",
+      "data_types": []
+    },
+    {
+      "name": "VSM_Attach",
+      "data_types": []
+    },
+    {
+      "name": "VSM_Status",
+      "data_types": []
+    },
+    {
+      "name": "VSM__iter0",
+      "data_types": []
+    },
+    {
+      "name": "VSM__itern",
+      "data_types": []
+    },
+    {
+      "name": "VSM_Map",
+      "data_types": []
+    },
+    {
+      "name": "VSM_Unmap",
+      "data_types": []
+    },
+    {
+      "name": "VSM_StillValid",
+      "data_types": []
+    },
+    {
+      "name": "struct vsm_fantom *",
+      "data_types": []
+    },
+    {
+      "name": "VSM_Arg",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "VSM_Get",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    },
+    {
+      "name": "VSM_Dup",
+      "data_types": [
+        "alphanumeric string"
+      ]
+    }
+  ],
+  "data_types": [
+    {
+      "data_type": "alphanumeric string",
+      "description": "A generic string that may contain letters, digits, spaces, punctuation, and arbitrary bytes. Used here for command-style arguments and identifiers such as instance names, categories, and idents. No particular encoding or structure is required, but empty strings may be disallowed in some contexts (e.g., category must be non-empty)."
+    }
+  ],
+  "generators": [
+    {
+      "data_type": "alphanumeric string",
+      "generator": "import os\nimport random\nimport struct\nimport string\nfrom typing import Tuple\n\n# This generator targets inputs consumed by FUZZ_PARAM_STR and FUZZ_PARAM(unsigned int)\n# in the VSM_Arg, VSM_Get, and VSM_Dup fuzz stubs. We craft a binary buffer that,\n# when sliced by the harness into strings and integers, yields valid, interesting\n# values:\n# - Mixture of supported flags for VSM_Arg ('t' with \"off\" or numeric seconds, 'n' with instance names)\n# - Non-empty category strings for VSM_Get/VSM_Dup\n# - Optional ident strings (possibly empty or omitted)\n# - Reasonable variety in lengths and character classes to explore code paths\n# The buffer format is simple and self-describing so arbitrary slicing still tends\n# to produce valid C-strings: we insert NUL-terminated strings and 32-bit unsigned ints.\n\n# Helper: build a NUL-terminated string from components\n\ndef _nz(s: bytes) -> bytes:\n    return s + b\"\\x00\"\n\n# Generate an alphanumeric-ish string plus some punctuation; ensure not empty if required\n\ndef _gen_string(rng: random.Random, min_len: int, max_len: int, allow_empty: bool, classes: Tuple[str, ...]) -> str:\n    if not allow_empty:\n        min_len = max(1, min_len)\n    L = rng.randint(min_len, max_len)\n    if L == 0:\n        return \"\"\n    alphabet = \"\".join(classes)\n    return \"\".join(rng.choice(alphabet) for _ in range(L))\n\n# Common classes\n_ALNUM = string.ascii_letters + string.digits\n_PUNC = \"-_:.+/@\"  # safe punctuation for instance names and idents\n_WS = \" \"  # occasional space\n_PRINTABLE = _ALNUM + _PUNC + _WS\n\n# Unsigned int helper\n\ndef _u32(rng: random.Random, choices: Tuple[int, ...] = ()) -> bytes:\n    if choices and rng.random() < 0.6:\n        val = rng.choice(choices)\n    else:\n        # Bias to small values but allow larger\n        if rng.random() < 0.7:\n            val = rng.randint(0, 60)\n        else:\n            val = rng.getrandbits(32)\n    return struct.pack('<I', val & 0xFFFFFFFF)\n\n# Build a packet of fields arranged so that sequential FUZZ_PARAM calls\n# will read interesting values. We interleave integers and strings.\n\ndef _build_packet(rng: random.Random) -> bytes:\n    out = bytearray()\n\n    # Section 1: For VSM_Arg\n    # pick controls the branch: 0->'t', 1->'n', 2->unsupported 'x'\n    # We bias to valid flags.\n    pick_options = [0, 1, 0, 1, 2]\n    out += _u32(rng, tuple(pick_options))\n\n    # For 't' numeric case, next unsigned int is seconds (0..60 typically)\n    out += _u32(rng, tuple(range(0, 61)))\n\n    # For 'n' and unsupported 'x', FUZZ_PARAM_STR supplies the string\n    # Provide several NUL-terminated strings back-to-back; the harness will pull as needed\n    # Instance name (non-empty)\n    inst = _gen_string(rng, 1, rng.randint(1, 32), False, (_PRINTABLE,))\n    out += _nz(inst.encode('utf-8', errors='ignore'))\n    # Another generic string for unsupported flag\n    anys = _gen_string(rng, 0, rng.randint(0, 32), True, (_PRINTABLE,))\n    out += _nz(anys.encode('utf-8', errors='ignore'))\n\n    # Section 2: For VSM_Get\n    # Category (non-empty)\n    cat = _gen_string(rng, 1, rng.randint(1, 48), False, (_PRINTABLE,))\n    out += _nz(cat.encode('utf-8', errors='ignore'))\n\n    # Decide whether to provide ident (FUZZ_PARAM(unsigned int) % 2 == 0)\n    out += _u32(rng, (0, 2, 4, 6, 8, 10, 1, 3))  # mix even/odd but bias to even to include ident often\n    ident = _gen_string(rng, 0, rng.randint(0, 64), True, (_PRINTABLE,))\n    out += _nz(ident.encode('utf-8', errors='ignore'))\n\n    # Section 3: For VSM_Dup (similar to VSM_Get)\n    dup_cat = _gen_string(rng, 1, rng.randint(1, 48), False, (_PRINTABLE,))\n    out += _nz(dup_cat.encode('utf-8', errors='ignore'))\n    out += _u32(rng, (0, 2, 4, 6, 1, 3))\n    dup_ident = _gen_string(rng, 0, rng.randint(0, 64), True, (_PRINTABLE,))\n    out += _nz(dup_ident.encode('utf-8', errors='ignore'))\n\n    # Add a few extra strings to satisfy any additional FUZZ_PARAM_STR pulls\n    extra_count = rng.randint(1, 3)\n    for _ in range(extra_count):\n        s = _gen_string(rng, 0, rng.randint(0, 64), True, (_PRINTABLE,))\n        out += _nz(s.encode('utf-8', errors='ignore'))\n\n    # Cap size\n    return bytes(out[:4096])\n\n\ndef generate(seed: int) -> bytes:\n    rng = random.Random(seed)\n    return _build_packet(rng)\n"
+    }
+  ],
+  "usage": {
+    "by_task": {
+      "scan-objects": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2267,
+            "output_tokens": 367,
+            "total_tokens": 2634
+          }
+        }
+      },
+      "scan-function-names": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 1845,
+            "output_tokens": 82,
+            "total_tokens": 1927
+          }
+        }
+      },
+      "scan-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 2355,
+            "output_tokens": 2771,
+            "total_tokens": 5126
+          }
+        }
+      },
+      "synth-functions": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 16124,
+            "output_tokens": 6522,
+            "total_tokens": 22646
+          }
+        }
+      },
+      "fill-batch": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 8456,
+            "output_tokens": 979,
+            "total_tokens": 9435
+          }
+        }
+      },
+      "classify-data": {
+        "models": {
+          "gpt-5": {
+            "input_tokens": 4717,
+            "output_tokens": 141,
+            "total_tokens": 4858
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "total_time": 235.35150599479675,
+    "scan_objects": 7.117049217224121,
+    "validate_objects": 0.3177168369293213,
+    "scan_functions": 51.77877736091614,
+    "synthesis": 126.95392918586731,
+    "fill": 24.21902585029602,
+    "classify": 4.740808725357056,
+    "build_generators": 20.223016023635864
+  }
+}
